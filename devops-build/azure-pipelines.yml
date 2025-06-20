@@ -15,7 +15,7 @@ variables:
   - group: ApiKeys
   - group: OctoDefault
   - name: solutionFile
-    value: 'Octo.AssetRepServices.sln'
+    value: 'Octo.McpServices.sln'
   - name: artifactsFrameworkVersion
     value: 'net9.0'
   - name: buildConfiguration
