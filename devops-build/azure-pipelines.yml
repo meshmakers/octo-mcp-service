@@ -1,0 +1,66 @@
+name: $(MajorVersion).$(MinorVersion).$(date:yyMM).$(DayOfMonth)$(rev:rrr)-$(Build.SourceBranchName)
+
+trigger:
+  batch: true
+  branches:
+    include:
+      - dev/*
+      - main
+  tags:
+    exclude:
+      - '*'
+
+variables:
+  - group: GitSSHGroup
+  - group: ApiKeys
+  - group: OctoDefault
+  - name: solutionFile
+    value: 'Octo.AssetRepServices.sln'
+  - name: artifactsFrameworkVersion
+    value: 'net9.0'
+  - name: buildConfiguration
+    value: 'Release'
+  - name: buildPlatform
+    value: 'Any CPU'
+  - name: isRelease
+    value: ${{ startsWith(variables['Build.SourceBranch'], 'refs/tags/r') }}
+  - name: isMain
+    value: ${{ eq(variables['Build.SourceBranch'], 'refs/heads/main') }}
+
+stages:
+  - stage: Build
+    jobs:
+      - job: linux
+        displayName: Docker build
+        pool:
+          name: Gerald-Local-Linux
+        steps:
+          - template: update-build-number.yml
+          - checkout: self
+            clean: true
+            submodules: recursive
+          - task: InstallSSHKey@0
+            inputs:
+              knownHostsEntry: '$(SSHKnownHosts)'
+              sshPublicKey: '$(SSHPublicKey)'
+              sshPassphrase: '$(SSHPassphrase)'
+              sshKeySecureFile: '$(SSHPrivateKeyFile)'
+          - template: set-version.yml
+          - template: download-ca.yml
+          - task: DotNetCoreCLI@2
+            displayName: 'Test'
+            inputs:
+              command: 'test'
+              projects: |
+                '**/*Tests.csproj'
+                !'**/*SystemTests.csproj'
+              testRunTitle: 'CI'
+          - template: build-and-push-docker-image.yml
+            parameters:
+              ContainerRegistry: $(DockerRegistryPublicConnection)
+              Repository: meshmakers/octo-mesh-asset-rep-services
+              Dockerfile: src/AssetRepositoryServices/Dockerfile
+              PrivateRegistry: $(DockerRegistryPrivateUri)
+          - template: handle-artifacts.yml
+ 
+
