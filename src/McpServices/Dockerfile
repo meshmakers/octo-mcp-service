@@ -13,7 +13,7 @@ RUN chmod 644 /usr/local/share/ca-certificates/nugetca.crt && update-ca-certific
 
 WORKDIR /src
 COPY ["src/McpServices/McpServices.csproj", "src/McpServices/"]
-RUN dotnet restore "src/McpServices/McpServices.csproj" -c Release -p:OctoNugetPrivateServer=${OCTO_PRIVATE_NUGET_SERVICE}
+RUN dotnet restore "src/McpServices/McpServices.csproj" -p:OctoNugetPrivateServer=${OCTO_PRIVATE_NUGET_SERVICE}
 COPY . .
 WORKDIR "/src/src/McpServices"
 ENV NUGET_XMLDOC_MODE=none
