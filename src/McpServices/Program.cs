@@ -1,11 +1,8 @@
-﻿
-
-// NLog: Set up the logger first to catch all errors
+﻿// NLog: Set up the logger first to catch all errors
 
 using Meshmakers.Octo.Backend.McpServices.Configuration;
 using Meshmakers.Octo.Backend.McpServices.Consumers;
 using Meshmakers.Octo.Backend.McpServices.Services;
-using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Configuration;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Extensions;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands;
@@ -16,9 +13,6 @@ using Meshmakers.Octo.Services.Observability;
 using ModelContextProtocol.Server;
 using NLog;
 using NLog.Web;
-using OpenTelemetry;
-using OpenTelemetry.Metrics;
-using OpenTelemetry.Trace;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 var nLogFactory = LogManager.Setup().RegisterNLogWeb().LoadConfigurationFromFile("nlog.config").LogFactory;
@@ -87,26 +81,29 @@ try
     // Add MCP services
     builder.Services.AddMcpServer()
         .WithHttpTransport()
-        .WithTools<EchoTool>()
-        .WithTools<SampleLlmTool>();
+        .WithToolsFromAssembly();
+    // .WithTools<EchoTool>()
+    //  .WithTools<SampleLlmTool>()
+    //  .WithTools<ToolManagement>();
 
-    builder.Services.AddOpenTelemetry()
-        .WithTracing(b => b.AddSource("*")
-            .AddAspNetCoreInstrumentation()
-            .AddHttpClientInstrumentation())
-        .WithMetrics(b => b.AddMeter("*")
-            .AddAspNetCoreInstrumentation()
-            .AddHttpClientInstrumentation())
-        .WithLogging()
-        .UseOtlpExporter();
+
+    // builder.Services.AddOpenTelemetry()
+    //     .WithTracing(b => b.AddSource("*")
+    //         .AddAspNetCoreInstrumentation()
+    //         .AddHttpClientInstrumentation())
+    //     .WithMetrics(b => b.AddMeter("*")
+    //         .AddAspNetCoreInstrumentation()
+    //         .AddHttpClientInstrumentation())
+    //     .WithLogging()
+    //     .UseOtlpExporter();
 
     var app = builder.Build();
 
-    app.MapMcp();
+    app.MapObservability();
+
+    app.MapMcp("mcp");
 
     app.Run();
-
-
 }
 catch (Exception ex)
 {

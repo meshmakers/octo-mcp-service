@@ -14,7 +14,7 @@ public sealed class EchoTool
     /// </summary>
     /// <param name="message"></param>
     /// <returns></returns>
-    [McpServerTool, Description("Echoes the input back to the client.")]
+    [McpServerTool(Name = "Echo"), Description("Echoes the input back to the client.")]
     public static string Echo(string message)
     {
         return "hello " + message;
