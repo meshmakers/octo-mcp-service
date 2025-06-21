@@ -58,8 +58,8 @@ stages:
           - template: build-and-push-docker-image.yml
             parameters:
               ContainerRegistry: $(DockerRegistryPublicConnection)
-              Repository: meshmakers/octo-mesh-asset-rep-services
-              Dockerfile: src/AssetRepositoryServices/Dockerfile
+              Repository: meshmakers/octo-mesh-mcp-services
+              Dockerfile: src/McpServices/Dockerfile
               PrivateRegistry: $(DockerRegistryPrivateUri)
           - template: handle-artifacts.yml
  
