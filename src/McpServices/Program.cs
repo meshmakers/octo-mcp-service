@@ -2,6 +2,7 @@
 
 using Meshmakers.Octo.Backend.McpServices.Configuration;
 using Meshmakers.Octo.Backend.McpServices.Consumers;
+using Meshmakers.Octo.Backend.McpServices.Routing;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Configuration;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Extensions;
@@ -59,6 +60,9 @@ try
     builder.Services.ConfigureOptions<ConfigureOpenIdConnectOptions>();
     builder.Services.ConfigureOptions<ConfigureOctoOpenApiOptions>();
 
+    builder.Services.Configure<RouteOptions>(options =>
+        options.ConstraintMap.Add("tenantId", typeof(TenantIdRouteConstraint)));
+
     builder.Services.AddOctoServiceInfrastructure("McpServices",
         c =>
         {
@@ -101,7 +105,7 @@ try
 
     app.MapObservability();
 
-    app.MapMcp("mcp");
+    app.MapMcp("/{tenantId:tenantId}/mcp");
 
     app.Run();
 }

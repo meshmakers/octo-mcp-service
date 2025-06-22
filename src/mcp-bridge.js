@@ -25,7 +25,7 @@ function sendToServer(jsonData) {
   const options = {
     hostname: 'localhost',
     port: 5017,
-    path: '/mcp',
+    path: '/sbeg/mcp',
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
