@@ -2,6 +2,7 @@
 
 using Meshmakers.Octo.Backend.McpServices.Configuration;
 using Meshmakers.Octo.Backend.McpServices.Consumers;
+using Meshmakers.Octo.Backend.McpServices.Options;
 using Meshmakers.Octo.Backend.McpServices.Routing;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Configuration;
@@ -33,10 +34,15 @@ try
     builder.AddObservability()
         .AddSystemContextHealthCheck();
 
+    // Configure existing options
     builder.Services.Configure<OctoSystemConfiguration>(options =>
         builder.Configuration.GetSection("System").Bind(options));
     builder.Services.Configure<McpServerOptions>(options =>
         builder.Configuration.GetSection("McpServer").Bind(options));
+
+    // Configure new dynamic tool options
+    builder.Services.Configure<DynamicToolOptions>(options =>
+        builder.Configuration.GetSection("DynamicTools").Bind(options));
 
     // NLog: Setup NLog for Dependency injection
     builder.Logging.ClearProviders();
@@ -51,6 +57,10 @@ try
     builder.Services
         .AddScopedMultipleInterfaces<DefaultConfigurationCreatorService, IDefaultConfigurationCreatorService,
             IConfigurationService>();
+
+    // Add new dynamic tool services
+    builder.Services.AddSingleton<IDynamicToolService, DynamicToolService>();
+    builder.Services.AddScoped<IToolExecutionService, ToolExecutionService>();
 
     builder.Services.AddCors();
     builder.Services.AddControllers();
@@ -82,7 +92,7 @@ try
     builder.Services.AddRuntimeEngine()
         .AddMongoDbRuntimeRepository();
 
-    // Add MCP services
+    // Add MCP services with enhanced tool discovery
     builder.Services.AddMcpServer()
         .WithHttpTransport()
         .WithToolsFromAssembly();
@@ -90,6 +100,12 @@ try
     //  .WithTools<SampleLlmTool>()
     //  .WithTools<ToolManagement>();
 
+    // Add memory caching for better performance
+    builder.Services.AddMemoryCache();
+
+    // Add health checks for the new services
+    builder.Services.AddHealthChecks()
+        .AddCheck<DynamicToolHealthCheck>("dynamic-tools");
 
     // builder.Services.AddOpenTelemetry()
     //     .WithTracing(b => b.AddSource("*")
@@ -105,7 +121,19 @@ try
 
     app.MapObservability();
 
+    // Map MCP endpoint with tenant routing
     app.MapMcp("/{tenantId:tenantId}/mcp");
+
+    // Add a simple endpoint to test the service
+    app.MapGet("/health", () => "OctoMesh MCP Service is running");
+
+    // Log startup information
+    var dynamicToolOptions = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<DynamicToolOptions>>().Value;
+    logger.Info("OctoMesh MCP Service starting with configuration:");
+    logger.Info("- Dynamic tool generation: {Enabled}", dynamicToolOptions.EnableDynamicToolGeneration);
+    logger.Info("- Tool statistics: {Enabled}", dynamicToolOptions.EnableToolStatistics);
+    logger.Info("- Max query limit: {Limit}", dynamicToolOptions.MaxQueryResultLimit);
+    logger.Info("- Preload models: {Models}", string.Join(", ", dynamicToolOptions.PreloadModels));
 
     app.Run();
 }
