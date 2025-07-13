@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Backend.McpServices.Options;
 using Microsoft.Extensions.Options;
 
@@ -14,6 +13,12 @@ public class DynamicToolHealthCheck : IHealthCheck
     private readonly DynamicToolOptions _options;
     private readonly ILogger<DynamicToolHealthCheck> _logger;
 
+    /// <summary>
+    /// Constructor for dynamic tool health check
+    /// </summary>
+    /// <param name="dynamicToolService">Dynamic tool service instance</param>
+    /// <param name="options">Dynamic tool options</param>
+    /// <param name="logger">Logger for health check</param>
     public DynamicToolHealthCheck(
         IDynamicToolService dynamicToolService,
         IOptions<DynamicToolOptions> options,
@@ -24,7 +29,13 @@ public class DynamicToolHealthCheck : IHealthCheck
         _logger = logger;
     }
 
-    public async Task<HealthCheckResult> CheckHealthAsync(
+    /// <summary>
+    /// Checks the health of the dynamic tool service
+    /// </summary>
+    /// <param name="context">Health check context</param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    public Task<HealthCheckResult> CheckHealthAsync(
         HealthCheckContext context,
         CancellationToken cancellationToken = default)
     {
@@ -56,19 +67,29 @@ public class DynamicToolHealthCheck : IHealthCheck
             var issues = new List<string>();
 
             if (_options.MaxQueryResultLimit <= 0)
+            {
                 issues.Add("MaxQueryResultLimit must be greater than 0");
+            }
 
             if (_options.DefaultQueryLimit <= 0 || _options.DefaultQueryLimit > _options.MaxQueryResultLimit)
+            {
                 issues.Add("DefaultQueryLimit must be between 1 and MaxQueryResultLimit");
+            }
 
             if (_options.AnalyticsTimeoutSeconds <= 0)
+            {
                 issues.Add("AnalyticsTimeoutSeconds must be greater than 0");
+            }
 
             if (_options.CkTypeGraphCacheDurationMinutes <= 0)
+            {
                 issues.Add("CkTypeGraphCacheDurationMinutes must be greater than 0");
+            }
 
             if (domainOptions.MaxAnalyticsDateRangeDays <= 0)
+            {
                 issues.Add("MaxAnalyticsDateRangeDays must be greater than 0");
+            }
 
             healthData["configuration_issues"] = issues;
             healthData["preload_models"] = _options.PreloadModels;
@@ -80,9 +101,9 @@ public class DynamicToolHealthCheck : IHealthCheck
 
             if (issues.Any())
             {
-                return HealthCheckResult.Degraded(
+                return Task.FromResult(HealthCheckResult.Degraded(
                     $"Dynamic tool service has configuration issues: {string.Join(", ", issues)}",
-                    data: healthData);
+                    data: healthData));
             }
 
             var status = _options.EnableDynamicToolGeneration 
@@ -93,20 +114,20 @@ public class DynamicToolHealthCheck : IHealthCheck
                 ? "Dynamic tool service is healthy and operational"
                 : "Dynamic tool generation is disabled";
 
-            return new HealthCheckResult(status, description, data: healthData);
+            return Task.FromResult(new HealthCheckResult(status, description, data: healthData));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Health check failed for dynamic tool service");
             
-            return HealthCheckResult.Unhealthy(
+            return Task.FromResult(HealthCheckResult.Unhealthy(
                 "Dynamic tool service health check failed",
                 ex,
                 new Dictionary<string, object>
                 {
                     ["error"] = ex.Message,
                     ["error_type"] = ex.GetType().Name
-                });
+                }));
         }
     }
 }

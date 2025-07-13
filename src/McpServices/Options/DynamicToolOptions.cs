@@ -54,11 +54,11 @@ public class DynamicToolOptions
     /// <summary>
     /// Types to exclude from dynamic tool generation
     /// </summary>
-    public string[] ExcludedTypes { get; set; } = 
-    {
+    public string[] ExcludedTypes { get; set; } =
+    [
         "System-1.0.0/AutoIncrement-1.0.0",
         "System-1.0.0/Tenant-1.0.0"
-    };
+    ];
 
     /// <summary>
     /// Enable domain-specific tool categories

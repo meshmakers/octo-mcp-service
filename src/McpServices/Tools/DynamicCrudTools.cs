@@ -1,8 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
 using Meshmakers.Octo.ConstructionKit.Contracts;
-using Meshmakers.Octo.ConstructionKit.Contracts.DataTransferObjects;
-using Meshmakers.Octo.Runtime.Contracts.Repositories;
+using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Runtime.Contracts.RepositoryEntities;
 using Meshmakers.Octo.Services.Infrastructure;
@@ -41,31 +40,31 @@ public sealed class DynamicCrudTools
 
         try
         {
-            var typeGraph = await tenantRepository.GetCkTypeGraphAsync(new CkId<CkTypeId>(ckTypeId));
-            
+            await tenantRepository.GetCkTypeGraphAsync(new CkId<CkTypeId>(ckTypeId));
+
             // Build query operation
-            var queryOperation = new DataQueryOperation();
-            
+            var queryOperation = DataQueryOperation.Create();
+
             // Parse filters if provided
             if (!string.IsNullOrEmpty(filters))
             {
                 var filterDict = JsonSerializer.Deserialize<Dictionary<string, object>>(filters);
-                queryOperation.FieldFilters = BuildFieldFilters(filterDict, typeGraph);
+                BuildFieldFilters(filterDict, queryOperation);
             }
 
             var results = await tenantRepository.GetRtEntitiesByTypeAsync(
-                session, 
-                new CkId<CkTypeId>(ckTypeId), 
-                queryOperation, 
-                offset, 
+                session,
+                new CkId<CkTypeId>(ckTypeId),
+                queryOperation,
+                offset,
                 limit);
 
             return new
             {
-                typeId = ckTypeId,
+                ckTypeId,
                 totalCount = results.TotalCount,
-                returnedCount = results.Items.Count,
-                entities = results.Items.Select(entity => FormatEntity(entity, typeGraph))
+                returnedCount = results.Items.Count(),
+                entities = results.Items
             };
         }
         catch (Exception ex)
@@ -74,7 +73,7 @@ public sealed class DynamicCrudTools
             {
                 error = "Failed to query entities",
                 message = ex.Message,
-                typeId = ckTypeId
+                ckTypeId
             };
         }
     }
@@ -84,14 +83,14 @@ public sealed class DynamicCrudTools
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Construction Kit Type ID</param>
-    /// <param name="entityId">Runtime entity ID</param>
+    /// <param name="rtId">Runtime entity ID</param>
     /// <returns>Entity data or null if not found</returns>
     [McpServerTool(Name = "get_entity_by_id")]
     [Description("Get a single entity by its runtime ID")]
     public static async Task<object> GetEntityById(
         IMcpServer server,
         string ckTypeId,
-        string entityId)
+        string rtId)
     {
         var httpContextAccessor = server.Services!.GetRequiredService<IHttpContextAccessor>();
         var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
@@ -100,20 +99,20 @@ public sealed class DynamicCrudTools
 
         try
         {
-            var typeGraph = await tenantRepository.GetCkTypeGraphAsync(new CkId<CkTypeId>(ckTypeId));
-            var rtEntityId = new RtEntityId(new OctoObjectId(entityId));
-            
+            var rtEntityId = new RtEntityId(new CkId<CkTypeId>(ckTypeId),
+                new OctoObjectId(rtId));
+
             var entity = await tenantRepository.GetRtEntityByRtIdAsync(session, rtEntityId);
-            
+
             if (entity == null)
             {
-                return new { error = "Entity not found", entityId, ckTypeId };
+                return new { error = "Entity not found", rtId, ckTypeId };
             }
 
             return new
             {
                 typeId = ckTypeId,
-                entity = FormatEntity(entity, typeGraph)
+                entity
             };
         }
         catch (Exception ex)
@@ -122,14 +121,14 @@ public sealed class DynamicCrudTools
             {
                 error = "Failed to get entity",
                 message = ex.Message,
-                entityId,
+                rtId,
                 ckTypeId
             };
         }
     }
 
     /// <summary>
-    /// Create a new entity of specified CK type
+    /// Create a new entity of the specified CK type
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Construction Kit Type ID</param>
@@ -143,36 +142,36 @@ public sealed class DynamicCrudTools
         string entityData)
     {
         var httpContextAccessor = server.Services!.GetRequiredService<IHttpContextAccessor>();
+        var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
         var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
 
         using var session = await tenantRepository.GetSessionAsync();
 
         try
         {
-            var typeGraph = await tenantRepository.GetCkTypeGraphAsync(new CkId<CkTypeId>(ckTypeId));
             var dataDict = JsonSerializer.Deserialize<Dictionary<string, object>>(entityData);
-            
+
             // Create transient entity
             var entity = await tenantRepository.CreateTransientRtEntityAsync(new CkId<CkTypeId>(ckTypeId));
-            
+
             // Populate entity with provided data
-            PopulateEntity(entity, dataDict!, typeGraph);
-            
+            PopulateEntity(ckCacheService, httpContextAccessor.GetTenantId(), entity, dataDict!);
+
             // Insert entity
             await tenantRepository.InsertOneRtEntityAsync(session, new CkId<CkTypeId>(ckTypeId), entity);
-            await session.CommitAsync();
+            await session.CommitTransactionAsync();
 
             return new
             {
                 success = true,
-                typeId = ckTypeId,
-                entityId = entity.RtId.ToString(),
-                entity = FormatEntity(entity, typeGraph)
+                ckTypeId,
+                rtId = entity.RtId,
+                entity
             };
         }
         catch (Exception ex)
         {
-            await session.RollbackAsync();
+            await session.AbortTransactionAsync();
             return new
             {
                 error = "Failed to create entity",
@@ -187,7 +186,7 @@ public sealed class DynamicCrudTools
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Construction Kit Type ID</param>
-    /// <param name="entityId">Runtime entity ID</param>
+    /// <param name="rtId">Runtime entity ID</param>
     /// <param name="entityData">Updated entity data as JSON object</param>
     /// <returns>Updated entity</returns>
     [McpServerTool(Name = "update_entity")]
@@ -195,37 +194,37 @@ public sealed class DynamicCrudTools
     public static async Task<object> UpdateEntity(
         IMcpServer server,
         string ckTypeId,
-        string entityId,
+        string rtId,
         string entityData)
     {
         var httpContextAccessor = server.Services!.GetRequiredService<IHttpContextAccessor>();
+        var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
         var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
 
         using var session = await tenantRepository.GetSessionAsync();
 
         try
         {
-            var typeGraph = await tenantRepository.GetCkTypeGraphAsync(new CkId<CkTypeId>(ckTypeId));
             var dataDict = JsonSerializer.Deserialize<Dictionary<string, object>>(entityData);
-            var rtId = new OctoObjectId(entityId);
-            
+
             // Get existing entity
             var existingEntity = await tenantRepository.GetRtEntityByRtIdAsync(session, new RtEntityId(rtId));
             if (existingEntity == null)
             {
-                return new { error = "Entity not found", entityId, ckTypeId };
+                return new { error = "Entity not found", rtId, ckTypeId };
             }
 
             // Create update entity with only changed fields
             var updateEntity = await tenantRepository.CreateTransientRtEntityAsync(new CkId<CkTypeId>(ckTypeId));
-            updateEntity.RtId = rtId;
-            
+            updateEntity.RtId = new OctoObjectId(rtId);
+
             // Populate with update data
-            PopulateEntity(updateEntity, dataDict!, typeGraph);
-            
+            PopulateEntity(ckCacheService, httpContextAccessor.GetTenantId(), updateEntity, dataDict!);
+
             // Update entity
-            await tenantRepository.UpdateOneRtEntityByIdAsync(session, new CkId<CkTypeId>(ckTypeId), rtId, updateEntity);
-            await session.CommitAsync();
+            await tenantRepository.UpdateOneRtEntityByIdAsync(session, new CkId<CkTypeId>(ckTypeId),
+                new OctoObjectId(rtId), updateEntity);
+            await session.CommitTransactionAsync();
 
             // Get updated entity
             var updatedEntity = await tenantRepository.GetRtEntityByRtIdAsync(session, new RtEntityId(rtId));
@@ -234,18 +233,18 @@ public sealed class DynamicCrudTools
             {
                 success = true,
                 typeId = ckTypeId,
-                entityId,
-                entity = FormatEntity(updatedEntity!, typeGraph)
+                rtId,
+                entity = updatedEntity
             };
         }
         catch (Exception ex)
         {
-            await session.RollbackAsync();
+            await session.AbortTransactionAsync();
             return new
             {
                 error = "Failed to update entity",
                 message = ex.Message,
-                entityId,
+                rtId,
                 ckTypeId
             };
         }
@@ -256,14 +255,14 @@ public sealed class DynamicCrudTools
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Construction Kit Type ID</param>
-    /// <param name="entityId">Runtime entity ID</param>
+    /// <param name="rtId">Runtime entity ID</param>
     /// <returns>Deletion result</returns>
     [McpServerTool(Name = "delete_entity")]
     [Description("Delete an entity by its runtime ID")]
     public static async Task<object> DeleteEntity(
         IMcpServer server,
         string ckTypeId,
-        string entityId)
+        string rtId)
     {
         var httpContextAccessor = server.Services!.GetRequiredService<IHttpContextAccessor>();
         var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
@@ -272,35 +271,34 @@ public sealed class DynamicCrudTools
 
         try
         {
-            var rtId = new OctoObjectId(entityId);
-            
             // Check if entity exists
             var existingEntity = await tenantRepository.GetRtEntityByRtIdAsync(session, new RtEntityId(rtId));
             if (existingEntity == null)
             {
-                return new { error = "Entity not found", entityId, ckTypeId };
+                return new { error = "Entity not found", rtId, ckTypeId };
             }
 
             // Delete entity
-            await tenantRepository.DeleteOneRtEntityByRtIdAsync(session, new CkId<CkTypeId>(ckTypeId), rtId);
-            await session.CommitAsync();
+            await tenantRepository.DeleteOneRtEntityByRtIdAsync(session, new CkId<CkTypeId>(ckTypeId),
+                new OctoObjectId(rtId));
+            await session.CommitTransactionAsync();
 
             return new
             {
                 success = true,
                 message = "Entity deleted successfully",
-                typeId = ckTypeId,
-                entityId
+                ckTypeId,
+                rtId
             };
         }
         catch (Exception ex)
         {
-            await session.RollbackAsync();
+            await session.AbortTransactionAsync();
             return new
             {
                 error = "Failed to delete entity",
                 message = ex.Message,
-                entityId,
+                entityId = rtId,
                 ckTypeId
             };
         }
@@ -308,52 +306,31 @@ public sealed class DynamicCrudTools
 
     #region Helper Methods
 
-    private static ICollection<FieldFilter> BuildFieldFilters(Dictionary<string, object>? filterDict, CkTypeGraph typeGraph)
+    private static void BuildFieldFilters(Dictionary<string, object>? filterDict,
+        DataQueryOperation dataQueryOperation)
     {
-        var filters = new List<FieldFilter>();
-        
-        if (filterDict == null) return filters;
+        if (filterDict == null)
+        {
+            return;
+        }
 
         foreach (var kvp in filterDict)
         {
             // Simple equality filter for now
-            filters.Add(new FieldFilter
-            {
-                AttributePath = kvp.Key,
-                Operator = FieldFilterOperator.Equals,
-                ComparisonValue = kvp.Value?.ToString()
-            });
+            dataQueryOperation.FieldEquals(kvp.Key, kvp.Value);
         }
-
-        return filters;
     }
 
-    private static object FormatEntity(RtEntity entity, CkTypeGraph typeGraph)
-    {
-        var result = new Dictionary<string, object>
-        {
-            ["_id"] = entity.RtId.ToString(),
-            ["_ckTypeId"] = entity.CkTypeId.ToString(),
-            ["_createdAt"] = entity.CreatedAt,
-            ["_modifiedAt"] = entity.ModifiedAt
-        };
-
-        // Add all attributes from the entity
-        foreach (var attribute in entity.Attributes)
-        {
-            result[attribute.Key] = attribute.Value ?? "null";
-        }
-
-        return result;
-    }
-
-    private static void PopulateEntity(RtEntity entity, Dictionary<string, object> dataDict, CkTypeGraph typeGraph)
+    private static void PopulateEntity(ICkCacheService ckCacheService, string tenantId, RtEntity entity, Dictionary<string, object> dataDict)
     {
         foreach (var kvp in dataDict)
         {
-            if (kvp.Key.StartsWith("_")) continue; // Skip system fields
-            
-            entity.Attributes[kvp.Key] = kvp.Value;
+            if (kvp.Key.StartsWith("_"))
+            {
+                continue; // Skip system fields
+            }
+
+            entity.SetAttributeValueByAccessPath(ckCacheService, tenantId, kvp.Key, kvp.Value);
         }
     }
 

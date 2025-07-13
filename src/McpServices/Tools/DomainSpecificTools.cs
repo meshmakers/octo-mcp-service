@@ -7,7 +7,7 @@ using Meshmakers.Octo.Services.Infrastructure;
 using ModelContextProtocol.Server;
 
 namespace Meshmakers.Octo.Backend.McpServices.Tools;
-
+/*
 /// <summary>
 /// Domain-specific tools for Energy Community, Industrial IoT, and Maintenance operations
 /// </summary>
@@ -595,3 +595,4 @@ public sealed class DomainSpecificTools
 
     #endregion
 }
+*/

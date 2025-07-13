@@ -18,7 +18,7 @@ public sealed class ToolManagementTools
     /// <returns>List of available tools with descriptions and parameters</returns>
     [McpServerTool(Name = "list_available_tools")]
     [Description("Get information about all available MCP tools in this server")]
-    public static async Task<object> ListAvailableTools(
+    public static Task<object> ListAvailableTools(
         IMcpServer server,
         string? category = null)
     {
@@ -49,7 +49,9 @@ public sealed class ToolManagementTools
                         
                         if (!string.IsNullOrEmpty(category) && 
                             !toolCategory.Equals(category, StringComparison.OrdinalIgnoreCase))
+                        {
                             continue;
+                        }
 
                         var parameters = method.GetParameters()
                             .Skip(1) // Skip the IMcpServer parameter
@@ -81,21 +83,21 @@ public sealed class ToolManagementTools
             var categories = tools.GroupBy(t => ((dynamic)t).category)
                 .ToDictionary(g => g.Key, g => g.Count());
 
-            return new
+            return Task.FromResult<object>(new
             {
                 totalTools = tools.Count,
                 categories,
                 categoryFilter = category,
                 tools = tools.OrderBy(t => ((dynamic)t).category).ThenBy(t => ((dynamic)t).name)
-            };
+            });
         }
         catch (Exception ex)
         {
-            return new
+            return Task.FromResult<object>(new
             {
                 error = "Failed to list available tools",
                 message = ex.Message
-            };
+            });
         }
     }
 
@@ -107,7 +109,7 @@ public sealed class ToolManagementTools
     /// <returns>Detailed tool information with usage examples</returns>
     [McpServerTool(Name = "get_tool_details")]
     [Description("Get detailed information about a specific tool including usage examples")]
-    public static async Task<object> GetToolDetails(
+    public static Task<object> GetToolDetails(
         IMcpServer server,
         string toolName)
     {
@@ -131,7 +133,7 @@ public sealed class ToolManagementTools
                     var toolAttr = method.GetCustomAttribute<McpServerToolAttribute>();
                     var descAttr = method.GetCustomAttribute<DescriptionAttribute>();
 
-                    var parameters = method.GetParameters()
+                    List<dynamic> parameters = [method.GetParameters()
                         .Skip(1) // Skip IMcpServer parameter
                         .Select(p => new
                         {
@@ -141,11 +143,11 @@ public sealed class ToolManagementTools
                             defaultValue = p.HasDefaultValue ? p.DefaultValue?.ToString() : null,
                             description = GetParameterDescription(p)
                         })
-                        .ToList();
+                        .ToList()];
 
                     var examples = GenerateUsageExamples(toolName, parameters);
 
-                    return new
+                    return Task.FromResult<object>(new
                     {
                         name = toolAttr!.Name,
                         category = GetToolCategory(toolType.Name),
@@ -158,25 +160,25 @@ public sealed class ToolManagementTools
                         optionalParameters = parameters.Where(p => p.isOptional).ToList(),
                         usageExamples = examples,
                         notes = GetToolNotes(toolName)
-                    };
+                    });
                 }
             }
 
-            return new
+            return Task.FromResult<object>(new
             {
                 error = "Tool not found",
                 toolName,
                 suggestion = "Use 'list_available_tools' to see all available tools"
-            };
+            });
         }
         catch (Exception ex)
         {
-            return new
+            return Task.FromResult<object>(new
             {
                 error = "Failed to get tool details",
                 message = ex.Message,
                 toolName
-            };
+            });
         }
     }
 
@@ -188,7 +190,7 @@ public sealed class ToolManagementTools
     /// <returns>Tool usage statistics and performance metrics</returns>
     [McpServerTool(Name = "get_tool_statistics")]
     [Description("Get usage statistics and performance metrics for MCP tools")]
-    public static async Task<object> GetToolStatistics(
+    public static Task<object> GetToolStatistics(
         IMcpServer server,
         string timeRange = "day")
     {
@@ -244,15 +246,15 @@ public sealed class ToolManagementTools
                 }
             };
 
-            return mockStats;
+            return Task.FromResult<object>(mockStats);
         }
         catch (Exception ex)
         {
-            return new
+            return Task.FromResult<object>(new
             {
                 error = "Failed to get tool statistics",
                 message = ex.Message
-            };
+            });
         }
     }
 
@@ -293,7 +295,7 @@ public sealed class ToolManagementTools
             {
                 isValid = true,
                 toolName,
-                providedParameters = providedParams?.Keys.ToList() ?? new List<string>(),
+                providedParameters = providedParams?.Keys.ToList() ?? [],
                 validationResults = new List<object>(),
                 warnings = new List<string>(),
                 errors = new List<string>()
@@ -340,7 +342,7 @@ public sealed class ToolManagementTools
             {
                 isValid = errors.Count == 0,
                 toolName,
-                providedParameters = providedParams?.Keys.ToList() ?? new List<string>(),
+                providedParameters = providedParams?.Keys.ToList() ?? [],
                 validationResults = results,
                 warnings,
                 errors,
@@ -384,17 +386,56 @@ public sealed class ToolManagementTools
 
     private static string GetFriendlyTypeName(Type type)
     {
-        if (type == typeof(string)) return "string";
-        if (type == typeof(int)) return "integer";
-        if (type == typeof(int?)) return "integer (optional)";
-        if (type == typeof(bool)) return "boolean";
-        if (type == typeof(bool?)) return "boolean (optional)";
-        if (type == typeof(DateTime)) return "datetime";
-        if (type == typeof(DateTime?)) return "datetime (optional)";
-        if (type == typeof(double)) return "number";
-        if (type == typeof(double?)) return "number (optional)";
-        if (type == typeof(Task<object>)) return "object";
-        
+        if (type == typeof(string))
+        {
+            return "string";
+        }
+
+        if (type == typeof(int))
+        {
+            return "integer";
+        }
+
+        if (type == typeof(int?))
+        {
+            return "integer (optional)";
+        }
+
+        if (type == typeof(bool))
+        {
+            return "boolean";
+        }
+
+        if (type == typeof(bool?))
+        {
+            return "boolean (optional)";
+        }
+
+        if (type == typeof(DateTime))
+        {
+            return "datetime";
+        }
+
+        if (type == typeof(DateTime?))
+        {
+            return "datetime (optional)";
+        }
+
+        if (type == typeof(double))
+        {
+            return "number";
+        }
+
+        if (type == typeof(double?))
+        {
+            return "number (optional)";
+        }
+
+        if (type == typeof(Task<object>))
+        {
+            return "object";
+        }
+
         return type.Name;
     }
 
@@ -479,25 +520,25 @@ public sealed class ToolManagementTools
     {
         return toolName switch
         {
-            "query_entities" => new List<string>
-            {
+            "query_entities" =>
+            [
                 "Supports pagination with limit and offset parameters",
                 "Filters should be provided as valid JSON string",
                 "Returns both system fields (_id, _ckTypeId) and entity attributes"
-            },
-            "create_entity" => new List<string>
-            {
+            ],
+            "create_entity" =>
+            [
                 "Entity data must include all required attributes for the type",
                 "System fields like _id are automatically generated",
                 "Returns the created entity with its new runtime ID"
-            },
-            "analyze_energy_consumption" => new List<string>
-            {
+            ],
+            "analyze_energy_consumption" =>
+            [
                 "Date range should not exceed 1 year for performance",
                 "Results include daily breakdown and quality metrics",
                 "Supports filtering by facility or customer ID"
-            },
-            _ => new List<string> { "No special notes for this tool" }
+            ],
+            _ => ["No special notes for this tool"]
         };
     }
 

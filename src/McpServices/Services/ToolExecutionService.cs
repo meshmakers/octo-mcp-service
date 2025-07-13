@@ -12,9 +12,9 @@ public interface IToolExecutionService
     /// <summary>
     /// Execute a tool with full monitoring and error handling
     /// </summary>
-    Task<object> ExecuteToolAsync<T>(
+    Task<object?> ExecuteToolAsync<T>(
         string toolName,
-        Func<Task<T>> toolExecution,
+        Func<Task<T?>> toolExecution,
         Dictionary<string, object>? parameters = null);
 
     /// <summary>
@@ -39,6 +39,12 @@ public class ToolExecutionService : IToolExecutionService
     private readonly DynamicToolOptions _options;
     private readonly ILogger<ToolExecutionService> _logger;
 
+    /// <summary>
+    /// Constructor for tool execution service
+    /// </summary>
+    /// <param name="dynamicToolService"></param>
+    /// <param name="options"></param>
+    /// <param name="logger"></param>
     public ToolExecutionService(
         IDynamicToolService dynamicToolService,
         IOptions<DynamicToolOptions> options,
@@ -49,9 +55,17 @@ public class ToolExecutionService : IToolExecutionService
         _logger = logger;
     }
 
-    public async Task<object> ExecuteToolAsync<T>(
+    /// <summary>
+    /// Executes a tool with monitoring, validation, and error handling.
+    /// </summary>
+    /// <param name="toolName"></param>
+    /// <param name="toolExecution"></param>
+    /// <param name="parameters"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public async Task<object?> ExecuteToolAsync<T>(
         string toolName,
-        Func<Task<T>> toolExecution,
+        Func<Task<T?>> toolExecution,
         Dictionary<string, object>? parameters = null)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -121,6 +135,12 @@ public class ToolExecutionService : IToolExecutionService
         }
     }
 
+    /// <summary>
+    /// Validates tool parameters before execution.
+    /// </summary>
+    /// <param name="toolName"></param>
+    /// <param name="parameters"></param>
+    /// <returns></returns>
     public async Task<(bool isValid, string? errorMessage)> ValidateToolParametersAsync(
         string toolName,
         Dictionary<string, object>? parameters)
@@ -132,7 +152,7 @@ public class ToolExecutionService : IToolExecutionService
             {
                 // Check for common parameter constraints
                 if (parameters.TryGetValue("limit", out var limitObj) && 
-                    int.TryParse(limitObj?.ToString(), out var limit))
+                    int.TryParse(limitObj.ToString(), out var limit))
                 {
                     if (limit <= 0 || limit > _options.MaxQueryResultLimit)
                     {
@@ -141,7 +161,7 @@ public class ToolExecutionService : IToolExecutionService
                 }
 
                 if (parameters.TryGetValue("offset", out var offsetObj) && 
-                    int.TryParse(offsetObj?.ToString(), out var offset))
+                    int.TryParse(offsetObj.ToString(), out var offset))
                 {
                     if (offset < 0)
                     {
@@ -153,13 +173,13 @@ public class ToolExecutionService : IToolExecutionService
                 DateTime? fromDate = null, toDate = null;
                 
                 if (parameters.TryGetValue("fromDate", out var fromObj) && 
-                    DateTime.TryParse(fromObj?.ToString(), out var from))
+                    DateTime.TryParse(fromObj.ToString(), out var from))
                 {
                     fromDate = from;
                 }
 
                 if (parameters.TryGetValue("toDate", out var toObj) && 
-                    DateTime.TryParse(toObj?.ToString(), out var to))
+                    DateTime.TryParse(toObj.ToString(), out var to))
                 {
                     toDate = to;
                 }
@@ -187,7 +207,12 @@ public class ToolExecutionService : IToolExecutionService
         }
     }
 
-    public async Task<object> GetExecutionStatisticsAsync(string? toolName = null)
+    /// <summary>
+    /// Gets execution statistics for a specific tool or overall statistics.
+    /// </summary>
+    /// <param name="toolName"></param>
+    /// <returns></returns>
+    public Task<object> GetExecutionStatisticsAsync(string? toolName = null)
     {
         try
         {
@@ -195,7 +220,7 @@ public class ToolExecutionService : IToolExecutionService
             // For now, return a structured response
             if (!string.IsNullOrEmpty(toolName))
             {
-                return new
+                return Task.FromResult<object>(new
                 {
                     toolName,
                     statistics = new
@@ -212,10 +237,10 @@ public class ToolExecutionService : IToolExecutionService
                             new { error = "Timeout", count = 1 }
                         }
                     }
-                };
+                });
             }
 
-            return new
+            return Task.FromResult<object>(new
             {
                 overallStatistics = new
                 {
@@ -240,16 +265,16 @@ public class ToolExecutionService : IToolExecutionService
                     new { toolName = "create_entity", error = "Missing required field", timestamp = DateTime.UtcNow.AddHours(-2) },
                     new { toolName = "analyze_energy_consumption", error = "Date range too large", timestamp = DateTime.UtcNow.AddHours(-4) }
                 }
-            };
+            });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving execution statistics");
-            return new
+            return Task.FromResult<object>(new
             {
                 error = "Failed to retrieve statistics",
                 message = ex.Message
-            };
+            });
         }
     }
 
@@ -269,7 +294,7 @@ public class ToolExecutionService : IToolExecutionService
         }
     }
 
-    private async Task<(bool isValid, string? errorMessage)> ValidateToolSpecificParametersAsync(
+    private Task<(bool isValid, string? errorMessage)> ValidateToolSpecificParametersAsync(
         string toolName,
         Dictionary<string, object> parameters)
     {
@@ -279,43 +304,43 @@ public class ToolExecutionService : IToolExecutionService
             case "query_entities":
                 if (!parameters.ContainsKey("ckTypeId"))
                 {
-                    return (false, "ckTypeId parameter is required for query_entities");
+                    return Task.FromResult<(bool isValid, string? errorMessage)>((false, "ckTypeId parameter is required for query_entities"));
                 }
                 break;
 
             case "create_entity":
                 if (!parameters.ContainsKey("ckTypeId") || !parameters.ContainsKey("entityData"))
                 {
-                    return (false, "ckTypeId and entityData parameters are required for create_entity");
+                    return Task.FromResult<(bool isValid, string? errorMessage)>((false, "ckTypeId and entityData parameters are required for create_entity"));
                 }
                 break;
 
             case "get_entity_by_id":
                 if (!parameters.ContainsKey("ckTypeId") || !parameters.ContainsKey("entityId"))
                 {
-                    return (false, "ckTypeId and entityId parameters are required for get_entity_by_id");
+                    return Task.FromResult<(bool isValid, string? errorMessage)>((false, "ckTypeId and entityId parameters are required for get_entity_by_id"));
                 }
                 break;
 
             case "analyze_energy_consumption":
                 if (!parameters.ContainsKey("fromDate") || !parameters.ContainsKey("toDate"))
                 {
-                    return (false, "fromDate and toDate parameters are required for analyze_energy_consumption");
+                    return Task.FromResult<(bool isValid, string? errorMessage)>((false, "fromDate and toDate parameters are required for analyze_energy_consumption"));
                 }
                 break;
 
             case "get_type_schema":
                 if (!parameters.ContainsKey("ckTypeId"))
                 {
-                    return (false, "ckTypeId parameter is required for get_type_schema");
+                    return Task.FromResult<(bool isValid, string? errorMessage)>((false, "ckTypeId parameter is required for get_type_schema"));
                 }
                 break;
         }
 
-        return (true, null);
+        return Task.FromResult<(bool isValid, string? errorMessage)>((true, null));
     }
 
-    private object WrapSuccessResult<T>(T result, string toolName, string executionId, TimeSpan duration)
+    private object? WrapSuccessResult<T>(T? result, string toolName, string executionId, TimeSpan duration)
     {
         if (_options.EnableDetailedErrors) // Use this flag to also control metadata inclusion
         {
@@ -330,7 +355,7 @@ public class ToolExecutionService : IToolExecutionService
             };
         }
 
-        return result; // Return clean result for production
+        return result; // Return a clean result for production
     }
 
     private object CreateErrorResponse(string toolName, string executionId, string errorType, string errorMessage)
@@ -381,29 +406,29 @@ public class ToolExecutionService : IToolExecutionService
     {
         return errorType switch
         {
-            "execution_timeout" => new[]
-            {
+            "execution_timeout" =>
+            [
                 "Reduce the date range for analytics queries",
                 "Use pagination with smaller result sets",
                 "Contact administrator if timeouts persist"
-            },
-            "parameter_validation" => new[]
-            {
+            ],
+            "parameter_validation" =>
+            [
                 "Check parameter types and formats",
                 "Use validate_tool_parameters to test parameters",
                 "Refer to tool documentation for required parameters"
-            },
-            "execution_error" => new[]
-            {
+            ],
+            "execution_error" =>
+            [
                 "Verify entity IDs and type IDs exist",
                 "Check user permissions for the requested operation",
                 "Review error message for specific guidance"
-            },
-            _ => new[]
-            {
+            ],
+            _ =>
+            [
                 "Check the error message for specific guidance",
                 "Use get_tool_details for tool-specific help"
-            }
+            ]
         };
     }
 
