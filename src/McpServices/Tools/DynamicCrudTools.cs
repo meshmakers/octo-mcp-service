@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text.Json;
+using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
@@ -34,7 +35,9 @@ public sealed class DynamicCrudTools
         int? offset = null)
     {
         var httpContextAccessor = server.Services!.GetRequiredService<IHttpContextAccessor>();
+        var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
         var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
+        var tenantId = httpContextAccessor.GetTenantId();
 
         using var session = await tenantRepository.GetSessionAsync();
 
@@ -59,21 +62,21 @@ public sealed class DynamicCrudTools
                 offset,
                 limit);
 
-            return new
+            return new QueryEntitiesResponse
             {
-                ckTypeId,
-                totalCount = results.TotalCount,
-                returnedCount = results.Items.Count(),
-                entities = results.Items
+                CkTypeId = ckTypeId,
+                TotalCount = results.TotalCount,
+                ReturnedCount = results.Items.Count(),
+                Entities = EntityMapper.MapToDto(results.Items, ckCacheService, tenantId)
             };
         }
         catch (Exception ex)
         {
-            return new
+            return new EntityOperationError
             {
-                error = "Failed to query entities",
-                message = ex.Message,
-                ckTypeId
+                Error = "Failed to query entities",
+                Message = ex.Message,
+                CkTypeId = ckTypeId
             };
         }
     }
@@ -106,23 +109,27 @@ public sealed class DynamicCrudTools
 
             if (entity == null)
             {
-                return new { error = "Entity not found", rtId, ckTypeId };
+                return new EntityNotFoundResponse { 
+                    Error = "Entity not found",
+                    RtId = rtId, 
+                    CkTypeId = ckTypeId 
+                };
             }
 
-            return new
+            return new GetEntityResponse
             {
-                typeId = ckTypeId,
-                entity
+                TypeId = ckTypeId,
+                Entity = entity
             };
         }
         catch (Exception ex)
         {
-            return new
+            return new EntityOperationError
             {
-                error = "Failed to get entity",
-                message = ex.Message,
-                rtId,
-                ckTypeId
+                Error = "Failed to get entity",
+                Message = ex.Message,
+                RtId = rtId,
+                CkTypeId = ckTypeId
             };
         }
     }
@@ -161,22 +168,22 @@ public sealed class DynamicCrudTools
             await tenantRepository.InsertOneRtEntityAsync(session, new CkId<CkTypeId>(ckTypeId), entity);
             await session.CommitTransactionAsync();
 
-            return new
+            return new CreateEntityResponse
             {
-                success = true,
-                ckTypeId,
-                rtId = entity.RtId,
-                entity
+                Success = true,
+                CkTypeId = ckTypeId,
+                RtId = entity.RtId.ToString(),
+                Entity = entity
             };
         }
         catch (Exception ex)
         {
             await session.AbortTransactionAsync();
-            return new
+            return new EntityOperationError
             {
-                error = "Failed to create entity",
-                message = ex.Message,
-                ckTypeId
+                Error = "Failed to create entity",
+                Message = ex.Message,
+                CkTypeId = ckTypeId
             };
         }
     }
@@ -211,7 +218,11 @@ public sealed class DynamicCrudTools
             var existingEntity = await tenantRepository.GetRtEntityByRtIdAsync(session, new RtEntityId(rtId));
             if (existingEntity == null)
             {
-                return new { error = "Entity not found", rtId, ckTypeId };
+                return new EntityNotFoundResponse { 
+                    Error = "Entity not found",
+                    RtId = rtId, 
+                    CkTypeId = ckTypeId 
+                };
             }
 
             // Create update entity with only changed fields
@@ -229,23 +240,23 @@ public sealed class DynamicCrudTools
             // Get updated entity
             var updatedEntity = await tenantRepository.GetRtEntityByRtIdAsync(session, new RtEntityId(rtId));
 
-            return new
+            return new UpdateEntityResponse
             {
-                success = true,
-                typeId = ckTypeId,
-                rtId,
-                entity = updatedEntity
+                Success = true,
+                TypeId = ckTypeId,
+                RtId = rtId,
+                Entity = updatedEntity
             };
         }
         catch (Exception ex)
         {
             await session.AbortTransactionAsync();
-            return new
+            return new EntityOperationError
             {
-                error = "Failed to update entity",
-                message = ex.Message,
-                rtId,
-                ckTypeId
+                Error = "Failed to update entity",
+                Message = ex.Message,
+                RtId = rtId,
+                CkTypeId = ckTypeId
             };
         }
     }
@@ -275,7 +286,11 @@ public sealed class DynamicCrudTools
             var existingEntity = await tenantRepository.GetRtEntityByRtIdAsync(session, new RtEntityId(rtId));
             if (existingEntity == null)
             {
-                return new { error = "Entity not found", rtId, ckTypeId };
+                return new EntityNotFoundResponse { 
+                    Error = "Entity not found",
+                    RtId = rtId, 
+                    CkTypeId = ckTypeId 
+                };
             }
 
             // Delete entity
@@ -283,23 +298,23 @@ public sealed class DynamicCrudTools
                 new OctoObjectId(rtId));
             await session.CommitTransactionAsync();
 
-            return new
+            return new DeleteEntityResponse
             {
-                success = true,
-                message = "Entity deleted successfully",
-                ckTypeId,
-                rtId
+                Success = true,
+                Message = "Entity deleted successfully",
+                CkTypeId = ckTypeId,
+                RtId = rtId
             };
         }
         catch (Exception ex)
         {
             await session.AbortTransactionAsync();
-            return new
+            return new EntityOperationError
             {
-                error = "Failed to delete entity",
-                message = ex.Message,
-                entityId = rtId,
-                ckTypeId
+                Error = "Failed to delete entity",
+                Message = ex.Message,
+                EntityId = rtId,
+                CkTypeId = ckTypeId
             };
         }
     }

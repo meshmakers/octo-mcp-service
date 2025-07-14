@@ -1,10 +1,11 @@
 using System.ComponentModel;
 using System.Globalization;
+using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.ConstructionKit.Contracts;
-using Meshmakers.Octo.ConstructionKit.Contracts.ModelRepositories;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Services.Infrastructure;
 using ModelContextProtocol.Server;
+// ReSharper disable UnusedMember.Global
 
 namespace Meshmakers.Octo.Backend.McpServices.Tools;
 
@@ -12,6 +13,7 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 /// Tools for discovering and exploring Construction Kit schemas
 /// </summary>
 [McpServerToolType]
+// ReSharper disable once UnusedType.Global
 public sealed class SchemaDiscoveryTools
 {
     /// <summary>
@@ -33,18 +35,18 @@ public sealed class SchemaDiscoveryTools
 
             var modelIds = ckCacheService.GetCkModelIds(httpContextAccessor.GetTenantId());
 
-            return new
+            return new AvailableModelsResponse
             {
-                totalModels = modelIds.Count,
-                models = modelIds.OrderBy(m => m.ModelId)
+                TotalModels = modelIds.Count,
+                Models = modelIds.OrderBy(m => m.ModelId).Select(m => m.ToString(CultureInfo.InvariantCulture)).ToList()
             };
         }
         catch (Exception ex)
         {
-            return new
+            return new ErrorResponse
             {
-                error = "Failed to get available models",
-                message = ex.Message
+                Error = "Failed to get available models",
+                Message = ex.Message
             };
         }
     }
@@ -73,14 +75,14 @@ public sealed class SchemaDiscoveryTools
             await tenantRepository.LoadCacheForTenantAsync(ckCacheService);
 
             // Get all available type graphs from the cache
-            var availableTypes = new List<object>();
+            var availableTypes = new List<CkTypeMetadata>();
 
             var typeGraphs = ckCacheService.GetCkTypes(httpContextAccessor.GetTenantId());
 
             foreach (var ckTypeGraph in typeGraphs)
             {
                 if (!string.IsNullOrEmpty(ckModelId) &&
-                    !ckTypeGraph.CkTypeId.ModelId.SemanticVersionedFullName.StartsWith(ckModelId))
+                    !ckTypeGraph.CkTypeId.ModelId.FullName.StartsWith(ckModelId))
                 {
                     continue;
                 }
@@ -90,37 +92,38 @@ public sealed class SchemaDiscoveryTools
                     continue;
                 }
 
-                availableTypes.Add(new
+                availableTypes.Add(new CkTypeMetadata
                 {
-                    ckTypeId = ckTypeGraph.CkTypeId.SemanticVersionedFullName,
-                    modelId = ckTypeGraph.CkTypeId.ModelId.ToString(CultureInfo.InvariantCulture),
-                    typeId = ckTypeGraph.CkTypeId.Key.SemanticVersionedFullName,
-                    version = ckTypeGraph.CkTypeId.Key.Version,
-                    isAbstract = ckTypeGraph.IsAbstract,
-                    isFinal = ckTypeGraph.IsFinal,
-                    isCollectionRoot = ckTypeGraph.IsCollectionRoot,
-                    description = ckTypeGraph.Description,
-                    derivedFrom = ckTypeGraph.DerivedFromCkTypeId?.ToString(),
-                    attributeCount = ckTypeGraph.AllAttributes.Count,
-                    inAssociationCount = ckTypeGraph.Associations.In.All.Count,
-                    outAssociationCount = ckTypeGraph.Associations.Out.All.Count,
+                    CkTypeId = ckTypeGraph.CkTypeId.SemanticVersionedFullName,
+                    ModelId = ckTypeGraph.CkTypeId.ModelId.ToString(CultureInfo.InvariantCulture),
+                    TypeId = ckTypeGraph.CkTypeId.Key.SemanticVersionedFullName,
+                    TypeName = ckTypeGraph.CkTypeId.Key.SemanticVersionedFullName, // Fix: Add TypeName
+                    Version = ckTypeGraph.CkTypeId.Key.Version,
+                    IsAbstract = ckTypeGraph.IsAbstract,
+                    IsFinal = ckTypeGraph.IsFinal,
+                    IsCollectionRoot = ckTypeGraph.IsCollectionRoot,
+                    Description = ckTypeGraph.Description,
+                    DerivedFrom = ckTypeGraph.DerivedFromCkTypeId?.ToString(),
+                    AttributeCount = ckTypeGraph.AllAttributes.Count,
+                    InAssociationCount = ckTypeGraph.Associations.In.All.Count,
+                    OutAssociationCount = ckTypeGraph.Associations.Out.All.Count,
                 });
             }
 
-            return new
+            return new AvailableTypesResponse
             {
-                totalTypes = availableTypes.Count,
-                includeAbstract,
-                modelIdFilter = ckModelId,
-                types = availableTypes.OrderBy(t => ((dynamic)t).typeId)
+                TotalTypes = availableTypes.Count,
+                IncludeAbstract = includeAbstract,
+                ModelIdFilter = ckModelId,
+                Types = availableTypes.OrderBy(t => t.TypeId).ToList()
             };
         }
         catch (Exception ex)
         {
-            return new
+            return new ErrorResponse
             {
-                error = "Failed to get available types",
-                message = ex.Message
+                Error = "Failed to get available types",
+                Message = ex.Message
             };
         }
     }
@@ -146,37 +149,37 @@ public sealed class SchemaDiscoveryTools
 
             var typeGraph = ckCacheService.GetCkType(httpContextAccessor.GetTenantId(), new CkId<CkTypeId>(ckTypeId));
 
-            return new
+            return new TypeSchemaResponse
             {
-                typeId = typeGraph.CkTypeId.ToString(),
-                modelId = typeGraph.CkTypeId.ModelId.ToString(CultureInfo.InvariantCulture),
-                typeName = typeGraph.CkTypeId.Key.SemanticVersionedFullName,
-                version = typeGraph.CkTypeId.Key.Version.ToString(),
-                isAbstract = typeGraph.IsAbstract,
-                isFinal = typeGraph.IsFinal,
-                isCollectionRoot = typeGraph.IsCollectionRoot,
-                isStreamType = typeGraph.IsStreamType,
-                description = typeGraph.Description,
-                derivedFrom = typeGraph.DerivedFromCkTypeId?.ToString(),
-                inheritanceHierarchy = typeGraph.GetBaseTypes(false),
-                indexes = typeGraph.Indexes,
-                attributes = typeGraph.AllAttributes.Values,
-                associations = typeGraph.Associations,
-                schema = new
+                TypeId = typeGraph.CkTypeId.ToString(),
+                ModelId = typeGraph.CkTypeId.ModelId.ToString(CultureInfo.InvariantCulture),
+                TypeName = typeGraph.CkTypeId.Key.SemanticVersionedFullName,
+                Version = typeGraph.CkTypeId.Key.Version.ToString(),
+                IsAbstract = typeGraph.IsAbstract,
+                IsFinal = typeGraph.IsFinal,
+                IsCollectionRoot = typeGraph.IsCollectionRoot,
+                IsStreamType = typeGraph.IsStreamType,
+                Description = typeGraph.Description,
+                DerivedFrom = typeGraph.DerivedFromCkTypeId?.ToString(),
+                InheritanceHierarchy = typeGraph.GetBaseTypes(false),
+                Indexes = typeGraph.Indexes,
+                Attributes = typeGraph.AllAttributes.Values,
+                Associations = typeGraph.Associations,
+                Schema = new TypeSchemaDetails
                 {
-                    canCreate = !typeGraph.IsAbstract,
-                    requiredAttributes = typeGraph.AllAttributes.Where(a => !a.Value.IsOptional),
-                    optionalAttributes = typeGraph.AllAttributes.Where(a => a.Value.IsOptional)
+                    CanCreate = !typeGraph.IsAbstract,
+                    RequiredAttributes = typeGraph.AllAttributes.Where(a => !a.Value.IsOptional),
+                    OptionalAttributes = typeGraph.AllAttributes.Where(a => a.Value.IsOptional)
                 }
             };
         }
         catch (Exception ex)
         {
-            return new
+            return new ErrorResponse
             {
-                error = "Failed to get type schema",
-                message = ex.Message,
-                ckTypeId
+                Error = "Failed to get type schema",
+                Message = ex.Message,
+                CkTypeId = ckTypeId
             };
         }
     }
@@ -198,35 +201,38 @@ public sealed class SchemaDiscoveryTools
         try
         {
             var allTypesResult = await GetAvailableTypes(server, includeAbstract);
-            var allTypes = ((dynamic)allTypesResult).types as IEnumerable<dynamic>;
-
-            if (allTypes == null)
+            
+            // Safe casting to concrete type
+            if (allTypesResult is not AvailableTypesResponse typesResponse)
             {
-                return new { error = "Failed to get types for search" };
+                return new ErrorResponse { 
+                    Error = "Failed to get types for search",
+                    Message = "Unable to retrieve type information from cache"
+                };
             }
 
-            var matchingTypes = allTypes.Where(t =>
-                ((string)t.typeId).Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
-                ((string)t.typeName).Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
-                (!string.IsNullOrEmpty((string)t.description) &&
-                 ((string)t.description).Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+            var matchingTypes = typesResponse.Types.Where(t =>
+                t.TypeId.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                t.TypeName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrEmpty(t.Description) &&
+                 t.Description.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
             ).ToList();
 
-            return new
+            return new SearchTypesResponse
             {
-                searchTerm,
-                matchCount = matchingTypes.Count,
-                includeAbstract,
-                matches = matchingTypes
+                SearchTerm = searchTerm,
+                MatchCount = matchingTypes.Count,
+                IncludeAbstract = includeAbstract,
+                Matches = matchingTypes
             };
         }
         catch (Exception ex)
         {
-            return new
+            return new ErrorResponse
             {
-                error = "Failed to search types",
-                message = ex.Message,
-                searchTerm
+                Error = "Failed to search types",
+                Message = ex.Message,
+                SearchTerm = searchTerm
             };
         }
     }

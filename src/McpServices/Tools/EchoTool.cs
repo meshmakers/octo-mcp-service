@@ -24,6 +24,6 @@ public sealed class EchoTool
         var httpContextAccessor = thisServer.Services!.GetRequiredService<IHttpContextAccessor>();
         var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
 
-        return "hello " + message + tenantRepository.TenantId;
+        return "hello " + message + ", from tenant " + tenantRepository.TenantId;
     }
 }

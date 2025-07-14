@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Reflection;
+using Meshmakers.Octo.Backend.McpServices.Models;
 using ModelContextProtocol.Server;
 
 namespace Meshmakers.Octo.Backend.McpServices.Tools;
@@ -24,7 +25,7 @@ public sealed class ToolManagementTools
     {
         try
         {
-            var tools = new List<object>();
+            var tools = new List<ToolInfo>();
 
             // Get all tool types in this assembly
             var assembly = Assembly.GetExecutingAssembly();
@@ -43,7 +44,7 @@ public sealed class ToolManagementTools
                     var toolAttr = method.GetCustomAttribute<McpServerToolAttribute>();
                     var descAttr = method.GetCustomAttribute<DescriptionAttribute>();
                     
-                    if (toolAttr != null)
+                    if (toolAttr != null && !string.IsNullOrEmpty(toolAttr.Name))
                     {
                         var toolCategory = GetToolCategory(toolType.Name);
                         
@@ -55,48 +56,48 @@ public sealed class ToolManagementTools
 
                         var parameters = method.GetParameters()
                             .Skip(1) // Skip the IMcpServer parameter
-                            .Select(p => new
+                            .Select(p => new ToolParameterInfo
                             {
-                                name = p.Name,
-                                type = GetFriendlyTypeName(p.ParameterType),
-                                isOptional = p.HasDefaultValue,
-                                defaultValue = p.HasDefaultValue ? p.DefaultValue?.ToString() : null,
-                                description = GetParameterDescription(p)
+                                Name = p.Name ?? "unknown",
+                                Type = GetFriendlyTypeName(p.ParameterType),
+                                IsOptional = p.HasDefaultValue,
+                                DefaultValue = p.HasDefaultValue ? p.DefaultValue?.ToString() : null,
+                                Description = GetParameterDescription(p)
                             })
                             .ToList();
 
-                        tools.Add(new
+                        tools.Add(new ToolInfo
                         {
-                            name = toolAttr.Name,
-                            category = toolCategory,
-                            description = descAttr?.Description ?? "No description available",
-                            className = toolType.Name,
-                            methodName = method.Name,
-                            parameters,
-                            parameterCount = parameters.Count,
-                            hasOptionalParams = parameters.Any(p => p.isOptional)
+                            Name = toolAttr.Name,
+                            Category = toolCategory,
+                            Description = descAttr?.Description ?? "No description available",
+                            ClassName = toolType.Name,
+                            MethodName = method.Name,
+                            Parameters = parameters,
+                            ParameterCount = parameters.Count,
+                            HasOptionalParams = parameters.Any(p => p.IsOptional)
                         });
                     }
                 }
             }
 
-            var categories = tools.GroupBy(t => ((dynamic)t).category)
+            var categories = tools.GroupBy(t => t.Category)
                 .ToDictionary(g => g.Key, g => g.Count());
 
-            return Task.FromResult<object>(new
+            return Task.FromResult<object>(new ListAvailableToolsResponse
             {
-                totalTools = tools.Count,
-                categories,
-                categoryFilter = category,
-                tools = tools.OrderBy(t => ((dynamic)t).category).ThenBy(t => ((dynamic)t).name)
+                TotalTools = tools.Count,
+                Categories = categories,
+                CategoryFilter = category,
+                Tools = tools.OrderBy(t => t.Category).ThenBy(t => t.Name).ToList()
             });
         }
         catch (Exception ex)
         {
-            return Task.FromResult<object>(new
+            return Task.FromResult<object>(new ToolManagementError
             {
-                error = "Failed to list available tools",
-                message = ex.Message
+                Error = "Failed to list available tools",
+                Message = ex.Message
             });
         }
     }
@@ -133,51 +134,55 @@ public sealed class ToolManagementTools
                     var toolAttr = method.GetCustomAttribute<McpServerToolAttribute>();
                     var descAttr = method.GetCustomAttribute<DescriptionAttribute>();
 
-                    List<dynamic> parameters = [method.GetParameters()
-                        .Skip(1) // Skip IMcpServer parameter
-                        .Select(p => new
-                        {
-                            name = p.Name,
-                            type = GetFriendlyTypeName(p.ParameterType),
-                            isOptional = p.HasDefaultValue,
-                            defaultValue = p.HasDefaultValue ? p.DefaultValue?.ToString() : null,
-                            description = GetParameterDescription(p)
-                        })
-                        .ToList()];
-
-                    var examples = GenerateUsageExamples(toolName, parameters);
-
-                    return Task.FromResult<object>(new
+                    if (toolAttr != null && !string.IsNullOrEmpty(toolAttr.Name))
                     {
-                        name = toolAttr!.Name,
-                        category = GetToolCategory(toolType.Name),
-                        description = descAttr?.Description ?? "No description available",
-                        className = toolType.Name,
-                        methodName = method.Name,
-                        returnType = GetFriendlyTypeName(method.ReturnType),
-                        parameters,
-                        requiredParameters = parameters.Where(p => !p.isOptional).ToList(),
-                        optionalParameters = parameters.Where(p => p.isOptional).ToList(),
-                        usageExamples = examples,
-                        notes = GetToolNotes(toolName)
-                    });
+                        var parameters = method.GetParameters()
+                            .Skip(1) // Skip IMcpServer parameter
+                            .Select(p => new ToolParameterInfo
+                            {
+                                Name = p.Name ?? "unknown",
+                                Type = GetFriendlyTypeName(p.ParameterType),
+                                IsOptional = p.HasDefaultValue,
+                                DefaultValue = p.HasDefaultValue ? p.DefaultValue?.ToString() : null,
+                                Description = GetParameterDescription(p)
+                            })
+                            .ToList();
+
+                        var examples = GenerateUsageExamples(toolName, parameters);
+
+                        return Task.FromResult<object>(new ToolDetailsResponse
+                        {
+                            Name = toolAttr!.Name,
+                            Category = GetToolCategory(toolType.Name),
+                            Description = descAttr?.Description ?? "No description available",
+                            ClassName = toolType.Name,
+                            MethodName = method.Name,
+                            ReturnType = GetFriendlyTypeName(method.ReturnType),
+                            Parameters = parameters,
+                            RequiredParameters = parameters.Where(p => !p.IsOptional).ToList(),
+                            OptionalParameters = parameters.Where(p => p.IsOptional).ToList(),
+                            UsageExamples = examples,
+                            Notes = GetToolNotes(toolName)
+                        });
+                    }
                 }
             }
 
-            return Task.FromResult<object>(new
+            return Task.FromResult<object>(new ToolManagementError
             {
-                error = "Tool not found",
-                toolName,
-                suggestion = "Use 'list_available_tools' to see all available tools"
+                Error = "Tool not found",
+                Message = "The specified tool name was not found in the available tools",
+                ToolName = toolName,
+                Suggestion = "Use 'list_available_tools' to see all available tools"
             });
         }
         catch (Exception ex)
         {
-            return Task.FromResult<object>(new
+            return Task.FromResult<object>(new ToolManagementError
             {
-                error = "Failed to get tool details",
-                message = ex.Message,
-                toolName
+                Error = "Failed to get tool details",
+                Message = ex.Message,
+                ToolName = toolName
             });
         }
     }
@@ -198,51 +203,51 @@ public sealed class ToolManagementTools
         {
             // This would typically come from actual logging/metrics storage
             // For now, returning mock data structure
-            var mockStats = new
+            var mockStats = new ToolStatistics
             {
-                timeRange,
-                generatedAt = DateTime.UtcNow,
-                totalInvocations = 1247,
-                uniqueTools = 23,
-                averageResponseTime = "245ms",
-                successRate = 98.7,
+                TimeRange = timeRange,
+                GeneratedAt = DateTime.UtcNow,
+                TotalInvocations = 1247,
+                UniqueTools = 23,
+                AverageResponseTime = "245ms",
+                SuccessRate = 98.7,
                 
-                topTools = new[]
+                TopTools = new List<TopToolInfo>
                 {
-                    new { name = "query_entities", invocations = 312, avgResponseTime = "180ms" },
-                    new { name = "get_available_types", invocations = 156, avgResponseTime = "95ms" },
-                    new { name = "analyze_energy_consumption", invocations = 89, avgResponseTime = "420ms" },
-                    new { name = "get_machine_alarms", invocations = 67, avgResponseTime = "220ms" },
-                    new { name = "create_entity", invocations = 45, avgResponseTime = "350ms" }
+                    new() { Name = "query_entities", Invocations = 312, AvgResponseTime = "180ms" },
+                    new() { Name = "get_available_types", Invocations = 156, AvgResponseTime = "95ms" },
+                    new() { Name = "analyze_energy_consumption", Invocations = 89, AvgResponseTime = "420ms" },
+                    new() { Name = "get_machine_alarms", Invocations = 67, AvgResponseTime = "220ms" },
+                    new() { Name = "create_entity", Invocations = 45, AvgResponseTime = "350ms" }
                 },
                 
-                categoryBreakdown = new
+                CategoryBreakdown = new CategoryBreakdownInfo
                 {
-                    crud = 45.2,
-                    analytics = 28.7,
-                    discovery = 15.8,
-                    maintenance = 6.9,
-                    management = 3.4
+                    Crud = 45.2,
+                    Analytics = 28.7,
+                    Discovery = 15.8,
+                    Maintenance = 6.9,
+                    Management = 3.4
                 },
                 
-                errorStats = new
+                ErrorStats = new ErrorStatistics
                 {
-                    totalErrors = 16,
-                    commonErrors = new[]
+                    TotalErrors = 16,
+                    CommonErrors = new List<CommonErrorInfo>
                     {
-                        new { error = "Entity not found", count = 8 },
-                        new { error = "Invalid CK Type ID", count = 4 },
-                        new { error = "Permission denied", count = 3 },
-                        new { error = "Invalid date format", count = 1 }
+                        new() { Error = "Entity not found", Count = 8 },
+                        new() { Error = "Invalid CK Type ID", Count = 4 },
+                        new() { Error = "Permission denied", Count = 3 },
+                        new() { Error = "Invalid date format", Count = 1 }
                     }
                 },
 
-                performance = new
+                Performance = new PerformanceMetrics
                 {
-                    fastestTool = new { name = "get_available_models", avgTime = "45ms" },
-                    slowestTool = new { name = "generate_executive_dashboard", avgTime = "1.2s" },
-                    mostReliable = new { name = "list_available_tools", successRate = 100.0 },
-                    leastReliable = new { name = "analyze_machine_performance", successRate = 94.2 }
+                    FastestTool = new PerformanceToolInfo { Name = "get_available_models", AvgTime = "45ms" },
+                    SlowestTool = new PerformanceToolInfo { Name = "generate_executive_dashboard", AvgTime = "1.2s" },
+                    MostReliable = new ReliabilityToolInfo { Name = "list_available_tools", SuccessRate = 100.0 },
+                    LeastReliable = new ReliabilityToolInfo { Name = "analyze_machine_performance", SuccessRate = 94.2 }
                 }
             };
 
@@ -250,10 +255,10 @@ public sealed class ToolManagementTools
         }
         catch (Exception ex)
         {
-            return Task.FromResult<object>(new
+            return Task.FromResult<object>(new ToolManagementError
             {
-                error = "Failed to get tool statistics",
-                message = ex.Message
+                Error = "Failed to get tool statistics",
+                Message = ex.Message
             });
         }
     }
@@ -276,51 +281,51 @@ public sealed class ToolManagementTools
         {
             var toolDetails = await GetToolDetails(server, toolName);
             
-            if (((dynamic)toolDetails).error != null)
+            if (((dynamic)toolDetails).Error != null)
             {
-                return new
+                return new ValidateParametersResponse
                 {
-                    isValid = false,
-                    error = "Tool not found",
-                    toolName
+                    IsValid = false,
+                    ToolName = toolName,
+                    ProvidedParameters = new List<string>(),
+                    ValidationResults = new List<ParameterValidationResult>(),
+                    Warnings = new List<string>(),
+                    Errors = new List<string> { "Tool not found" },
+                    Summary = new ValidationSummary
+                    {
+                        TotalProvided = 0,
+                        RequiredMissing = 0,
+                        UnknownParams = 0,
+                        Recommendation = "Tool not found - check tool name"
+                    }
                 };
             }
 
-            var toolInfo = (dynamic)toolDetails;
+            var toolInfo = (ToolDetailsResponse)toolDetails;
             var providedParams = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(parameters);
-            var requiredParams = ((IEnumerable<dynamic>)toolInfo.requiredParameters).ToList();
-            var allParams = ((IEnumerable<dynamic>)toolInfo.parameters).ToList();
-
-            var validation = new
-            {
-                isValid = true,
-                toolName,
-                providedParameters = providedParams?.Keys.ToList() ?? [],
-                validationResults = new List<object>(),
-                warnings = new List<string>(),
-                errors = new List<string>()
-            };
+            var requiredParams = toolInfo.RequiredParameters;
+            var allParams = toolInfo.Parameters;
 
             var errors = new List<string>();
             var warnings = new List<string>();
-            var results = new List<object>();
+            var results = new List<ParameterValidationResult>();
 
             // Check required parameters
             foreach (var reqParam in requiredParams)
             {
-                var paramName = (string)reqParam.name;
+                var paramName = reqParam.Name;
                 if (providedParams?.ContainsKey(paramName) != true)
                 {
                     errors.Add($"Required parameter '{paramName}' is missing");
                 }
                 else
                 {
-                    results.Add(new
+                    results.Add(new ParameterValidationResult
                     {
-                        parameter = paramName,
-                        status = "valid",
-                        type = (string)reqParam.type,
-                        providedValue = providedParams[paramName]?.ToString()
+                        Parameter = paramName,
+                        Status = "valid",
+                        Type = reqParam.Type,
+                        ProvidedValue = providedParams[paramName]?.ToString()
                     });
                 }
             }
@@ -328,7 +333,7 @@ public sealed class ToolManagementTools
             // Check for unknown parameters
             if (providedParams != null)
             {
-                var knownParams = allParams.Select(p => (string)p.name).ToHashSet();
+                var knownParams = allParams.Select(p => p.Name).ToHashSet();
                 foreach (var providedParam in providedParams.Keys)
                 {
                     if (!knownParams.Contains(providedParam))
@@ -338,31 +343,40 @@ public sealed class ToolManagementTools
                 }
             }
 
-            return new
+            return new ValidateParametersResponse
             {
-                isValid = errors.Count == 0,
-                toolName,
-                providedParameters = providedParams?.Keys.ToList() ?? [],
-                validationResults = results,
-                warnings,
-                errors,
-                summary = new
+                IsValid = errors.Count == 0,
+                ToolName = toolName,
+                ProvidedParameters = providedParams?.Keys.ToList() ?? new List<string>(),
+                ValidationResults = results,
+                Warnings = warnings,
+                Errors = errors,
+                Summary = new ValidationSummary
                 {
-                    totalProvided = providedParams?.Count ?? 0,
-                    requiredMissing = errors.Count(e => e.Contains("missing")),
-                    unknownParams = warnings.Count(w => w.Contains("Unknown")),
-                    recommendation = errors.Count == 0 ? "Parameters are valid for execution" : "Fix errors before executing tool"
+                    TotalProvided = providedParams?.Count ?? 0,
+                    RequiredMissing = errors.Count(e => e.Contains("missing")),
+                    UnknownParams = warnings.Count(w => w.Contains("Unknown")),
+                    Recommendation = errors.Count == 0 ? "Parameters are valid for execution" : "Fix errors before executing tool"
                 }
             };
         }
         catch (Exception ex)
         {
-            return new
+            return new ValidateParametersResponse
             {
-                isValid = false,
-                error = "Failed to validate parameters",
-                message = ex.Message,
-                toolName
+                IsValid = false,
+                ToolName = toolName,
+                ProvidedParameters = new List<string>(),
+                ValidationResults = new List<ParameterValidationResult>(),
+                Warnings = new List<string>(),
+                Errors = new List<string> { ex.Message },
+                Summary = new ValidationSummary
+                {
+                    TotalProvided = 0,
+                    RequiredMissing = 0,
+                    UnknownParams = 0,
+                    Recommendation = "Failed to validate parameters"
+                }
             };
         }
     }
@@ -458,22 +472,22 @@ public sealed class ToolManagementTools
         };
     }
 
-    private static List<object> GenerateUsageExamples(string toolName, List<dynamic> parameters)
+    private static List<ToolUsageExample> GenerateUsageExamples(string toolName, List<ToolParameterInfo> parameters)
     {
-        var examples = new List<object>();
+        var examples = new List<ToolUsageExample>();
 
         switch (toolName)
         {
             case "query_entities":
-                examples.Add(new
+                examples.Add(new ToolUsageExample
                 {
-                    description = "Query all customers",
-                    parameters = new { ckTypeId = "EnergyCommunity-1.0.0/Customer-1.0.0", limit = 10 }
+                    Description = "Query all customers",
+                    Parameters = new { ckTypeId = "EnergyCommunity-1.0.0/Customer-1.0.0", limit = 10 }
                 });
-                examples.Add(new
+                examples.Add(new ToolUsageExample
                 {
-                    description = "Query customers with filter",
-                    parameters = new
+                    Description = "Query customers with filter",
+                    Parameters = new
                     {
                         ckTypeId = "EnergyCommunity-1.0.0/Customer-1.0.0",
                         filters = "{\"State\": \"Active\"}",
@@ -483,10 +497,10 @@ public sealed class ToolManagementTools
                 break;
 
             case "analyze_energy_consumption":
-                examples.Add(new
+                examples.Add(new ToolUsageExample
                 {
-                    description = "Analyze energy consumption for the last month",
-                    parameters = new
+                    Description = "Analyze energy consumption for the last month",
+                    Parameters = new
                     {
                         fromDate = "2024-01-01T00:00:00Z",
                         toDate = "2024-01-31T23:59:59Z"
@@ -495,20 +509,20 @@ public sealed class ToolManagementTools
                 break;
 
             case "get_type_schema":
-                examples.Add(new
+                examples.Add(new ToolUsageExample
                 {
-                    description = "Get schema for Customer type",
-                    parameters = new { ckTypeId = "EnergyCommunity-1.0.0/Customer-1.0.0" }
+                    Description = "Get schema for Customer type",
+                    Parameters = new { ckTypeId = "EnergyCommunity-1.0.0/Customer-1.0.0" }
                 });
                 break;
 
             default:
-                examples.Add(new
+                examples.Add(new ToolUsageExample
                 {
-                    description = "Basic usage",
-                    parameters = parameters
-                        .Where(p => !p.isOptional)
-                        .ToDictionary(p => (string)p.name, p => $"<{p.type}>")
+                    Description = "Basic usage",
+                    Parameters = parameters
+                        .Where(p => !p.IsOptional)
+                        .ToDictionary(p => p.Name, p => $"<{p.Type}>")
                 });
                 break;
         }
