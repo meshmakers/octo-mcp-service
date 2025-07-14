@@ -319,6 +319,158 @@ public sealed class DynamicCrudTools
         }
     }
 
+    /// <summary>
+    /// Navigate associations from a source entity to find related entities
+    /// </summary>
+    /// <param name="server">MCP Server instance</param>
+    /// <param name="ckTypeId">Source Construction Kit Type ID</param>
+    /// <param name="rtId">Source Runtime entity ID</param>
+    /// <param name="associationPath">Dot-separated path of associations to follow (e.g., "Facilities.Children")</param>
+    /// <param name="targetTypeId">Optional target type ID to filter results</param>
+    /// <param name="filters">Optional filters for the target entities as JSON object</param>
+    /// <returns>Related entities following the association path</returns>
+    [McpServerTool(Name = "navigate_associations")]
+    [Description("Navigate associations from a source entity to find related entities")]
+    public static async Task<object> NavigateAssociations(
+        IMcpServer server,
+        string ckTypeId,
+        string rtId,
+        string associationPath,
+        string? targetTypeId = null,
+        string? filters = null)
+    {
+        var httpContextAccessor = server.Services!.GetRequiredService<IHttpContextAccessor>();
+        var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
+        var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
+        var tenantId = httpContextAccessor.GetTenantId();
+
+        using var session = await tenantRepository.GetSessionAsync();
+
+        try
+        {
+            // Get the source entity
+            var sourceEntityId = new RtEntityId(new CkId<CkTypeId>(ckTypeId), new OctoObjectId(rtId));
+            var sourceEntity = await tenantRepository.GetRtEntityByRtIdAsync(session, sourceEntityId);
+
+            if (sourceEntity == null)
+            {
+                return new EntityNotFoundResponse
+                {
+                    Error = "Source entity not found",
+                    RtId = rtId,
+                    CkTypeId = ckTypeId
+                };
+            }
+
+            // Navigate the association path
+            var currentEntities = new List<(RtEntity entity, CkId<CkTypeId> typeId)> 
+                { (sourceEntity, new CkId<CkTypeId>(ckTypeId)) };
+            var pathSteps = associationPath.Split('.');
+
+            foreach (var step in pathSteps)
+            {
+                var nextEntities = new List<(RtEntity entity, CkId<CkTypeId> typeId)>();
+
+                foreach (var (entity, entityTypeId) in currentEntities)
+                {
+                    // Get association navigation property
+                    var typeGraph = ckCacheService.GetCkType(tenantId, entityTypeId);
+                    var outAssociation = typeGraph.Associations.Out.All.FirstOrDefault(a => a.NavigationPropertyName == step);
+                    var inAssociation = typeGraph.Associations.In.All.FirstOrDefault(a => a.NavigationPropertyName == step);
+
+                    if (outAssociation == null && inAssociation == null)
+                    {
+                        return new EntityOperationError
+                        {
+                            Error = "Association not found",
+                            Message = $"Association '{step}' not found on type '{entityTypeId}'",
+                            CkTypeId = ckTypeId,
+                            RtId = rtId
+                        };
+                    }
+
+                    // Handle outgoing association
+                    if (outAssociation != null)
+                    {
+                        var queryOperation = DataQueryOperation.Create();
+                        var associatedResults = await tenantRepository.GetRtAssociationTargetsAsync(
+                            session, 
+                            entity.RtId, 
+                            entityTypeId,
+                            outAssociation.CkRoleId, 
+                            outAssociation.TargetCkTypeId, 
+                            GraphDirections.Outbound,
+                            null, 
+                            queryOperation);
+
+                        foreach (var associatedEntity in associatedResults.Items)
+                        {
+                            nextEntities.Add((associatedEntity, outAssociation.TargetCkTypeId));
+                        }
+                    }
+
+                    // Handle incoming association
+                    if (inAssociation != null)
+                    {
+                        var queryOperation = DataQueryOperation.Create();
+                        var associatedResults = await tenantRepository.GetRtAssociationTargetsAsync(
+                            session, 
+                            entity.RtId, 
+                            entityTypeId,
+                            inAssociation.CkRoleId, 
+                            inAssociation.OriginCkTypeId, 
+                            GraphDirections.Inbound,
+                            null, 
+                            queryOperation);
+
+                        foreach (var associatedEntity in associatedResults.Items)
+                        {
+                            nextEntities.Add((associatedEntity, inAssociation.OriginCkTypeId));
+                        }
+                    }
+                }
+
+                currentEntities = nextEntities;
+            }
+
+            var resultEntities = currentEntities.Select(ce => ce.entity).ToList();
+
+            // Filter by target type if specified
+            if (!string.IsNullOrEmpty(targetTypeId))
+            {
+                var targetCkTypeId = new CkId<CkTypeId>(targetTypeId);
+                resultEntities = resultEntities.Where(e => e.CkTypeId != null && e.CkTypeId.Equals(targetCkTypeId)).ToList();
+            }
+
+            // Apply additional filters if provided
+            if (!string.IsNullOrEmpty(filters) && resultEntities.Any())
+            {
+                var filterDict = JsonSerializer.Deserialize<Dictionary<string, object>>(filters);
+                resultEntities = ApplyEntityFilters(resultEntities, filterDict, ckCacheService, tenantId);
+            }
+
+            return new NavigateAssociationsResponse
+            {
+                SourceCkTypeId = ckTypeId,
+                SourceRtId = rtId,
+                AssociationPath = associationPath,
+                TargetTypeId = targetTypeId,
+                ResultCount = resultEntities.Count,
+                Entities = EntityMapper.MapToDto(resultEntities, ckCacheService, tenantId)
+            };
+        }
+        catch (Exception ex)
+        {
+            return new EntityOperationError
+            {
+                Error = "Failed to navigate associations",
+                Message = ex.Message,
+                CkTypeId = ckTypeId,
+                RtId = rtId
+            };
+        }
+    }
+
     #region Helper Methods
 
     private static void BuildFieldFilters(Dictionary<string, object>? filterDict,
@@ -347,6 +499,27 @@ public sealed class DynamicCrudTools
 
             entity.SetAttributeValueByAccessPath(ckCacheService, tenantId, kvp.Key, kvp.Value);
         }
+    }
+
+    private static List<RtEntity> ApplyEntityFilters(List<RtEntity> entities, Dictionary<string, object>? filterDict, ICkCacheService ckCacheService, string tenantId)
+    {
+        if (filterDict == null || !filterDict.Any())
+        {
+            return entities;
+        }
+
+        return entities.Where(entity =>
+        {
+            foreach (var filter in filterDict)
+            {
+                var attributeValue = entity.GetAttributeValueByAccessPath(ckCacheService, tenantId, filter.Key);
+                if (attributeValue == null || !attributeValue.Equals(filter.Value))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }).ToList();
     }
 
     #endregion

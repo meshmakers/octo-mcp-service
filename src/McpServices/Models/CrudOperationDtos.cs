@@ -174,3 +174,86 @@ public sealed class EntityOperationError
     /// </summary>
     public string? EntityId { get; init; }
 }
+
+/// <summary>
+/// Response for association navigation operations
+/// </summary>
+public sealed class NavigateAssociationsResponse
+{
+    /// <summary>
+    /// Source Construction Kit Type ID
+    /// </summary>
+    public required string SourceCkTypeId { get; init; }
+    
+    /// <summary>
+    /// Source Runtime entity ID
+    /// </summary>
+    public required string SourceRtId { get; init; }
+    
+    /// <summary>
+    /// Association path that was followed
+    /// </summary>
+    public required string AssociationPath { get; init; }
+    
+    /// <summary>
+    /// Target type filter that was applied, if any
+    /// </summary>
+    public string? TargetTypeId { get; init; }
+    
+    /// <summary>
+    /// Number of entities found following the association path
+    /// </summary>
+    public required int ResultCount { get; init; }
+    
+    /// <summary>
+    /// Collection of related entities
+    /// </summary>
+    public required IList<RtEntityDto> Entities { get; init; }
+}
+
+/// <summary>
+/// Response for customer energy generation queries
+/// </summary>
+public sealed class CustomerEnergyGenerationResponse
+{
+    /// <summary>
+    /// Customer entity information
+    /// </summary>
+    public required RtEntityDto Customer { get; init; }
+    
+    /// <summary>
+    /// Energy generation data for Q1 2025
+    /// </summary>
+    public required List<EnergyDataPoint> Q1_2025_Data { get; init; }
+}
+
+/// <summary>
+/// Individual energy data point
+/// </summary>
+public sealed class EnergyDataPoint
+{
+    /// <summary>
+    /// Name of the operating facility
+    /// </summary>
+    public required string FacilityName { get; init; }
+    
+    /// <summary>
+    /// Name of the metering point
+    /// </summary>
+    public required string MeteringPointName { get; init; }
+    
+    /// <summary>
+    /// Energy quantity value
+    /// </summary>
+    public required double Quantity { get; init; }
+    
+    /// <summary>
+    /// Time range for this data point
+    /// </summary>
+    public required string TimeRange { get; init; }
+    
+    /// <summary>
+    /// ID of the energy quantity entity
+    /// </summary>
+    public required string EnergyQuantityId { get; init; }
+}
