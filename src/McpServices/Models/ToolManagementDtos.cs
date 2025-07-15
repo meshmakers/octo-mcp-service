@@ -179,6 +179,11 @@ public sealed class ToolDetailsResponse
     /// Additional notes and tips for using this tool
     /// </summary>
     public required List<string> Notes { get; init; }
+
+    /// <summary>
+    /// Return type description, if applicable
+    /// </summary>
+    public string? ReturnDescription { get; init; }
 }
 
 /// <summary>

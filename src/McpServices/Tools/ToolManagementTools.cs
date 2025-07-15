@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Reflection;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using ModelContextProtocol.Server;
+// ReSharper disable MemberCanBePrivate.Global
 
 namespace Meshmakers.Octo.Backend.McpServices.Tools;
 
@@ -11,15 +12,17 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 [McpServerToolType]
 public sealed class ToolManagementTools
 {
+    private static readonly Lazy<XmlDocumentationProvider> XmlDocs =
+        new(() => new XmlDocumentationProvider());
+
     /// <summary>
     /// Get information about all available MCP tools in this server
     /// </summary>
     /// <param name="server">MCP Server instance</param>
-    /// <param name="category">Optional filter by tool category</param>
+    /// <param name="category">Optional filter by tool category (e.g., 'CRUD Operations', 'Analytics')</param>
     /// <returns>List of available tools with descriptions and parameters</returns>
     [McpServerTool(Name = "list_available_tools")]
-    [Description("Get information about all available MCP tools in this server")]
-    public static Task<object> ListAvailableTools(
+    public static Task<ListAvailableToolsResponse> ListAvailableTools(
         IMcpServer server,
         string? category = null)
     {
@@ -42,7 +45,6 @@ public sealed class ToolManagementTools
                 foreach (var method in toolMethods)
                 {
                     var toolAttr = method.GetCustomAttribute<McpServerToolAttribute>();
-                    var descAttr = method.GetCustomAttribute<DescriptionAttribute>();
                     
                     if (toolAttr != null && !string.IsNullOrEmpty(toolAttr.Name))
                     {
@@ -54,6 +56,7 @@ public sealed class ToolManagementTools
                             continue;
                         }
 
+                        var description = GetToolDescription(method);
                         var parameters = method.GetParameters()
                             .Skip(1) // Skip the IMcpServer parameter
                             .Select(p => new ToolParameterInfo
@@ -62,7 +65,7 @@ public sealed class ToolManagementTools
                                 Type = GetFriendlyTypeName(p.ParameterType),
                                 IsOptional = p.HasDefaultValue,
                                 DefaultValue = p.HasDefaultValue ? p.DefaultValue?.ToString() : null,
-                                Description = GetParameterDescription(p)
+                                Description = XmlDocs.Value.GetParameterDescription(method, p.Name ?? "")
                             })
                             .ToList();
 
@@ -70,7 +73,7 @@ public sealed class ToolManagementTools
                         {
                             Name = toolAttr.Name,
                             Category = toolCategory,
-                            Description = descAttr?.Description ?? "No description available",
+                            Description = description,
                             ClassName = toolType.Name,
                             MethodName = method.Name,
                             Parameters = parameters,
@@ -84,7 +87,7 @@ public sealed class ToolManagementTools
             var categories = tools.GroupBy(t => t.Category)
                 .ToDictionary(g => g.Key, g => g.Count());
 
-            return Task.FromResult<object>(new ListAvailableToolsResponse
+            return Task.FromResult(new ListAvailableToolsResponse
             {
                 TotalTools = tools.Count,
                 Categories = categories,
@@ -92,12 +95,14 @@ public sealed class ToolManagementTools
                 Tools = tools.OrderBy(t => t.Category).ThenBy(t => t.Name).ToList()
             });
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            return Task.FromResult<object>(new ToolManagementError
+            return Task.FromResult(new ListAvailableToolsResponse
             {
-                Error = "Failed to list available tools",
-                Message = ex.Message
+                TotalTools = 0,
+                Categories = new Dictionary<string, int>(),
+                CategoryFilter = category,
+                Tools = new List<ToolInfo>()
             });
         }
     }
@@ -106,11 +111,10 @@ public sealed class ToolManagementTools
     /// Get detailed information about a specific tool including usage examples
     /// </summary>
     /// <param name="server">MCP Server instance</param>
-    /// <param name="toolName">Name of the tool to get details for</param>
-    /// <returns>Detailed tool information with usage examples</returns>
+    /// <param name="toolName">Name of the tool to get details for (use list_available_tools to see all tools)</param>
+    /// <returns>Detailed tool information with usage examples, parameter details, and documentation</returns>
     [McpServerTool(Name = "get_tool_details")]
-    [Description("Get detailed information about a specific tool including usage examples")]
-    public static Task<object> GetToolDetails(
+    public static Task<ToolDetailsResponse> GetToolDetails(
         IMcpServer server,
         string toolName)
     {
@@ -132,10 +136,12 @@ public sealed class ToolManagementTools
                 if (method != null)
                 {
                     var toolAttr = method.GetCustomAttribute<McpServerToolAttribute>();
-                    var descAttr = method.GetCustomAttribute<DescriptionAttribute>();
 
                     if (toolAttr != null && !string.IsNullOrEmpty(toolAttr.Name))
                     {
+                        var description = GetToolDescription(method);
+                        var returnDescription = XmlDocs.Value.GetReturnDescription(method);
+                        
                         var parameters = method.GetParameters()
                             .Skip(1) // Skip IMcpServer parameter
                             .Select(p => new ToolParameterInfo
@@ -144,17 +150,18 @@ public sealed class ToolManagementTools
                                 Type = GetFriendlyTypeName(p.ParameterType),
                                 IsOptional = p.HasDefaultValue,
                                 DefaultValue = p.HasDefaultValue ? p.DefaultValue?.ToString() : null,
-                                Description = GetParameterDescription(p)
+                                Description = XmlDocs.Value.GetParameterDescription(method, p.Name ?? "")
                             })
                             .ToList();
 
                         var examples = GenerateUsageExamples(toolName, parameters);
 
-                        return Task.FromResult<object>(new ToolDetailsResponse
+                        return Task.FromResult(new ToolDetailsResponse
                         {
-                            Name = toolAttr!.Name,
+                            Name = toolAttr.Name,
                             Category = GetToolCategory(toolType.Name),
-                            Description = descAttr?.Description ?? "No description available",
+                            Description = description,
+                            ReturnDescription = returnDescription,
                             ClassName = toolType.Name,
                             MethodName = method.Name,
                             ReturnType = GetFriendlyTypeName(method.ReturnType),
@@ -168,22 +175,11 @@ public sealed class ToolManagementTools
                 }
             }
 
-            return Task.FromResult<object>(new ToolManagementError
-            {
-                Error = "Tool not found",
-                Message = "The specified tool name was not found in the available tools",
-                ToolName = toolName,
-                Suggestion = "Use 'list_available_tools' to see all available tools"
-            });
+            throw new ArgumentException($"Tool '{toolName}' not found. Use 'list_available_tools' to see all available tools.");
         }
         catch (Exception ex)
         {
-            return Task.FromResult<object>(new ToolManagementError
-            {
-                Error = "Failed to get tool details",
-                Message = ex.Message,
-                ToolName = toolName
-            });
+            throw new InvalidOperationException($"Failed to get tool details for '{toolName}': {ex.Message}", ex);
         }
     }
 
@@ -191,11 +187,10 @@ public sealed class ToolManagementTools
     /// Get usage statistics and performance metrics for MCP tools
     /// </summary>
     /// <param name="server">MCP Server instance</param>
-    /// <param name="timeRange">Time range for statistics: 'hour', 'day', 'week', 'month'</param>
-    /// <returns>Tool usage statistics and performance metrics</returns>
+    /// <param name="timeRange">Time range for statistics: 'hour', 'day', 'week', 'month' (default: 'day')</param>
+    /// <returns>Tool usage statistics including invocation counts, performance metrics, error rates, and top performing tools</returns>
     [McpServerTool(Name = "get_tool_statistics")]
-    [Description("Get usage statistics and performance metrics for MCP tools")]
-    public static Task<object> GetToolStatistics(
+    public static Task<ToolStatistics> GetToolStatistics(
         IMcpServer server,
         string timeRange = "day")
     {
@@ -212,14 +207,14 @@ public sealed class ToolManagementTools
                 AverageResponseTime = "245ms",
                 SuccessRate = 98.7,
                 
-                TopTools = new List<TopToolInfo>
-                {
+                TopTools =
+                [
                     new() { Name = "query_entities", Invocations = 312, AvgResponseTime = "180ms" },
                     new() { Name = "get_available_types", Invocations = 156, AvgResponseTime = "95ms" },
                     new() { Name = "analyze_energy_consumption", Invocations = 89, AvgResponseTime = "420ms" },
                     new() { Name = "get_machine_alarms", Invocations = 67, AvgResponseTime = "220ms" },
                     new() { Name = "create_entity", Invocations = 45, AvgResponseTime = "350ms" }
-                },
+                ],
                 
                 CategoryBreakdown = new CategoryBreakdownInfo
                 {
@@ -233,13 +228,13 @@ public sealed class ToolManagementTools
                 ErrorStats = new ErrorStatistics
                 {
                     TotalErrors = 16,
-                    CommonErrors = new List<CommonErrorInfo>
-                    {
+                    CommonErrors =
+                    [
                         new() { Error = "Entity not found", Count = 8 },
                         new() { Error = "Invalid CK Type ID", Count = 4 },
                         new() { Error = "Permission denied", Count = 3 },
                         new() { Error = "Invalid date format", Count = 1 }
-                    }
+                    ]
                 },
 
                 Performance = new PerformanceMetrics
@@ -251,37 +246,35 @@ public sealed class ToolManagementTools
                 }
             };
 
-            return Task.FromResult<object>(mockStats);
+            return Task.FromResult(mockStats);
         }
         catch (Exception ex)
         {
-            return Task.FromResult<object>(new ToolManagementError
-            {
-                Error = "Failed to get tool statistics",
-                Message = ex.Message
-            });
+            throw new InvalidOperationException($"Failed to get tool statistics: {ex.Message}", ex);
         }
     }
 
     /// <summary>
-    /// Validate tool parameters before execution
+    /// Validate tool parameters before execution to catch configuration errors early
     /// </summary>
     /// <param name="server">MCP Server instance</param>
-    /// <param name="toolName">Name of the tool to validate</param>
-    /// <param name="parameters">Parameters to validate as JSON string</param>
-    /// <returns>Parameter validation results</returns>
+    /// <param name="toolName">Name of the tool to validate (must be exact tool name)</param>
+    /// <param name="parameters">Parameters to validate as JSON string (e.g., '{"ckTypeId": "Customer-1.0.0", "limit": 10}')</param>
+    /// <returns>Comprehensive parameter validation results including errors, warnings, and suggestions for fixes</returns>
     [McpServerTool(Name = "validate_tool_parameters")]
-    [Description("Validate tool parameters before execution to catch errors early")]
-    public static async Task<object> ValidateToolParameters(
+    public static async Task<ValidateParametersResponse> ValidateToolParameters(
         IMcpServer server,
         string toolName,
         string parameters)
     {
         try
         {
-            var toolDetails = await GetToolDetails(server, toolName);
-            
-            if (((dynamic)toolDetails).Error != null)
+            ToolDetailsResponse toolInfo;
+            try
+            {
+                toolInfo = await GetToolDetails(server, toolName);
+            }
+            catch
             {
                 return new ValidateParametersResponse
                 {
@@ -290,7 +283,7 @@ public sealed class ToolManagementTools
                     ProvidedParameters = new List<string>(),
                     ValidationResults = new List<ParameterValidationResult>(),
                     Warnings = new List<string>(),
-                    Errors = new List<string> { "Tool not found" },
+                    Errors = ["Tool not found"],
                     Summary = new ValidationSummary
                     {
                         TotalProvided = 0,
@@ -300,8 +293,6 @@ public sealed class ToolManagementTools
                     }
                 };
             }
-
-            var toolInfo = (ToolDetailsResponse)toolDetails;
             var providedParams = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(parameters);
             var requiredParams = toolInfo.RequiredParameters;
             var allParams = toolInfo.Parameters;
@@ -325,7 +316,7 @@ public sealed class ToolManagementTools
                         Parameter = paramName,
                         Status = "valid",
                         Type = reqParam.Type,
-                        ProvidedValue = providedParams[paramName]?.ToString()
+                        ProvidedValue = providedParams[paramName].ToString()
                     });
                 }
             }
@@ -369,7 +360,7 @@ public sealed class ToolManagementTools
                 ProvidedParameters = new List<string>(),
                 ValidationResults = new List<ParameterValidationResult>(),
                 Warnings = new List<string>(),
-                Errors = new List<string> { ex.Message },
+                Errors = [ex.Message],
                 Summary = new ValidationSummary
                 {
                     TotalProvided = 0,
@@ -379,6 +370,28 @@ public sealed class ToolManagementTools
                 }
             };
         }
+    }
+
+    /// <summary>
+    /// Get tool description from XML documentation with fallback to Description attribute
+    /// </summary>
+    private static string GetToolDescription(MethodInfo method)
+    {
+        // Try XML documentation first
+        var xmlDescription = XmlDocs.Value.GetMethodSummary(method);
+        if (!string.IsNullOrEmpty(xmlDescription))
+        {
+            return xmlDescription;
+        }
+        
+        // Fallback to Description attribute
+        var descriptionAttr = method.GetCustomAttribute<DescriptionAttribute>();
+        if (descriptionAttr != null && !string.IsNullOrEmpty(descriptionAttr.Description))
+        {
+            return descriptionAttr.Description;
+        }
+        
+        return $"No description available for {method.Name}";
     }
 
     #region Helper Methods
@@ -451,25 +464,6 @@ public sealed class ToolManagementTools
         }
 
         return type.Name;
-    }
-
-    private static string GetParameterDescription(ParameterInfo parameter)
-    {
-        // This could be enhanced to read from XML documentation or attributes
-        return parameter.Name switch
-        {
-            "ckTypeId" => "Construction Kit Type ID (e.g., 'EnergyCommunity-1.0.0/Customer-1.0.0')",
-            "entityId" => "Runtime entity ID (ObjectId string)",
-            "fromDate" => "Start date in ISO 8601 format (e.g., '2024-01-01T00:00:00Z')",
-            "toDate" => "End date in ISO 8601 format (e.g., '2024-12-31T23:59:59Z')",
-            "limit" => "Maximum number of results to return",
-            "offset" => "Number of results to skip for pagination",
-            "filters" => "JSON object with field filters",
-            "entityData" => "JSON object with entity attributes",
-            "includeAbstract" => "Whether to include abstract types in results",
-            "direction" => "Association direction: 'inbound', 'outbound', or 'both'",
-            _ => $"Parameter: {parameter.Name}"
-        };
     }
 
     private static List<ToolUsageExample> GenerateUsageExamples(string toolName, List<ToolParameterInfo> parameters)
