@@ -20,7 +20,7 @@ public class ToolManagementToolsTests : TestBase
         result.Should().NotBeNull();
         result.Should().BeOfType<ListAvailableToolsResponse>();
         
-        var response = (ListAvailableToolsResponse)result;
+        var response = result;
         response.Should().NotBeNull();
         response.TotalTools.Should().BeGreaterThan(0);
         response.Tools.Should().NotBeEmpty();

@@ -401,7 +401,7 @@ public sealed class ToolManagementTools
     {
         return className switch
         {
-            "DynamicCrudTools" => "CRUD Operations",
+            "RuntimeEntityCrudTools" => "CRUD Operations",
             "SchemaDiscoveryTools" => "Schema Discovery",
             "DomainSpecificTools" => "Domain Analytics",
             "AdvancedAnalyticsTools" => "Advanced Analytics",
