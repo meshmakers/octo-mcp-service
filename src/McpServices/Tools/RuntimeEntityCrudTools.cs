@@ -6,17 +6,16 @@ using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Runtime.Contracts.RepositoryEntities;
-using Meshmakers.Octo.Services.Infrastructure;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using ModelContextProtocol.Server;
 
 namespace Meshmakers.Octo.Backend.McpServices.Tools;
 
 /// <summary>
-/// Dynamic CRUD operations for all Construction Kit types
+/// CRUD operations for Runtime Model of OctoMesh
 /// </summary>
 [McpServerToolType]
-public sealed class DynamicCrudTools
+public sealed class RuntimeEntityCrudTools
 {
     /// <summary>
     /// Query entities of any CK type with optional filters
@@ -24,7 +23,7 @@ public sealed class DynamicCrudTools
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Construction Kit Type ID (e.g., 'EnergyCommunity-1.0.0/Customer-1.0.0')</param>
     /// <param name="filters">Optional filters - can be:
-    /// 1. Simple JSON string for equality filters: {"FirstName": "Gerald", "LastName": "Lochner"}
+    /// 1. Simple JSON string for equality filters: {"contact.firstName": "Gerald", "contact.lastName": "Lochner"}
     /// 2. Complex EntityFilterDto object for advanced filtering with operators
     /// </param>
     /// <param name="limit">Maximum number of results to return</param>

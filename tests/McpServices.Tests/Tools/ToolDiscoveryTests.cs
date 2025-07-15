@@ -89,7 +89,7 @@ public class ToolDiscoveryTests
     public void DynamicCrudTools_HasCorrectToolAttributes()
     {
         // Arrange
-        var toolType = typeof(DynamicCrudTools);
+        var toolType = typeof(RuntimeEntityCrudTools);
         
         // Act
         var toolTypeAttribute = toolType.GetCustomAttribute<McpServerToolTypeAttribute>();

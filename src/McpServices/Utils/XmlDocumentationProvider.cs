@@ -1,8 +1,7 @@
 using System.Reflection;
-using System.Text;
 using System.Xml.Linq;
 
-namespace Meshmakers.Octo.Backend.McpServices.Tools;
+namespace Meshmakers.Octo.Backend.McpServices.Utils;
 
 /// <summary>
 /// Provider for XML documentation at runtime
@@ -34,39 +33,6 @@ internal class XmlDocumentationProvider
         {
             // Fallback to empty documentation if the XML file not found
         }
-    }
-
-    public string GetMethodDescription(MethodInfo method)
-    {
-        var summary = GetMethodSummary(method);
-        if (string.IsNullOrEmpty(summary))
-        {
-            return $"No documentation available for {method.Name}";
-        }
-
-        var paramDocs = GetParameterDocumentations(method);
-        var returnDoc = GetReturnDescription(method);
-
-        var description = new StringBuilder();
-        description.AppendLine(summary);
-
-        if (paramDocs.Any())
-        {
-            description.AppendLine();
-            description.AppendLine("Parameters:");
-            foreach (var param in paramDocs)
-            {
-                description.AppendLine($"- {param.Key}: {param.Value}");
-            }
-        }
-
-        if (!string.IsNullOrEmpty(returnDoc))
-        {
-            description.AppendLine();
-            description.AppendLine($"Returns: {returnDoc}");
-        }
-
-        return description.ToString().Trim();
     }
 
     public string GetMethodSummary(MethodInfo method)
@@ -104,20 +70,6 @@ internal class XmlDocumentationProvider
             ?.Element("returns");
 
         return returnElement?.Value.Trim() ?? "";
-    }
-
-    private Dictionary<string, string> GetParameterDocumentations(MethodInfo method)
-    {
-        var memberName = GetMemberName(method);
-        var xmlDoc = GetXmlDoc(method.DeclaringType?.Assembly);
-
-        return xmlDoc?.Descendants("member")
-            .FirstOrDefault(x => x.Attribute("name")?.Value == memberName)
-            ?.Elements("param")
-            .ToDictionary(
-                x => x.Attribute("name")?.Value ?? "",
-                x => x.Value.Trim()
-            ) ?? new Dictionary<string, string>();
     }
 
     private string GetMemberName(MethodInfo method)
