@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Meshmakers.Octo.Services.Infrastructure;
+using Meshmakers.Octo.Services.Infrastructure.Services;
 using ModelContextProtocol.Server;
 
 namespace Meshmakers.Octo.Backend.McpServices.Tools;
@@ -21,7 +22,7 @@ public sealed class EchoTool
         IMcpServer thisServer,
         string message)
     {
-        var httpContextAccessor = thisServer.Services!.GetRequiredService<IHttpContextAccessor>();
+        var httpContextAccessor = thisServer.Services!.GetRequiredService<IOctoHttpContextAccessor>();
         var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
 
         return "hello " + message + ", from tenant " + tenantRepository.TenantId;

@@ -4,6 +4,7 @@ using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Services.Infrastructure;
+using Meshmakers.Octo.Services.Infrastructure.Services;
 using ModelContextProtocol.Server;
 // ReSharper disable UnusedMember.Global
 
@@ -27,7 +28,7 @@ public sealed class SchemaDiscoveryTools
     {
         try
         {
-            var httpContextAccessor = server.Services!.GetRequiredService<IHttpContextAccessor>();
+            var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
             var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
 
             var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
@@ -68,7 +69,7 @@ public sealed class SchemaDiscoveryTools
     {
         try
         {
-            var httpContextAccessor = server.Services!.GetRequiredService<IHttpContextAccessor>();
+            var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
             var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
 
             var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
@@ -141,7 +142,7 @@ public sealed class SchemaDiscoveryTools
     {
         try
         {
-            var httpContextAccessor = server.Services!.GetRequiredService<IHttpContextAccessor>();
+            var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
             var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
 
             var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
