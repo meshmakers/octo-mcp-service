@@ -19,17 +19,16 @@ public static class EntityMapper
     /// <returns>Mapped DTOs</returns>
     public static IList<RtEntityDto> MapToDto(IEnumerable<RtEntity> entities, ICkCacheService ckCacheService, string tenantId)
     {
-        return entities.Select(entity => MapToDto(entity, ckCacheService, tenantId)).ToList();
+        return entities.Select(entity => MapToDto(entity, tenantId)).ToList();
     }
 
     /// <summary>
     /// Maps a single RtEntity to RtEntityDto
     /// </summary>
     /// <param name="entity">Source entity</param>
-    /// <param name="ckCacheService">Construction Kit cache service</param>
     /// <param name="tenantId">Tenant ID</param>
     /// <returns>Mapped DTO</returns>
-    public static RtEntityDto MapToDto(RtEntity entity, ICkCacheService ckCacheService, string tenantId)
+    public static RtEntityDto MapToDto(RtEntity entity, string tenantId)
     {
         var dto = new RtEntityDto
         {
