@@ -181,19 +181,19 @@ public sealed class EntityOperationError
 public sealed class NavigateAssociationsResponse
 {
     /// <summary>
-    /// Source Construction Kit Type ID
+    /// Origin Construction Kit Type ID
     /// </summary>
-    public required string SourceCkTypeId { get; init; }
+    public required string OriginCkTypeId { get; init; }
     
     /// <summary>
-    /// Source Runtime entity ID
+    /// Origin Runtime entity ID
     /// </summary>
-    public required string SourceRtId { get; init; }
+    public required string OriginRtId { get; init; }
     
     /// <summary>
-    /// Association path that was followed
+    /// Construction Kit Role ID used for the navigation
     /// </summary>
-    public required string AssociationPath { get; init; }
+    public required string CkRoleId { get; init; }
     
     /// <summary>
     /// Target type filter that was applied, if any
@@ -201,9 +201,9 @@ public sealed class NavigateAssociationsResponse
     public string? TargetTypeId { get; init; }
     
     /// <summary>
-    /// Number of entities found following the association path
+    /// Number of entities found before pagination
     /// </summary>
-    public required int ResultCount { get; init; }
+    public required long TotalCount { get; init; }
     
     /// <summary>
     /// Collection of related entities

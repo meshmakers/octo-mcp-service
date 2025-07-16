@@ -1,5 +1,6 @@
 // ReSharper disable UnusedAutoPropertyAccessor.Global
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.ConstructionKit.Contracts.DataTransferObjects;
 
 namespace Meshmakers.Octo.Backend.McpServices.Models;
 
@@ -75,19 +76,19 @@ public sealed class CkTypeMetadata
     public string? DerivedFrom { get; init; }
     
     /// <summary>
-    /// Number of attributes defined on this type
+    /// Gets the attributes defined on this type
     /// </summary>
-    public required int AttributeCount { get; init; }
+    public required IEnumerable<AttributeSchemaResponse> Attributes { get; init; }
     
     /// <summary>
-    /// Number of incoming associations to this type
+    /// Association definitions for income associations
     /// </summary>
-    public required int InAssociationCount { get; init; }
-    
+    public required IEnumerable<AssociationSchemaResponse> InboundAssociations { get; init; }
+
     /// <summary>
-    /// Number of outgoing associations from this type
+    /// Association definitions for outgoing associations
     /// </summary>
-    public required int OutAssociationCount { get; init; }
+    public required IEnumerable<AssociationSchemaResponse> OutboundAssociations { get; init; }
 }
 
 /// <summary>
@@ -210,17 +211,93 @@ public sealed class TypeSchemaResponse
     /// <summary>
     /// All attributes available on this type
     /// </summary>
-    public object? Attributes { get; init; }
+    public required IEnumerable<AttributeSchemaResponse> Attributes { get; init; }
     
     /// <summary>
-    /// Association definitions for relationships
+    /// Association definitions for income associations
     /// </summary>
-    public object? Associations { get; init; }
-    
+    public required IEnumerable<AssociationSchemaResponse> InboundAssociations { get; init; }
+
+    /// <summary>
+    /// Association definitions for outgoing associations
+    /// </summary>
+    public required IEnumerable<AssociationSchemaResponse> OutboundAssociations { get; init; }
+
     /// <summary>
     /// Schema details for entity creation and validation
     /// </summary>
     public required TypeSchemaDetails Schema { get; init; }
+}
+
+/// <summary>
+/// Schema response for a specific association
+/// </summary>
+public sealed class AssociationSchemaResponse
+{
+    /// <summary>
+    /// Full association identifier
+    /// </summary>
+    public required string AssociationRoleId { get; init; }
+
+    /// <summary>
+    /// Type of the associated entity
+    /// </summary>
+    public required string TargetCkTypeId { get; init; }
+
+    /// <summary>
+    /// Direction of the association (inbound or outbound)
+    /// </summary>
+    public required CkTypeAssociationDirectionDto Direction { get; init; }
+
+    /// <summary>
+    /// Cardinality of the association (single or multiple)
+    /// </summary>
+    public required CkTypeAssociationCardinalityDto Cardinality { get; init; }
+}
+
+/// <summary>
+/// Association direction for Construction Kit associations
+/// </summary>
+public enum CkTypeAssociationDirectionDto
+{
+    /// <summary>
+    ///     All inbound directions (e. g. parent to child)
+    /// </summary>
+    Inbound = 1,
+
+    /// <summary>
+    ///     All outbound directions (e. g. child to parent)
+    /// </summary>
+    Outbound = 2
+}
+
+/// <summary>
+/// Association cardinality for Construction Kit associations
+/// </summary>
+public enum CkTypeAssociationCardinalityDto
+{
+    /// <summary>Multiplicity zero or one.</summary>
+    ZeroOrOne,
+    /// <summary>Multiplicity one.</summary>
+    One,
+    /// <summary>Multiplicity more than one.</summary>
+    N,
+}
+
+/// <summary>
+/// Schema response for a specific attribute
+/// </summary>
+public sealed class AttributeSchemaResponse
+{
+    /// <summary>
+    /// Gets or sets the full attribute identifier
+    /// </summary>
+    public required string AttributePath { get; init; }
+
+    /// <summary>
+    /// Gets or sets the value type of the attribute
+    /// </summary>
+    public required AttributeValueTypesDto ValueType { get; init; }
 }
 
 /// <summary>

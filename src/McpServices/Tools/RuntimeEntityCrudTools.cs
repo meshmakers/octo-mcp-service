@@ -30,7 +30,8 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="offset">Number of results to skip</param>
     /// <returns>Query results with entity data</returns>
     [McpServerTool(Name = "query_entities")]
-    [Description("Query entities of any Construction Kit type with optional filters. For simple equality filters, pass a JSON object like {\"FirstName\": \"Gerald\", \"LastName\": \"Lochner\"}. For complex filters with operators, use the EntityFilterDto format.")]
+    [Description(
+        "Query entities of any Construction Kit type with optional filters. For simple equality filters, pass a JSON object like {\"FirstName\": \"Gerald\", \"LastName\": \"Lochner\"}. For complex filters with operators, use the EntityFilterDto format.")]
     public static async Task<QueryEntitiesResponse> QueryEntities(
         IMcpServer server,
         string ckTypeId,
@@ -71,7 +72,7 @@ public sealed class RuntimeEntityCrudTools
                             foreach (var kvp in filterDict)
                             {
                                 object? value = null;
-                                
+
                                 // Handle different JSON value types
                                 switch (kvp.Value.ValueKind)
                                 {
@@ -96,7 +97,7 @@ public sealed class RuntimeEntityCrudTools
                                         // Skip null values in simple filters
                                         continue;
                                 }
-                                
+
                                 if (value != null)
                                 {
                                     queryOperation.FieldEquals(kvp.Key, value);
@@ -147,7 +148,8 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="offset">Number of results to skip</param>
     /// <returns>Query results with entity data</returns>
     [McpServerTool(Name = "query_entities_simple")]
-    [Description("Query entities with simple equality filters - optimized for Claude. Pass filters as a JSON object where keys are field names and values are the exact values to match.")]
+    [Description(
+        "Query entities with simple equality filters - optimized for Claude. Pass filters as a JSON object where keys are field names and values are the exact values to match.")]
     public static async Task<QueryEntitiesResponse> QueryEntitiesSimple(
         IMcpServer server,
         string ckTypeId,
@@ -178,7 +180,7 @@ public sealed class RuntimeEntityCrudTools
                     foreach (var kvp in filterDict)
                     {
                         object? value = null;
-                        
+
                         // Handle different JSON value types
                         switch (kvp.Value.ValueKind)
                         {
@@ -203,7 +205,7 @@ public sealed class RuntimeEntityCrudTools
                                 // Skip null values in simple filters
                                 continue;
                         }
-                        
+
                         if (value != null)
                         {
                             queryOperation.FieldEquals(kvp.Key, value);
@@ -272,7 +274,8 @@ public sealed class RuntimeEntityCrudTools
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Failed to get entity '{rtId}' of type '{ckTypeId}': {ex.Message}", ex);
+            throw new InvalidOperationException($"Failed to get entity '{rtId}' of type '{ckTypeId}': {ex.Message}",
+                ex);
         }
     }
 
@@ -384,7 +387,8 @@ public sealed class RuntimeEntityCrudTools
         catch (Exception ex)
         {
             await session.AbortTransactionAsync();
-            throw new InvalidOperationException($"Failed to update entity '{rtId}' of type '{ckTypeId}': {ex.Message}", ex);
+            throw new InvalidOperationException($"Failed to update entity '{rtId}' of type '{ckTypeId}': {ex.Message}",
+                ex);
         }
     }
 
@@ -432,7 +436,8 @@ public sealed class RuntimeEntityCrudTools
         catch (Exception ex)
         {
             await session.AbortTransactionAsync();
-            throw new InvalidOperationException($"Failed to delete entity '{rtId}' of type '{ckTypeId}': {ex.Message}", ex);
+            throw new InvalidOperationException($"Failed to delete entity '{rtId}' of type '{ckTypeId}': {ex.Message}",
+                ex);
         }
     }
 
@@ -442,18 +447,21 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Source Construction Kit Type ID</param>
     /// <param name="rtId">Source Runtime entity ID</param>
-    /// <param name="associationPath">Dot-separated path of associations to follow (e.g., "Facilities.Children")</param>
+    /// <param name="ckRoleId">The construction kit role id to use (e.g., "System/ParentChild")</param>
+    /// <param name="direction">The direction of the association to navigate (inbound or outbound)</param>
     /// <param name="targetTypeId">Optional target type ID to filter results</param>
     /// <param name="filters">Optional filters for the target entities as JSON object (e.g., {"Status": "Active"})</param>
     /// <returns>Related entities following the association path</returns>
     [McpServerTool(Name = "navigate_associations")]
-    [Description("Navigate associations from a source entity to find related entities. Use dot notation for the association path (e.g., 'Facilities.Children'). Optionally filter results by type and/or field values.")]
+    [Description(
+        "Navigate associations from a source entity to find related entities. Use dot notation for the association path (e.g., 'Facilities.Children'). Optionally filter results by type and/or field values.")]
     public static async Task<NavigateAssociationsResponse> NavigateAssociations(
         IMcpServer server,
         string ckTypeId,
         string rtId,
-        string associationPath,
-        string? targetTypeId = null,
+        string ckRoleId,
+        CkTypeAssociationDirectionDto direction,
+        string targetTypeId,
         string? filters = null)
     {
         var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
@@ -474,103 +482,62 @@ public sealed class RuntimeEntityCrudTools
                 throw new ArgumentException($"Source entity with ID '{rtId}' not found in type '{ckTypeId}'");
             }
 
-            // Navigate the association path
-            var currentEntities = new List<(RtEntity entity, CkId<CkTypeId> typeId)>
-                { (sourceEntity, new CkId<CkTypeId>(ckTypeId)) };
-            var pathSteps = associationPath.Split('.');
 
-            foreach (var step in pathSteps)
+            // Get association navigation property
+            var typeGraph = ckCacheService.GetCkType(tenantId, ckTypeId);
+            if (direction == CkTypeAssociationDirectionDto.Inbound)
             {
-                var nextEntities = new List<(RtEntity entity, CkId<CkTypeId> typeId)>();
-
-                foreach (var (entity, entityTypeId) in currentEntities)
+                var inAssociation =
+                    typeGraph.Associations.In.All.FirstOrDefault(a => a.CkRoleId == ckRoleId);
+                if (inAssociation == null)
                 {
-                    // Get association navigation property
-                    var typeGraph = ckCacheService.GetCkType(tenantId, entityTypeId);
-                    var outAssociation =
-                        typeGraph.Associations.Out.All.FirstOrDefault(a => a.NavigationPropertyName == step);
-                    var inAssociation =
-                        typeGraph.Associations.In.All.FirstOrDefault(a => a.NavigationPropertyName == step);
-
-                    if (outAssociation == null && inAssociation == null)
-                    {
-                        throw new ArgumentException($"Association '{step}' not found on type '{entityTypeId}'");
-                    }
-
-                    // Handle outgoing association
-                    if (outAssociation != null)
-                    {
-                        var queryOperation = DataQueryOperation.Create();
-                        var associatedResults = await tenantRepository.GetRtAssociationTargetsAsync(
-                            session,
-                            entity.RtId,
-                            entityTypeId,
-                            outAssociation.CkRoleId,
-                            outAssociation.TargetCkTypeId,
-                            GraphDirections.Outbound,
-                            null,
-                            queryOperation);
-
-                        foreach (var associatedEntity in associatedResults.Items)
-                        {
-                            nextEntities.Add((associatedEntity, outAssociation.TargetCkTypeId));
-                        }
-                    }
-
-                    // Handle incoming association
-                    if (inAssociation != null)
-                    {
-                        var queryOperation = DataQueryOperation.Create();
-                        var associatedResults = await tenantRepository.GetRtAssociationTargetsAsync(
-                            session,
-                            entity.RtId,
-                            entityTypeId,
-                            inAssociation.CkRoleId,
-                            inAssociation.OriginCkTypeId,
-                            GraphDirections.Inbound,
-                            null,
-                            queryOperation);
-
-                        foreach (var associatedEntity in associatedResults.Items)
-                        {
-                            nextEntities.Add((associatedEntity, inAssociation.OriginCkTypeId));
-                        }
-                    }
+                    throw new ArgumentException($"Association '{ckRoleId}' not found on type '{ckTypeId}'");
                 }
-
-                currentEntities = nextEntities;
             }
-
-            var resultEntities = currentEntities.Select(ce => ce.entity).ToList();
-
-            // Filter by target type if specified
-            if (!string.IsNullOrEmpty(targetTypeId))
+            else
             {
-                var targetCkTypeId = new CkId<CkTypeId>(targetTypeId);
-                resultEntities = resultEntities.Where(e => e.CkTypeId != null && e.CkTypeId.Equals(targetCkTypeId))
-                    .ToList();
+                var outAssociation =
+                    typeGraph.Associations.Out.All.FirstOrDefault(a => a.CkRoleId == ckRoleId);
+                if (outAssociation == null)
+                {
+                    throw new ArgumentException($"Association '{ckRoleId}' not found on type '{ckTypeId}'");
+                }
             }
 
-            // Apply additional filters if provided
-            if (!string.IsNullOrEmpty(filters) && resultEntities.Any())
-            {
-                var filterDict = JsonSerializer.Deserialize<Dictionary<string, object>>(filters);
-                resultEntities = ApplyEntityFilters(resultEntities, filterDict, ckCacheService, tenantId);
-            }
+            // Handle association
+            var queryOperation = DataQueryOperation.Create();
+            var associatedResults = await tenantRepository.GetRtAssociationTargetsAsync(
+                session,
+                new OctoObjectId(rtId),
+                ckTypeId,
+                ckRoleId,
+                targetTypeId,
+                (GraphDirections)direction,
+                null,
+                queryOperation);
+
+
+            // if (!string.IsNullOrEmpty(filters) && associatedResults.TotalCount >0)
+            // {
+            //     var filterDict = JsonSerializer.Deserialize<Dictionary<string, object>>(filters);
+            //     associatedResults = ApplyEntityFilters(associatedResults.Items.ToList(), filterDict, ckCacheService, tenantId);
+            // }
 
             return new NavigateAssociationsResponse
             {
-                SourceCkTypeId = ckTypeId,
-                SourceRtId = rtId,
-                AssociationPath = associationPath,
+                OriginCkTypeId = ckTypeId,
+                OriginRtId = rtId,
+                CkRoleId = ckRoleId,
                 TargetTypeId = targetTypeId,
-                ResultCount = resultEntities.Count,
-                Entities = EntityMapper.MapToDto(resultEntities, ckCacheService, tenantId)
+                TotalCount = associatedResults.TotalCount,
+                Entities = EntityMapper.MapToDto(associatedResults.Items, ckCacheService, tenantId)
             };
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Failed to navigate associations from '{ckTypeId}' entity '{rtId}' along path '{associationPath}': {ex.Message}", ex);
+            throw new InvalidOperationException(
+                $"Failed to navigate associations from '{ckTypeId}' entity '{rtId}' using CkRoleId '{ckRoleId}': {ex.Message}",
+                ex);
         }
     }
 

@@ -2,10 +2,12 @@ using System.ComponentModel;
 using System.Globalization;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.ConstructionKit.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Services.Infrastructure;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using ModelContextProtocol.Server;
+
 // ReSharper disable UnusedMember.Global
 
 namespace Meshmakers.Octo.Backend.McpServices.Tools;
@@ -105,9 +107,23 @@ public sealed class SchemaDiscoveryTools
                     IsCollectionRoot = ckTypeGraph.IsCollectionRoot,
                     Description = ckTypeGraph.Description,
                     DerivedFrom = ckTypeGraph.DerivedFromCkTypeId?.ToString(),
-                    AttributeCount = ckTypeGraph.AllAttributes.Count,
-                    InAssociationCount = ckTypeGraph.Associations.In.All.Count,
-                    OutAssociationCount = ckTypeGraph.Associations.Out.All.Count,
+                    Attributes =
+                        ckCacheService.GetCkTypeQueryColumnPaths(tenantRepository.TenantId, ckTypeGraph.CkTypeId, true).Select(c =>
+                            new AttributeSchemaResponse{ AttributePath = c.Path, ValueType = c.ValueType}),
+                    InboundAssociations = ckTypeGraph.Associations.In.All.Select(a=> new AssociationSchemaResponse
+                    {
+                        AssociationRoleId = a.CkRoleId.FullName,
+                        TargetCkTypeId = a.TargetCkTypeId.FullName,
+                        Cardinality = (CkTypeAssociationCardinalityDto) a.Multiplicity,
+                        Direction = CkTypeAssociationDirectionDto.Inbound
+                    }),
+                    OutboundAssociations = ckTypeGraph.Associations.Out.All.Select(a=> new AssociationSchemaResponse
+                    {
+                        AssociationRoleId = a.CkRoleId.FullName,
+                        TargetCkTypeId = a.TargetCkTypeId.FullName,
+                        Cardinality = (CkTypeAssociationCardinalityDto) a.Multiplicity,
+                        Direction = CkTypeAssociationDirectionDto.Outbound
+                    }),
                 });
             }
 
@@ -164,8 +180,23 @@ public sealed class SchemaDiscoveryTools
                 DerivedFrom = typeGraph.DerivedFromCkTypeId?.ToString(),
                 InheritanceHierarchy = typeGraph.GetBaseTypes(false),
                 Indexes = typeGraph.Indexes,
-                Attributes = typeGraph.AllAttributes.Values,
-                Associations = typeGraph.Associations,
+                Attributes =
+                    ckCacheService.GetCkTypeQueryColumnPaths(tenantRepository.TenantId, typeGraph.CkTypeId, true).Select(c =>
+                        new AttributeSchemaResponse{ AttributePath = c.Path, ValueType = c.ValueType}),
+                InboundAssociations = typeGraph.Associations.In.All.Select(a=> new AssociationSchemaResponse
+                {
+                    AssociationRoleId = a.CkRoleId.FullName,
+                    TargetCkTypeId = a.TargetCkTypeId.FullName,
+                    Cardinality = (CkTypeAssociationCardinalityDto) a.Multiplicity,
+                    Direction = CkTypeAssociationDirectionDto.Inbound
+                }),
+                OutboundAssociations = typeGraph.Associations.Out.All.Select(a=> new AssociationSchemaResponse
+                {
+                    AssociationRoleId = a.CkRoleId.FullName,
+                    TargetCkTypeId = a.TargetCkTypeId.FullName,
+                    Cardinality = (CkTypeAssociationCardinalityDto) a.Multiplicity,
+                    Direction = CkTypeAssociationDirectionDto.Outbound
+                }),
                 Schema = new TypeSchemaDetails
                 {
                     CanCreate = !typeGraph.IsAbstract,
@@ -202,11 +233,12 @@ public sealed class SchemaDiscoveryTools
         try
         {
             var allTypesResult = await GetAvailableTypes(server, includeAbstract);
-            
+
             // Safe casting to concrete type
             if (allTypesResult is not AvailableTypesResponse typesResponse)
             {
-                return new ErrorResponse { 
+                return new ErrorResponse
+                {
                     Error = "Failed to get types for search",
                     Message = "Unable to retrieve type information from cache"
                 };
