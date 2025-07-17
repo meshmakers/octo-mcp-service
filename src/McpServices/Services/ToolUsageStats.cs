@@ -43,7 +43,7 @@ public class ToolUsageStats
     /// <summary>
     /// Gets or sets the list of error messages from failed invocations
     /// </summary>
-    public List<string> ErrorMessages { get; set; } = new();
+    public List<string> ErrorMessages { get; set; } = [];
 
     /// <summary>
     /// Gets the success rate as a percentage

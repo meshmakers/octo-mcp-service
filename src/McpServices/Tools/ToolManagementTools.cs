@@ -103,7 +103,7 @@ public sealed class ToolManagementTools
                 TotalTools = 0,
                 Categories = new Dictionary<string, int>(),
                 CategoryFilter = category,
-                Tools = new List<ToolInfo>()
+                Tools = []
             });
         }
     }
@@ -281,9 +281,9 @@ public sealed class ToolManagementTools
                 {
                     IsValid = false,
                     ToolName = toolName,
-                    ProvidedParameters = new List<string>(),
-                    ValidationResults = new List<ParameterValidationResult>(),
-                    Warnings = new List<string>(),
+                    ProvidedParameters = [],
+                    ValidationResults = [],
+                    Warnings = [],
                     Errors = ["Tool not found"],
                     Summary = new ValidationSummary
                     {
@@ -339,7 +339,7 @@ public sealed class ToolManagementTools
             {
                 IsValid = errors.Count == 0,
                 ToolName = toolName,
-                ProvidedParameters = providedParams?.Keys.ToList() ?? new List<string>(),
+                ProvidedParameters = providedParams?.Keys.ToList() ?? [],
                 ValidationResults = results,
                 Warnings = warnings,
                 Errors = errors,
@@ -358,9 +358,9 @@ public sealed class ToolManagementTools
             {
                 IsValid = false,
                 ToolName = toolName,
-                ProvidedParameters = new List<string>(),
-                ValidationResults = new List<ParameterValidationResult>(),
-                Warnings = new List<string>(),
+                ProvidedParameters = [],
+                ValidationResults = [],
+                Warnings = [],
                 Errors = [ex.Message],
                 Summary = new ValidationSummary
                 {

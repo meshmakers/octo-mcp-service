@@ -159,7 +159,7 @@ public class RuntimeEntityCrudToolsTests : TestBase
         SetupMockServices();
         var mockResults = CreateMockQueryResults();
         
-        var complexFilter = new EntityFilterDto
+        var complexFilter = new FieldFilterCriteriaDto
         {
             Operator = LogicalOperatorDto.And,
             Fields =

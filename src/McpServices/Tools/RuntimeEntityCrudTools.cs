@@ -53,14 +53,21 @@ public sealed class RuntimeEntityCrudTools
             // Build query operation
             var queryOperation = DataQueryOperation.Create();
 
+
             // Parse filters if provided
             if (filters != null)
             {
-                // Check if filters is already an EntityFilterDto
-                if (filters is EntityFilterDto entityFilter)
+                if (filters is FieldFilterCriteriaDto fieldFilterCriteriaDto)
                 {
-                    BuildTypedFilters(entityFilter, queryOperation);
+                    if (fieldFilterCriteriaDto.Operator == LogicalOperatorDto.Or)
+                    {
+                        queryOperation = DataQueryOperation.Create(LogicalOperator.Or);
+                    }
+
+                    BuildTypedFilters(fieldFilterCriteriaDto, queryOperation);
                 }
+
+                // Check if filters is already an EntityFilterDto
                 // Try to parse as simple JSON string filter
                 else if (filters is string filterString && !string.IsNullOrEmpty(filterString))
                 {
@@ -108,7 +115,7 @@ public sealed class RuntimeEntityCrudTools
                     catch
                     {
                         // If parsing as simple filter fails, try to deserialize as EntityFilterDto
-                        var complexFilter = JsonSerializer.Deserialize<EntityFilterDto>(filterString);
+                        var complexFilter = JsonSerializer.Deserialize<FieldFilterCriteriaDto>(filterString);
                         if (complexFilter != null)
                         {
                             BuildTypedFilters(complexFilter, queryOperation);
@@ -546,29 +553,19 @@ public sealed class RuntimeEntityCrudTools
     /// <summary>
     /// Baut typisierte Filter in DataQueryOperation ein
     /// </summary>
-    private static void BuildTypedFilters(EntityFilterDto filterDto, DataQueryOperation queryOperation)
+    private static void BuildTypedFilters(FieldFilterCriteriaDto filterCriteriaDto, DataQueryOperation queryOperation)
     {
-        foreach (var fieldFilter in filterDto.Fields)
+        foreach (var fieldFilter in filterCriteriaDto.Fields)
         {
             ApplyFieldFilter(fieldFilter, queryOperation);
         }
 
         // Handle nested filters with logical operators
-        if (filterDto.NestedFilters?.Any() == true)
+        if (filterCriteriaDto.NestedFilters?.Any() == true)
         {
-            if (filterDto.Operator == LogicalOperatorDto.Or)
-            {
-                queryOperation.BeginOr();
-            }
-
-            foreach (var nestedFilter in filterDto.NestedFilters)
+            foreach (var nestedFilter in filterCriteriaDto.NestedFilters)
             {
                 BuildTypedFilters(nestedFilter, queryOperation);
-            }
-
-            if (filterDto.Operator == LogicalOperatorDto.Or)
-            {
-                queryOperation.EndOr();
             }
         }
     }
@@ -645,29 +642,6 @@ public sealed class RuntimeEntityCrudTools
 
             entity.SetAttributeValueByAccessPath(ckCacheService, tenantId, kvp.Key, kvp.Value);
         }
-    }
-
-    private static List<RtEntity> ApplyEntityFilters(List<RtEntity> entities, Dictionary<string, object>? filterDict,
-        ICkCacheService ckCacheService, string tenantId)
-    {
-        if (filterDict == null || !filterDict.Any())
-        {
-            return entities;
-        }
-
-        return entities.Where(entity =>
-        {
-            foreach (var filter in filterDict)
-            {
-                var attributeValue = entity.GetAttributeValueByAccessPath(ckCacheService, tenantId, filter.Key);
-                if (attributeValue == null || !attributeValue.Equals(filter.Value))
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }).ToList();
     }
 
     #endregion

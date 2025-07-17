@@ -1,13 +1,17 @@
 namespace Meshmakers.Octo.Backend.McpServices.Models.Filters;
 
 /// <summary>
-/// Logische Operatoren für die Verknüpfung von Filtern
+///     Represents a logical operator for combining filters
 /// </summary>
 public enum LogicalOperatorDto
 {
-    /// <summary>Logisches UND</summary>
-    And,
-    
-    /// <summary>Logisches ODER</summary>
-    Or
+    /// <summary>
+    ///     Logical AND operator
+    /// </summary>
+    And = 0,
+
+    /// <summary>
+    ///     Logical OR operator
+    /// </summary>
+    Or = 1
 }

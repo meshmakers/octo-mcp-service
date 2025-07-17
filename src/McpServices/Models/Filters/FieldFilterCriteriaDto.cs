@@ -5,12 +5,12 @@ namespace Meshmakers.Octo.Backend.McpServices.Models.Filters;
 /// <summary>
 /// Typisierte Filter-Definition für Entity-Queries
 /// </summary>
-public class EntityFilterDto
+public class FieldFilterCriteriaDto
 {
     /// <summary>
     /// Liste von Feld-Filtern
     /// </summary>
-    public List<FieldFilterDto> Fields { get; set; } = new();
+    public List<FieldFilterDto> Fields { get; set; } = [];
     
     /// <summary>
     /// Logischer Operator für die Verknüpfung der Fields
@@ -21,5 +21,5 @@ public class EntityFilterDto
     /// <summary>
     /// Verschachtelte Filter für komplexe Logik
     /// </summary>
-    public List<EntityFilterDto>? NestedFilters { get; set; }
+    public List<FieldFilterCriteriaDto>? NestedFilters { get; set; }
 }
