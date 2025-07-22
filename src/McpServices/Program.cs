@@ -37,7 +37,7 @@ try
     // Configure existing options
     builder.Services.Configure<OctoSystemConfiguration>(options =>
         builder.Configuration.GetSection("System").Bind(options));
-    builder.Services.Configure<McpServerOptions>(options =>
+    builder.Services.Configure<McpServiceOptions>(options =>
         builder.Configuration.GetSection("Mcp").Bind(options));
 
     // Configure new dynamic tool options
