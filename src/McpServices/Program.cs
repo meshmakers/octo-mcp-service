@@ -135,7 +135,7 @@ try
     logger.Info("- Max query limit: {Limit}", dynamicToolOptions.MaxQueryResultLimit);
     logger.Info("- Preload models: {Models}", string.Join(", ", dynamicToolOptions.PreloadModels));
 
-    app.Run();
+    await app.RunAsync();
 }
 catch (Exception ex)
 {
