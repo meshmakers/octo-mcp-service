@@ -1,10 +1,14 @@
 ﻿// NLog: Set up the logger first to catch all errors
 
+using McpServices.Resources;
 using Meshmakers.Octo.Backend.McpServices.Configuration;
 using Meshmakers.Octo.Backend.McpServices.Consumers;
 using Meshmakers.Octo.Backend.McpServices.Options;
 using Meshmakers.Octo.Backend.McpServices.Routing;
 using Meshmakers.Octo.Backend.McpServices.Services;
+using Meshmakers.Octo.Communication.Contracts;
+using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Configuration;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Extensions;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands;
@@ -12,7 +16,7 @@ using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
 using Meshmakers.Octo.Services.Infrastructure;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using Meshmakers.Octo.Services.Observability;
-using ModelContextProtocol.Server;
+using Meshmakers.Octo.Services.Swagger.Configuration;
 using NLog;
 using NLog.Web;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -92,6 +96,45 @@ try
     builder.Services.AddRuntimeEngine()
         .AddMongoDbRuntimeRepository();
 
+    builder.Services.AddOctoApiVersioningAndDocumentation(options =>
+    {
+        options.Scopes = new Dictionary<string, string>
+        {
+            {
+                CommonConstants.AssetSystemApiFullAccess,
+                McpTexts.Scope_SystemFullAccess_Description
+            },
+            {
+                CommonConstants.AssetTenantApiFullAccess,
+                McpTexts.Scope_TenantFullAccess_Description
+            },
+            {
+                CommonConstants.AssetTenantApiReadOnly,
+                McpTexts.Scope_TenantReadonlyAccess_Description
+            }
+        };
+
+        // options.PolicyScopeMapping = new Dictionary<string, IEnumerable<string>>
+        // {
+        //     { Constants.SystemApiPolicy, [CommonConstants.AssetSystemApiFullAccess] },
+        //     {
+        //         Constants.TenantApiReadWritePolicy,
+        //         [CommonConstants.AssetTenantApiFullAccess, CommonConstants.AssetTenantApiReadOnly]
+        //     },
+        //     { Constants.TenantApiReadOnlyPolicy, [CommonConstants.AssetTenantApiReadOnly] }
+        // };
+
+        options.XmlDocDataTransferObjectAssemblies =
+            [typeof(AdapterConfigurationDto).Assembly, typeof(RtEntityId).Assembly];
+        options.XmlDocOperationAssemblies = [typeof(Program).Assembly];
+
+        options.ApiTitle = McpTexts.Api_Title;
+        options.ApiDescription = McpTexts.Api_Description;
+
+        options.ClientId = CommonConstants.ReportingServicesSwaggerClientId;
+        options.AppName = McpTexts.SwaggerClient_Description;
+    }).AddVersion();
+
     // Add MCP services with enhanced tool discovery
     builder.Services.AddMcpServer()
         .WithHttpTransport()
@@ -117,15 +160,16 @@ try
     //     .WithLogging()
     //     .UseOtlpExporter();
 
+    builder.Services.AddControllers();
+
     var app = builder.Build();
+
+    app.UseOctoApiVersioningAndDocumentation();
 
     app.MapObservability();
 
     // Map MCP endpoint with tenant routing
     app.MapMcp("/{tenantId:tenantId}/mcp");
-
-    // Add a simple endpoint to test the service
-    app.MapGet("/health", () => "OctoMesh MCP Service is running");
 
     // Log startup information
     var dynamicToolOptions = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<DynamicToolOptions>>().Value;
@@ -134,6 +178,10 @@ try
     logger.Info("- Tool statistics: {Enabled}", dynamicToolOptions.EnableToolStatistics);
     logger.Info("- Max query limit: {Limit}", dynamicToolOptions.MaxQueryResultLimit);
     logger.Info("- Preload models: {Models}", string.Join(", ", dynamicToolOptions.PreloadModels));
+
+    app.MapControllerRoute(
+        "default",
+        "{controller}/{action=Index}/{id?}");
 
     await app.RunAsync();
 }

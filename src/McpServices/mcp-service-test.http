@@ -1,0 +1,286 @@
+## Diagnostic
+
+### Gets the current log level of the logger
+POST  {{baseUrl}}/system/v1/diagnostics/reconfigureLogLevel?minLogLevel=Debug&maxLogLevel=Fatal&loggerName=Meshmakers.*
+
+### Sets log level of Microsoft to debug
+POST {{baseUrl}}/system/v1/diagnostics/reconfigureLogLevel?minLogLevel=Info&maxLogLevel=Fatal&loggerName=Microsoft.*
+
+### Sets log level of Microsoft to warn
+POST {{baseUrl}}/system/v1/diagnostics/reconfigureLogLevel?minLogLevel=Warn&maxLogLevel=Fatal&loggerName=Microsoft.*
+
+### Sets log level of Microsoft to off
+POST {{baseUrl}}/system/v1/diagnostics/reconfigureLogLevel?minLogLevel=Off&maxLogLevel=Off&loggerName=Microsoft.*
+
+
+
+
+## MCP Tool Tests
+
+### List Tools
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/list"
+}
+
+
+### Echo Tool - Basic Test
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/call",
+  "params": {
+    "name": "Echo",
+    "arguments": {
+      "message": "Hello OctoMesh!"
+    }
+  }
+}
+
+
+### Get Available Types
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "get_available_types",
+    "arguments": {
+      "includeAbstract": false
+    }
+  }
+}
+
+### Search Types
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "method": "tools/call",
+  "params": {
+    "name": "search_types",
+    "arguments": {
+      "searchTerm": "Person",
+      "includeAbstract": false
+    }
+  }
+}
+
+### Get Type Schema
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "method": "tools/call",
+  "params": {
+    "name": "get_type_schema",
+    "arguments": {
+      "ckTypeId": "YourTypeId"
+    }
+  }
+}
+
+### Create Entity
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 6,
+  "method": "tools/call",
+  "params": {
+    "name": "create_entity",
+    "arguments": {
+      "ckTypeId": "YourTypeId",
+      "entityData": "{\"name\": \"Test Entity\", \"value\": 123}"
+    }
+  }
+}
+
+### Query Entities Simple
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "method": "tools/call",
+  "params": {
+    "name": "query_entities_simple",
+    "arguments": {
+      "ckTypeId": "YourTypeId",
+      "simpleFilters": "{\"name\": \"Test Entity\"}",
+      "limit": 10
+    }
+  }
+}
+
+### Query Entities (Advanced)
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 8,
+  "method": "tools/call",
+  "params": {
+    "name": "query_entities",
+    "arguments": {
+      "ckTypeId": "YourTypeId",
+      "filters": "{\"FirstName\": \"Gerald\", \"LastName\": \"Lochner\"}",
+      "limit": 10,
+      "offset": 0
+    }
+  }
+}
+
+### Get Entity By ID
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 9,
+  "method": "tools/call",
+  "params": {
+    "name": "get_entity_by_id",
+    "arguments": {
+      "ckTypeId": "YourTypeId",
+      "rtId": "YourRuntimeId"
+    }
+  }
+}
+
+### Update Entity
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "method": "tools/call",
+  "params": {
+    "name": "update_entity",
+    "arguments": {
+      "ckTypeId": "YourTypeId",
+      "rtId": "YourRuntimeId",
+      "entityData": "{\"name\": \"Updated Entity\", \"value\": 456}"
+    }
+  }
+}
+
+### Navigate Associations
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "method": "tools/call",
+  "params": {
+    "name": "navigate_associations",
+    "arguments": {
+      "ckTypeId": "YourTypeId",
+      "rtId": "YourRuntimeId",
+      "ckRoleId": "YourRoleId",
+      "direction": "Outbound",
+      "targetTypeId": "YourTargetTypeId"
+    }
+  }
+}
+
+### Delete Entity
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 12,
+  "method": "tools/call",
+  "params": {
+    "name": "delete_entity",
+    "arguments": {
+      "ckTypeId": "YourTypeId",
+      "rtId": "YourRuntimeId"
+    }
+  }
+}
+
+### List Available Tools
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 13,
+  "method": "tools/call",
+  "params": {
+    "name": "list_available_tools",
+    "arguments": {
+      "category": null
+    }
+  }
+}
+
+### Get Tool Details
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 14,
+  "method": "tools/call",
+  "params": {
+    "name": "get_tool_details",
+    "arguments": {
+      "toolName": "get_available_models"
+    }
+  }
+}
+
+### Validate Tool Parameters
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 15,
+  "method": "tools/call",
+  "params": {
+    "name": "validate_tool_parameters",
+    "arguments": {
+      "toolName": "create_entity",
+      "parameters": "{\"ckTypeId\": \"TestType\", \"entityData\": \"{\\\"test\\\": true}\"}"
+    }
+  }
+}
+
+### Get Tool Statistics
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 16,
+  "method": "tools/call",
+  "params": {
+    "name": "get_tool_statistics",
+    "arguments": {
+      "timeRange": "day"
+    }
+  }
+}

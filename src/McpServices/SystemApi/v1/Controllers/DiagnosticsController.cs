@@ -11,7 +11,7 @@ namespace Meshmakers.Octo.Backend.McpServices.SystemApi.v1.Controllers;
 /// <summary>
 /// Manages the diagnostics settings of the service
 /// </summary>
-[Authorize(AuthenticationSchemes = OidcConstants.AuthenticationSchemes.AuthorizationHeaderBearer)]
+//[Authorize(AuthenticationSchemes = OidcConstants.AuthenticationSchemes.AuthorizationHeaderBearer)]
 [ApiController]
 [Route("system/v{version:apiVersion}/[controller]")]
 [ApiVersion("1.0")]
@@ -39,7 +39,7 @@ public class DiagnosticsController: ControllerBase
     /// <param name="loggerName">The name of the logger to be reconfigured.</param>
     /// <returns></returns>
     [HttpPost("reconfigureLogLevel")]
-    [Authorize(Constants.SystemApiPolicy)]
+   // [Authorize(Constants.SystemApiPolicy)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ReconfigureLogLevelAsync([Required] LogLevelDto minLogLevel,

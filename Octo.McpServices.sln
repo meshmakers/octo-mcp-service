@@ -22,6 +22,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{17917DA5
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McpServices.Tests", "tests\McpServices.Tests\McpServices.Tests.csproj", "{06D95C80-94E4-45AC-BC86-20B5BF45F088}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McpServices.Resources", "src\McpServices.Resources\McpServices.Resources.csproj", "{2A1A0096-D057-4082-B004-F534953C7325}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -77,6 +79,12 @@ Global
 		{06D95C80-94E4-45AC-BC86-20B5BF45F088}.Release|Any CPU.Build.0 = Release|Any CPU
 		{06D95C80-94E4-45AC-BC86-20B5BF45F088}.DebugL|Any CPU.ActiveCfg = Debug|Any CPU
 		{06D95C80-94E4-45AC-BC86-20B5BF45F088}.DebugL|Any CPU.Build.0 = Debug|Any CPU
+		{2A1A0096-D057-4082-B004-F534953C7325}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2A1A0096-D057-4082-B004-F534953C7325}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2A1A0096-D057-4082-B004-F534953C7325}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2A1A0096-D057-4082-B004-F534953C7325}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2A1A0096-D057-4082-B004-F534953C7325}.DebugL|Any CPU.ActiveCfg = Debug|Any CPU
+		{2A1A0096-D057-4082-B004-F534953C7325}.DebugL|Any CPU.Build.0 = Debug|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{F9FBBC13-2D9B-4ADC-ADB1-C0D2257002E9} = {85F912C2-0207-4045-A149-F8098451C02A}
