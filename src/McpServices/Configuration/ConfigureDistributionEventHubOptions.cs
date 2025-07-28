@@ -18,6 +18,7 @@ internal class ConfigureDistributionEventHubOptions(
 
     public void Configure(string? name, DistributionEventHubOptions options)
     {
+        options.InstancePrefix = mcpServiceOptions.Value.InstancePrefix;
         options.BrokerHost = mcpServiceOptions.Value.BrokerHost;
         options.BrokerUser = mcpServiceOptions.Value.BrokerUser;
         options.BrokerPassword = mcpServiceOptions.Value.BrokerPassword;
