@@ -61,7 +61,9 @@ public static class EntityMapper
     private static object? MapAttributeValue(object? attributeValue)
     {
         if (attributeValue == null)
+        {
             return null;
+        }
 
         return attributeValue switch
         {

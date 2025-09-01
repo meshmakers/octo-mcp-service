@@ -511,6 +511,37 @@ public sealed class ToolManagementTools
                 });
                 break;
 
+            case "create_entity":
+                examples.Add(new ToolUsageExample
+                {
+                    Description = "Create a new runtime entity",
+                    Parameters = new
+                    {
+                        ckTypeId = "EnergyCommunity/Customer",
+                        entityData = new[]
+                        {
+                            new AttributeUpdateItem { AttributePath = "contact.companyRegisterNumber", Value = "TEST" }
+                        }
+                    }
+                });
+                break;
+
+            case "update_entity":
+                examples.Add(new ToolUsageExample
+                {
+                    Description = "Updates a runtime entity's attributes",
+                    Parameters = new
+                    {
+                        rtId = "6841b558514a7df1ce76b55f",
+                        ckTypeId = "EnergyCommunity/Customer",
+                        entityData = new[]
+                        {
+                            new AttributeUpdateItem { AttributePath = "contact.companyRegisterNumber", Value = "TEST" }
+                        }
+                    }
+                });
+                break;
+
             default:
                 examples.Add(new ToolUsageExample
                 {

@@ -105,8 +105,17 @@ Content-Type: application/json
   "params": {
     "name": "create_entity",
     "arguments": {
-      "ckTypeId": "YourTypeId",
-      "entityData": "{\"name\": \"Test Entity\", \"value\": 123}"
+      "ckTypeId": "EnergyCommunity/Customer",
+      "entityData": [
+        {"attributePath": "Contact.FirstName", "value": "Gerald"},
+        {"attributePath": "Contact.LastName", "value": "Lochner"},
+        {"attributePath": "Contact.Email", "value": "xy@z.com"},
+        {"attributePath": "Contact.Address.Street", "value": "test"},
+        {"attributePath": "Contact.Address.Zipcode", "value": "5020"},
+        {"attributePath": "Contact.Address.CityTown", "value": "test"},
+        {"attributePath": "Contact.Address.NationalCode", "value": "AT"},
+        {"attributePath": "TaxProcedureCreditNote", "value": 1}
+      ]
     }
   }
 }

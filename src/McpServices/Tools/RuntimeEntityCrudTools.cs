@@ -88,11 +88,18 @@ public sealed class RuntimeEntityCrudTools
                                         break;
                                     case JsonValueKind.Number:
                                         if (kvp.Value.TryGetInt32(out var intValue))
+                                        {
                                             value = intValue;
+                                        }
                                         else if (kvp.Value.TryGetInt64(out var longValue))
+                                        {
                                             value = longValue;
+                                        }
                                         else if (kvp.Value.TryGetDouble(out var doubleValue))
+                                        {
                                             value = doubleValue;
+                                        }
+
                                         break;
                                     case JsonValueKind.True:
                                         value = true;
@@ -196,11 +203,18 @@ public sealed class RuntimeEntityCrudTools
                                 break;
                             case JsonValueKind.Number:
                                 if (kvp.Value.TryGetInt32(out var intValue))
+                                {
                                     value = intValue;
+                                }
                                 else if (kvp.Value.TryGetInt64(out var longValue))
+                                {
                                     value = longValue;
+                                }
                                 else if (kvp.Value.TryGetDouble(out var doubleValue))
+                                {
                                     value = doubleValue;
+                                }
+
                                 break;
                             case JsonValueKind.True:
                                 value = true;
@@ -291,30 +305,29 @@ public sealed class RuntimeEntityCrudTools
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Construction Kit Type ID</param>
-    /// <param name="entityData">Entity data as JSON object</param>
+    /// <param name="entityData">JSON formated an array of attribute path and value to be updated.
+    /// For example,  [{attributePath: 'contact.test', value: 'test'}]</param>
     /// <returns>Created entity with runtime ID</returns>
     [McpServerTool(Name = "create_entity")]
     [Description("Create a new entity of specified Construction Kit type")]
     public static async Task<CreateEntityResponse> CreateEntity(
         IMcpServer server,
         string ckTypeId,
-        string entityData)
+        List<AttributeUpdateItem> entityData)
     {
         var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
         var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
         var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
 
         using var session = await tenantRepository.GetSessionAsync();
+        session.StartTransaction();
 
         try
         {
-            var dataDict = JsonSerializer.Deserialize<Dictionary<string, object>>(entityData);
-
             // Create transient entity
             var entity = await tenantRepository.CreateTransientRtEntityAsync(new CkId<CkTypeId>(ckTypeId));
 
-            // Populate entity with provided data
-            PopulateEntity(ckCacheService, httpContextAccessor.GetTenantId(), entity, dataDict!);
+            Assign(entity, ckCacheService, tenantRepository.TenantId, entityData);
 
             // Insert entity
             await tenantRepository.InsertOneRtEntityAsync(session, new CkId<CkTypeId>(ckTypeId), entity);
@@ -339,49 +352,46 @@ public sealed class RuntimeEntityCrudTools
     /// Update an existing entity
     /// </summary>
     /// <param name="server">MCP Server instance</param>
-    /// <param name="ckTypeId">Construction Kit Type ID</param>
-    /// <param name="rtId">Runtime entity ID</param>
-    /// <param name="entityData">Updated entity data as JSON object</param>
+    /// <param name="rtId">The runtime ID of the entity to update</param>
+    /// <param name="ckTypeId">The Construction Kit Type ID of the entity</param>
+    /// <param name="entityData">JSON formated an array of attribute path and value to be updated.
+    /// For example,  [{attributePath: 'contact.test', value: 'test'}]</param>
     /// <returns>Updated entity</returns>
     [McpServerTool(Name = "update_entity")]
     [Description("Update an existing entity with new data")]
     public static async Task<UpdateEntityResponse> UpdateEntity(
-        IMcpServer server,
-        string ckTypeId,
-        string rtId,
-        string entityData)
+        IMcpServer server, string rtId, string ckTypeId, List<AttributeUpdateItem> entityData)
     {
         var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
         var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
         var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
 
         using var session = await tenantRepository.GetSessionAsync();
-
+        session.StartTransaction();
         try
         {
-            var dataDict = JsonSerializer.Deserialize<Dictionary<string, object>>(entityData);
-
+            var rtEntityId = new RtEntityId(ckTypeId, OctoObjectId.Parse(rtId));
             // Get existing entity
-            var existingEntity = await tenantRepository.GetRtEntityByRtIdAsync(session, new RtEntityId(rtId));
+            var existingEntity = await tenantRepository.GetRtEntityByRtIdAsync(session, rtEntityId);
             if (existingEntity == null)
             {
-                throw new ArgumentException($"Entity with ID '{rtId}' not found in type '{ckTypeId}'");
+                throw new ArgumentException(
+                    $"Entity with ID '{rtId}' not found in type '{ckTypeId}'");
             }
 
-            // Create update entity with only changed fields
-            var updateEntity = await tenantRepository.CreateTransientRtEntityAsync(new CkId<CkTypeId>(ckTypeId));
-            updateEntity.RtId = new OctoObjectId(rtId);
-
-            // Populate with update data
-            PopulateEntity(ckCacheService, httpContextAccessor.GetTenantId(), updateEntity, dataDict!);
+            Assign(existingEntity, ckCacheService, tenantRepository.TenantId, entityData);
 
             // Update entity
-            await tenantRepository.UpdateOneRtEntityByIdAsync(session, new CkId<CkTypeId>(ckTypeId),
-                new OctoObjectId(rtId), updateEntity);
+            await tenantRepository.UpdateOneRtEntityByIdAsync(session, rtEntityId.CkTypeId, rtEntityId.RtId, existingEntity);
             await session.CommitTransactionAsync();
 
             // Get updated entity
-            var updatedEntity = await tenantRepository.GetRtEntityByRtIdAsync(session, new RtEntityId(rtId));
+
+            var readSession = await tenantRepository.GetSessionAsync();
+            readSession.StartTransaction();
+
+            var updatedEntity = await tenantRepository.GetRtEntityByRtIdAsync(readSession, rtEntityId);
+            await readSession.CommitTransactionAsync();
 
             return new UpdateEntityResponse
             {
@@ -609,11 +619,17 @@ public sealed class RuntimeEntityCrudTools
                 break;
             case FilterOperatorDto.In:
                 if (filter.Value is IEnumerable<object> values)
+                {
                     queryOperation.FieldIn(filter.FieldPath, values);
+                }
+
                 break;
             case FilterOperatorDto.NotIn:
                 if (filter.Value is IEnumerable<object> notInValues)
+                {
                     queryOperation.FieldNotIn(filter.FieldPath, notInValues);
+                }
+
                 break;
             case FilterOperatorDto.IsNull:
                 queryOperation.FieldIsNull(filter.FieldPath);
@@ -630,18 +646,56 @@ public sealed class RuntimeEntityCrudTools
         }
     }
 
-    private static void PopulateEntity(ICkCacheService ckCacheService, string tenantId, RtEntity entity,
-        Dictionary<string, object> dataDict)
+    private static void Assign(RtEntity rtEntity, ICkCacheService ckCacheService, string tenantId, List<AttributeUpdateItem> entityData)
     {
-        foreach (var kvp in dataDict)
-        {
-            if (kvp.Key.StartsWith("_"))
+            foreach (var attributeUpdateItem in entityData)
             {
-                continue; // Skip system fields
-            }
+                object? value = null;
 
-            entity.SetAttributeValueByAccessPath(ckCacheService, tenantId, kvp.Key, kvp.Value);
-        }
+                switch (attributeUpdateItem.Value)
+                {
+                    case JsonElement jsonElement:
+                        if (jsonElement.ValueKind == JsonValueKind.String)
+                        {
+                            value = jsonElement.GetString();
+                        }
+                        else if (jsonElement.ValueKind == JsonValueKind.Number)
+                        {
+                            if (jsonElement.TryGetInt32(out int intValue))
+                            {
+                                value = intValue;
+                            }
+                            else if (jsonElement.TryGetInt64(out long longValue))
+                            {
+                                value = longValue;
+                            }
+                            else if (jsonElement.TryGetDouble(out double doubleValue))
+                            {
+                                value = doubleValue;
+                            }
+                        }
+                        else if (jsonElement.ValueKind == JsonValueKind.True)
+                        {
+                            value = true;
+                        }
+                        else if (jsonElement.ValueKind == JsonValueKind.False)
+                        {
+                            value = false;
+                        }
+                        else if (jsonElement.ValueKind == JsonValueKind.Null)
+                        {
+                            value = null;
+                        }
+                        else
+                        {
+                            throw new ArgumentException($"Unsupported JSON value type for attribute '{attributeUpdateItem.AttributePath}'");
+                        }
+
+                        break;
+                }
+
+                rtEntity.SetAttributeValueByAccessPath(ckCacheService, tenantId, attributeUpdateItem.AttributePath, value);
+            }
     }
 
     #endregion
