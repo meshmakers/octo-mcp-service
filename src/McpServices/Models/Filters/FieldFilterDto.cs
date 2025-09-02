@@ -3,28 +3,28 @@ using System.Text.Json.Serialization;
 namespace Meshmakers.Octo.Backend.McpServices.Models.Filters;
 
 /// <summary>
-/// Filter für ein einzelnes Feld
+///     Field filter for a specific attribute with operator and value
 /// </summary>
 public class FieldFilterDto
 {
     /// <summary>
-    /// Pfad zum Feld (kann dot-separated sein für verschachtelte Felder)
+    ///     Path to the attribute (can be dot-separated for nested fields)
     /// </summary>
-    public string FieldPath { get; set; } = string.Empty;
-    
+    public string AttributePath { get; set; } = string.Empty;
+
     /// <summary>
-    /// Filter-Operator
+    ///     Operator for the filter
     /// </summary>
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public FilterOperatorDto Operator { get; set; }
-    
+
     /// <summary>
-    /// Primärer Wert für den Filter
+    ///     Value for the filter
     /// </summary>
     public object? Value { get; set; }
-    
+
     /// <summary>
-    /// Sekundärer Wert (z.B. für Between-Operationen)
+    ///     Secondary value for between operators
     /// </summary>
     public object? SecondValue { get; set; }
 }

@@ -107,7 +107,7 @@ public class RuntimeEntityCrudToolsTests : TestBase
         // Assert
         result.Should().NotBeNull();
         
-        // Verify repository was called with correct offset
+        // Verify repository was called with the correct offset
         MockTenantRepository.Verify(r => r.GetRtEntitiesByTypeAsync(
             It.IsAny<IOctoSession>(),
             It.IsAny<CkId<CkTypeId>>(),
@@ -122,7 +122,14 @@ public class RuntimeEntityCrudToolsTests : TestBase
         // Arrange
         SetupMockServices();
         var mockResults = CreateMockQueryResults();
-        var simpleFilters = """{"firstName": "Gerald", "age": 35, "isActive": true}""";
+        var filters = new FieldFilterCriteriaDto
+        {
+            Fields =
+            [
+                new() { AttributePath = "firstName", Operator = FilterOperatorDto.Equals, Value = "Gerald" },
+                new() { AttributePath = "department", Operator = FilterOperatorDto.Equals, Value = "IT" }
+            ]
+        };
         
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
@@ -137,7 +144,7 @@ public class RuntimeEntityCrudToolsTests : TestBase
         var result = await RuntimeEntityCrudTools.QueryEntities(
             MockServer.Object,
             TestCkTypeId,
-            filters: simpleFilters);
+            filters: filters);
 
         // Assert
         result.Should().NotBeNull();
@@ -164,8 +171,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
             Operator = LogicalOperatorDto.And,
             Fields =
             [
-                new() { FieldPath = "firstName", Operator = FilterOperatorDto.Equals, Value = "Gerald" },
-                new() { FieldPath = "age", Operator = FilterOperatorDto.GreaterThan, Value = 30 }
+                new() { AttributePath = "firstName", Operator = FilterOperatorDto.Equals, Value = "Gerald" },
+                new() { AttributePath = "age", Operator = FilterOperatorDto.GreaterThan, Value = 30 }
             ]
         };
         
@@ -203,13 +210,15 @@ public class RuntimeEntityCrudToolsTests : TestBase
         SetupMockServices();
         var mockResults = CreateMockQueryResults();
         
-        var filtersWithNumbers = """
+        var filtersWithNumbers = new FieldFilterCriteriaDto
         {
-            "intValue": 42,
-            "longValue": 9223372036854775807,
-            "doubleValue": 3.14159
-        }
-        """;
+            Fields =
+            [
+                new() { AttributePath = "intValue", Operator = FilterOperatorDto.Equals, Value = 42},
+                new() { AttributePath = "longValue", Operator = FilterOperatorDto.Equals, Value = 9223372036854775807 },
+                new() { AttributePath = "doubleValue", Operator = FilterOperatorDto.Equals, Value = 3.14159 }
+            ]
+        };
         
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
@@ -245,7 +254,14 @@ public class RuntimeEntityCrudToolsTests : TestBase
         SetupMockServices();
         var mockResults = CreateMockQueryResults();
         
-        var booleanFilters = """{"isActive": true, "isDeleted": false}""";
+        var booleanFilters = new FieldFilterCriteriaDto
+        {
+            Fields =
+            [
+                new() { AttributePath = "isActive", Operator = FilterOperatorDto.Equals, Value = true},
+                new() { AttributePath = "isDeleted", Operator = FilterOperatorDto.Equals, Value = false }
+            ]
+        };
         
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
@@ -274,7 +290,15 @@ public class RuntimeEntityCrudToolsTests : TestBase
         SetupMockServices();
         var mockResults = CreateMockQueryResults();
         
-        var filtersWithNull = """{"firstName": "Gerald", "middleName": null, "lastName": "Lochner"}""";
+        var filtersWithNull = new FieldFilterCriteriaDto
+        {
+            Fields =
+            [
+                new() { AttributePath = "firstName", Operator = FilterOperatorDto.Equals, Value = "Gerald"},
+                new() { AttributePath = "middleName", Operator = FilterOperatorDto.Equals, Value = null },
+                new() { AttributePath = "lastName", Operator = FilterOperatorDto.Equals, Value = "Lochner" }
+            ]
+        };
         
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
@@ -302,8 +326,13 @@ public class RuntimeEntityCrudToolsTests : TestBase
         // Arrange
         SetupMockServices();
         var mockResults = CreateMockQueryResults();
-        var simpleFilters = """{"firstName": "Gerald", "department": "IT"}""";
-        
+
+        List<SimpleFilterDto> simpleFilters =
+        [
+            new() { AttributePath = "firstName", Value = "Gerald" },
+            new() { AttributePath = "department", Value = "IT" }
+        ];
+
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
                 It.IsAny<IOctoSession>(),
@@ -374,7 +403,7 @@ public class RuntimeEntityCrudToolsTests : TestBase
         var result = await RuntimeEntityCrudTools.QueryEntitiesSimple(
             MockServer.Object,
             TestCkTypeId,
-            simpleFilters: "");
+            simpleFilters: null);
 
         // Assert
         result.Should().NotBeNull();
@@ -382,7 +411,7 @@ public class RuntimeEntityCrudToolsTests : TestBase
     }
 
     [Fact]
-    public async Task QueryEntities_WithInvalidCkTypeId_ThrowsInvalidOperationException()
+    public async Task QueryEntities_WithInvalidCkTypeId_ReturnsErrorResponse()
     {
         // Arrange
         SetupMockServices();
@@ -393,31 +422,12 @@ public class RuntimeEntityCrudToolsTests : TestBase
             .ThrowsAsync(new ArgumentException("Invalid CK Type ID"));
 
         // Act & Assert
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            RuntimeEntityCrudTools.QueryEntities(
-                MockServer.Object,
-                invalidCkTypeId));
+        var r = await RuntimeEntityCrudTools.QueryEntities(
+            MockServer.Object,
+            invalidCkTypeId);
 
-        exception.Message.Should().Contain($"Failed to query entities for type '{invalidCkTypeId}'");
-    }
-
-    [Fact]
-    public async Task QueryEntities_WithInvalidJsonFilters_ThrowsInvalidOperationException()
-    {
-        // Arrange
-        SetupMockServices();
-        const string invalidJson = "{ invalid json }";
-        
-        // Act & Assert
-        // Invalid JSON that can't be parsed as either simple filters or EntityFilterDto should throw
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            RuntimeEntityCrudTools.QueryEntities(
-                MockServer.Object,
-                TestCkTypeId,
-                filters: invalidJson));
-
-        exception.Message.Should().Contain($"Failed to query entities for type '{TestCkTypeId}'");
-        exception.InnerException.Should().BeOfType<JsonException>();
+        r.IsSuccess.Should().BeFalse();
+        r.ErrorMessage.Should().Contain("'ckId' must contain a model id (Parameter 'ckId')");
     }
 
     [Fact]
@@ -457,7 +467,7 @@ public class RuntimeEntityCrudToolsTests : TestBase
     }
 
     [Fact]
-    public async Task QueryEntities_RepositoryException_ThrowsInvalidOperationException()
+    public async Task QueryEntities_RepositoryException_ReturnsErrorResponse()
     {
         // Arrange
         SetupMockServices();
@@ -472,13 +482,13 @@ public class RuntimeEntityCrudToolsTests : TestBase
             .ThrowsAsync(new Exception("Database connection failed"));
 
         // Act & Assert
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            RuntimeEntityCrudTools.QueryEntities(
-                MockServer.Object,
-                TestCkTypeId));
 
-        exception.Message.Should().Contain($"Failed to query entities for type '{TestCkTypeId}'");
-        exception.InnerException?.Message.Should().Be("Database connection failed");
+        var r = await RuntimeEntityCrudTools.QueryEntities(
+            MockServer.Object,
+            TestCkTypeId);
+
+        r.IsSuccess.Should().BeFalse();
+        r.ErrorMessage.Should().Contain("Database connection failed");
     }
 
     #region Helper Methods
@@ -486,7 +496,7 @@ public class RuntimeEntityCrudToolsTests : TestBase
     private static IResultSet<RtEntity> CreateMockQueryResults(int count = 3)
     {
         var entities = Enumerable.Range(1, count)
-            .Select(i => new RtEntity
+            .Select(_ => new RtEntity
             {
                 RtId = OctoObjectId.GenerateNewId(),
                 CkTypeId = new CkId<CkTypeId>(TestCkTypeId)

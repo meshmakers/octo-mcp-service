@@ -1,20 +1,20 @@
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Meshmakers.Octo.Backend.McpServices.Options;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 
 namespace Meshmakers.Octo.Backend.McpServices.Services;
 
 /// <summary>
-/// Health check for dynamic tool services and configuration
+///     Health check for dynamic tool services and configuration
 /// </summary>
 public class DynamicToolHealthCheck : IHealthCheck
 {
     private readonly IDynamicToolService _dynamicToolService;
-    private readonly DynamicToolOptions _options;
     private readonly ILogger<DynamicToolHealthCheck> _logger;
+    private readonly DynamicToolOptions _options;
 
     /// <summary>
-    /// Constructor for dynamic tool health check
+    ///     Constructor for dynamic tool health check
     /// </summary>
     /// <param name="dynamicToolService">Dynamic tool service instance</param>
     /// <param name="options">Dynamic tool options</param>
@@ -30,7 +30,7 @@ public class DynamicToolHealthCheck : IHealthCheck
     }
 
     /// <summary>
-    /// Checks the health of the dynamic tool service
+    ///     Checks the health of the dynamic tool service
     /// </summary>
     /// <param name="context">Health check context</param>
     /// <param name="cancellationToken"></param>
@@ -106,8 +106,8 @@ public class DynamicToolHealthCheck : IHealthCheck
                     data: healthData));
             }
 
-            var status = _options.EnableDynamicToolGeneration 
-                ? HealthStatus.Healthy 
+            var status = _options.EnableDynamicToolGeneration
+                ? HealthStatus.Healthy
                 : HealthStatus.Degraded;
 
             var description = _options.EnableDynamicToolGeneration
@@ -119,7 +119,7 @@ public class DynamicToolHealthCheck : IHealthCheck
         catch (Exception ex)
         {
             _logger.LogError(ex, "Health check failed for dynamic tool service");
-            
+
             return Task.FromResult(HealthCheckResult.Unhealthy(
                 "Dynamic tool service health check failed",
                 ex,

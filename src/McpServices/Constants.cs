@@ -2,8 +2,6 @@ namespace Meshmakers.Octo.Backend.McpServices;
 
 internal static class Constants
 {
-    internal static readonly DateTime StartTime = DateTime.UtcNow;
-
     public const string McpServiceSchemaVersionKey = "McpServices";
     public const int McpServiceSchemaVersionValue = 1;
 
@@ -24,4 +22,6 @@ internal static class Constants
     ///     Policy for tenant api read write authorization
     /// </summary>
     public const string TenantApiReadWritePolicy = "TenantApiReadWritePolicy";
+
+    internal static readonly DateTime StartTime = DateTime.UtcNow;
 }

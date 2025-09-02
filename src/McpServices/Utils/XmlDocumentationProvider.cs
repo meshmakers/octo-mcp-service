@@ -4,7 +4,7 @@ using System.Xml.Linq;
 namespace Meshmakers.Octo.Backend.McpServices.Utils;
 
 /// <summary>
-/// Provider for XML documentation at runtime
+///     Provider for XML documentation at runtime
 /// </summary>
 internal class XmlDocumentationProvider
 {

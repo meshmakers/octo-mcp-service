@@ -1,14 +1,17 @@
 using System.ComponentModel;
 using System.Reflection;
+using System.Text.Json;
 using Meshmakers.Octo.Backend.McpServices.Models;
+using Meshmakers.Octo.Backend.McpServices.Models.Filters;
 using Meshmakers.Octo.Backend.McpServices.Utils;
 using ModelContextProtocol.Server;
+
 // ReSharper disable MemberCanBePrivate.Global
 
 namespace Meshmakers.Octo.Backend.McpServices.Tools;
 
 /// <summary>
-/// Tool management and discovery helpers for the MCP server
+///     Tool management and discovery helpers for the MCP server
 /// </summary>
 [McpServerToolType]
 public sealed class ToolManagementTools
@@ -17,7 +20,7 @@ public sealed class ToolManagementTools
         new(() => new XmlDocumentationProvider());
 
     /// <summary>
-    /// Get information about all available MCP tools in this server
+    ///     Get information about all available MCP tools in this server
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="category">Optional filter by tool category (e.g., 'CRUD Operations', 'Analytics')</param>
@@ -46,12 +49,12 @@ public sealed class ToolManagementTools
                 foreach (var method in toolMethods)
                 {
                     var toolAttr = method.GetCustomAttribute<McpServerToolAttribute>();
-                    
+
                     if (toolAttr != null && !string.IsNullOrEmpty(toolAttr.Name))
                     {
                         var toolCategory = GetToolCategory(toolType.Name);
-                        
-                        if (!string.IsNullOrEmpty(category) && 
+
+                        if (!string.IsNullOrEmpty(category) &&
                             !toolCategory.Equals(category, StringComparison.OrdinalIgnoreCase))
                         {
                             continue;
@@ -109,7 +112,7 @@ public sealed class ToolManagementTools
     }
 
     /// <summary>
-    /// Get detailed information about a specific tool including usage examples
+    ///     Get detailed information about a specific tool including usage examples
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="toolName">Name of the tool to get details for (use list_available_tools to see all tools)</param>
@@ -142,7 +145,7 @@ public sealed class ToolManagementTools
                     {
                         var description = GetToolDescription(method);
                         var returnDescription = XmlDocs.Value.GetReturnDescription(method);
-                        
+
                         var parameters = method.GetParameters()
                             .Skip(1) // Skip IMcpServer parameter
                             .Select(p => new ToolParameterInfo
@@ -176,7 +179,8 @@ public sealed class ToolManagementTools
                 }
             }
 
-            throw new ArgumentException($"Tool '{toolName}' not found. Use 'list_available_tools' to see all available tools.");
+            throw new ArgumentException(
+                $"Tool '{toolName}' not found. Use 'list_available_tools' to see all available tools.");
         }
         catch (Exception ex)
         {
@@ -185,7 +189,7 @@ public sealed class ToolManagementTools
     }
 
     /// <summary>
-    /// Get usage statistics and performance metrics for MCP tools
+    ///     Get usage statistics and performance metrics for MCP tools
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="timeRange">Time range for statistics: 'hour', 'day', 'week', 'month' (default: 'day')</param>
@@ -207,16 +211,17 @@ public sealed class ToolManagementTools
                 UniqueTools = 23,
                 AverageResponseTime = "245ms",
                 SuccessRate = 98.7,
-                
+
                 TopTools =
                 [
-                    new() { Name = "query_entities", Invocations = 312, AvgResponseTime = "180ms" },
-                    new() { Name = "get_available_types", Invocations = 156, AvgResponseTime = "95ms" },
-                    new() { Name = "analyze_energy_consumption", Invocations = 89, AvgResponseTime = "420ms" },
-                    new() { Name = "get_machine_alarms", Invocations = 67, AvgResponseTime = "220ms" },
-                    new() { Name = "create_entity", Invocations = 45, AvgResponseTime = "350ms" }
+                    new TopToolInfo { Name = "query_entities", Invocations = 312, AvgResponseTime = "180ms" },
+                    new TopToolInfo { Name = "get_available_types", Invocations = 156, AvgResponseTime = "95ms" },
+                    new TopToolInfo
+                        { Name = "analyze_energy_consumption", Invocations = 89, AvgResponseTime = "420ms" },
+                    new TopToolInfo { Name = "get_machine_alarms", Invocations = 67, AvgResponseTime = "220ms" },
+                    new TopToolInfo { Name = "create_entity", Invocations = 45, AvgResponseTime = "350ms" }
                 ],
-                
+
                 CategoryBreakdown = new CategoryBreakdownInfo
                 {
                     Crud = 45.2,
@@ -225,16 +230,16 @@ public sealed class ToolManagementTools
                     Maintenance = 6.9,
                     Management = 3.4
                 },
-                
+
                 ErrorStats = new ErrorStatistics
                 {
                     TotalErrors = 16,
                     CommonErrors =
                     [
-                        new() { Error = "Entity not found", Count = 8 },
-                        new() { Error = "Invalid CK Type ID", Count = 4 },
-                        new() { Error = "Permission denied", Count = 3 },
-                        new() { Error = "Invalid date format", Count = 1 }
+                        new CommonErrorInfo { Error = "Entity not found", Count = 8 },
+                        new CommonErrorInfo { Error = "Invalid CK Type ID", Count = 4 },
+                        new CommonErrorInfo { Error = "Permission denied", Count = 3 },
+                        new CommonErrorInfo { Error = "Invalid date format", Count = 1 }
                     ]
                 },
 
@@ -256,7 +261,7 @@ public sealed class ToolManagementTools
     }
 
     /// <summary>
-    /// Validate tool parameters before execution to catch configuration errors early
+    ///     Validate tool parameters before execution to catch configuration errors early
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="toolName">Name of the tool to validate (must be exact tool name)</param>
@@ -294,7 +299,8 @@ public sealed class ToolManagementTools
                     }
                 };
             }
-            var providedParams = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(parameters);
+
+            var providedParams = JsonSerializer.Deserialize<Dictionary<string, object>>(parameters);
             var requiredParams = toolInfo.RequiredParameters;
             var allParams = toolInfo.Parameters;
 
@@ -348,7 +354,9 @@ public sealed class ToolManagementTools
                     TotalProvided = providedParams?.Count ?? 0,
                     RequiredMissing = errors.Count(e => e.Contains("missing")),
                     UnknownParams = warnings.Count(w => w.Contains("Unknown")),
-                    Recommendation = errors.Count == 0 ? "Parameters are valid for execution" : "Fix errors before executing tool"
+                    Recommendation = errors.Count == 0
+                        ? "Parameters are valid for execution"
+                        : "Fix errors before executing tool"
                 }
             };
         }
@@ -374,7 +382,7 @@ public sealed class ToolManagementTools
     }
 
     /// <summary>
-    /// Get tool description from XML documentation with fallback to Description attribute
+    ///     Get tool description from XML documentation with fallback to Description attribute
     /// </summary>
     private static string GetToolDescription(MethodInfo method)
     {
@@ -384,14 +392,14 @@ public sealed class ToolManagementTools
         {
             return xmlDescription;
         }
-        
+
         // Fallback to Description attribute
         var descriptionAttr = method.GetCustomAttribute<DescriptionAttribute>();
         if (descriptionAttr != null && !string.IsNullOrEmpty(descriptionAttr.Description))
         {
             return descriptionAttr.Description;
         }
-        
+
         return $"No description available for {method.Name}";
     }
 
@@ -481,33 +489,136 @@ public sealed class ToolManagementTools
                 });
                 examples.Add(new ToolUsageExample
                 {
-                    Description = "Query customers with filter",
+                    Description = "Query customers with and filter",
                     Parameters = new
                     {
                         ckTypeId = "EnergyCommunity-1.0.0/Customer-1.0.0",
-                        filters = "{\"State\": \"Active\"}",
+                        filters = new FieldFilterCriteriaDto
+                        {
+                            Fields =
+                            [
+                                new()
+                                {
+                                    AttributePath = "contact.country", Operator = FilterOperatorDto.Equals, Value = "DE"
+                                },
+                                new()
+                                {
+                                    AttributePath = "status", Operator = FilterOperatorDto.In,
+                                    Value = new[] { "active", "pending" }
+                                }
+                            ],
+                            Operator = LogicalOperatorDto.And
+                        },
+                        limit = 50
+                    }
+                });
+                examples.Add(new ToolUsageExample
+                {
+                    Description = "Query customers with or filter",
+                    Parameters = new
+                    {
+                        ckTypeId = "EnergyCommunity-1.0.0/Customer-1.0.0",
+                        filters = new FieldFilterCriteriaDto
+                        {
+                            Fields =
+                            [
+                                new()
+                                {
+                                    AttributePath = "contact.country", Operator = FilterOperatorDto.Equals, Value = "DE"
+                                },
+                                new()
+                                {
+                                    AttributePath = "status", Operator = FilterOperatorDto.In,
+                                    Value = new[] { "active", "pending" }
+                                }
+                            ],
+                            Operator = LogicalOperatorDto.Or
+                        },
+                        limit = 50
+                    }
+                });
+                examples.Add(new ToolUsageExample
+                {
+                    Description = "Query customers with complex filter with different logical operators",
+                    Parameters = new
+                    {
+                        ckTypeId = "EnergyCommunity-1.0.0/Customer-1.0.0",
+                        filters = new FieldFilterCriteriaDto
+                        {
+                            NestedFilters =
+                            [
+                                new()
+                                {
+                                    Fields =
+                                    [
+                                        new()
+                                        {
+                                            AttributePath = "contact.firstName", Operator = FilterOperatorDto.Equals,
+                                            Value = "Gerald",
+                                        },
+                                        new()
+                                        {
+                                            AttributePath = "contact.lastName", Operator = FilterOperatorDto.Equals,
+                                            Value = "Lochner"
+                                        }
+                                    ],
+                                    Operator = LogicalOperatorDto.And
+                                },
+                                new()
+                                {
+                                    Fields =
+                                    [
+                                        new()
+                                        {
+                                            AttributePath = "contact.companyName",
+                                            Operator = FilterOperatorDto.Equals,
+                                            Value = "meshmakers GmbH"
+                                        },
+                                        new()
+                                        {
+                                            AttributePath = "status", Operator = FilterOperatorDto.In,
+                                            Value = new[] { "active", "pending" }
+                                        }
+                                    ],
+                                    Operator = LogicalOperatorDto.And
+                                }
+                            ],
+                            Operator = LogicalOperatorDto.Or
+                        },
                         limit = 50
                     }
                 });
                 break;
 
-            case "analyze_energy_consumption":
+
+            case "query_entities_simple":
                 examples.Add(new ToolUsageExample
                 {
-                    Description = "Analyze energy consumption for the last month",
+                    Description = "Gets all entities of type Customer with filter for first name and last name",
                     Parameters = new
                     {
-                        fromDate = "2024-01-01T00:00:00Z",
-                        toDate = "2024-01-31T23:59:59Z"
+                        ckTypeId = "EnergyCommunity/Customer",
+                        simpleFilters = new List<SimpleFilterDto>
+                        {
+                            new()
+                            {
+                                AttributePath = "contact.firstName",
+                                Value = "Gerald"
+                            },
+                            new()
+                            {
+                                AttributePath = "contact.lastName",
+                                Value = "Lochner"
+                            }
+                        }
                     }
                 });
                 break;
-
             case "get_type_schema":
                 examples.Add(new ToolUsageExample
                 {
                     Description = "Get schema for Customer type",
-                    Parameters = new { ckTypeId = "EnergyCommunity-1.0.0/Customer-1.0.0" }
+                    Parameters = new { ckTypeId = "EnergyCommunity/Customer" }
                 });
                 break;
 
@@ -571,12 +682,6 @@ public sealed class ToolManagementTools
                 "Entity data must include all required attributes for the type",
                 "System fields like _id are automatically generated",
                 "Returns the created entity with its new runtime ID"
-            ],
-            "analyze_energy_consumption" =>
-            [
-                "Date range should not exceed 1 year for performance",
-                "Results include daily breakdown and quality metrics",
-                "Supports filtering by facility or customer ID"
             ],
             _ => ["No special notes for this tool"]
         };
