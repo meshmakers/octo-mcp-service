@@ -3,23 +3,23 @@ using System.Text.Json.Serialization;
 namespace Meshmakers.Octo.Backend.McpServices.Models.Filters;
 
 /// <summary>
-/// Typisierte Filter-Definition für Entity-Queries
+///     Typed filter definition for entity queries
 /// </summary>
 public class FieldFilterCriteriaDto
 {
     /// <summary>
-    /// Liste von Feld-Filtern
+    ///     List of field filters
     /// </summary>
     public List<FieldFilterDto> Fields { get; set; } = [];
-    
+
     /// <summary>
-    /// Logischer Operator für die Verknüpfung der Fields
+    ///     Logical operator for combining the fields
     /// </summary>
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public LogicalOperatorDto Operator { get; set; } = LogicalOperatorDto.And;
-    
+
     /// <summary>
-    /// Verschachtelte Filter für komplexe Logik
+    ///     Nested filters for complex logic
     /// </summary>
     public List<FieldFilterCriteriaDto>? NestedFilters { get; set; }
 }

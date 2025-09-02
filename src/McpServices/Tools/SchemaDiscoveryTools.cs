@@ -1,10 +1,9 @@
 using System.ComponentModel;
 using System.Globalization;
+using Meshmakers.Common.Shared;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.ConstructionKit.Contracts;
-using Meshmakers.Octo.ConstructionKit.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
-using Meshmakers.Octo.Services.Infrastructure;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using ModelContextProtocol.Server;
 
@@ -13,20 +12,20 @@ using ModelContextProtocol.Server;
 namespace Meshmakers.Octo.Backend.McpServices.Tools;
 
 /// <summary>
-/// Tools for discovering and exploring Construction Kit schemas
+///     Tools for discovering and exploring Construction Kit schemas
 /// </summary>
 [McpServerToolType]
 // ReSharper disable once UnusedType.Global
 public sealed class SchemaDiscoveryTools
 {
     /// <summary>
-    /// Get all models available in the system
+    ///     Get all models available in the system
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <returns>List of available Construction Kit models</returns>
     [McpServerTool(Name = "get_available_models")]
     [Description("Get all available Construction Kit models in the system")]
-    public static async Task<object> GetAvailableModels(IMcpServer server)
+    public static async Task<AvailableModelsResponse> GetAvailableModels(IMcpServer server)
     {
         try
         {
@@ -40,22 +39,23 @@ public sealed class SchemaDiscoveryTools
 
             return new AvailableModelsResponse
             {
+                IsSuccess = true,
                 TotalModels = modelIds.Count,
                 Models = modelIds.OrderBy(m => m.ModelId).Select(m => m.ToString(CultureInfo.InvariantCulture)).ToList()
             };
         }
         catch (Exception ex)
         {
-            return new ErrorResponse
+            return new AvailableModelsResponse
             {
-                Error = "Failed to get available models",
-                Message = ex.Message
+                IsSuccess = false,
+                ErrorMessage = ex.Message
             };
         }
     }
 
     /// <summary>
-    /// Get all available Construction Kit types in the system
+    ///     Get all available Construction Kit types in the system
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="includeAbstract">Include abstract types in results</param>
@@ -64,7 +64,7 @@ public sealed class SchemaDiscoveryTools
     [McpServerTool(Name = "get_available_types")]
     [Description("Get all available Construction Kit types with their basic metadata")]
     // ReSharper disable once MemberCanBePrivate.Global
-    public static async Task<object> GetAvailableTypes(
+    public static async Task<AvailableTypesResponse> GetAvailableTypes(
         IMcpServer server,
         bool includeAbstract = false,
         string? ckModelId = null)
@@ -78,7 +78,7 @@ public sealed class SchemaDiscoveryTools
             await tenantRepository.LoadCacheForTenantAsync(ckCacheService);
 
             // Get all available type graphs from the cache
-            var availableTypes = new List<CkTypeMetadata>();
+            var availableTypes = new List<CkTypeInfo>();
 
             var typeGraphs = ckCacheService.GetCkTypes(httpContextAccessor.GetTenantId());
 
@@ -95,7 +95,7 @@ public sealed class SchemaDiscoveryTools
                     continue;
                 }
 
-                availableTypes.Add(new CkTypeMetadata
+                availableTypes.Add(new CkTypeInfo
                 {
                     CkTypeId = ckTypeGraph.CkTypeId.SemanticVersionedFullName,
                     ModelId = ckTypeGraph.CkTypeId.ModelId.ToString(CultureInfo.InvariantCulture),
@@ -107,28 +107,12 @@ public sealed class SchemaDiscoveryTools
                     IsCollectionRoot = ckTypeGraph.IsCollectionRoot,
                     Description = ckTypeGraph.Description,
                     DerivedFrom = ckTypeGraph.DerivedFromCkTypeId?.ToString(),
-                    Attributes =
-                        ckCacheService.GetCkTypeQueryColumnPaths(tenantRepository.TenantId, ckTypeGraph.CkTypeId, true).Select(c =>
-                            new AttributeSchemaResponse{ AttributePath = c.Path, ValueType = c.ValueType}),
-                    InboundAssociations = ckTypeGraph.Associations.In.All.Select(a=> new AssociationSchemaResponse
-                    {
-                        AssociationRoleId = a.CkRoleId.FullName,
-                        TargetCkTypeId = a.TargetCkTypeId.FullName,
-                        Cardinality = (CkTypeAssociationCardinalityDto) a.Multiplicity,
-                        Direction = CkTypeAssociationDirectionDto.Inbound
-                    }),
-                    OutboundAssociations = ckTypeGraph.Associations.Out.All.Select(a=> new AssociationSchemaResponse
-                    {
-                        AssociationRoleId = a.CkRoleId.FullName,
-                        TargetCkTypeId = a.TargetCkTypeId.FullName,
-                        Cardinality = (CkTypeAssociationCardinalityDto) a.Multiplicity,
-                        Direction = CkTypeAssociationDirectionDto.Outbound
-                    }),
                 });
             }
 
             return new AvailableTypesResponse
             {
+                IsSuccess = true,
                 TotalTypes = availableTypes.Count,
                 IncludeAbstract = includeAbstract,
                 ModelIdFilter = ckModelId,
@@ -137,22 +121,22 @@ public sealed class SchemaDiscoveryTools
         }
         catch (Exception ex)
         {
-            return new ErrorResponse
+            return new AvailableTypesResponse
             {
-                Error = "Failed to get available types",
-                Message = ex.Message
+                IsSuccess = false,
+                ErrorMessage = ex.Message
             };
         }
     }
 
     /// <summary>
-    /// Get detailed schema information for a specific Construction Kit type
+    ///     Get detailed schema information for a specific Construction Kit type
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Construction Kit Type ID</param>
     [McpServerTool(Name = "get_type_schema")]
     [Description("Get detailed schema information for a specific Construction Kit type")]
-    public static async Task<object> GetTypeSchema(
+    public static async Task<TypeSchemaResponse> GetTypeSchema(
         IMcpServer server,
         string ckTypeId)
     {
@@ -168,7 +152,8 @@ public sealed class SchemaDiscoveryTools
 
             return new TypeSchemaResponse
             {
-                TypeId = typeGraph.CkTypeId.ToString(),
+                IsSuccess = true,
+                CkTypeId = typeGraph.CkTypeId.ToString(),
                 ModelId = typeGraph.CkTypeId.ModelId.ToString(CultureInfo.InvariantCulture),
                 TypeName = typeGraph.CkTypeId.Key.SemanticVersionedFullName,
                 Version = typeGraph.CkTypeId.Key.Version.ToString(),
@@ -181,43 +166,48 @@ public sealed class SchemaDiscoveryTools
                 InheritanceHierarchy = typeGraph.GetBaseTypes(false),
                 Indexes = typeGraph.Indexes,
                 Attributes =
-                    ckCacheService.GetCkTypeQueryColumnPaths(tenantRepository.TenantId, typeGraph.CkTypeId, true).Select(c =>
-                        new AttributeSchemaResponse{ AttributePath = c.Path, ValueType = c.ValueType}),
-                InboundAssociations = typeGraph.Associations.In.All.Select(a=> new AssociationSchemaResponse
+                    ckCacheService.GetCkTypeQueryColumnPaths(tenantRepository.TenantId, typeGraph.CkTypeId, true)
+                        .Select(c =>
+                            new AttributeSchemaResponse { AttributePath = c.Path, ValueType = c.ValueType }),
+                InboundAssociations = typeGraph.Associations.In.All.Select(a => new AssociationSchemaResponse
                 {
                     AssociationRoleId = a.CkRoleId.FullName,
                     TargetCkTypeId = a.TargetCkTypeId.FullName,
-                    Cardinality = (CkTypeAssociationCardinalityDto) a.Multiplicity,
+                    Cardinality = (CkTypeAssociationCardinalityDto)a.Multiplicity,
                     Direction = CkTypeAssociationDirectionDto.Inbound
                 }),
-                OutboundAssociations = typeGraph.Associations.Out.All.Select(a=> new AssociationSchemaResponse
+                OutboundAssociations = typeGraph.Associations.Out.All.Select(a => new AssociationSchemaResponse
                 {
                     AssociationRoleId = a.CkRoleId.FullName,
                     TargetCkTypeId = a.TargetCkTypeId.FullName,
-                    Cardinality = (CkTypeAssociationCardinalityDto) a.Multiplicity,
+                    Cardinality = (CkTypeAssociationCardinalityDto)a.Multiplicity,
                     Direction = CkTypeAssociationDirectionDto.Outbound
                 }),
                 Schema = new TypeSchemaDetails
                 {
                     CanCreate = !typeGraph.IsAbstract,
-                    RequiredAttributes = typeGraph.AllAttributes.Where(a => !a.Value.IsOptional),
-                    OptionalAttributes = typeGraph.AllAttributes.Where(a => a.Value.IsOptional)
+                    RequiredAttributes = typeGraph.AllAttributes.Where(a => !a.Value.IsOptional).Select(a =>
+                        new AttributeSchemaResponse
+                            { AttributePath = a.Value.AttributeName.ToCamelCase(), ValueType = a.Value.ValueType }),
+                    OptionalAttributes = typeGraph.AllAttributes.Where(a => a.Value.IsOptional).Select(a =>
+                        new AttributeSchemaResponse
+                            { AttributePath = a.Value.AttributeName.ToCamelCase(), ValueType = a.Value.ValueType })
                 }
             };
         }
         catch (Exception ex)
         {
-            return new ErrorResponse
+            return new TypeSchemaResponse
             {
-                Error = "Failed to get type schema",
-                Message = ex.Message,
+                IsSuccess = false,
+                ErrorMessage = ex.Message,
                 CkTypeId = ckTypeId
             };
         }
     }
 
     /// <summary>
-    /// Search for types by name or description
+    ///     Search for types by name or description
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="searchTerm">Search term to look for in type names or descriptions</param>
@@ -225,7 +215,7 @@ public sealed class SchemaDiscoveryTools
     /// <returns>Matching types</returns>
     [McpServerTool(Name = "search_types")]
     [Description("Search for Construction Kit types by name or description")]
-    public static async Task<object> SearchTypes(
+    public static async Task<SearchTypesResponse> SearchTypes(
         IMcpServer server,
         string searchTerm,
         bool includeAbstract = false)
@@ -235,16 +225,30 @@ public sealed class SchemaDiscoveryTools
             var allTypesResult = await GetAvailableTypes(server, includeAbstract);
 
             // Safe casting to concrete type
-            if (allTypesResult is not AvailableTypesResponse typesResponse)
+            if (!allTypesResult.IsSuccess)
             {
-                return new ErrorResponse
+                return new SearchTypesResponse
                 {
-                    Error = "Failed to get types for search",
-                    Message = "Unable to retrieve type information from cache"
+                    IsSuccess = false,
+                    ErrorMessage = allTypesResult.ErrorMessage,
+                    SearchTerm = searchTerm,
+                    IncludeAbstract = includeAbstract,
                 };
             }
 
-            var matchingTypes = typesResponse.Types.Where(t =>
+            if (allTypesResult.Types == null || !allTypesResult.Types.Any())
+            {
+                return new SearchTypesResponse
+                {
+                    IsSuccess = true,
+                    SearchTerm = searchTerm,
+                    MatchCount = 0,
+                    IncludeAbstract = includeAbstract,
+                    Matches = new List<CkTypeInfo>()
+                };
+            }
+
+            var matchingTypes = allTypesResult.Types.Where(t =>
                 t.TypeId.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
                 t.TypeName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
                 (!string.IsNullOrEmpty(t.Description) &&
@@ -253,6 +257,7 @@ public sealed class SchemaDiscoveryTools
 
             return new SearchTypesResponse
             {
+                IsSuccess = true,
                 SearchTerm = searchTerm,
                 MatchCount = matchingTypes.Count,
                 IncludeAbstract = includeAbstract,
@@ -261,11 +266,12 @@ public sealed class SchemaDiscoveryTools
         }
         catch (Exception ex)
         {
-            return new ErrorResponse
+            return new SearchTypesResponse
             {
-                Error = "Failed to search types",
-                Message = ex.Message,
-                SearchTerm = searchTerm
+                IsSuccess = false,
+                ErrorMessage = ex.Message,
+                SearchTerm = searchTerm,
+                IncludeAbstract = includeAbstract
             };
         }
     }

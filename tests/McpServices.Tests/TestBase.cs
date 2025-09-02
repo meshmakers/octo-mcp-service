@@ -1,7 +1,9 @@
+using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Moq;
 using ModelContextProtocol.Server;
 using Meshmakers.Octo.Services.Infrastructure;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
+using Meshmakers.Octo.Runtime.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 using Meshmakers.Octo.Services.Infrastructure.Services;
@@ -17,6 +19,7 @@ public abstract class TestBase
     protected Mock<IOctoHttpContextAccessor> MockHttpContextAccessor { get; private set; }
     protected Mock<ICkCacheService> MockCkCacheService { get; private set; }
     protected Mock<ITenantRepository> MockTenantRepository { get; private set; }
+    protected Mock<IOctoSession> MockSession { get; private set; }
 
     protected TestBase()
     {
@@ -25,6 +28,7 @@ public abstract class TestBase
         MockHttpContextAccessor = new Mock<IOctoHttpContextAccessor>();
         MockCkCacheService = new Mock<ICkCacheService>();
         MockTenantRepository = new Mock<ITenantRepository>();
+        MockSession = new Mock<IOctoSession>();
 
         // Setup basic mocks
         MockServer.Setup(s => s.Services).Returns(TestServiceProvider);
@@ -32,14 +36,16 @@ public abstract class TestBase
         // Register services in test service provider
         TestServiceProvider.RegisterService(MockHttpContextAccessor.Object);
         TestServiceProvider.RegisterService(MockCkCacheService.Object);
-
+        TestServiceProvider.RegisterService<IRtEntityToDtoMapper>(new RtEntityToDtoMapper(MockCkCacheService.Object));
 
         // Setup HttpContextAccessor
         MockHttpContextAccessor.Setup(h => h.GetTenantRepositoryAsync())
             .ReturnsAsync(MockTenantRepository.Object);
-        
+
         // Setup TenantRepository
         MockTenantRepository.Setup(tr => tr.TenantId).Returns("test-tenant");
+        MockTenantRepository.Setup(tr => tr.GetSessionAsync())
+            .ReturnsAsync(MockSession.Object);
     }
     
     protected void SetupMockServices()

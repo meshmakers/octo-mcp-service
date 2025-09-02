@@ -1,23 +1,22 @@
 using System.ComponentModel;
-using Meshmakers.Octo.Services.Infrastructure;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using ModelContextProtocol.Server;
 
 namespace Meshmakers.Octo.Backend.McpServices.Tools;
 
 /// <summary>
-/// Tests
+///     Tests
 /// </summary>
 [McpServerToolType]
 public sealed class EchoTool
 {
     /// <summary>
-    ///
     /// </summary>
     /// <param name="thisServer"></param>
     /// <param name="message"></param>
     /// <returns></returns>
-    [McpServerTool(Name = "Echo"), Description("Echoes the input back to the client.")]
+    [McpServerTool(Name = "Echo")]
+    [Description("Echoes the input back to the client.")]
     public static async Task<string> Echo(
         IMcpServer thisServer,
         string message)

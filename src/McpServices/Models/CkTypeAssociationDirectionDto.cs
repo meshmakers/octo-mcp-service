@@ -1,7 +1,7 @@
 namespace Meshmakers.Octo.Backend.McpServices.Models;
 
 /// <summary>
-/// Association direction for Construction Kit associations
+///     Association direction for Construction Kit associations
 /// </summary>
 public enum CkTypeAssociationDirectionDto
 {

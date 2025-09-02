@@ -72,7 +72,7 @@ Content-Type: application/json
   "params": {
     "name": "search_types",
     "arguments": {
-      "searchTerm": "Person",
+      "searchTerm": "Customer",
       "includeAbstract": false
     }
   }
@@ -89,7 +89,7 @@ Content-Type: application/json
   "params": {
     "name": "get_type_schema",
     "arguments": {
-      "ckTypeId": "YourTypeId"
+      "ckTypeId": "EnergyCommunity/Customer"
     }
   }
 }
@@ -105,8 +105,41 @@ Content-Type: application/json
   "params": {
     "name": "create_entity",
     "arguments": {
-      "ckTypeId": "YourTypeId",
-      "entityData": "{\"name\": \"Test Entity\", \"value\": 123}"
+      "ckTypeId": "EnergyCommunity/Customer",
+      "entityData": [
+        {
+          "attributePath": "Contact.FirstName",
+          "value": "Gerald"
+        },
+        {
+          "attributePath": "Contact.LastName",
+          "value": "Lochner"
+        },
+        {
+          "attributePath": "Contact.Email",
+          "value": "xy@z.com"
+        },
+        {
+          "attributePath": "Contact.Address.Street",
+          "value": "test"
+        },
+        {
+          "attributePath": "Contact.Address.Zipcode",
+          "value": "5020"
+        },
+        {
+          "attributePath": "Contact.Address.CityTown",
+          "value": "test"
+        },
+        {
+          "attributePath": "Contact.Address.NationalCode",
+          "value": "AT"
+        },
+        {
+          "attributePath": "TaxProcedureCreditNote",
+          "value": 1
+        }
+      ]
     }
   }
 }
@@ -122,8 +155,17 @@ Content-Type: application/json
   "params": {
     "name": "query_entities_simple",
     "arguments": {
-      "ckTypeId": "YourTypeId",
-      "simpleFilters": "{\"name\": \"Test Entity\"}",
+      "ckTypeId": "EnergyCommunity/Customer",
+      "simpleFilters": [
+        {
+          "attributePath": "Contact.FirstName",
+          "value": "Gerald"
+        },
+        {
+          "attributePath": "Contact.LastName",
+          "value": "Lochner"
+        }
+      ],
       "limit": 10
     }
   }
@@ -140,10 +182,56 @@ Content-Type: application/json
   "params": {
     "name": "query_entities",
     "arguments": {
-      "ckTypeId": "YourTypeId",
-      "filters": "{\"FirstName\": \"Gerald\", \"LastName\": \"Lochner\"}",
+      "ckTypeId": "EnergyCommunity/Customer",
+      "filters": {
+        "operator": "Or",
+        "nestedFilters": [
+          {
+            "fields": [
+              {
+                "attributePath": "Contact.FirstName",
+                "operator": "Equals",
+                "value": "Gerald"
+              },
+              {
+                "attributePath": "Contact.LastName",
+                "operator": "Equals",
+                "value": "Lochner"
+              }
+            ],
+            "logicalOperator": "And"
+          },
+          {
+            "fields": [
+              {
+                "attributePath": "Contact.CompanyName",
+                "operator": "Equals",
+                "value": "meshmakers GmbH"
+              }
+            ],
+            "logicalOperator": "And"
+          }
+        ]
+      },
       "limit": 10,
       "offset": 0
+    }
+  }
+}
+
+### Query Entities
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 8,
+  "method": "tools/call",
+  "params": {
+    "name": "query_entities",
+    "arguments": {
+      "ckTypeId": "EnergyCommunity/Customer",
+      "limit": 100
     }
   }
 }
@@ -159,8 +247,8 @@ Content-Type: application/json
   "params": {
     "name": "get_entity_by_id",
     "arguments": {
-      "ckTypeId": "YourTypeId",
-      "rtId": "YourRuntimeId"
+      "ckTypeId": "EnergyCommunity/Customer",
+      "rtId": "6841b558514a7df1ce76b53e"
     }
   }
 }
@@ -176,9 +264,14 @@ Content-Type: application/json
   "params": {
     "name": "update_entity",
     "arguments": {
-      "ckTypeId": "YourTypeId",
-      "rtId": "YourRuntimeId",
-      "entityData": "{\"name\": \"Updated Entity\", \"value\": 456}"
+      "ckTypeId": "EnergyCommunity/Customer",
+      "rtId": "6841b558514a7df1ce76b53e",
+      "entityData": [
+        {
+          "attributePath": "Contact.FirstName",
+          "value": "Gerald Updated"
+        }
+      ]
     }
   }
 }
@@ -194,11 +287,34 @@ Content-Type: application/json
   "params": {
     "name": "navigate_associations",
     "arguments": {
-      "ckTypeId": "YourTypeId",
-      "rtId": "YourRuntimeId",
-      "ckRoleId": "YourRoleId",
-      "direction": "Outbound",
-      "targetTypeId": "YourTargetTypeId"
+      "ckTypeId": "EnergyCommunity/Customer",
+      "rtId": "6841b558514a7df1ce76b53e",
+      "ckRoleId": "EnergyCommunity/AssociatedCustomer",
+      "direction": "Inbound",
+      "targetTypeId": "EnergyCommunity/OperatingFacility"
+    }
+  }
+}
+
+### Navigate Associations with filter
+POST {{baseUrl}}/{{tenantId}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "method": "tools/call",
+  "params": {
+    "name": "navigate_associations",
+    "arguments": {
+      "ckTypeId": "EnergyCommunity/Customer",
+      "rtId": "6841b558514a7df1ce76b53e",
+      "ckRoleId": "EnergyCommunity/AssociatedCustomer",
+      "direction": "Inbound",
+      "targetTypeId": "EnergyCommunity/OperatingFacility",
+      "filters": [
+          { "attributePath": "address.street",  "value": "Zeller Fusch 153" }
+        ]
     }
   }
 }
@@ -214,8 +330,8 @@ Content-Type: application/json
   "params": {
     "name": "delete_entity",
     "arguments": {
-      "ckTypeId": "YourTypeId",
-      "rtId": "YourRuntimeId"
+      "ckTypeId": "EnergyCommunity/Customer",
+      "rtId": "68b69d70576f15d12a9de12e"
     }
   }
 }

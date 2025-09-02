@@ -4,7 +4,7 @@ using System.Xml.Linq;
 namespace Meshmakers.Octo.Backend.McpServices.Utils;
 
 /// <summary>
-/// Provider for XML documentation at runtime
+///     Provider for XML documentation at runtime
 /// </summary>
 internal class XmlDocumentationProvider
 {
@@ -81,7 +81,11 @@ internal class XmlDocumentationProvider
 
     private XDocument? GetXmlDoc(Assembly? assembly)
     {
-        if (assembly == null) return null;
+        if (assembly == null)
+        {
+            return null;
+        }
+
         var assemblyName = assembly.GetName().Name;
         return assemblyName != null && _xmlDocs.TryGetValue(assemblyName, out var doc) ? doc : null;
     }

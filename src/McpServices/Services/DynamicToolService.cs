@@ -1,15 +1,11 @@
 using System.Collections.Concurrent;
 using Meshmakers.Octo.Backend.McpServices.Options;
-using Meshmakers.Octo.ConstructionKit.Contracts;
-using Meshmakers.Octo.ConstructionKit.Contracts.DataTransferObjects;
-using Meshmakers.Octo.ConstructionKit.Contracts.DependencyGraph;
-using Meshmakers.Octo.Runtime.Contracts.Repositories;
 using Microsoft.Extensions.Options;
 
 namespace Meshmakers.Octo.Backend.McpServices.Services;
 
 /// <summary>
-/// Implementation of dynamic tool service with caching
+///     Implementation of dynamic tool service with caching
 /// </summary>
 internal class DynamicToolService(IOptions<DynamicToolOptions> options, ILogger<DynamicToolService> logger)
     : IDynamicToolService
@@ -17,17 +13,13 @@ internal class DynamicToolService(IOptions<DynamicToolOptions> options, ILogger<
     private readonly DynamicToolOptions _options = options.Value;
     private readonly ConcurrentDictionary<string, ToolUsageStats> _usageStats = new();
 
-    public bool IsTypeExcluded(string ckTypeId)
-    {
-        return _options.ExcludedTypes.Contains(ckTypeId);
-    }
-
     public DomainToolOptions GetDomainOptions()
     {
         return _options.DomainTools;
     }
 
-    public (bool isValid, string? errorMessage) ValidateQueryParameters(int? limit, int? offset, DateTime? fromDate, DateTime? toDate)
+    public (bool isValid, string? errorMessage) ValidateQueryParameters(int? limit, int? offset, DateTime? fromDate,
+        DateTime? toDate)
     {
         // Validate limit
         if (limit.HasValue)
@@ -75,12 +67,12 @@ internal class DynamicToolService(IOptions<DynamicToolOptions> options, ILogger<
         }
 
         var stats = _usageStats.GetOrAdd(toolName, _ => new ToolUsageStats { ToolName = toolName });
-        
+
         lock (stats)
         {
             stats.TotalInvocations++;
             stats.TotalExecutionTime += executionTime;
-            
+
             if (success)
             {
                 stats.SuccessfulInvocations++;
@@ -106,5 +98,10 @@ internal class DynamicToolService(IOptions<DynamicToolOptions> options, ILogger<
         logger.LogDebug("Recorded tool usage: {ToolName}, Success: {Success}, Duration: {Duration}ms",
             toolName, success, executionTime.TotalMilliseconds);
         return Task.CompletedTask;
+    }
+
+    public bool IsTypeExcluded(string ckTypeId)
+    {
+        return _options.ExcludedTypes.Contains(ckTypeId);
     }
 }

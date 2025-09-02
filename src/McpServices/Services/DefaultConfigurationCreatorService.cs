@@ -36,9 +36,7 @@ internal class DefaultConfigurationCreatorService(
         if (!await IsSchemaAvailableForTenant(tenantId))
         {
             logger.LogInformation("Schema not available for tenant '{TenantId}'", tenantId);
-            return;
         }
-
     }
 
     protected override async Task StopTenantAsync(string tenantId)
@@ -47,7 +45,6 @@ internal class DefaultConfigurationCreatorService(
         if (!await IsSchemaAvailableForTenant(tenantId))
         {
             logger.LogInformation("Schema not available for tenant '{TenantId}'", tenantId);
-            return;
         }
     }
     //

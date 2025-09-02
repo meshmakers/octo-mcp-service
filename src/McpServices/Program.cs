@@ -17,6 +17,7 @@ using Meshmakers.Octo.Services.Infrastructure;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using Meshmakers.Octo.Services.Observability;
 using Meshmakers.Octo.Services.Swagger.Configuration;
+using Microsoft.Extensions.Options;
 using NLog;
 using NLog.Web;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -32,7 +33,7 @@ try
     {
         Args = args,
         ContentRootPath = Directory.GetCurrentDirectory(),
-        WebRootPath = "wwwroot",
+        WebRootPath = "wwwroot"
     });
 
     builder.AddObservability()
@@ -65,9 +66,17 @@ try
     // Add new dynamic tool services
     builder.Services.AddSingleton<IDynamicToolService, DynamicToolService>();
     builder.Services.AddScoped<IToolExecutionService, ToolExecutionService>();
+    builder.Services.AddTransient<IRtEntityToDtoMapper, RtEntityToDtoMapper>();
 
     builder.Services.AddCors();
-    builder.Services.AddControllers();
+    builder.Services.AddControllers()
+        .AddJsonOptions(options =>
+        {
+            // Make JSON deserialization case-insensitive for better compatibility with MCP clients
+            options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+            // Optionally, you can also set the naming policy for serialization
+            // options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        });
 
     builder.Services.ConfigureOptions<ConfigureDistributionEventHubOptions>();
     builder.Services.ConfigureOptions<ConfigureJwtBearerOptions>();
@@ -160,8 +169,6 @@ try
     //     .WithLogging()
     //     .UseOtlpExporter();
 
-    builder.Services.AddControllers();
-
     var app = builder.Build();
 
     app.UseOctoApiVersioningAndDocumentation();
@@ -172,7 +179,7 @@ try
     app.MapMcp("/{tenantId:tenantId}/mcp");
 
     // Log startup information
-    var dynamicToolOptions = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<DynamicToolOptions>>().Value;
+    var dynamicToolOptions = app.Services.GetRequiredService<IOptions<DynamicToolOptions>>().Value;
     logger.Info("OctoMesh MCP Service starting with configuration:");
     logger.Info("- Dynamic tool generation: {Enabled}", dynamicToolOptions.EnableDynamicToolGeneration);
     logger.Info("- Tool statistics: {Enabled}", dynamicToolOptions.EnableToolStatistics);

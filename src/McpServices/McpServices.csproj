@@ -22,28 +22,28 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="NLog.Web.AspNetCore" Version="6.0.2" />
-        <PackageReference Include="ModelContextProtocol.AspNetCore" Version="0.3.0-preview.3" />
-        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.12.0" />
-        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.12.0" />
-        <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.12.0" />
-        <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.12.0" />
+        <PackageReference Include="NLog.Web.AspNetCore" Version="6.0.2"/>
+        <PackageReference Include="ModelContextProtocol.AspNetCore" Version="0.3.0-preview.3"/>
+        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.12.0"/>
+        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.12.0"/>
+        <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.12.0"/>
+        <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.12.0"/>
 
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.7" />
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="9.0.7" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.7"/>
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="9.0.7"/>
 
-        <PackageReference Include="Meshmakers.Octo.Services.Infrastructure" Version="$(OctoVersion)" />
-        <PackageReference Include="Meshmakers.Octo.Services.Observability" Version="$(OctoVersion)" />
-        <PackageReference Include="Meshmakers.Octo.Runtime.Engine.MongoDb" Version="$(OctoVersion)" />
-        <PackageReference Include="Meshmakers.Octo.Services.Swagger" Version="$(OctoVersion)" />
-        <ProjectReference Include="..\McpServices.Resources\McpServices.Resources.csproj" />
+        <PackageReference Include="Meshmakers.Octo.Services.Infrastructure" Version="$(OctoVersion)"/>
+        <PackageReference Include="Meshmakers.Octo.Services.Observability" Version="$(OctoVersion)"/>
+        <PackageReference Include="Meshmakers.Octo.Runtime.Engine.MongoDb" Version="$(OctoVersion)"/>
+        <PackageReference Include="Meshmakers.Octo.Services.Swagger" Version="$(OctoVersion)"/>
+        <ProjectReference Include="..\McpServices.Resources\McpServices.Resources.csproj"/>
 
     </ItemGroup>
 
     <ItemGroup>
-      <None Update="nlog.config">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      </None>
+        <None Update="nlog.config">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
     </ItemGroup>
 
 </Project>

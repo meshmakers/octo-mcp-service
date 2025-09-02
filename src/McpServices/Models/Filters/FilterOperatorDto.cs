@@ -1,52 +1,52 @@
 namespace Meshmakers.Octo.Backend.McpServices.Models.Filters;
 
 /// <summary>
-/// Verfügbare Filter-Operatoren für Felder
+///     Available filter operators for fields
 /// </summary>
 public enum FilterOperatorDto
 {
-    /// <summary>Gleichheit</summary>
+    /// <summary>Equality</summary>
     Equals,
-    
-    /// <summary>Ungleichheit</summary>
+
+    /// <summary>Inequality</summary>
     NotEquals,
-    
-    /// <summary>Enthält Substring</summary>
+
+    /// <summary>Contains substring</summary>
     Contains,
-    
-    /// <summary>Beginnt mit</summary>
+
+    /// <summary>Starts with</summary>
     StartsWith,
-    
-    /// <summary>Endet mit</summary>
+
+    /// <summary>Ends with</summary>
     EndsWith,
-    
-    /// <summary>Größer als</summary>
+
+    /// <summary>Greater than</summary>
     GreaterThan,
-    
-    /// <summary>Größer oder gleich</summary>
+
+    /// <summary>Greater than or equal</summary>
     GreaterThanOrEqual,
-    
-    /// <summary>Kleiner als</summary>
+
+    /// <summary>Less than</summary>
     LessThan,
-    
-    /// <summary>Kleiner oder gleich</summary>
+
+    /// <summary>Less than or equal</summary>
     LessThanOrEqual,
-    
-    /// <summary>Zwischen zwei Werten</summary>
+
+    /// <summary>Between two values</summary>
     Between,
-    
-    /// <summary>In Liste von Werten</summary>
+
+    /// <summary>In list of values</summary>
     In,
-    
-    /// <summary>Nicht in Liste von Werten</summary>
+
+    /// <summary>Not in list of values</summary>
     NotIn,
-    
-    /// <summary>Ist NULL</summary>
+
+    /// <summary>Is NULL</summary>
     IsNull,
-    
-    /// <summary>Ist nicht NULL</summary>
+
+    /// <summary>Is not NULL</summary>
     IsNotNull,
-    
-    /// <summary>Regulärer Ausdruck</summary>
+
+    /// <summary>Regular expression</summary>
     Regex
 }

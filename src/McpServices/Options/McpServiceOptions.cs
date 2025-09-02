@@ -3,12 +3,12 @@ using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 namespace Meshmakers.Octo.Backend.McpServices.Options;
 
 /// <summary>
-/// Describes the options for the MCP (Meshmakers Communication Protocol) service
+///     Describes the options for the MCP (Meshmakers Communication Protocol) service
 /// </summary>
 public class McpServiceOptions
 {
     /// <summary>
-    /// Constructor
+    ///     Constructor
     /// </summary>
     public McpServiceOptions()
     {
@@ -28,7 +28,7 @@ public class McpServiceOptions
     }
 
     /// <summary>
-    ///    (Public) base address of the service
+    ///     (Public) base address of the service
     /// </summary>
     public string PublicUrl { get; set; }
 
@@ -43,32 +43,32 @@ public class McpServiceOptions
     public string? InstancePrefix { get; set; }
 
     /// <summary>
-    /// Gets or sets the RabbitMQ broker host name
+    ///     Gets or sets the RabbitMQ broker host name
     /// </summary>
     public string BrokerHost { get; set; }
 
     /// <summary>
-    /// Gets or sets the RabbitMQ broker virtual host
+    ///     Gets or sets the RabbitMQ broker virtual host
     /// </summary>
     public string BrokerVirtualHost { get; set; }
 
     /// <summary>
-    /// Gets or sets the RabbitMQ broker port
+    ///     Gets or sets the RabbitMQ broker port
     /// </summary>
     public ushort BrokerPort { get; set; }
 
     /// <summary>
-    /// Gets or sets the RabbitMQ broker username
+    ///     Gets or sets the RabbitMQ broker username
     /// </summary>
     public string? BrokerUser { get; set; }
 
     /// <summary>
-    /// Gets or sets the RabbitMQ broker password
+    ///     Gets or sets the RabbitMQ broker password
     /// </summary>
     public string? BrokerPassword { get; set; }
 
     /// <summary>
-    /// Gets or sets the minimal log level to be logged
+    ///     Gets or sets the minimal log level to be logged
     /// </summary>
     public LogLevelDto MinLogLevel { get; set; }
 }

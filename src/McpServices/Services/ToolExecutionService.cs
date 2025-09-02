@@ -5,12 +5,12 @@ using Microsoft.Extensions.Options;
 namespace Meshmakers.Octo.Backend.McpServices.Services;
 
 /// <summary>
-/// Service for executing tools with monitoring, validation and error handling
+///     Service for executing tools with monitoring, validation and error handling
 /// </summary>
 public interface IToolExecutionService
 {
     /// <summary>
-    /// Execute a tool with full monitoring and error handling
+    ///     Execute a tool with full monitoring and error handling
     /// </summary>
     Task<object?> ExecuteToolAsync<T>(
         string toolName,
@@ -18,29 +18,29 @@ public interface IToolExecutionService
         Dictionary<string, object>? parameters = null);
 
     /// <summary>
-    /// Validate tool parameters before execution
+    ///     Validate tool parameters before execution
     /// </summary>
     Task<(bool isValid, string? errorMessage)> ValidateToolParametersAsync(
         string toolName,
         Dictionary<string, object>? parameters);
 
     /// <summary>
-    /// Get tool execution statistics
+    ///     Get tool execution statistics
     /// </summary>
     Task<object> GetExecutionStatisticsAsync(string? toolName = null);
 }
 
 /// <summary>
-/// Implementation of tool execution service with comprehensive monitoring
+///     Implementation of tool execution service with comprehensive monitoring
 /// </summary>
 public class ToolExecutionService : IToolExecutionService
 {
     private readonly IDynamicToolService _dynamicToolService;
-    private readonly DynamicToolOptions _options;
     private readonly ILogger<ToolExecutionService> _logger;
+    private readonly DynamicToolOptions _options;
 
     /// <summary>
-    /// Constructor for tool execution service
+    ///     Constructor for tool execution service
     /// </summary>
     /// <param name="dynamicToolService"></param>
     /// <param name="options"></param>
@@ -56,7 +56,7 @@ public class ToolExecutionService : IToolExecutionService
     }
 
     /// <summary>
-    /// Executes a tool with monitoring, validation, and error handling.
+    ///     Executes a tool with monitoring, validation, and error handling.
     /// </summary>
     /// <param name="toolName"></param>
     /// <param name="toolExecution"></param>
@@ -136,7 +136,7 @@ public class ToolExecutionService : IToolExecutionService
     }
 
     /// <summary>
-    /// Validates tool parameters before execution.
+    ///     Validates tool parameters before execution.
     /// </summary>
     /// <param name="toolName"></param>
     /// <param name="parameters"></param>
@@ -151,7 +151,7 @@ public class ToolExecutionService : IToolExecutionService
             if (parameters != null)
             {
                 // Check for common parameter constraints
-                if (parameters.TryGetValue("limit", out var limitObj) && 
+                if (parameters.TryGetValue("limit", out var limitObj) &&
                     int.TryParse(limitObj.ToString(), out var limit))
                 {
                     if (limit <= 0 || limit > _options.MaxQueryResultLimit)
@@ -160,7 +160,7 @@ public class ToolExecutionService : IToolExecutionService
                     }
                 }
 
-                if (parameters.TryGetValue("offset", out var offsetObj) && 
+                if (parameters.TryGetValue("offset", out var offsetObj) &&
                     int.TryParse(offsetObj.ToString(), out var offset))
                 {
                     if (offset < 0)
@@ -171,14 +171,14 @@ public class ToolExecutionService : IToolExecutionService
 
                 // Date validation
                 DateTime? fromDate = null, toDate = null;
-                
-                if (parameters.TryGetValue("fromDate", out var fromObj) && 
+
+                if (parameters.TryGetValue("fromDate", out var fromObj) &&
                     DateTime.TryParse(fromObj.ToString(), out var from))
                 {
                     fromDate = from;
                 }
 
-                if (parameters.TryGetValue("toDate", out var toObj) && 
+                if (parameters.TryGetValue("toDate", out var toObj) &&
                     DateTime.TryParse(toObj.ToString(), out var to))
                 {
                     toDate = to;
@@ -208,7 +208,7 @@ public class ToolExecutionService : IToolExecutionService
     }
 
     /// <summary>
-    /// Gets execution statistics for a specific tool or overall statistics.
+    ///     Gets execution statistics for a specific tool or overall statistics.
     /// </summary>
     /// <param name="toolName"></param>
     /// <returns></returns>
@@ -262,8 +262,16 @@ public class ToolExecutionService : IToolExecutionService
                 },
                 recentErrors = new[]
                 {
-                    new { toolName = "create_entity", error = "Missing required field", timestamp = DateTime.UtcNow.AddHours(-2) },
-                    new { toolName = "analyze_energy_consumption", error = "Date range too large", timestamp = DateTime.UtcNow.AddHours(-4) }
+                    new
+                    {
+                        toolName = "create_entity", error = "Missing required field",
+                        timestamp = DateTime.UtcNow.AddHours(-2)
+                    },
+                    new
+                    {
+                        toolName = "analyze_energy_consumption", error = "Date range too large",
+                        timestamp = DateTime.UtcNow.AddHours(-4)
+                    }
                 }
             });
         }
@@ -283,7 +291,7 @@ public class ToolExecutionService : IToolExecutionService
     private async Task<T> ExecuteWithTimeoutAsync<T>(Func<Task<T>> toolExecution, int timeoutSeconds)
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
-        
+
         try
         {
             return await toolExecution();
@@ -304,36 +312,46 @@ public class ToolExecutionService : IToolExecutionService
             case "query_entities":
                 if (!parameters.ContainsKey("ckTypeId"))
                 {
-                    return Task.FromResult<(bool isValid, string? errorMessage)>((false, "ckTypeId parameter is required for query_entities"));
+                    return Task.FromResult<(bool isValid, string? errorMessage)>((false,
+                        "ckTypeId parameter is required for query_entities"));
                 }
+
                 break;
 
             case "create_entity":
                 if (!parameters.ContainsKey("ckTypeId") || !parameters.ContainsKey("entityData"))
                 {
-                    return Task.FromResult<(bool isValid, string? errorMessage)>((false, "ckTypeId and entityData parameters are required for create_entity"));
+                    return Task.FromResult<(bool isValid, string? errorMessage)>((false,
+                        "ckTypeId and entityData parameters are required for create_entity"));
                 }
+
                 break;
 
             case "get_entity_by_id":
                 if (!parameters.ContainsKey("ckTypeId") || !parameters.ContainsKey("entityId"))
                 {
-                    return Task.FromResult<(bool isValid, string? errorMessage)>((false, "ckTypeId and entityId parameters are required for get_entity_by_id"));
+                    return Task.FromResult<(bool isValid, string? errorMessage)>((false,
+                        "ckTypeId and entityId parameters are required for get_entity_by_id"));
                 }
+
                 break;
 
             case "analyze_energy_consumption":
                 if (!parameters.ContainsKey("fromDate") || !parameters.ContainsKey("toDate"))
                 {
-                    return Task.FromResult<(bool isValid, string? errorMessage)>((false, "fromDate and toDate parameters are required for analyze_energy_consumption"));
+                    return Task.FromResult<(bool isValid, string? errorMessage)>((false,
+                        "fromDate and toDate parameters are required for analyze_energy_consumption"));
                 }
+
                 break;
 
             case "get_type_schema":
                 if (!parameters.ContainsKey("ckTypeId"))
                 {
-                    return Task.FromResult<(bool isValid, string? errorMessage)>((false, "ckTypeId parameter is required for get_type_schema"));
+                    return Task.FromResult<(bool isValid, string? errorMessage)>((false,
+                        "ckTypeId parameter is required for get_type_schema"));
                 }
+
                 break;
         }
 

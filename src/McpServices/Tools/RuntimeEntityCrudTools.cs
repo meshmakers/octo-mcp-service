@@ -2,29 +2,35 @@ using System.ComponentModel;
 using System.Text.Json;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Models.Filters;
+using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
+using Meshmakers.Octo.Runtime.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Runtime.Contracts.RepositoryEntities;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using ModelContextProtocol.Server;
+using FieldFilterDto = Meshmakers.Octo.Backend.McpServices.Models.Filters.FieldFilterDto;
+
+// ReSharper disable UnusedMember.Global
 
 namespace Meshmakers.Octo.Backend.McpServices.Tools;
 
 /// <summary>
-/// CRUD operations for Runtime Model of OctoMesh
+///     CRUD operations for Runtime Model of OctoMesh
 /// </summary>
 [McpServerToolType]
 public sealed class RuntimeEntityCrudTools
 {
     /// <summary>
-    /// Query entities of any CK type with optional filters
+    ///     Query entities of any CK type with optional filters
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Construction Kit Type ID (e.g., 'EnergyCommunity-1.0.0/Customer-1.0.0')</param>
-    /// <param name="filters">Optional filters - can be:
-    /// 1. Simple JSON string for equality filters: {"contact.firstName": "Gerald", "contact.lastName": "Lochner"}
-    /// 2. Complex EntityFilterDto object for advanced filtering with operators
+    /// <param name="filters">
+    ///     Optional filters - can be:
+    ///     1. Simple JSON string for equality filters: {"contact.firstName": "Gerald", "contact.lastName": "Lochner"}
+    ///     2. Complex EntityFilterDto object for advanced filtering with operators
     /// </param>
     /// <param name="limit">Maximum number of results to return</param>
     /// <param name="offset">Number of results to skip</param>
@@ -35,16 +41,17 @@ public sealed class RuntimeEntityCrudTools
     public static async Task<QueryEntitiesResponse> QueryEntities(
         IMcpServer server,
         string ckTypeId,
-        object? filters = null,
+        FieldFilterCriteriaDto? filters = null,
         int? limit = null,
         int? offset = null)
     {
         var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
-        var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
+        var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
         var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
         var tenantId = httpContextAccessor.GetTenantId();
 
         using var session = await tenantRepository.GetSessionAsync();
+        session.StartTransaction();
 
         try
         {
@@ -57,71 +64,12 @@ public sealed class RuntimeEntityCrudTools
             // Parse filters if provided
             if (filters != null)
             {
-                if (filters is FieldFilterCriteriaDto fieldFilterCriteriaDto)
+                if (filters.Operator == LogicalOperatorDto.Or)
                 {
-                    if (fieldFilterCriteriaDto.Operator == LogicalOperatorDto.Or)
-                    {
-                        queryOperation = DataQueryOperation.Create(LogicalOperator.Or);
-                    }
-
-                    BuildTypedFilters(fieldFilterCriteriaDto, queryOperation);
+                    queryOperation = DataQueryOperation.Create(LogicalOperator.Or);
                 }
 
-                // Check if filters is already an EntityFilterDto
-                // Try to parse as simple JSON string filter
-                else if (filters is string filterString && !string.IsNullOrEmpty(filterString))
-                {
-                    try
-                    {
-                        var filterDict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(filterString);
-                        if (filterDict != null)
-                        {
-                            foreach (var kvp in filterDict)
-                            {
-                                object? value = null;
-
-                                // Handle different JSON value types
-                                switch (kvp.Value.ValueKind)
-                                {
-                                    case JsonValueKind.String:
-                                        value = kvp.Value.GetString();
-                                        break;
-                                    case JsonValueKind.Number:
-                                        if (kvp.Value.TryGetInt32(out var intValue))
-                                            value = intValue;
-                                        else if (kvp.Value.TryGetInt64(out var longValue))
-                                            value = longValue;
-                                        else if (kvp.Value.TryGetDouble(out var doubleValue))
-                                            value = doubleValue;
-                                        break;
-                                    case JsonValueKind.True:
-                                        value = true;
-                                        break;
-                                    case JsonValueKind.False:
-                                        value = false;
-                                        break;
-                                    case JsonValueKind.Null:
-                                        // Skip null values in simple filters
-                                        continue;
-                                }
-
-                                if (value != null)
-                                {
-                                    queryOperation.FieldEquals(kvp.Key, value);
-                                }
-                            }
-                        }
-                    }
-                    catch
-                    {
-                        // If parsing as simple filter fails, try to deserialize as EntityFilterDto
-                        var complexFilter = JsonSerializer.Deserialize<FieldFilterCriteriaDto>(filterString);
-                        if (complexFilter != null)
-                        {
-                            BuildTypedFilters(complexFilter, queryOperation);
-                        }
-                    }
-                }
+                BuildTypedFilters(filters, queryOperation);
             }
 
             var results = await tenantRepository.GetRtEntitiesByTypeAsync(
@@ -133,24 +81,32 @@ public sealed class RuntimeEntityCrudTools
 
             return new QueryEntitiesResponse
             {
+                IsSuccess = true,
                 CkTypeId = ckTypeId,
                 TotalCount = results.TotalCount,
                 ReturnedCount = results.Items.Count(),
-                Entities = EntityMapper.MapToDto(results.Items, ckCacheService, tenantId)
+                Entities = results.Items.Select(e =>
+                        rtEntityToDtoMapper.ConvertToDto(tenantId, e, AttributeValueResolveFlags.ResolveEnumsToNames))
+                    .ToList()
             };
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Failed to query entities for type '{ckTypeId}': {ex.Message}", ex);
+            return new QueryEntitiesResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = ex.Message,
+                CkTypeId = ckTypeId
+            };
         }
     }
 
     /// <summary>
-    /// Query entities with simple filters for Claude compatibility
+    ///     Query entities with simple filters for Claude compatibility
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Construction Kit Type ID (e.g., 'EnergyCommunity/Customer')</param>
-    /// <param name="simpleFilters">Simple filters as JSON object (e.g., {"FirstName": "Gerald", "LastName": "Lochner"})</param>
+    /// <param name="simpleFilters">Simple filters as a JSON array (e.g., [{attributePath: "FirstName", value: "Gerald"}, {attributePath: "LastName", value: "Lochner"}])</param>
     /// <param name="limit">Maximum number of results to return</param>
     /// <param name="offset">Number of results to skip</param>
     /// <returns>Query results with entity data</returns>
@@ -160,66 +116,23 @@ public sealed class RuntimeEntityCrudTools
     public static async Task<QueryEntitiesResponse> QueryEntitiesSimple(
         IMcpServer server,
         string ckTypeId,
-        string? simpleFilters = null,
+        List<SimpleFilterDto>? simpleFilters = null,
         int? limit = null,
         int? offset = null)
     {
         var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
-        var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
+        var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
         var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
         var tenantId = httpContextAccessor.GetTenantId();
 
         using var session = await tenantRepository.GetSessionAsync();
+        session.StartTransaction();
 
         try
         {
             await tenantRepository.GetCkTypeGraphAsync(new CkId<CkTypeId>(ckTypeId));
 
-            // Build query operation
-            var queryOperation = DataQueryOperation.Create();
-
-            // Parse simple filters if provided
-            if (!string.IsNullOrEmpty(simpleFilters))
-            {
-                var filterDict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(simpleFilters);
-                if (filterDict != null)
-                {
-                    foreach (var kvp in filterDict)
-                    {
-                        object? value = null;
-
-                        // Handle different JSON value types
-                        switch (kvp.Value.ValueKind)
-                        {
-                            case JsonValueKind.String:
-                                value = kvp.Value.GetString();
-                                break;
-                            case JsonValueKind.Number:
-                                if (kvp.Value.TryGetInt32(out var intValue))
-                                    value = intValue;
-                                else if (kvp.Value.TryGetInt64(out var longValue))
-                                    value = longValue;
-                                else if (kvp.Value.TryGetDouble(out var doubleValue))
-                                    value = doubleValue;
-                                break;
-                            case JsonValueKind.True:
-                                value = true;
-                                break;
-                            case JsonValueKind.False:
-                                value = false;
-                                break;
-                            case JsonValueKind.Null:
-                                // Skip null values in simple filters
-                                continue;
-                        }
-
-                        if (value != null)
-                        {
-                            queryOperation.FieldEquals(kvp.Key, value);
-                        }
-                    }
-                }
-            }
+            var queryOperation = BuildFilter(simpleFilters);
 
             var results = await tenantRepository.GetRtEntitiesByTypeAsync(
                 session,
@@ -230,20 +143,28 @@ public sealed class RuntimeEntityCrudTools
 
             return new QueryEntitiesResponse
             {
+                IsSuccess = true,
                 CkTypeId = ckTypeId,
                 TotalCount = results.TotalCount,
                 ReturnedCount = results.Items.Count(),
-                Entities = EntityMapper.MapToDto(results.Items, ckCacheService, tenantId)
+                Entities = results.Items.Select(e =>
+                        rtEntityToDtoMapper.ConvertToDto(tenantId, e, AttributeValueResolveFlags.ResolveEnumsToNames))
+                    .ToList()
             };
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Failed to query entities for type '{ckTypeId}': {ex.Message}", ex);
+            return new QueryEntitiesResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = ex.Message,
+                CkTypeId = ckTypeId
+            };
         }
     }
 
     /// <summary>
-    /// Get a single entity by its runtime ID
+    ///     Get a single entity by its runtime ID
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Construction Kit Type ID</param>
@@ -258,8 +179,10 @@ public sealed class RuntimeEntityCrudTools
     {
         var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
         var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
+        var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
         using var session = await tenantRepository.GetSessionAsync();
+        session.StartTransaction();
 
         try
         {
@@ -275,46 +198,54 @@ public sealed class RuntimeEntityCrudTools
 
             return new GetEntityResponse
             {
+                IsSuccess = true,
                 TypeId = ckTypeId,
-                Entity = entity
+                Entity = rtEntityToDtoMapper.ConvertToDto(tenantRepository.TenantId, entity,
+                    AttributeValueResolveFlags.ResolveEnumsToNames)
             };
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Failed to get entity '{rtId}' of type '{ckTypeId}': {ex.Message}",
-                ex);
+            return new GetEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = ex.Message,
+                TypeId = ckTypeId
+            };
         }
     }
 
     /// <summary>
-    /// Create a new entity of the specified CK type
+    ///     Create a new entity of the specified CK type
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Construction Kit Type ID</param>
-    /// <param name="entityData">Entity data as JSON object</param>
+    /// <param name="entityData">
+    ///     JSON formated an array of attribute path and value to be updated.
+    ///     For example,  [{attributePath: 'contact.test', value: 'test'}]
+    /// </param>
     /// <returns>Created entity with runtime ID</returns>
     [McpServerTool(Name = "create_entity")]
     [Description("Create a new entity of specified Construction Kit type")]
     public static async Task<CreateEntityResponse> CreateEntity(
         IMcpServer server,
         string ckTypeId,
-        string entityData)
+        List<AttributeUpdateItem> entityData)
     {
         var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
         var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
         var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
+        var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
         using var session = await tenantRepository.GetSessionAsync();
+        session.StartTransaction();
 
         try
         {
-            var dataDict = JsonSerializer.Deserialize<Dictionary<string, object>>(entityData);
-
             // Create transient entity
             var entity = await tenantRepository.CreateTransientRtEntityAsync(new CkId<CkTypeId>(ckTypeId));
 
-            // Populate entity with provided data
-            PopulateEntity(ckCacheService, httpContextAccessor.GetTenantId(), entity, dataDict!);
+            Assign(entity, ckCacheService, tenantRepository.TenantId, entityData);
 
             // Insert entity
             await tenantRepository.InsertOneRtEntityAsync(session, new CkId<CkTypeId>(ckTypeId), entity);
@@ -322,85 +253,105 @@ public sealed class RuntimeEntityCrudTools
 
             return new CreateEntityResponse
             {
-                Success = true,
+                IsSuccess = true,
                 CkTypeId = ckTypeId,
                 RtId = entity.RtId.ToString(),
-                Entity = entity
+                Entity = rtEntityToDtoMapper.ConvertToDto(tenantRepository.TenantId, entity,
+                    AttributeValueResolveFlags.ResolveEnumsToNames)
             };
         }
         catch (Exception ex)
         {
             await session.AbortTransactionAsync();
-            throw new InvalidOperationException($"Failed to create entity of type '{ckTypeId}': {ex.Message}", ex);
+
+            return new CreateEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = ex.Message,
+                CkTypeId = ckTypeId
+            };
         }
     }
 
     /// <summary>
-    /// Update an existing entity
+    ///     Update an existing entity
     /// </summary>
     /// <param name="server">MCP Server instance</param>
-    /// <param name="ckTypeId">Construction Kit Type ID</param>
-    /// <param name="rtId">Runtime entity ID</param>
-    /// <param name="entityData">Updated entity data as JSON object</param>
+    /// <param name="rtId">The runtime ID of the entity to update</param>
+    /// <param name="ckTypeId">The Construction Kit Type ID of the entity</param>
+    /// <param name="entityData">
+    ///     JSON formated an array of attribute path and value to be updated.
+    ///     For example,  [{attributePath: 'contact.test', value: 'test'}]
+    /// </param>
     /// <returns>Updated entity</returns>
     [McpServerTool(Name = "update_entity")]
     [Description("Update an existing entity with new data")]
     public static async Task<UpdateEntityResponse> UpdateEntity(
-        IMcpServer server,
-        string ckTypeId,
-        string rtId,
-        string entityData)
+        IMcpServer server, string rtId, string ckTypeId, List<AttributeUpdateItem> entityData)
     {
         var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
         var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
         var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
+        var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
         using var session = await tenantRepository.GetSessionAsync();
-
+        session.StartTransaction();
         try
         {
-            var dataDict = JsonSerializer.Deserialize<Dictionary<string, object>>(entityData);
-
+            var rtEntityId = new RtEntityId(ckTypeId, OctoObjectId.Parse(rtId));
             // Get existing entity
-            var existingEntity = await tenantRepository.GetRtEntityByRtIdAsync(session, new RtEntityId(rtId));
+            var existingEntity = await tenantRepository.GetRtEntityByRtIdAsync(session, rtEntityId);
             if (existingEntity == null)
             {
-                throw new ArgumentException($"Entity with ID '{rtId}' not found in type '{ckTypeId}'");
+                throw new ArgumentException(
+                    $"Entity with ID '{rtId}' not found in type '{ckTypeId}'");
             }
 
-            // Create update entity with only changed fields
-            var updateEntity = await tenantRepository.CreateTransientRtEntityAsync(new CkId<CkTypeId>(ckTypeId));
-            updateEntity.RtId = new OctoObjectId(rtId);
-
-            // Populate with update data
-            PopulateEntity(ckCacheService, httpContextAccessor.GetTenantId(), updateEntity, dataDict!);
+            Assign(existingEntity, ckCacheService, tenantRepository.TenantId, entityData);
 
             // Update entity
-            await tenantRepository.UpdateOneRtEntityByIdAsync(session, new CkId<CkTypeId>(ckTypeId),
-                new OctoObjectId(rtId), updateEntity);
+            await tenantRepository.UpdateOneRtEntityByIdAsync(session, rtEntityId.CkTypeId, rtEntityId.RtId,
+                existingEntity);
             await session.CommitTransactionAsync();
 
             // Get updated entity
-            var updatedEntity = await tenantRepository.GetRtEntityByRtIdAsync(session, new RtEntityId(rtId));
+
+            var readSession = await tenantRepository.GetSessionAsync();
+            readSession.StartTransaction();
+
+            var updatedEntity = await tenantRepository.GetRtEntityByRtIdAsync(readSession, rtEntityId);
+            await readSession.CommitTransactionAsync();
+
+            if (updatedEntity == null)
+            {
+                throw McpServerException.EntityNotFound(rtEntityId);
+            }
 
             return new UpdateEntityResponse
             {
-                Success = true,
+                IsSuccess = true,
                 TypeId = ckTypeId,
                 RtId = rtId,
-                Entity = updatedEntity
+                Entity = rtEntityToDtoMapper.ConvertToDto(tenantRepository.TenantId, updatedEntity,
+                    AttributeValueResolveFlags.ResolveEnumsToNames)
             };
         }
         catch (Exception ex)
         {
             await session.AbortTransactionAsync();
-            throw new InvalidOperationException($"Failed to update entity '{rtId}' of type '{ckTypeId}': {ex.Message}",
-                ex);
+
+            return new UpdateEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = ex.Message,
+                TypeId = ckTypeId,
+                RtId = rtId
+            };
         }
     }
 
     /// <summary>
-    /// Delete an entity by its runtime ID
+    ///     Delete an entity by its runtime ID
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Construction Kit Type ID</param>
@@ -417,11 +368,13 @@ public sealed class RuntimeEntityCrudTools
         var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
 
         using var session = await tenantRepository.GetSessionAsync();
+        session.StartTransaction();
 
         try
         {
             // Check if entity exists
-            var existingEntity = await tenantRepository.GetRtEntityByRtIdAsync(session, new RtEntityId(rtId));
+            var existingEntity = await tenantRepository.GetRtEntityByRtIdAsync(session,
+                new RtEntityId(new CkId<CkTypeId>(ckTypeId), new OctoObjectId(rtId)));
             if (existingEntity == null)
             {
                 throw new ArgumentException($"Entity with ID '{rtId}' not found in type '{ckTypeId}'");
@@ -434,8 +387,7 @@ public sealed class RuntimeEntityCrudTools
 
             return new DeleteEntityResponse
             {
-                Success = true,
-                Message = "Entity deleted successfully",
+                IsSuccess = true,
                 CkTypeId = ckTypeId,
                 RtId = rtId
             };
@@ -443,13 +395,19 @@ public sealed class RuntimeEntityCrudTools
         catch (Exception ex)
         {
             await session.AbortTransactionAsync();
-            throw new InvalidOperationException($"Failed to delete entity '{rtId}' of type '{ckTypeId}': {ex.Message}",
-                ex);
+
+            return new DeleteEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = ex.Message,
+                CkTypeId = ckTypeId,
+                RtId = rtId
+            };
         }
     }
 
     /// <summary>
-    /// Navigate associations from a source entity to find related entities
+    ///     Navigate associations from a source entity to find related entities
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Source Construction Kit Type ID</param>
@@ -457,7 +415,7 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="ckRoleId">The construction kit role id to use (e.g., "System/ParentChild")</param>
     /// <param name="direction">The direction of the association to navigate (inbound or outbound)</param>
     /// <param name="targetTypeId">Optional target type ID to filter results</param>
-    /// <param name="filters">Optional filters for the target entities as JSON object (e.g., {"Status": "Active"})</param>
+    /// <param name="filters">Optional filters for the target entities as a JSON array (e.g., [{attributePath: "FirstName", value: "Gerald"}, {attributePath: "LastName", value: "Lochner"}])</param>
     /// <returns>Related entities following the association path</returns>
     [McpServerTool(Name = "navigate_associations")]
     [Description(
@@ -469,14 +427,16 @@ public sealed class RuntimeEntityCrudTools
         string ckRoleId,
         CkTypeAssociationDirectionDto direction,
         string targetTypeId,
-        string? filters = null)
+        List<SimpleFilterDto>? filters = null)
     {
         var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
         var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
         var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
         var tenantId = httpContextAccessor.GetTenantId();
+        var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
         using var session = await tenantRepository.GetSessionAsync();
+        session.StartTransaction();
 
         try
         {
@@ -511,8 +471,9 @@ public sealed class RuntimeEntityCrudTools
                 }
             }
 
+            var queryOperation = BuildFilter(filters);
+
             // Handle association
-            var queryOperation = DataQueryOperation.Create();
             var associatedResults = await tenantRepository.GetRtAssociationTargetsAsync(
                 session,
                 new OctoObjectId(rtId),
@@ -524,123 +485,199 @@ public sealed class RuntimeEntityCrudTools
                 queryOperation);
 
 
-            // if (!string.IsNullOrEmpty(filters) && associatedResults.TotalCount >0)
-            // {
-            //     var filterDict = JsonSerializer.Deserialize<Dictionary<string, object>>(filters);
-            //     associatedResults = ApplyEntityFilters(associatedResults.Items.ToList(), filterDict, ckCacheService, tenantId);
-            // }
-
             return new NavigateAssociationsResponse
             {
+                IsSuccess = true,
                 OriginCkTypeId = ckTypeId,
                 OriginRtId = rtId,
                 CkRoleId = ckRoleId,
                 TargetTypeId = targetTypeId,
                 TotalCount = associatedResults.TotalCount,
-                Entities = EntityMapper.MapToDto(associatedResults.Items, ckCacheService, tenantId)
+                Entities = associatedResults.Items.Select(e =>
+                        rtEntityToDtoMapper.ConvertToDto(tenantId, e, AttributeValueResolveFlags.ResolveEnumsToNames))
+                    .ToList()
             };
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException(
-                $"Failed to navigate associations from '{ckTypeId}' entity '{rtId}' using CkRoleId '{ckRoleId}': {ex.Message}",
-                ex);
+            return new NavigateAssociationsResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = ex.Message,
+                OriginCkTypeId = ckTypeId,
+                OriginRtId = rtId,
+                CkRoleId = ckRoleId,
+                TargetTypeId = targetTypeId
+            };
         }
     }
 
     #region Helper Methods
 
-    /// <summary>
-    /// Baut typisierte Filter in DataQueryOperation ein
-    /// </summary>
-    private static void BuildTypedFilters(FieldFilterCriteriaDto filterCriteriaDto, DataQueryOperation queryOperation)
+    private static DataQueryOperation BuildFilter(List<SimpleFilterDto>? simpleFilters)
     {
-        foreach (var fieldFilter in filterCriteriaDto.Fields)
+        // Build query operation
+        var queryOperation = DataQueryOperation.Create();
+
+        // Parse simple filters if provided
+        if (simpleFilters is { Count: > 0 })
         {
-            ApplyFieldFilter(fieldFilter, queryOperation);
+            foreach (var simpleFilterDto in simpleFilters)
+            {
+                queryOperation.FieldEquals(simpleFilterDto.AttributePath, simpleFilterDto.Value);
+            }
         }
+
+        return queryOperation;
+    }
+
+
+    /// <summary>
+    ///     Baut typisierte Filter in DataQueryOperation ein
+    /// </summary>
+    private static void BuildTypedFilters(FieldFilterCriteriaDto filterCriteriaDto,
+        FieldFilterCriteria fieldFilterCriteria)
+    {
+        ApplyFieldFilters(filterCriteriaDto, fieldFilterCriteria);
 
         // Handle nested filters with logical operators
         if (filterCriteriaDto.NestedFilters?.Any() == true)
         {
-            foreach (var nestedFilter in filterCriteriaDto.NestedFilters)
+            foreach (var nestedFilterDto in filterCriteriaDto.NestedFilters)
             {
-                BuildTypedFilters(nestedFilter, queryOperation);
+                var nestedFilter = FieldFilterCriteria.Create((LogicalOperator)nestedFilterDto.Operator);
+                BuildTypedFilters(nestedFilterDto, nestedFilter);
+                fieldFilterCriteria.AddNestedFilter(nestedFilter);
             }
+        }
+    }
+
+    private static void ApplyFieldFilters(FieldFilterCriteriaDto filterCriteriaDto,
+        FieldFilterCriteria fieldFilterCriteria)
+    {
+        foreach (var fieldFilter in filterCriteriaDto.Fields)
+        {
+            ApplyFieldFilter(fieldFilter, fieldFilterCriteria);
         }
     }
 
     /// <summary>
-    /// Wendet einen einzelnen Feld-Filter an
+    ///     Wendet einen einzelnen Feld-Filter an
     /// </summary>
-    private static void ApplyFieldFilter(FieldFilterDto filter, DataQueryOperation queryOperation)
+    private static void ApplyFieldFilter(FieldFilterDto filter, FieldFilterCriteria fieldFilterCriteria)
     {
         switch (filter.Operator)
         {
             case FilterOperatorDto.Equals:
-                queryOperation.FieldEquals(filter.FieldPath, filter.Value);
+                fieldFilterCriteria.FieldEquals(filter.AttributePath, filter.Value);
                 break;
             case FilterOperatorDto.NotEquals:
-                queryOperation.FieldNotEquals(filter.FieldPath, filter.Value);
+                fieldFilterCriteria.FieldNotEquals(filter.AttributePath, filter.Value);
                 break;
             case FilterOperatorDto.Contains:
-                queryOperation.FieldContains(filter.FieldPath, filter.Value?.ToString());
+                fieldFilterCriteria.FieldContains(filter.AttributePath, filter.Value?.ToString());
                 break;
             case FilterOperatorDto.StartsWith:
-                queryOperation.FieldStartsWith(filter.FieldPath, filter.Value?.ToString());
+                fieldFilterCriteria.FieldStartsWith(filter.AttributePath, filter.Value?.ToString());
                 break;
             case FilterOperatorDto.EndsWith:
-                queryOperation.FieldEndsWith(filter.FieldPath, filter.Value?.ToString());
+                fieldFilterCriteria.FieldEndsWith(filter.AttributePath, filter.Value?.ToString());
                 break;
             case FilterOperatorDto.GreaterThan:
-                queryOperation.FieldGreaterThan(filter.FieldPath, filter.Value);
+                fieldFilterCriteria.FieldGreaterThan(filter.AttributePath, filter.Value);
                 break;
             case FilterOperatorDto.GreaterThanOrEqual:
-                queryOperation.FieldGreaterThanOrEqual(filter.FieldPath, filter.Value);
+                fieldFilterCriteria.FieldGreaterThanOrEqual(filter.AttributePath, filter.Value);
                 break;
             case FilterOperatorDto.LessThan:
-                queryOperation.FieldLessThan(filter.FieldPath, filter.Value);
+                fieldFilterCriteria.FieldLessThan(filter.AttributePath, filter.Value);
                 break;
             case FilterOperatorDto.LessThanOrEqual:
-                queryOperation.FieldLessThanOrEqual(filter.FieldPath, filter.Value);
+                fieldFilterCriteria.FieldLessThanOrEqual(filter.AttributePath, filter.Value);
                 break;
             case FilterOperatorDto.Between:
-                queryOperation.FieldBetween(filter.FieldPath, filter.Value, filter.SecondValue);
+                fieldFilterCriteria.FieldBetween(filter.AttributePath, filter.Value, filter.SecondValue);
                 break;
             case FilterOperatorDto.In:
                 if (filter.Value is IEnumerable<object> values)
-                    queryOperation.FieldIn(filter.FieldPath, values);
+                {
+                    fieldFilterCriteria.FieldIn(filter.AttributePath, values);
+                }
+
                 break;
             case FilterOperatorDto.NotIn:
                 if (filter.Value is IEnumerable<object> notInValues)
-                    queryOperation.FieldNotIn(filter.FieldPath, notInValues);
+                {
+                    fieldFilterCriteria.FieldNotIn(filter.AttributePath, notInValues);
+                }
+
                 break;
             case FilterOperatorDto.IsNull:
-                queryOperation.FieldIsNull(filter.FieldPath);
+                fieldFilterCriteria.FieldIsNull(filter.AttributePath);
                 break;
             case FilterOperatorDto.IsNotNull:
-                queryOperation.FieldIsNotNull(filter.FieldPath);
+                fieldFilterCriteria.FieldIsNotNull(filter.AttributePath);
                 break;
             case FilterOperatorDto.Regex:
-                queryOperation.FieldRegex(filter.FieldPath, filter.Value?.ToString());
+                fieldFilterCriteria.FieldRegex(filter.AttributePath, filter.Value?.ToString());
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(filter.Operator), filter.Operator,
-                    "Unbekannter Filter-Operator");
+                    $@"Filter operator {filter.Operator} unsupported");
         }
     }
 
-    private static void PopulateEntity(ICkCacheService ckCacheService, string tenantId, RtEntity entity,
-        Dictionary<string, object> dataDict)
+    private static void Assign(RtEntity rtEntity, ICkCacheService ckCacheService, string tenantId,
+        List<AttributeUpdateItem> entityData)
     {
-        foreach (var kvp in dataDict)
+        foreach (var attributeUpdateItem in entityData)
         {
-            if (kvp.Key.StartsWith("_"))
+            object? value = null;
+
+            switch (attributeUpdateItem.Value)
             {
-                continue; // Skip system fields
+                case JsonElement jsonElement:
+                    if (jsonElement.ValueKind == JsonValueKind.String)
+                    {
+                        value = jsonElement.GetString();
+                    }
+                    else if (jsonElement.ValueKind == JsonValueKind.Number)
+                    {
+                        if (jsonElement.TryGetInt32(out var intValue))
+                        {
+                            value = intValue;
+                        }
+                        else if (jsonElement.TryGetInt64(out var longValue))
+                        {
+                            value = longValue;
+                        }
+                        else if (jsonElement.TryGetDouble(out var doubleValue))
+                        {
+                            value = doubleValue;
+                        }
+                    }
+                    else if (jsonElement.ValueKind == JsonValueKind.True)
+                    {
+                        value = true;
+                    }
+                    else if (jsonElement.ValueKind == JsonValueKind.False)
+                    {
+                        value = false;
+                    }
+                    else if (jsonElement.ValueKind == JsonValueKind.Null)
+                    {
+                        value = null;
+                    }
+                    else
+                    {
+                        throw new ArgumentException(
+                            $"Unsupported JSON value type for attribute '{attributeUpdateItem.AttributePath}'");
+                    }
+
+                    break;
             }
 
-            entity.SetAttributeValueByAccessPath(ckCacheService, tenantId, kvp.Key, kvp.Value);
+            rtEntity.SetAttributeValueByAccessPath(ckCacheService, tenantId, attributeUpdateItem.AttributePath, value);
         }
     }
 
