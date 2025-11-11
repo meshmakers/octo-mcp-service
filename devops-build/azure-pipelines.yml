@@ -51,9 +51,17 @@ stages:
           - template: set-version.yml
           - template: download-ca.yml
           - task: DotNetCoreCLI@2
+            displayName: 'Restore NuGet packages'
+            inputs:
+              command: 'restore'
+              projects: '$(SolutionFile)'
+              restoreArguments: '--force /p:OctoNugetPrivateServer=$(nugetPrivateServer)'
+              noCache: true
+          - task: DotNetCoreCLI@2
             displayName: 'Test'
             inputs:
               command: 'test'
+              arguments: '--configuration $(buildConfiguration) /p:OctoNugetPrivateServer=$(nugetPrivateServer)'
               projects: |
                 **/*Tests.csproj
               testRunTitle: 'CI'
