@@ -16,10 +16,8 @@ internal class DefaultConfigurationCreatorService(
     ISystemContext systemContext)
     : DefaultConfigurationCreatorServiceStandardized(logger, systemContext, createIdentityDataCommandClient,
         Constants.McpServiceIdentityDataVersionKey,
-        Constants.McpServiceIdentityDataVersionValue,
-        null, // we don't need migrations in this service
-        Constants.McpServiceSchemaVersionKey, false,
-        Constants.McpServiceSchemaVersionValue)
+        Constants.McpServiceIdentityDataVersionValue // we don't need migrations in this service
+        )
 {
     public override async Task InitializeAsync()
     {
@@ -30,23 +28,7 @@ internal class DefaultConfigurationCreatorService(
     }
 
 
-    protected override async Task StartTenantAsync(string tenantId)
-    {
-        logger.LogInformation("Loading tenant '{TenantId}'", tenantId);
-        if (!await IsSchemaAvailableForTenant(tenantId))
-        {
-            logger.LogInformation("Schema not available for tenant '{TenantId}'", tenantId);
-        }
-    }
 
-    protected override async Task StopTenantAsync(string tenantId)
-    {
-        logger.LogInformation("Unloading tenant '{TenantId}'", tenantId);
-        if (!await IsSchemaAvailableForTenant(tenantId))
-        {
-            logger.LogInformation("Schema not available for tenant '{TenantId}'", tenantId);
-        }
-    }
     //
     // protected override void CreateApiScopes(CreateIdentityDataCommandRequest createIdentityDataCommandRequest)
     // {

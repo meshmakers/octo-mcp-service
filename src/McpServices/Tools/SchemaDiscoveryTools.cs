@@ -41,7 +41,7 @@ public sealed class SchemaDiscoveryTools
             {
                 IsSuccess = true,
                 TotalModels = modelIds.Count,
-                Models = modelIds.OrderBy(m => m.ModelId).Select(m => m.ToString(CultureInfo.InvariantCulture)).ToList()
+                Models = modelIds.OrderBy(m => m.Name).Select(m => m.ToString(CultureInfo.InvariantCulture)).ToList()
             };
         }
         catch (Exception ex)
@@ -99,9 +99,9 @@ public sealed class SchemaDiscoveryTools
                 {
                     CkTypeId = ckTypeGraph.CkTypeId.SemanticVersionedFullName,
                     ModelId = ckTypeGraph.CkTypeId.ModelId.ToString(CultureInfo.InvariantCulture),
-                    TypeId = ckTypeGraph.CkTypeId.Key.SemanticVersionedFullName,
-                    TypeName = ckTypeGraph.CkTypeId.Key.SemanticVersionedFullName, // Fix: Add TypeName
-                    Version = ckTypeGraph.CkTypeId.Key.Version,
+                    TypeId = ckTypeGraph.CkTypeId.ElementId.SemanticVersionedFullName,
+                    TypeName = ckTypeGraph.CkTypeId.ElementId.SemanticVersionedFullName, // Fix: Add TypeName
+                    Version = ckTypeGraph.CkTypeId.ElementId.Version,
                     IsAbstract = ckTypeGraph.IsAbstract,
                     IsFinal = ckTypeGraph.IsFinal,
                     IsCollectionRoot = ckTypeGraph.IsCollectionRoot,
@@ -155,8 +155,8 @@ public sealed class SchemaDiscoveryTools
                 IsSuccess = true,
                 CkTypeId = typeGraph.CkTypeId.ToString(),
                 ModelId = typeGraph.CkTypeId.ModelId.ToString(CultureInfo.InvariantCulture),
-                TypeName = typeGraph.CkTypeId.Key.SemanticVersionedFullName,
-                Version = typeGraph.CkTypeId.Key.Version.ToString(),
+                TypeName = typeGraph.CkTypeId.ElementId.SemanticVersionedFullName,
+                Version = typeGraph.CkTypeId.ElementId.Version.ToString(),
                 IsAbstract = typeGraph.IsAbstract,
                 IsFinal = typeGraph.IsFinal,
                 IsCollectionRoot = typeGraph.IsCollectionRoot,

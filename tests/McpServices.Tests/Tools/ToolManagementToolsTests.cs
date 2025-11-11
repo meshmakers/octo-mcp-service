@@ -11,8 +11,7 @@ public class ToolManagementToolsTests : TestBase
     public async Task ListAvailableTools_WithoutFilter_ReturnsAllTools()
     {
         // Arrange
-        SetupMockServices();
-        
+
         // Act
         var result = await ToolManagementTools.ListAvailableTools(MockServer.Object);
         
@@ -45,7 +44,7 @@ public class ToolManagementToolsTests : TestBase
         // Verify tool details are populated
         var listToolsInfo = response.Tools.FirstOrDefault(t => t.Name == "list_available_tools");
         listToolsInfo.Should().NotBeNull();
-        listToolsInfo!.Category.Should().Be("Tool Management");
+        listToolsInfo.Category.Should().Be("Tool Management");
         listToolsInfo.Description.Should().NotBeNullOrEmpty();
         listToolsInfo.ClassName.Should().Be("ToolManagementTools");
         listToolsInfo.MethodName.Should().Be("ListAvailableTools");
@@ -63,7 +62,6 @@ public class ToolManagementToolsTests : TestBase
     public async Task ListAvailableTools_WithCategoryFilter_ReturnsFilteredTools()
     {
         // Arrange
-        SetupMockServices();
         const string categoryFilter = "Testing";
         
         // Act
@@ -73,7 +71,7 @@ public class ToolManagementToolsTests : TestBase
         result.Should().NotBeNull();
         result.Should().BeOfType<ListAvailableToolsResponse>();
         
-        var response = (ListAvailableToolsResponse)result;
+        var response = result;
         response.CategoryFilter.Should().Be(categoryFilter);
         response.Tools.Should().NotBeEmpty();
         response.Tools.Should().OnlyContain(t => t.Category == categoryFilter);
@@ -81,14 +79,13 @@ public class ToolManagementToolsTests : TestBase
         // Verify Echo tool is included in Testing category
         var echoTool = response.Tools.FirstOrDefault(t => t.Name == "Echo");
         echoTool.Should().NotBeNull();
-        echoTool!.Category.Should().Be("Testing");
+        echoTool.Category.Should().Be("Testing");
     }
     
     [Fact]
     public async Task ListAvailableTools_WithInvalidCategory_ReturnsEmptyList()
     {
         // Arrange
-        SetupMockServices();
         const string invalidCategory = "NonExistentCategory";
         
         // Act
@@ -98,7 +95,7 @@ public class ToolManagementToolsTests : TestBase
         result.Should().NotBeNull();
         result.Should().BeOfType<ListAvailableToolsResponse>();
         
-        var response = (ListAvailableToolsResponse)result;
+        var response = result;
         response.CategoryFilter.Should().Be(invalidCategory);
         response.Tools.Should().BeEmpty();
         response.TotalTools.Should().Be(0);
@@ -108,13 +105,12 @@ public class ToolManagementToolsTests : TestBase
     public async Task ListAvailableTools_ToolsHaveCorrectStructure()
     {
         // Arrange
-        SetupMockServices();
-        
+
         // Act
         var result = await ToolManagementTools.ListAvailableTools(MockServer.Object);
         
         // Assert
-        var response = (ListAvailableToolsResponse)result;
+        var response = result;
         
         foreach (var tool in response.Tools)
         {
@@ -141,13 +137,12 @@ public class ToolManagementToolsTests : TestBase
     public async Task ListAvailableTools_ReturnsToolsInCorrectOrder()
     {
         // Arrange
-        SetupMockServices();
-        
+
         // Act
         var result = await ToolManagementTools.ListAvailableTools(MockServer.Object);
         
         // Assert
-        var response = (ListAvailableToolsResponse)result;
+        var response = result;
         
         // Verify tools are ordered by category then by name
         var orderedTools = response.Tools
@@ -162,13 +157,12 @@ public class ToolManagementToolsTests : TestBase
     public async Task ListAvailableTools_CategoriesCountMatchesTools()
     {
         // Arrange
-        SetupMockServices();
-        
+
         // Act
         var result = await ToolManagementTools.ListAvailableTools(MockServer.Object);
         
         // Assert
-        var response = (ListAvailableToolsResponse)result;
+        var response = result;
         
         // Verify category counts match actual tool counts
         var actualCategoryCounts = response.Tools

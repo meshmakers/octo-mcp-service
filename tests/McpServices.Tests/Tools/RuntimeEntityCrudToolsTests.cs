@@ -14,20 +14,19 @@ namespace McpServices.Tests.Tools;
 
 public class RuntimeEntityCrudToolsTests : TestBase
 {
-    private const string TestCkTypeId = "TestModule-1.0.0/Customer-1.0.0";
+    private const string TestCkTypeId = "TestModule-1.0.0/Customer-1";
 
     [Fact]
     public async Task QueryEntities_WithoutFilters_ReturnsAllEntities()
     {
         // Arrange
-        SetupMockServices();
         var mockResults = CreateMockQueryResults();
         
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
                 It.IsAny<IOctoSession>(),
-                It.IsAny<CkId<CkTypeId>>(),
-                It.IsAny<DataQueryOperation>(),
+                It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(),
                 null,
                 null))
             .ReturnsAsync(mockResults);
@@ -49,15 +48,14 @@ public class RuntimeEntityCrudToolsTests : TestBase
     public async Task QueryEntities_WithLimit_RespectsLimit()
     {
         // Arrange
-        SetupMockServices();
         var mockResults = CreateMockQueryResults();
         const int limit = 2;
         
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
                 It.IsAny<IOctoSession>(),
-                It.IsAny<CkId<CkTypeId>>(),
-                It.IsAny<DataQueryOperation>(),
+                It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(),
                 null,
                 limit))
             .ReturnsAsync(mockResults);
@@ -75,8 +73,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
         // Verify repository was called with correct limit
         MockTenantRepository.Verify(r => r.GetRtEntitiesByTypeAsync(
             It.IsAny<IOctoSession>(),
-            It.IsAny<CkId<CkTypeId>>(),
-            It.IsAny<DataQueryOperation>(),
+            It.IsAny<RtCkId<CkTypeId>>(),
+            It.IsAny<RtEntityQueryOptions>(),
             null,
             limit), Times.Once);
     }
@@ -85,15 +83,14 @@ public class RuntimeEntityCrudToolsTests : TestBase
     public async Task QueryEntities_WithOffset_RespectsOffset()
     {
         // Arrange
-        SetupMockServices();
         var mockResults = CreateMockQueryResults();
         const int offset = 10;
         
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
                 It.IsAny<IOctoSession>(),
-                It.IsAny<CkId<CkTypeId>>(),
-                It.IsAny<DataQueryOperation>(),
+                It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(),
                 offset,
                 null))
             .ReturnsAsync(mockResults);
@@ -110,8 +107,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
         // Verify repository was called with the correct offset
         MockTenantRepository.Verify(r => r.GetRtEntitiesByTypeAsync(
             It.IsAny<IOctoSession>(),
-            It.IsAny<CkId<CkTypeId>>(),
-            It.IsAny<DataQueryOperation>(),
+            It.IsAny<RtCkId<CkTypeId>>(),
+            It.IsAny<RtEntityQueryOptions>(),
             offset,
             null), Times.Once);
     }
@@ -120,7 +117,6 @@ public class RuntimeEntityCrudToolsTests : TestBase
     public async Task QueryEntities_WithSimpleStringFilters_ParsesCorrectly()
     {
         // Arrange
-        SetupMockServices();
         var mockResults = CreateMockQueryResults();
         var filters = new FieldFilterCriteriaDto
         {
@@ -134,8 +130,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
                 It.IsAny<IOctoSession>(),
-                It.IsAny<CkId<CkTypeId>>(),
-                It.IsAny<DataQueryOperation>(),
+                It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(),
                 null,
                 null))
             .ReturnsAsync(mockResults);
@@ -153,8 +149,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
         // Verify repository was called (specific filter verification would require access to DataQueryOperation internals)
         MockTenantRepository.Verify(r => r.GetRtEntitiesByTypeAsync(
             It.IsAny<IOctoSession>(),
-            It.IsAny<CkId<CkTypeId>>(),
-            It.IsAny<DataQueryOperation>(),
+            It.IsAny<RtCkId<CkTypeId>>(),
+            It.IsAny<RtEntityQueryOptions>(),
             null,
             null), Times.Once);
     }
@@ -163,7 +159,6 @@ public class RuntimeEntityCrudToolsTests : TestBase
     public async Task QueryEntities_WithEntityFilterDto_AppliesComplexFilters()
     {
         // Arrange
-        SetupMockServices();
         var mockResults = CreateMockQueryResults();
         
         var complexFilter = new FieldFilterCriteriaDto
@@ -179,8 +174,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
                 It.IsAny<IOctoSession>(),
-                It.IsAny<CkId<CkTypeId>>(),
-                It.IsAny<DataQueryOperation>(),
+                It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(),
                 null,
                 null))
             .ReturnsAsync(mockResults);
@@ -197,8 +192,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
         
         MockTenantRepository.Verify(r => r.GetRtEntitiesByTypeAsync(
             It.IsAny<IOctoSession>(),
-            It.IsAny<CkId<CkTypeId>>(),
-            It.IsAny<DataQueryOperation>(),
+            It.IsAny<RtCkId<CkTypeId>>(),
+            It.IsAny<RtEntityQueryOptions>(),
             null,
             null), Times.Once);
     }
@@ -207,7 +202,6 @@ public class RuntimeEntityCrudToolsTests : TestBase
     public async Task QueryEntities_WithNumericFilters_ParsesDifferentNumberTypes()
     {
         // Arrange
-        SetupMockServices();
         var mockResults = CreateMockQueryResults();
         
         var filtersWithNumbers = new FieldFilterCriteriaDto
@@ -223,8 +217,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
                 It.IsAny<IOctoSession>(),
-                It.IsAny<CkId<CkTypeId>>(),
-                It.IsAny<DataQueryOperation>(),
+                It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(),
                 null,
                 null))
             .ReturnsAsync(mockResults);
@@ -241,8 +235,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
         
         MockTenantRepository.Verify(r => r.GetRtEntitiesByTypeAsync(
             It.IsAny<IOctoSession>(),
-            It.IsAny<CkId<CkTypeId>>(),
-            It.IsAny<DataQueryOperation>(),
+            It.IsAny<RtCkId<CkTypeId>>(),
+            It.IsAny<RtEntityQueryOptions>(),
             null,
             null), Times.Once);
     }
@@ -251,7 +245,6 @@ public class RuntimeEntityCrudToolsTests : TestBase
     public async Task QueryEntities_WithBooleanFilters_ParsesCorrectly()
     {
         // Arrange
-        SetupMockServices();
         var mockResults = CreateMockQueryResults();
         
         var booleanFilters = new FieldFilterCriteriaDto
@@ -266,8 +259,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
                 It.IsAny<IOctoSession>(),
-                It.IsAny<CkId<CkTypeId>>(),
-                It.IsAny<DataQueryOperation>(),
+                It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(),
                 null,
                 null))
             .ReturnsAsync(mockResults);
@@ -287,7 +280,6 @@ public class RuntimeEntityCrudToolsTests : TestBase
     public async Task QueryEntities_WithNullValues_SkipsNullFilters()
     {
         // Arrange
-        SetupMockServices();
         var mockResults = CreateMockQueryResults();
         
         var filtersWithNull = new FieldFilterCriteriaDto
@@ -303,8 +295,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
                 It.IsAny<IOctoSession>(),
-                It.IsAny<CkId<CkTypeId>>(),
-                It.IsAny<DataQueryOperation>(),
+                It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(),
                 null,
                 null))
             .ReturnsAsync(mockResults);
@@ -324,7 +316,6 @@ public class RuntimeEntityCrudToolsTests : TestBase
     public async Task QueryEntitiesSimple_WithValidFilters_ReturnsEntities()
     {
         // Arrange
-        SetupMockServices();
         var mockResults = CreateMockQueryResults();
 
         List<SimpleFilterDto> simpleFilters =
@@ -336,8 +327,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
                 It.IsAny<IOctoSession>(),
-                It.IsAny<CkId<CkTypeId>>(),
-                It.IsAny<DataQueryOperation>(),
+                It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(),
                 null,
                 null))
             .ReturnsAsync(mockResults);
@@ -359,14 +350,13 @@ public class RuntimeEntityCrudToolsTests : TestBase
     public async Task QueryEntitiesSimple_WithNullFilters_ReturnsAllEntities()
     {
         // Arrange
-        SetupMockServices();
         var mockResults = CreateMockQueryResults();
         
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
                 It.IsAny<IOctoSession>(),
-                It.IsAny<CkId<CkTypeId>>(),
-                It.IsAny<DataQueryOperation>(),
+                It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(),
                 null,
                 null))
             .ReturnsAsync(mockResults);
@@ -387,14 +377,13 @@ public class RuntimeEntityCrudToolsTests : TestBase
     public async Task QueryEntitiesSimple_WithEmptyFilters_ReturnsAllEntities()
     {
         // Arrange
-        SetupMockServices();
         var mockResults = CreateMockQueryResults();
         
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
                 It.IsAny<IOctoSession>(),
-                It.IsAny<CkId<CkTypeId>>(),
-                It.IsAny<DataQueryOperation>(),
+                It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(),
                 null,
                 null))
             .ReturnsAsync(mockResults);
@@ -414,11 +403,10 @@ public class RuntimeEntityCrudToolsTests : TestBase
     public async Task QueryEntities_WithInvalidCkTypeId_ReturnsErrorResponse()
     {
         // Arrange
-        SetupMockServices();
         const string invalidCkTypeId = "Invalid-Type-Id";
         
         MockTenantRepository
-            .Setup(r => r.GetCkTypeGraphAsync(It.IsAny<CkId<CkTypeId>>()))
+            .Setup(r => r.GetCkTypeGraphAsync(It.IsAny<RtCkId<CkTypeId>>()))
             .ThrowsAsync(new ArgumentException("Invalid CK Type ID"));
 
         // Act & Assert
@@ -434,7 +422,6 @@ public class RuntimeEntityCrudToolsTests : TestBase
     public async Task QueryEntities_WithPaginationParameters_PassesCorrectParameters()
     {
         // Arrange
-        SetupMockServices();
         var mockResults = CreateMockQueryResults();
         const int limit = 50;
         const int offset = 100;
@@ -442,8 +429,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
                 It.IsAny<IOctoSession>(),
-                It.IsAny<CkId<CkTypeId>>(),
-                It.IsAny<DataQueryOperation>(),
+                It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(),
                 offset,
                 limit))
             .ReturnsAsync(mockResults);
@@ -460,8 +447,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
         
         MockTenantRepository.Verify(r => r.GetRtEntitiesByTypeAsync(
             It.IsAny<IOctoSession>(),
-            It.IsAny<CkId<CkTypeId>>(),
-            It.IsAny<DataQueryOperation>(),
+            It.IsAny<RtCkId<CkTypeId>>(),
+            It.IsAny<RtEntityQueryOptions>(),
             offset,
             limit), Times.Once);
     }
@@ -470,13 +457,11 @@ public class RuntimeEntityCrudToolsTests : TestBase
     public async Task QueryEntities_RepositoryException_ReturnsErrorResponse()
     {
         // Arrange
-        SetupMockServices();
-
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(
                 It.IsAny<IOctoSession>(),
-                It.IsAny<CkId<CkTypeId>>(),
-                It.IsAny<DataQueryOperation>(),
+                It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(),
                 null,
                 null))
             .ThrowsAsync(new Exception("Database connection failed"));
@@ -499,7 +484,7 @@ public class RuntimeEntityCrudToolsTests : TestBase
             .Select(_ => new RtEntity
             {
                 RtId = OctoObjectId.GenerateNewId(),
-                CkTypeId = new CkId<CkTypeId>(TestCkTypeId)
+                CkTypeId = new RtCkId<CkTypeId>(TestCkTypeId)
             })
             .ToList();
 

@@ -14,9 +14,6 @@ public class McpServerIntegrationTests : TestBase
     [Fact]
     public async Task McpServer_CoreTools_AllFunctional()
     {
-        // Arrange
-        SetupMockServices();
-        
         // Act & Assert - Test list_available_tools
         var toolsResult = await ToolManagementTools.ListAvailableTools(MockServer.Object);
         toolsResult.Should().NotBeNull();
@@ -44,8 +41,7 @@ public class McpServerIntegrationTests : TestBase
     public async Task McpServer_ToolDiscovery_ReturnsExpectedCategories()
     {
         // Arrange
-        SetupMockServices();
-        
+
         // Act
         var result = await ToolManagementTools.ListAvailableTools(MockServer.Object);
         
@@ -66,8 +62,7 @@ public class McpServerIntegrationTests : TestBase
     public async Task McpServer_ToolDetails_WorksForAllTools()
     {
         // Arrange
-        SetupMockServices();
-        
+
         // Act - Get all tools first
         var toolsResult = await ToolManagementTools.ListAvailableTools(MockServer.Object);
         var toolsResponse = (ListAvailableToolsResponse)toolsResult;
@@ -95,7 +90,6 @@ public class McpServerIntegrationTests : TestBase
     public async Task McpServer_EchoTool_HandlesVariousInputs()
     {
         // Arrange
-        SetupMockServices();
         var testMessages = new[]
         {
             "Hello World",
@@ -121,8 +115,7 @@ public class McpServerIntegrationTests : TestBase
     public async Task McpServer_ToolValidation_WorksCorrectly()
     {
         // Arrange
-        SetupMockServices();
-        
+
         // Act - Test parameter validation for Echo tool
         var validationResult = await ToolManagementTools.ValidateToolParameters(
             MockServer.Object, 
@@ -142,8 +135,7 @@ public class McpServerIntegrationTests : TestBase
     public async Task McpServer_ToolStatistics_ReturnsValidStructure()
     {
         // Arrange
-        SetupMockServices();
-        
+
         // Act
         var result = await ToolManagementTools.GetToolStatistics(MockServer.Object);
         

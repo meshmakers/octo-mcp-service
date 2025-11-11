@@ -6,6 +6,7 @@ using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Runtime.Contracts;
+using Meshmakers.Octo.Runtime.Contracts.Repositories;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Runtime.Contracts.RepositoryEntities;
 using Meshmakers.Octo.Services.Infrastructure.Services;
@@ -26,7 +27,7 @@ public sealed class RuntimeEntityCrudTools
     ///     Query entities of any CK type with optional filters
     /// </summary>
     /// <param name="server">MCP Server instance</param>
-    /// <param name="ckTypeId">Construction Kit Type ID (e.g., 'EnergyCommunity-1.0.0/Customer-1.0.0')</param>
+    /// <param name="ckTypeId">Construction Kit Type ID (e.g., 'EnergyCommunity-1.0.0/Customer-1')</param>
     /// <param name="filters">
     ///     Optional filters - can be:
     ///     1. Simple JSON string for equality filters: {"contact.firstName": "Gerald", "contact.lastName": "Lochner"}
@@ -55,10 +56,10 @@ public sealed class RuntimeEntityCrudTools
 
         try
         {
-            await tenantRepository.GetCkTypeGraphAsync(new CkId<CkTypeId>(ckTypeId));
+            await tenantRepository.GetCkTypeGraphAsync(new RtCkId<CkTypeId>(ckTypeId));
 
             // Build query operation
-            var queryOperation = DataQueryOperation.Create();
+            var queryOperation = RtEntityQueryOptions.Create();
 
 
             // Parse filters if provided
@@ -66,7 +67,7 @@ public sealed class RuntimeEntityCrudTools
             {
                 if (filters.Operator == LogicalOperatorDto.Or)
                 {
-                    queryOperation = DataQueryOperation.Create(LogicalOperator.Or);
+                    queryOperation = RtEntityQueryOptions.Create(LogicalOperators.Or);
                 }
 
                 BuildTypedFilters(filters, queryOperation);
@@ -74,7 +75,7 @@ public sealed class RuntimeEntityCrudTools
 
             var results = await tenantRepository.GetRtEntitiesByTypeAsync(
                 session,
-                new CkId<CkTypeId>(ckTypeId),
+                new RtCkId<CkTypeId>(ckTypeId),
                 queryOperation,
                 offset,
                 limit);
@@ -130,13 +131,13 @@ public sealed class RuntimeEntityCrudTools
 
         try
         {
-            await tenantRepository.GetCkTypeGraphAsync(new CkId<CkTypeId>(ckTypeId));
+            await tenantRepository.GetCkTypeGraphAsync(new RtCkId<CkTypeId>(ckTypeId));
 
             var queryOperation = BuildFilter(simpleFilters);
 
             var results = await tenantRepository.GetRtEntitiesByTypeAsync(
                 session,
-                new CkId<CkTypeId>(ckTypeId),
+                new RtCkId<CkTypeId>(ckTypeId),
                 queryOperation,
                 offset,
                 limit);
@@ -186,7 +187,7 @@ public sealed class RuntimeEntityCrudTools
 
         try
         {
-            var rtEntityId = new RtEntityId(new CkId<CkTypeId>(ckTypeId),
+            var rtEntityId = new RtEntityId(new RtCkId<CkTypeId>(ckTypeId),
                 new OctoObjectId(rtId));
 
             var entity = await tenantRepository.GetRtEntityByRtIdAsync(session, rtEntityId);
@@ -248,7 +249,7 @@ public sealed class RuntimeEntityCrudTools
             Assign(entity, ckCacheService, tenantRepository.TenantId, entityData);
 
             // Insert entity
-            await tenantRepository.InsertOneRtEntityAsync(session, new CkId<CkTypeId>(ckTypeId), entity);
+            await tenantRepository.InsertOneRtEntityAsync(session, new RtCkId<CkTypeId>(ckTypeId), entity);
             await session.CommitTransactionAsync();
 
             return new CreateEntityResponse
@@ -374,15 +375,15 @@ public sealed class RuntimeEntityCrudTools
         {
             // Check if entity exists
             var existingEntity = await tenantRepository.GetRtEntityByRtIdAsync(session,
-                new RtEntityId(new CkId<CkTypeId>(ckTypeId), new OctoObjectId(rtId)));
+                new RtEntityId(new RtCkId<CkTypeId>(ckTypeId), new OctoObjectId(rtId)));
             if (existingEntity == null)
             {
                 throw new ArgumentException($"Entity with ID '{rtId}' not found in type '{ckTypeId}'");
             }
 
             // Delete entity
-            await tenantRepository.DeleteOneRtEntityByRtIdAsync(session, new CkId<CkTypeId>(ckTypeId),
-                new OctoObjectId(rtId));
+            await tenantRepository.DeleteOneRtEntityByRtIdAsync(session, new RtCkId<CkTypeId>(ckTypeId),
+                new OctoObjectId(rtId), DeleteOptions.Default);
             await session.CommitTransactionAsync();
 
             return new DeleteEntityResponse
@@ -441,7 +442,7 @@ public sealed class RuntimeEntityCrudTools
         try
         {
             // Get the source entity
-            var sourceEntityId = new RtEntityId(new CkId<CkTypeId>(ckTypeId), new OctoObjectId(rtId));
+            var sourceEntityId = new RtEntityId(new RtCkId<CkTypeId>(ckTypeId), new OctoObjectId(rtId));
             var sourceEntity = await tenantRepository.GetRtEntityByRtIdAsync(session, sourceEntityId);
 
             if (sourceEntity == null)
@@ -514,10 +515,10 @@ public sealed class RuntimeEntityCrudTools
 
     #region Helper Methods
 
-    private static DataQueryOperation BuildFilter(List<SimpleFilterDto>? simpleFilters)
+    private static RtEntityQueryOptions BuildFilter(List<SimpleFilterDto>? simpleFilters)
     {
         // Build query operation
-        var queryOperation = DataQueryOperation.Create();
+        var queryOperation = RtEntityQueryOptions.Create();
 
         // Parse simple filters if provided
         if (simpleFilters is { Count: > 0 })
@@ -545,7 +546,7 @@ public sealed class RuntimeEntityCrudTools
         {
             foreach (var nestedFilterDto in filterCriteriaDto.NestedFilters)
             {
-                var nestedFilter = FieldFilterCriteria.Create((LogicalOperator)nestedFilterDto.Operator);
+                var nestedFilter = FieldFilterCriteria.Create((LogicalOperators)nestedFilterDto.Operator);
                 BuildTypedFilters(nestedFilterDto, nestedFilter);
                 fieldFilterCriteria.AddNestedFilter(nestedFilter);
             }

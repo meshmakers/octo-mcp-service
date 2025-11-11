@@ -9,6 +9,10 @@ using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Meshmakers.Octo.ConstructionKit.Contracts.DependencyGraph;
+using Meshmakers.Octo.ConstructionKit.Contracts;
+using System.Runtime.Serialization;
+using CkDto = Meshmakers.Octo.ConstructionKit.Contracts.DataTransferObjects;
 
 namespace McpServices.Tests;
 
@@ -32,7 +36,7 @@ public abstract class TestBase
 
         // Setup basic mocks
         MockServer.Setup(s => s.Services).Returns(TestServiceProvider);
-        
+
         // Register services in test service provider
         TestServiceProvider.RegisterService(MockHttpContextAccessor.Object);
         TestServiceProvider.RegisterService(MockCkCacheService.Object);
@@ -46,10 +50,19 @@ public abstract class TestBase
         MockTenantRepository.Setup(tr => tr.TenantId).Returns("test-tenant");
         MockTenantRepository.Setup(tr => tr.GetSessionAsync())
             .ReturnsAsync(MockSession.Object);
+
+        // Setup CkCacheService mocks for RtEntityToDtoMapper
+        SetupCkCacheServiceMocks();
     }
-    
-    protected void SetupMockServices()
+
+    private void SetupCkCacheServiceMocks()
     {
-        // Additional common setup can be added here if needed
+        MockCkCacheService
+            .Setup(c => c.GetRtCkType(It.IsAny<string>(), It.IsAny<RtCkId<CkTypeId>>()))
+            .Returns((string _, RtCkId<CkTypeId> typeId) => new CkTypeGraph(typeId.FullName, new CkDto.CkCompiledTypeDto()
+            {
+                TypeId = typeId.ElementId,
+                Attributes = new List<CkDto.CkTypeAttributeDto>()
+            }));
     }
 }

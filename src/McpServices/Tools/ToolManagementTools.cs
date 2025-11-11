@@ -265,7 +265,7 @@ public sealed class ToolManagementTools
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="toolName">Name of the tool to validate (must be exact tool name)</param>
-    /// <param name="parameters">Parameters to validate as JSON string (e.g., '{"ckTypeId": "Customer-1.0.0", "limit": 10}')</param>
+    /// <param name="parameters">Parameters to validate as JSON string (e.g., '{"ckTypeId": "Customer-1", "limit": 10}')</param>
     /// <returns>Comprehensive parameter validation results including errors, warnings, and suggestions for fixes</returns>
     [McpServerTool(Name = "validate_tool_parameters")]
     public static async Task<ValidateParametersResponse> ValidateToolParameters(
@@ -485,14 +485,14 @@ public sealed class ToolManagementTools
                 examples.Add(new ToolUsageExample
                 {
                     Description = "Query all customers",
-                    Parameters = new { ckTypeId = "EnergyCommunity-1.0.0/Customer-1.0.0", limit = 10 }
+                    Parameters = new { ckTypeId = "EnergyCommunity-1.0.0/Customer-1", limit = 10 }
                 });
                 examples.Add(new ToolUsageExample
                 {
                     Description = "Query customers with and filter",
                     Parameters = new
                     {
-                        ckTypeId = "EnergyCommunity-1.0.0/Customer-1.0.0",
+                        ckTypeId = "EnergyCommunity-1.0.0/Customer-1",
                         filters = new FieldFilterCriteriaDto
                         {
                             Fields =
@@ -517,7 +517,7 @@ public sealed class ToolManagementTools
                     Description = "Query customers with or filter",
                     Parameters = new
                     {
-                        ckTypeId = "EnergyCommunity-1.0.0/Customer-1.0.0",
+                        ckTypeId = "EnergyCommunity-1.0.0/Customer-1",
                         filters = new FieldFilterCriteriaDto
                         {
                             Fields =
@@ -542,7 +542,7 @@ public sealed class ToolManagementTools
                     Description = "Query customers with complex filter with different logical operators",
                     Parameters = new
                     {
-                        ckTypeId = "EnergyCommunity-1.0.0/Customer-1.0.0",
+                        ckTypeId = "EnergyCommunity-1.0.0/Customer-1",
                         filters = new FieldFilterCriteriaDto
                         {
                             NestedFilters =

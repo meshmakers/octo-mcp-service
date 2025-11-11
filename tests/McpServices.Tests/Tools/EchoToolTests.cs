@@ -14,7 +14,6 @@ public class EchoToolTests : TestBase
     public async Task Echo_WithValidMessage_ReturnsExpectedFormat()
     {
         // Arrange
-        SetupMockServices();
         const string inputMessage = "Hello World";
         const string expectedTenantId = "test-tenant";
         
@@ -33,7 +32,6 @@ public class EchoToolTests : TestBase
     public async Task Echo_WithEmptyMessage_ReturnsCorrectFormat()
     {
         // Arrange
-        SetupMockServices();
         const string inputMessage = "";
         const string expectedTenantId = "test-tenant";
         
@@ -49,7 +47,6 @@ public class EchoToolTests : TestBase
     public async Task Echo_WithNullMessage_ReturnsCorrectFormat()
     {
         // Arrange
-        SetupMockServices();
         const string inputMessage = "test";
         const string expectedTenantId = "test-tenant";
         
@@ -65,7 +62,6 @@ public class EchoToolTests : TestBase
     public async Task Echo_WithSpecialCharacters_PreservesMessage()
     {
         // Arrange
-        SetupMockServices();
         const string inputMessage = "Test with @#$%^&*()_+{}[]|\\:;\"'<>,.?/~`";
         const string expectedTenantId = "test-tenant";
         
@@ -82,7 +78,6 @@ public class EchoToolTests : TestBase
     public async Task Echo_WithUnicodeCharacters_PreservesMessage()
     {
         // Arrange
-        SetupMockServices();
         const string inputMessage = "Hello 世界 🌍 café naïve résumé";
         const string expectedTenantId = "test-tenant";
         
@@ -99,7 +94,6 @@ public class EchoToolTests : TestBase
     public async Task Echo_WithLongMessage_HandlesCorrectly()
     {
         // Arrange
-        SetupMockServices();
         var inputMessage = new string('A', 1000); // 1000 character message
         const string expectedTenantId = "test-tenant";
         
@@ -117,7 +111,6 @@ public class EchoToolTests : TestBase
     public async Task Echo_WithDifferentTenantId_ReturnsCorrectTenantId()
     {
         // Arrange
-        SetupMockServices();
         const string inputMessage = "Test Message";
         const string customTenantId = "custom-tenant-123";
         
@@ -138,7 +131,6 @@ public class EchoToolTests : TestBase
     public async Task Echo_AccessesCorrectServices()
     {
         // Arrange
-        SetupMockServices();
         const string inputMessage = "Service Test";
         
         // Act
@@ -162,7 +154,6 @@ public class EchoToolTests : TestBase
     public async Task Echo_WithVariousMessages_ReturnsCorrectFormat(string inputMessage)
     {
         // Arrange
-        SetupMockServices();
         const string expectedTenantId = "test-tenant";
         
         // Act

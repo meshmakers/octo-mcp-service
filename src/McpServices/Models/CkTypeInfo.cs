@@ -1,5 +1,3 @@
-using Meshmakers.Octo.ConstructionKit.Contracts;
-
 namespace Meshmakers.Octo.Backend.McpServices.Models;
 
 /// <summary>
@@ -8,7 +6,7 @@ namespace Meshmakers.Octo.Backend.McpServices.Models;
 public class CkTypeInfo
 {
     /// <summary>
-    ///     Full Construction Kit Type ID (e.g., 'EnergyCommunity-1.0.0/Customer-1.0.0')
+    ///     Full Construction Kit Type ID (e.g., 'EnergyCommunity-1.0.0/Customer-1')
     /// </summary>
     public required string CkTypeId { get; init; }
 
@@ -30,7 +28,7 @@ public class CkTypeInfo
     /// <summary>
     ///     Version information of the type
     /// </summary>
-    public required CkVersion Version { get; init; }
+    public required uint Version { get; init; }
 
     /// <summary>
     ///     Indicates if this type is abstract and cannot be instantiated
