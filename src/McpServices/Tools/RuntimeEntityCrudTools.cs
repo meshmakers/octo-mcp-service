@@ -11,6 +11,7 @@ using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Runtime.Contracts.RepositoryEntities;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using ModelContextProtocol.Server;
+using CkTypeAssociationDirectionDto = Meshmakers.Octo.Backend.McpServices.Models.CkTypeAssociationDirectionDto;
 using FieldFilterDto = Meshmakers.Octo.Backend.McpServices.Models.Filters.FieldFilterDto;
 
 // ReSharper disable UnusedMember.Global
