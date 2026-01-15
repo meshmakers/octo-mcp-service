@@ -29,8 +29,8 @@
         <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.14.0" />
         <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.14.0" />
 
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.0" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.2" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.2" />
 
         <PackageReference Include="Meshmakers.Octo.Services.Infrastructure" Version="$(OctoVersion)"/>
         <PackageReference Include="Meshmakers.Octo.Services.Observability" Version="$(OctoVersion)"/>
