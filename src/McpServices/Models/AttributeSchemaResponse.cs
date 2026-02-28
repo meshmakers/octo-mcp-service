@@ -16,4 +16,9 @@ public sealed class AttributeSchemaResponse
     ///     Gets or sets the value type of the attribute
     /// </summary>
     public required AttributeValueTypesDto ValueType { get; init; }
+
+    /// <summary>
+    ///     Gets or sets the description of the attribute
+    /// </summary>
+    public string? Description { get; init; }
 }

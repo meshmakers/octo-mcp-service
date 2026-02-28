@@ -3,6 +3,7 @@ using System.Globalization;
 using Meshmakers.Common.Shared;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.ConstructionKit.Contracts.DependencyGraph;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using ModelContextProtocol.Server;
@@ -166,9 +167,10 @@ public sealed class SchemaDiscoveryTools
                 InheritanceHierarchy = typeGraph.GetBaseTypes(false),
                 Indexes = typeGraph.Indexes,
                 Attributes =
-                    ckCacheService.GetCkTypeQueryColumnPaths(tenantRepository.TenantId, typeGraph.CkTypeId, true)
+                    ckCacheService.GetCkTypeQueryColumnPaths(tenantRepository.TenantId, typeGraph.CkTypeId,
+                            new CkTypeQueryColumnOptions { IgnoreNavigationProperties = true })
                         .Select(c =>
-                            new AttributeSchemaResponse { AttributePath = c.Path, ValueType = c.ValueType }),
+                            new AttributeSchemaResponse { AttributePath = c.Path, ValueType = c.ValueType, Description = c.Description }),
                 InboundAssociations = typeGraph.Associations.In.All.Select(a => new AssociationSchemaResponse
                 {
                     AssociationRoleId = a.CkRoleId.FullName,
