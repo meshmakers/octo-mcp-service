@@ -3,7 +3,7 @@ namespace Meshmakers.Octo.Backend.McpServices;
 internal static class Constants
 {
     public const string McpServiceIdentityDataVersionKey = "McpIdentityData";
-    public const int McpServiceIdentityDataVersionValue = 1;
+    public const int McpServiceIdentityDataVersionValue = 2;
 
     /// <summary>
     ///     Policy for system api authorization

@@ -110,28 +110,14 @@ try
         options.Scopes = new Dictionary<string, string>
         {
             {
-                CommonConstants.AssetSystemApiFullAccess,
-                McpTexts.Scope_SystemFullAccess_Description
+                CommonConstants.OctoApiFullAccess,
+                CommonConstants.OctoApiFullAccessDisplayName
             },
             {
-                CommonConstants.AssetTenantApiFullAccess,
-                McpTexts.Scope_TenantFullAccess_Description
-            },
-            {
-                CommonConstants.AssetTenantApiReadOnly,
-                McpTexts.Scope_TenantReadonlyAccess_Description
+                CommonConstants.OctoApiReadOnly,
+                CommonConstants.OctoApiReadOnlyDisplayName
             }
         };
-
-        // options.PolicyScopeMapping = new Dictionary<string, IEnumerable<string>>
-        // {
-        //     { Constants.SystemApiPolicy, [CommonConstants.AssetSystemApiFullAccess] },
-        //     {
-        //         Constants.TenantApiReadWritePolicy,
-        //         [CommonConstants.AssetTenantApiFullAccess, CommonConstants.AssetTenantApiReadOnly]
-        //     },
-        //     { Constants.TenantApiReadOnlyPolicy, [CommonConstants.AssetTenantApiReadOnly] }
-        // };
 
         options.XmlDocDataTransferObjectAssemblies =
             [typeof(AdapterConfigurationDto).Assembly, typeof(RtEntityId).Assembly];
