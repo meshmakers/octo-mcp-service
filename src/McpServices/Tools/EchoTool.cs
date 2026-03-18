@@ -18,7 +18,7 @@ public sealed class EchoTool
     [McpServerTool(Name = "Echo")]
     [Description("Echoes the input back to the client.")]
     public static async Task<string> Echo(
-        IMcpServer thisServer,
+        McpServer thisServer,
         string message)
     {
         var httpContextAccessor = thisServer.Services!.GetRequiredService<IOctoHttpContextAccessor>();

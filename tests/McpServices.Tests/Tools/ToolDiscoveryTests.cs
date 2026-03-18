@@ -56,7 +56,7 @@ public class ToolDiscoveryTests
         // Verify method signature
         var parameters = echoMethod!.GetParameters();
         parameters.Should().HaveCount(2, "Echo method should have 2 parameters");
-        parameters[0].ParameterType.Should().Be(typeof(IMcpServer), "First parameter should be IMcpServer");
+        parameters[0].ParameterType.Should().Be(typeof(McpServer), "First parameter should be IMcpServer");
         parameters[1].ParameterType.Should().Be(typeof(string), "Second parameter should be string");
     }
     
@@ -138,7 +138,7 @@ public class ToolDiscoveryTests
             {
                 var parameters = method.GetParameters();
                 parameters.Should().NotBeEmpty($"{method.Name} should have parameters");
-                parameters[0].ParameterType.Should().Be(typeof(IMcpServer), 
+                parameters[0].ParameterType.Should().Be(typeof(McpServer), 
                     $"First parameter of {method.Name} should be IMcpServer");
             }
         }
@@ -199,7 +199,7 @@ public class ToolDiscoveryTests
         
         var parameters = toolMethod!.GetParameters();
         parameters.Should().NotBeEmpty($"Tool '{toolName}' should have parameters");
-        parameters[0].ParameterType.Should().Be(typeof(IMcpServer), 
+        parameters[0].ParameterType.Should().Be(typeof(McpServer), 
             $"First parameter of '{toolName}' should be IMcpServer");
         
         // Verify return type is Task<T>

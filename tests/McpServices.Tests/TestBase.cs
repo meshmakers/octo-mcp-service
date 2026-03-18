@@ -18,7 +18,7 @@ namespace McpServices.Tests;
 
 public abstract class TestBase
 {
-    protected Mock<IMcpServer> MockServer { get; private set; }
+    protected Mock<McpServer> MockServer { get; private set; }
     protected TestServiceProvider TestServiceProvider { get; private set; }
     protected Mock<IOctoHttpContextAccessor> MockHttpContextAccessor { get; private set; }
     protected Mock<ICkCacheService> MockCkCacheService { get; private set; }
@@ -27,7 +27,7 @@ public abstract class TestBase
 
     protected TestBase()
     {
-        MockServer = new Mock<IMcpServer>();
+        MockServer = new Mock<McpServer>();
         TestServiceProvider = new TestServiceProvider();
         MockHttpContextAccessor = new Mock<IOctoHttpContextAccessor>();
         MockCkCacheService = new Mock<ICkCacheService>();

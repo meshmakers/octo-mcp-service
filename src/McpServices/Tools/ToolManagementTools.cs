@@ -27,7 +27,7 @@ public sealed class ToolManagementTools
     /// <returns>List of available tools with descriptions and parameters</returns>
     [McpServerTool(Name = "list_available_tools")]
     public static Task<ListAvailableToolsResponse> ListAvailableTools(
-        IMcpServer server,
+        McpServer server,
         string? category = null)
     {
         try
@@ -119,7 +119,7 @@ public sealed class ToolManagementTools
     /// <returns>Detailed tool information with usage examples, parameter details, and documentation</returns>
     [McpServerTool(Name = "get_tool_details")]
     public static Task<ToolDetailsResponse> GetToolDetails(
-        IMcpServer server,
+        McpServer server,
         string toolName)
     {
         try
@@ -196,7 +196,7 @@ public sealed class ToolManagementTools
     /// <returns>Tool usage statistics including invocation counts, performance metrics, error rates, and top performing tools</returns>
     [McpServerTool(Name = "get_tool_statistics")]
     public static Task<ToolStatistics> GetToolStatistics(
-        IMcpServer server,
+        McpServer server,
         string timeRange = "day")
     {
         try
@@ -269,7 +269,7 @@ public sealed class ToolManagementTools
     /// <returns>Comprehensive parameter validation results including errors, warnings, and suggestions for fixes</returns>
     [McpServerTool(Name = "validate_tool_parameters")]
     public static async Task<ValidateParametersResponse> ValidateToolParameters(
-        IMcpServer server,
+        McpServer server,
         string toolName,
         string parameters)
     {

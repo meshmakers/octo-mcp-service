@@ -41,7 +41,7 @@ public sealed class RuntimeEntityCrudTools
     [Description(
         "Query entities of any Construction Kit type with optional filters. For simple equality filters, pass a JSON object like {\"FirstName\": \"Gerald\", \"LastName\": \"Lochner\"}. For complex filters with operators, use the EntityFilterDto format.")]
     public static async Task<QueryEntitiesResponse> QueryEntities(
-        IMcpServer server,
+        McpServer server,
         string ckTypeId,
         FieldFilterCriteriaDto? filters = null,
         int? limit = null,
@@ -116,7 +116,7 @@ public sealed class RuntimeEntityCrudTools
     [Description(
         "Query entities with simple equality filters - optimized for Claude. Pass filters as a JSON object where keys are field names and values are the exact values to match.")]
     public static async Task<QueryEntitiesResponse> QueryEntitiesSimple(
-        IMcpServer server,
+        McpServer server,
         string ckTypeId,
         List<SimpleFilterDto>? simpleFilters = null,
         int? limit = null,
@@ -175,7 +175,7 @@ public sealed class RuntimeEntityCrudTools
     [McpServerTool(Name = "get_entity_by_id")]
     [Description("Get a single entity by its runtime ID")]
     public static async Task<GetEntityResponse> GetEntityById(
-        IMcpServer server,
+        McpServer server,
         string ckTypeId,
         string rtId)
     {
@@ -230,7 +230,7 @@ public sealed class RuntimeEntityCrudTools
     [McpServerTool(Name = "create_entity")]
     [Description("Create a new entity of specified Construction Kit type")]
     public static async Task<CreateEntityResponse> CreateEntity(
-        IMcpServer server,
+        McpServer server,
         string ckTypeId,
         List<AttributeUpdateItem> entityData)
     {
@@ -289,7 +289,7 @@ public sealed class RuntimeEntityCrudTools
     [McpServerTool(Name = "update_entity")]
     [Description("Update an existing entity with new data")]
     public static async Task<UpdateEntityResponse> UpdateEntity(
-        IMcpServer server, string rtId, string ckTypeId, List<AttributeUpdateItem> entityData)
+        McpServer server, string rtId, string ckTypeId, List<AttributeUpdateItem> entityData)
     {
         var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
         var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
@@ -362,7 +362,7 @@ public sealed class RuntimeEntityCrudTools
     [McpServerTool(Name = "delete_entity")]
     [Description("Delete an entity by its runtime ID")]
     public static async Task<DeleteEntityResponse> DeleteEntity(
-        IMcpServer server,
+        McpServer server,
         string ckTypeId,
         string rtId)
     {
@@ -423,7 +423,7 @@ public sealed class RuntimeEntityCrudTools
     [Description(
         "Navigate associations from a source entity to find related entities. Use dot notation for the association path (e.g., 'Facilities.Children'). Optionally filter results by type and/or field values.")]
     public static async Task<NavigateAssociationsResponse> NavigateAssociations(
-        IMcpServer server,
+        McpServer server,
         string ckTypeId,
         string rtId,
         string ckRoleId,

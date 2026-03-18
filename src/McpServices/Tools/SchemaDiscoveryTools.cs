@@ -26,7 +26,7 @@ public sealed class SchemaDiscoveryTools
     /// <returns>List of available Construction Kit models</returns>
     [McpServerTool(Name = "get_available_models")]
     [Description("Get all available Construction Kit models in the system")]
-    public static async Task<AvailableModelsResponse> GetAvailableModels(IMcpServer server)
+    public static async Task<AvailableModelsResponse> GetAvailableModels(McpServer server)
     {
         try
         {
@@ -66,7 +66,7 @@ public sealed class SchemaDiscoveryTools
     [Description("Get all available Construction Kit types with their basic metadata")]
     // ReSharper disable once MemberCanBePrivate.Global
     public static async Task<AvailableTypesResponse> GetAvailableTypes(
-        IMcpServer server,
+        McpServer server,
         bool includeAbstract = false,
         string? ckModelId = null)
     {
@@ -138,7 +138,7 @@ public sealed class SchemaDiscoveryTools
     [McpServerTool(Name = "get_type_schema")]
     [Description("Get detailed schema information for a specific Construction Kit type")]
     public static async Task<TypeSchemaResponse> GetTypeSchema(
-        IMcpServer server,
+        McpServer server,
         string ckTypeId)
     {
         try
@@ -218,7 +218,7 @@ public sealed class SchemaDiscoveryTools
     [McpServerTool(Name = "search_types")]
     [Description("Search for Construction Kit types by name or description")]
     public static async Task<SearchTypesResponse> SearchTypes(
-        IMcpServer server,
+        McpServer server,
         string searchTerm,
         bool includeAbstract = false)
     {
