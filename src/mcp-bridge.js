@@ -4,6 +4,10 @@ const https = require('https');
 // Disable SSL verification for localhost
 process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
 
+const tenant = process.env.OCTO_TENANT || 'sbeg';
+const host = process.env.OCTO_HOST || 'localhost';
+const port = parseInt(process.env.OCTO_PORT || '5017');
+
 let buffer = '';
 
 process.stdin.on('data', (chunk) => {
@@ -23,9 +27,9 @@ function sendToServer(jsonData) {
   const postData = jsonData;
 
   const options = {
-    hostname: 'localhost',
-    port: 5017,
-    path: '/sbeg/mcp',
+    hostname: host,
+    port: port,
+    path: `/${tenant}/mcp`,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
