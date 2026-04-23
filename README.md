@@ -246,12 +246,66 @@ Access real-time tool usage statistics:
 - Cache hit ratios
 - Error categorization
 
+## 🔐 Authentication & Multi-Tenant Access
+
+### **OAuth2 Device Authorization Flow**
+
+The MCP server supports authentication via the OAuth2 Device Authorization Flow, ideal for CLI and AI clients (e.g., Claude Code). No browser redirect required on the client side.
+
+**Flow:**
+1. Client calls `authenticate` tool
+2. Server returns a user code and verification URL
+3. User opens the URL in a browser, enters the code, and logs in
+4. Client calls `check_auth_status` to complete authentication
+5. Server stores tokens per MCP session (automatic refresh)
+
+**Identity Server Client:** `octo-mcpServices-device` (registered automatically on startup)
+
+### **Tenant Resolution (Stateless)**
+
+Tenants are resolved per-request using this priority:
+1. **Tool parameter `tenantId`** (explicit, from any endpoint)
+2. **Route parameter `{tenantId}`** (from `/{tenantId}/mcp` endpoint)
+3. Error if no tenant can be resolved
+
+This is fully stateless — no tenant is stored in session state. The AI client remembers the tenant in its conversation context.
+
+### **Endpoints**
+
+| Endpoint | Description |
+|----------|-------------|
+| `/{tenantId}/mcp` | Tenant-scoped MCP endpoint (backwards compatible) |
+| `/mcp` | Tenantless MCP endpoint (tenant via tool parameter) |
+
+### **Claude Code Configuration (single entry)**
+
+```json
+{
+  "mcpServers": {
+    "octomesh": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp"
+    }
+  }
+}
+```
+
+### **Authentication & Identity Tools**
+
+| Tool | Auth Required | Description |
+|------|---------------|-------------|
+| `authenticate` | No | Start Device Authorization Flow |
+| `check_auth_status` | No | Check if user completed browser authentication |
+| `whoami` | Yes | User info (name, email, roles, tenants) |
+| `list_tenants` | Yes | List all tenants the user has access to |
+
 ## 🔒 Security & Permissions
 
 ### **Tenant Isolation**
 - All operations are tenant-scoped
-- Automatic tenant resolution from URL path
+- Tenant resolution from tool parameter or URL path
 - Isolated data access per tenant
+- `allowed_tenants` JWT claim validation
 
 ### **Parameter Validation**
 - Type-safe parameter validation
@@ -303,6 +357,15 @@ dotnet run --environment Development
 ```
 
 ## 📝 Changelog
+
+### **Version 1.1.0**
+- OAuth2 Device Authorization Flow for CLI/AI client authentication
+- Tenantless `/mcp` endpoint with per-tool `tenantId` parameter
+- `authenticate`, `check_auth_status`, `whoami`, `list_tenants` tools
+- Identity Server client registration (`octo-mcpServices-device`, `octo-mcpServices-swagger`)
+- Session-based token management with automatic refresh
+- `ITenantResolutionService` for stateless multi-tenant tool access
+- All existing tools extended with optional `tenantId` parameter
 
 ### **Version 1.0.0**
 - ✅ Dynamic CRUD operations for all CK types

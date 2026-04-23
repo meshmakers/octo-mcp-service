@@ -55,9 +55,10 @@ public class ToolDiscoveryTests
         
         // Verify method signature
         var parameters = echoMethod!.GetParameters();
-        parameters.Should().HaveCount(2, "Echo method should have 2 parameters");
-        parameters[0].ParameterType.Should().Be(typeof(McpServer), "First parameter should be IMcpServer");
+        parameters.Should().HaveCount(3, "Echo method should have 3 parameters (server, message, tenantId)");
+        parameters[0].ParameterType.Should().Be(typeof(McpServer), "First parameter should be McpServer");
         parameters[1].ParameterType.Should().Be(typeof(string), "Second parameter should be string");
+        parameters[2].ParameterType.Should().Be(typeof(string), "Third parameter should be optional tenantId");
     }
     
     [Fact]

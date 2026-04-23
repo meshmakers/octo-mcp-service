@@ -1,6 +1,7 @@
 ﻿// NLog: Set up the logger first to catch all errors
 
 using McpServices.Resources;
+using Meshmakers.Octo.Backend.McpServices;
 using Meshmakers.Octo.Backend.McpServices.Configuration;
 using Meshmakers.Octo.Backend.McpServices.Consumers;
 using Meshmakers.Octo.Backend.McpServices.Options;
@@ -69,6 +70,15 @@ try
     builder.Services.AddScoped<IToolExecutionService, ToolExecutionService>();
     builder.Services.AddTransient<IRtEntityToDtoMapper, RtEntityToDtoMapper>();
 
+    // Add MCP authentication and tenant resolution services
+    builder.Services.AddSingleton<IMcpSessionTokenStore, McpSessionTokenStore>();
+    builder.Services.AddTransient<ITenantResolutionService, TenantResolutionService>();
+    builder.Services.AddHttpClient("identity")
+        .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+        });
+
     builder.Services.AddCors();
     builder.Services.AddControllers()
         .AddJsonOptions(options =>
@@ -127,7 +137,7 @@ try
         options.ApiTitle = McpTexts.Api_Title;
         options.ApiDescription = McpTexts.Api_Description;
 
-        options.ClientId = CommonConstants.ReportingServicesSwaggerClientId;
+        options.ClientId = Constants.McpServicesSwaggerClientId;
         options.AppName = McpTexts.SwaggerClient_Description;
     }).AddVersion();
 
@@ -162,8 +172,11 @@ try
 
     app.MapObservability();
 
-    // Map MCP endpoint with tenant routing
+    // Map MCP endpoint with tenant routing (existing, backwards compatible)
     app.MapMcp("/{tenantId:tenantId}/mcp");
+
+    // Map tenantless MCP endpoint (tenant resolved via tool parameter)
+    app.MapMcp("/mcp");
 
     // Log startup information
     var dynamicToolOptions = app.Services.GetRequiredService<IOptions<DynamicToolOptions>>().Value;

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Globalization;
 using Meshmakers.Common.Shared;
 using Meshmakers.Octo.Backend.McpServices.Models;
+using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.ConstructionKit.Contracts.DependencyGraph;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
@@ -23,20 +24,23 @@ public sealed class SchemaDiscoveryTools
     ///     Get all models available in the system
     /// </summary>
     /// <param name="server">MCP Server instance</param>
+    /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>List of available Construction Kit models</returns>
     [McpServerTool(Name = "get_available_models")]
     [Description("Get all available Construction Kit models in the system")]
-    public static async Task<AvailableModelsResponse> GetAvailableModels(McpServer server)
+    public static async Task<AvailableModelsResponse> GetAvailableModels(
+        McpServer server,
+        string? tenantId = null)
     {
         try
         {
-            var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
+            var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
             var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
 
-            var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
+            var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
             await tenantRepository.LoadCacheForTenantAsync(ckCacheService);
 
-            var modelIds = ckCacheService.GetCkModelIds(httpContextAccessor.GetTenantId());
+            var modelIds = ckCacheService.GetCkModelIds(tenantRepository.TenantId);
 
             return new AvailableModelsResponse
             {
@@ -61,6 +65,7 @@ public sealed class SchemaDiscoveryTools
     /// <param name="server">MCP Server instance</param>
     /// <param name="includeAbstract">Include abstract types in results</param>
     /// <param name="ckModelId">Filter by specific model ID (e.g., 'EnergyCommunity-1.0.0')</param>
+    /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>List of available CK types with basic metadata</returns>
     [McpServerTool(Name = "get_available_types")]
     [Description("Get all available Construction Kit types with their basic metadata")]
@@ -68,20 +73,21 @@ public sealed class SchemaDiscoveryTools
     public static async Task<AvailableTypesResponse> GetAvailableTypes(
         McpServer server,
         bool includeAbstract = false,
-        string? ckModelId = null)
+        string? ckModelId = null,
+        string? tenantId = null)
     {
         try
         {
-            var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
+            var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
             var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
 
-            var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
+            var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
             await tenantRepository.LoadCacheForTenantAsync(ckCacheService);
 
             // Get all available type graphs from the cache
             var availableTypes = new List<CkTypeInfo>();
 
-            var typeGraphs = ckCacheService.GetCkTypes(httpContextAccessor.GetTenantId());
+            var typeGraphs = ckCacheService.GetCkTypes(tenantRepository.TenantId);
 
             foreach (var ckTypeGraph in typeGraphs)
             {
@@ -101,7 +107,7 @@ public sealed class SchemaDiscoveryTools
                     CkTypeId = ckTypeGraph.CkTypeId.SemanticVersionedFullName,
                     ModelId = ckTypeGraph.CkTypeId.ModelId.ToString(CultureInfo.InvariantCulture),
                     TypeId = ckTypeGraph.CkTypeId.ElementId.SemanticVersionedFullName,
-                    TypeName = ckTypeGraph.CkTypeId.ElementId.SemanticVersionedFullName, // Fix: Add TypeName
+                    TypeName = ckTypeGraph.CkTypeId.ElementId.SemanticVersionedFullName,
                     Version = ckTypeGraph.CkTypeId.ElementId.Version,
                     IsAbstract = ckTypeGraph.IsAbstract,
                     IsFinal = ckTypeGraph.IsFinal,
@@ -135,21 +141,23 @@ public sealed class SchemaDiscoveryTools
     /// </summary>
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Construction Kit Type ID</param>
+    /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     [McpServerTool(Name = "get_type_schema")]
     [Description("Get detailed schema information for a specific Construction Kit type")]
     public static async Task<TypeSchemaResponse> GetTypeSchema(
         McpServer server,
-        string ckTypeId)
+        string ckTypeId,
+        string? tenantId = null)
     {
         try
         {
-            var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
+            var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
             var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
 
-            var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
+            var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
             await tenantRepository.LoadCacheForTenantAsync(ckCacheService);
 
-            var typeGraph = ckCacheService.GetCkType(httpContextAccessor.GetTenantId(), new CkId<CkTypeId>(ckTypeId));
+            var typeGraph = ckCacheService.GetCkType(tenantRepository.TenantId, new CkId<CkTypeId>(ckTypeId));
 
             return new TypeSchemaResponse
             {
@@ -214,17 +222,19 @@ public sealed class SchemaDiscoveryTools
     /// <param name="server">MCP Server instance</param>
     /// <param name="searchTerm">Search term to look for in type names or descriptions</param>
     /// <param name="includeAbstract">Include abstract types in search results</param>
+    /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Matching types</returns>
     [McpServerTool(Name = "search_types")]
     [Description("Search for Construction Kit types by name or description")]
     public static async Task<SearchTypesResponse> SearchTypes(
         McpServer server,
         string searchTerm,
-        bool includeAbstract = false)
+        bool includeAbstract = false,
+        string? tenantId = null)
     {
         try
         {
-            var allTypesResult = await GetAvailableTypes(server, includeAbstract);
+            var allTypesResult = await GetAvailableTypes(server, includeAbstract, tenantId: tenantId);
 
             // Safe casting to concrete type
             if (!allTypesResult.IsSuccess)

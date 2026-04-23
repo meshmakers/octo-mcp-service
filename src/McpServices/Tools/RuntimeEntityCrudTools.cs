@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text.Json;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Models.Filters;
+using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
@@ -11,6 +12,8 @@ using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Runtime.Contracts.RepositoryEntities;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using ModelContextProtocol.Server;
+using Meshmakers.Octo.ConstructionKit.Contracts.DependencyGraph;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 using CkTypeAssociationDirectionDto = Meshmakers.Octo.Backend.McpServices.Models.CkTypeAssociationDirectionDto;
 using FieldFilterDto = Meshmakers.Octo.Backend.McpServices.Models.Filters.FieldFilterDto;
 
@@ -34,23 +37,27 @@ public sealed class RuntimeEntityCrudTools
     ///     1. Simple JSON string for equality filters: {"contact.firstName": "Gerald", "contact.lastName": "Lochner"}
     ///     2. Complex EntityFilterDto object for advanced filtering with operators
     /// </param>
+    /// <param name="attributePaths">Optional list of attribute paths to include in the response. If null, all attributes are returned.</param>
     /// <param name="limit">Maximum number of results to return</param>
     /// <param name="offset">Number of results to skip</param>
+    /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Query results with entity data</returns>
     [McpServerTool(Name = "query_entities")]
     [Description(
-        "Query entities of any Construction Kit type with optional filters. For simple equality filters, pass a JSON object like {\"FirstName\": \"Gerald\", \"LastName\": \"Lochner\"}. For complex filters with operators, use the EntityFilterDto format.")]
+        "Query entities of any Construction Kit type with optional filters. For simple equality filters, pass a JSON object like {\"FirstName\": \"Gerald\", \"LastName\": \"Lochner\"}. For complex filters with operators, use the EntityFilterDto format. Use attributePaths to request only specific attributes and reduce response size.")]
     public static async Task<QueryEntitiesResponse> QueryEntities(
         McpServer server,
         string ckTypeId,
         FieldFilterCriteriaDto? filters = null,
+        List<string>? attributePaths = null,
         int? limit = null,
-        int? offset = null)
+        int? offset = null,
+        string? tenantId = null)
     {
-        var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
+        var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
-        var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
-        var tenantId = httpContextAccessor.GetTenantId();
+        var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
+        var resolvedTenantId = tenantRepository.TenantId;
 
         using var session = await tenantRepository.GetSessionAsync();
         session.StartTransaction();
@@ -81,15 +88,27 @@ public sealed class RuntimeEntityCrudTools
                 offset,
                 limit);
 
+            var entities = results.Items.Select(e =>
+                    rtEntityToDtoMapper.ConvertToDto(resolvedTenantId, e, AttributeValueResolveFlags.ResolveEnumsToNames))
+                .ToList();
+
+            // Filter attributes if attributePaths is specified
+            if (attributePaths is { Count: > 0 })
+            {
+                var pathSet = new HashSet<string>(attributePaths, StringComparer.OrdinalIgnoreCase);
+                foreach (var entity in entities)
+                {
+                    FilterAttributes(entity, pathSet);
+                }
+            }
+
             return new QueryEntitiesResponse
             {
                 IsSuccess = true,
                 CkTypeId = ckTypeId,
                 TotalCount = results.TotalCount,
                 ReturnedCount = results.Items.Count(),
-                Entities = results.Items.Select(e =>
-                        rtEntityToDtoMapper.ConvertToDto(tenantId, e, AttributeValueResolveFlags.ResolveEnumsToNames))
-                    .ToList()
+                Entities = entities
             };
         }
         catch (Exception ex)
@@ -109,23 +128,27 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Construction Kit Type ID (e.g., 'EnergyCommunity/Customer')</param>
     /// <param name="simpleFilters">Simple filters as a JSON array (e.g., [{attributePath: "FirstName", value: "Gerald"}, {attributePath: "LastName", value: "Lochner"}])</param>
+    /// <param name="attributePaths">Optional list of attribute paths to include in the response (e.g., ["Name", "ControlType", "States.Name"]). If null, all attributes are returned. Use this to reduce response size.</param>
     /// <param name="limit">Maximum number of results to return</param>
     /// <param name="offset">Number of results to skip</param>
+    /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Query results with entity data</returns>
     [McpServerTool(Name = "query_entities_simple")]
     [Description(
-        "Query entities with simple equality filters - optimized for Claude. Pass filters as a JSON object where keys are field names and values are the exact values to match.")]
+        "Query entities with simple equality filters - optimized for Claude. Pass filters as a JSON object where keys are field names and values are the exact values to match. Use attributePaths to request only specific attributes and reduce response size (e.g., [\"Name\", \"ControlType\", \"States.Name\"]).")]
     public static async Task<QueryEntitiesResponse> QueryEntitiesSimple(
         McpServer server,
         string ckTypeId,
         List<SimpleFilterDto>? simpleFilters = null,
+        List<string>? attributePaths = null,
         int? limit = null,
-        int? offset = null)
+        int? offset = null,
+        string? tenantId = null)
     {
-        var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
+        var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
-        var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
-        var tenantId = httpContextAccessor.GetTenantId();
+        var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
+        var resolvedTenantId = tenantRepository.TenantId;
 
         using var session = await tenantRepository.GetSessionAsync();
         session.StartTransaction();
@@ -143,15 +166,27 @@ public sealed class RuntimeEntityCrudTools
                 offset,
                 limit);
 
+            var entities = results.Items.Select(e =>
+                    rtEntityToDtoMapper.ConvertToDto(resolvedTenantId, e, AttributeValueResolveFlags.ResolveEnumsToNames))
+                .ToList();
+
+            // Filter attributes if attributePaths is specified
+            if (attributePaths is { Count: > 0 })
+            {
+                var pathSet = new HashSet<string>(attributePaths, StringComparer.OrdinalIgnoreCase);
+                foreach (var entity in entities)
+                {
+                    FilterAttributes(entity, pathSet);
+                }
+            }
+
             return new QueryEntitiesResponse
             {
                 IsSuccess = true,
                 CkTypeId = ckTypeId,
                 TotalCount = results.TotalCount,
                 ReturnedCount = results.Items.Count(),
-                Entities = results.Items.Select(e =>
-                        rtEntityToDtoMapper.ConvertToDto(tenantId, e, AttributeValueResolveFlags.ResolveEnumsToNames))
-                    .ToList()
+                Entities = entities
             };
         }
         catch (Exception ex)
@@ -171,16 +206,18 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Construction Kit Type ID</param>
     /// <param name="rtId">Runtime entity ID</param>
+    /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Entity data or null if not found</returns>
     [McpServerTool(Name = "get_entity_by_id")]
     [Description("Get a single entity by its runtime ID")]
     public static async Task<GetEntityResponse> GetEntityById(
         McpServer server,
         string ckTypeId,
-        string rtId)
+        string rtId,
+        string? tenantId = null)
     {
-        var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
-        var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
+        var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+        var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
         using var session = await tenantRepository.GetSessionAsync();
@@ -226,17 +263,19 @@ public sealed class RuntimeEntityCrudTools
     ///     JSON formated an array of attribute path and value to be updated.
     ///     For example,  [{attributePath: 'contact.test', value: 'test'}]
     /// </param>
+    /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Created entity with runtime ID</returns>
     [McpServerTool(Name = "create_entity")]
     [Description("Create a new entity of specified Construction Kit type")]
     public static async Task<CreateEntityResponse> CreateEntity(
         McpServer server,
         string ckTypeId,
-        List<AttributeUpdateItem> entityData)
+        List<AttributeUpdateItem> entityData,
+        string? tenantId = null)
     {
-        var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
+        var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
         var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
-        var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
+        var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
         using var session = await tenantRepository.GetSessionAsync();
@@ -285,15 +324,17 @@ public sealed class RuntimeEntityCrudTools
     ///     JSON formated an array of attribute path and value to be updated.
     ///     For example,  [{attributePath: 'contact.test', value: 'test'}]
     /// </param>
+    /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Updated entity</returns>
     [McpServerTool(Name = "update_entity")]
     [Description("Update an existing entity with new data")]
     public static async Task<UpdateEntityResponse> UpdateEntity(
-        McpServer server, string rtId, string ckTypeId, List<AttributeUpdateItem> entityData)
+        McpServer server, string rtId, string ckTypeId, List<AttributeUpdateItem> entityData,
+        string? tenantId = null)
     {
-        var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
+        var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
         var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
-        var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
+        var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
         using var session = await tenantRepository.GetSessionAsync();
@@ -358,16 +399,18 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Construction Kit Type ID</param>
     /// <param name="rtId">Runtime entity ID</param>
+    /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Deletion result</returns>
     [McpServerTool(Name = "delete_entity")]
     [Description("Delete an entity by its runtime ID")]
     public static async Task<DeleteEntityResponse> DeleteEntity(
         McpServer server,
         string ckTypeId,
-        string rtId)
+        string rtId,
+        string? tenantId = null)
     {
-        var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
-        var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
+        var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+        var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
 
         using var session = await tenantRepository.GetSessionAsync();
         session.StartTransaction();
@@ -418,6 +461,8 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="direction">The direction of the association to navigate (inbound or outbound)</param>
     /// <param name="targetTypeId">Optional target type ID to filter results</param>
     /// <param name="filters">Optional filters for the target entities as a JSON array (e.g., [{attributePath: "FirstName", value: "Gerald"}, {attributePath: "LastName", value: "Lochner"}])</param>
+    /// <param name="attributePaths">Optional list of attribute paths to include in the response. If null, all attributes are returned.</param>
+    /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Related entities following the association path</returns>
     [McpServerTool(Name = "navigate_associations")]
     [Description(
@@ -429,12 +474,13 @@ public sealed class RuntimeEntityCrudTools
         string ckRoleId,
         CkTypeAssociationDirectionDto direction,
         string targetTypeId,
-        List<SimpleFilterDto>? filters = null)
+        List<SimpleFilterDto>? filters = null,
+        List<string>? attributePaths = null,
+        string? tenantId = null)
     {
-        var httpContextAccessor = server.Services!.GetRequiredService<IOctoHttpContextAccessor>();
-        var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
-        var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
-        var tenantId = httpContextAccessor.GetTenantId();
+        var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+        var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
+        var resolvedTenantId = tenantRepository.TenantId;
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
         using var session = await tenantRepository.GetSessionAsync();
@@ -451,27 +497,10 @@ public sealed class RuntimeEntityCrudTools
                 throw new ArgumentException($"Source entity with ID '{rtId}' not found in type '{ckTypeId}'");
             }
 
-
-            // Get association navigation property
-            var typeGraph = ckCacheService.GetCkType(tenantId, ckTypeId);
-            if (direction == CkTypeAssociationDirectionDto.Inbound)
-            {
-                var inAssociation =
-                    typeGraph.Associations.In.All.FirstOrDefault(a => a.CkRoleId == ckRoleId);
-                if (inAssociation == null)
-                {
-                    throw new ArgumentException($"Association '{ckRoleId}' not found on type '{ckTypeId}'");
-                }
-            }
-            else
-            {
-                var outAssociation =
-                    typeGraph.Associations.Out.All.FirstOrDefault(a => a.CkRoleId == ckRoleId);
-                if (outAssociation == null)
-                {
-                    throw new ArgumentException($"Association '{ckRoleId}' not found on type '{ckTypeId}'");
-                }
-            }
+            // Resolve IDs via RtCkId (handles both short and versioned formats)
+            var resolvedCkTypeId = new RtCkId<CkTypeId>(ckTypeId);
+            var resolvedRoleId = new RtCkId<CkAssociationRoleId>(ckRoleId);
+            var resolvedTargetTypeId = new RtCkId<CkTypeId>(targetTypeId);
 
             var queryOperation = BuildFilter(filters);
 
@@ -479,13 +508,27 @@ public sealed class RuntimeEntityCrudTools
             var associatedResults = await tenantRepository.GetRtAssociationTargetsAsync(
                 session,
                 new OctoObjectId(rtId),
-                ckTypeId,
-                ckRoleId,
-                targetTypeId,
+                resolvedCkTypeId,
+                resolvedRoleId,
+                resolvedTargetTypeId,
                 (GraphDirections)direction,
                 null,
                 queryOperation);
 
+
+            var entities = associatedResults.Items.Select(e =>
+                    rtEntityToDtoMapper.ConvertToDto(resolvedTenantId, e, AttributeValueResolveFlags.ResolveEnumsToNames))
+                .ToList();
+
+            // Filter attributes if attributePaths is specified
+            if (attributePaths is { Count: > 0 })
+            {
+                var pathSet = new HashSet<string>(attributePaths, StringComparer.OrdinalIgnoreCase);
+                foreach (var entity in entities)
+                {
+                    FilterAttributes(entity, pathSet);
+                }
+            }
 
             return new NavigateAssociationsResponse
             {
@@ -495,9 +538,7 @@ public sealed class RuntimeEntityCrudTools
                 CkRoleId = ckRoleId,
                 TargetTypeId = targetTypeId,
                 TotalCount = associatedResults.TotalCount,
-                Entities = associatedResults.Items.Select(e =>
-                        rtEntityToDtoMapper.ConvertToDto(tenantId, e, AttributeValueResolveFlags.ResolveEnumsToNames))
-                    .ToList()
+                Entities = entities
             };
         }
         catch (Exception ex)
@@ -514,7 +555,312 @@ public sealed class RuntimeEntityCrudTools
         }
     }
 
+    /// <summary>
+    ///     Traverse an association tree recursively from root entities of a given type.
+    ///     Returns a hierarchical structure with children at each level.
+    /// </summary>
+    /// <param name="server">MCP Server instance</param>
+    /// <param name="rootCkTypeId">CK Type ID of the root entities (e.g., 'Loxone/Room')</param>
+    /// <param name="ckRoleId">Association role to traverse (e.g., 'System/ParentChild')</param>
+    /// <param name="direction">Direction to find children: 'Inbound' means children point TO root via this role</param>
+    /// <param name="maxDepth">Maximum depth to traverse (1 = direct children only, 2 = children + grandchildren, etc.)</param>
+    /// <param name="attributePaths">Optional list of attribute paths to include per entity</param>
+    /// <param name="rootFilters">Optional filters for root entities</param>
+    /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
+    /// <returns>Tree structure with root entities and their nested children</returns>
+    [McpServerTool(Name = "get_association_tree")]
+    [Description(
+        "Traverse an association tree recursively. Starts from all entities of rootCkTypeId, then follows the specified association (ckRoleId) to find children at each depth level. " +
+        "Example: rootCkTypeId='Loxone/Room', ckRoleId='System/ParentChild', direction='Inbound', maxDepth=2 returns all Rooms with their Categories and Controls. " +
+        "Use attributePaths to reduce response size.")]
+    public static async Task<AssociationTreeResponse> GetAssociationTree(
+        McpServer server,
+        string rootCkTypeId,
+        string ckRoleId,
+        CkTypeAssociationDirectionDto direction,
+        int maxDepth = 2,
+        List<string>? attributePaths = null,
+        List<SimpleFilterDto>? rootFilters = null,
+        string? tenantId = null)
+    {
+        var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+        var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
+        var resolvedTenantId = tenantRepository.TenantId;
+        var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
+
+        using var session = await tenantRepository.GetSessionAsync();
+        session.StartTransaction();
+
+        try
+        {
+            var resolvedRoleId = new RtCkId<CkAssociationRoleId>(ckRoleId);
+            var pathSet = attributePaths is { Count: > 0 }
+                ? new HashSet<string>(attributePaths, StringComparer.OrdinalIgnoreCase)
+                : null;
+
+            // Query root entities
+            var rootQuery = BuildFilter(rootFilters);
+            var rootResults = await tenantRepository.GetRtEntitiesByTypeAsync(
+                session, new RtCkId<CkTypeId>(rootCkTypeId), rootQuery, null, null);
+
+            var rootNodes = new List<AssociationTreeNode>();
+            foreach (var rootEntity in rootResults.Items)
+            {
+                var dto = rtEntityToDtoMapper.ConvertToDto(resolvedTenantId, rootEntity,
+                    AttributeValueResolveFlags.ResolveEnumsToNames);
+                if (pathSet != null)
+                {
+                    FilterAttributes(dto, pathSet);
+                }
+
+                var children = maxDepth > 0
+                    ? await GetChildrenRecursiveAsync(session, tenantRepository, rtEntityToDtoMapper,
+                        resolvedTenantId, rootEntity.RtId, rootEntity.CkTypeId!,
+                        resolvedRoleId, direction, maxDepth - 1, pathSet)
+                    : null;
+
+                rootNodes.Add(new AssociationTreeNode
+                {
+                    RtId = rootEntity.RtId.ToString(),
+                    CkTypeId = rootEntity.CkTypeId?.ToString() ?? rootCkTypeId,
+                    Attributes = dto.Attributes,
+                    Children = children
+                });
+            }
+
+            return new AssociationTreeResponse
+            {
+                IsSuccess = true,
+                CkRoleId = ckRoleId,
+                Direction = direction.ToString(),
+                MaxDepth = maxDepth,
+                Nodes = rootNodes
+            };
+        }
+        catch (Exception ex)
+        {
+            return new AssociationTreeResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = ex.Message,
+                CkRoleId = ckRoleId,
+                Direction = direction.ToString(),
+                MaxDepth = maxDepth
+            };
+        }
+    }
+
+    private static async Task<IList<AssociationTreeNode>?> GetChildrenRecursiveAsync(
+        IOctoSession session,
+        ITenantRepository tenantRepository,
+        IRtEntityToDtoMapper rtEntityToDtoMapper,
+        string tenantId,
+        OctoObjectId parentRtId,
+        RtCkId<CkTypeId> parentCkTypeId,
+        RtCkId<CkAssociationRoleId> roleId,
+        CkTypeAssociationDirectionDto direction,
+        int remainingDepth,
+        HashSet<string>? pathSet)
+    {
+        // Find target types from the type graph's associations
+        var parentTypeGraph = await tenantRepository.GetCkTypeGraphAsync(parentCkTypeId);
+        var associations = direction == CkTypeAssociationDirectionDto.Inbound
+            ? parentTypeGraph.Associations.In.All
+            : parentTypeGraph.Associations.Out.All;
+
+        // Get distinct target type IDs for the matching role
+        // Compare using RtCkId (unversioned model + major version only)
+        var targetTypeIds = associations
+            .Where(a => a.CkRoleId.ToRtCkId().Equals(roleId))
+            .Select(a => a.TargetCkTypeId)
+            .Distinct()
+            .ToList();
+
+        if (targetTypeIds.Count == 0)
+        {
+            return null;
+        }
+
+        // Query children for each target type
+        var children = new List<AssociationTreeNode>();
+        foreach (var targetTypeId in targetTypeIds)
+        {
+            var childResults = await tenantRepository.GetRtAssociationTargetsAsync(
+                session, parentRtId, parentCkTypeId, roleId,
+                targetTypeId.ToRtCkId(),
+                (GraphDirections)direction, null, RtEntityQueryOptions.Create());
+
+            foreach (var childEntity in childResults.Items)
+        {
+            var dto = rtEntityToDtoMapper.ConvertToDto(tenantId, childEntity,
+                AttributeValueResolveFlags.ResolveEnumsToNames);
+            if (pathSet != null)
+            {
+                FilterAttributes(dto, pathSet);
+            }
+
+            var grandChildren = remainingDepth > 0
+                ? await GetChildrenRecursiveAsync(session, tenantRepository, rtEntityToDtoMapper,
+                    tenantId, childEntity.RtId, childEntity.CkTypeId!,
+                    roleId, direction, remainingDepth - 1, pathSet)
+                : null;
+
+            children.Add(new AssociationTreeNode
+            {
+                RtId = childEntity.RtId.ToString(),
+                CkTypeId = childEntity.CkTypeId?.ToString() ?? "",
+                Attributes = dto.Attributes,
+                Children = grandChildren
+            });
+            }
+        }
+
+        return children.Count > 0 ? children : null;
+    }
+
     #region Helper Methods
+
+    /// <summary>
+    ///     Filters entity DTO attributes to only include those matching the specified paths.
+    ///     Supports dot notation for record attributes (e.g., "States.Name" keeps the Name
+    ///     attribute within each States record).
+    /// </summary>
+    private static void FilterAttributes(RtTypeWithAttributesDto entityDto, HashSet<string> pathSet)
+    {
+        if (entityDto.Attributes == null)
+        {
+            return;
+        }
+
+        // Build lookup: top-level attribute name → set of sub-paths (for records)
+        var topLevelPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var recordSubPaths = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var path in pathSet)
+        {
+            var dotIndex = path.IndexOf('.');
+            if (dotIndex > 0)
+            {
+                var topLevel = path[..dotIndex];
+                var subPath = path[(dotIndex + 1)..];
+                topLevelPaths.Add(topLevel);
+                if (!recordSubPaths.TryGetValue(topLevel, out var subPaths))
+                {
+                    subPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    recordSubPaths[topLevel] = subPaths;
+                }
+
+                subPaths.Add(subPath);
+            }
+            else
+            {
+                topLevelPaths.Add(path);
+            }
+        }
+
+        // Filter: keep only matching attributes
+        var filtered = new List<RtEntityAttributeDto>();
+        foreach (var attr in entityDto.Attributes)
+        {
+            if (!topLevelPaths.Contains(attr.AttributeName))
+            {
+                continue;
+            }
+
+            // If there are sub-paths for this attribute, filter record attributes
+            if (recordSubPaths.TryGetValue(attr.AttributeName, out var subPathSet) && attr.Value != null)
+            {
+                FilterRecordAttributes(attr, subPathSet);
+            }
+
+            filtered.Add(attr);
+        }
+
+        entityDto.Attributes = filtered;
+    }
+
+    private static void FilterRecordAttributes(RtEntityAttributeDto attr, HashSet<string> subPathSet)
+    {
+        if (attr.Value is RtRecordDto record)
+        {
+            FilterAttributes(record, subPathSet);
+        }
+        else if (attr.Value is IEnumerable<object> records)
+        {
+            foreach (var item in records)
+            {
+                if (item is RtRecordDto recordItem)
+                {
+                    FilterAttributes(recordItem, subPathSet);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Resolves a short association role ID (e.g., "System/ParentChild") to the full versioned ID
+    ///     (e.g., "System-2.0.9/ParentChild-1") by matching against the type graph's associations.
+    /// </summary>
+    private static string? ResolveAssociationRoleId(CkTypeGraph typeGraph, string ckRoleId,
+        CkTypeAssociationDirectionDto direction)
+    {
+        var associations = direction == CkTypeAssociationDirectionDto.Inbound
+            ? typeGraph.Associations.In.All
+            : typeGraph.Associations.Out.All;
+
+        // Try exact match first
+        var match = associations.FirstOrDefault(a => a.CkRoleId.ToString() == ckRoleId);
+        if (match != null)
+        {
+            return match.CkRoleId.ToString();
+        }
+
+        // Try short-name match: "System/ParentChild" matches "System-2.0.9/ParentChild-1"
+        var parts = ckRoleId.Split('/');
+        if (parts.Length == 2)
+        {
+            var modelPrefix = parts[0]; // e.g., "System"
+            var roleName = parts[1]; // e.g., "ParentChild"
+
+            match = associations.FirstOrDefault(a =>
+            {
+                var roleStr = a.CkRoleId.ToString();
+                var aParts = roleStr.Split('/');
+                if (aParts.Length != 2)
+                {
+                    return false;
+                }
+
+                return aParts[0].StartsWith(modelPrefix, StringComparison.OrdinalIgnoreCase) &&
+                       aParts[1].StartsWith(roleName, StringComparison.OrdinalIgnoreCase);
+            });
+        }
+
+        return match?.CkRoleId.ToString();
+    }
+
+    /// <summary>
+    ///     Matches a versioned CK role ID against a potentially short role ID.
+    ///     E.g., "System-2.0.9/ParentChild-1" matches "System/ParentChild".
+    /// </summary>
+    private static bool MatchesRoleId(string fullRoleId, string shortOrFullRoleId)
+    {
+        if (fullRoleId == shortOrFullRoleId)
+        {
+            return true;
+        }
+
+        var fullParts = fullRoleId.Split('/');
+        var shortParts = shortOrFullRoleId.Split('/');
+        if (fullParts.Length != 2 || shortParts.Length != 2)
+        {
+            return false;
+        }
+
+        // "System-2.0.9" starts with "System", "ParentChild-1" starts with "ParentChild"
+        return fullParts[0].StartsWith(shortParts[0], StringComparison.OrdinalIgnoreCase) &&
+               fullParts[1].StartsWith(shortParts[1], StringComparison.OrdinalIgnoreCase);
+    }
 
     private static RtEntityQueryOptions BuildFilter(List<SimpleFilterDto>? simpleFilters)
     {

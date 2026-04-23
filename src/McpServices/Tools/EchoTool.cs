@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using ModelContextProtocol.Server;
 
@@ -14,15 +15,17 @@ public sealed class EchoTool
     /// </summary>
     /// <param name="thisServer"></param>
     /// <param name="message"></param>
+    /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns></returns>
     [McpServerTool(Name = "Echo")]
     [Description("Echoes the input back to the client.")]
     public static async Task<string> Echo(
         McpServer thisServer,
-        string message)
+        string message,
+        string? tenantId = null)
     {
-        var httpContextAccessor = thisServer.Services!.GetRequiredService<IOctoHttpContextAccessor>();
-        var tenantRepository = await httpContextAccessor.GetTenantRepositoryAsync();
+        var tenantResolution = thisServer.Services!.GetRequiredService<ITenantResolutionService>();
+        var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
 
         return "hello " + message + ", from tenant " + tenantRepository.TenantId;
     }

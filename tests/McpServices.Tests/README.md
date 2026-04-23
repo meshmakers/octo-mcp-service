@@ -132,11 +132,41 @@ When adding new MCP tools:
 ## Test Coverage
 
 The test suite covers:
-- ✅ Tool discovery (`list_available_tools`)
-- ✅ Basic tool execution (`Echo`)
-- ✅ Parameter validation
-- ✅ Error handling
-- ✅ Integration scenarios
-- ✅ Service interactions
+- Tool discovery (`list_available_tools`)
+- Basic tool execution (`Echo`)
+- Parameter validation
+- Error handling
+- Integration scenarios
+- Service interactions
+- Authentication tools (`authenticate`, `check_auth_status`)
+- Identity tools (`whoami`, `list_tenants`)
+- Tenant resolution (`ITenantResolutionService`)
+- Session token management (`IMcpSessionTokenStore`)
+
+### Test Categories for New Features
+
+1. **Authentication Tests** (`AuthenticationToolsTests`)
+   - Device Authorization Flow initiation
+   - Token polling and status checking
+   - Already-authenticated scenario
+   - Expired authorization handling
+   - Error response handling
+
+2. **Identity Tests** (`IdentityToolsTests`)
+   - WhoAmI with valid tokens
+   - ListTenants with allowed_tenants claim
+   - Unauthenticated access rejection
+
+3. **Tenant Resolution Tests** (`TenantResolutionServiceTests`)
+   - Tool parameter priority over route parameter
+   - Route parameter fallback
+   - Missing tenant error
+   - Integration with existing tools
+
+4. **Token Store Tests** (`McpSessionTokenStoreTests`)
+   - Set/Get/Remove tokens
+   - Device authorization lifecycle
+   - Session isolation
+   - Token expiry detection
 
 Future additions should maintain this coverage level and add tests for new functionality.

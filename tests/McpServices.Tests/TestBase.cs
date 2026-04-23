@@ -6,6 +6,7 @@ using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Runtime.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
+using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -21,6 +22,7 @@ public abstract class TestBase
     protected Mock<McpServer> MockServer { get; private set; }
     protected TestServiceProvider TestServiceProvider { get; private set; }
     protected Mock<IOctoHttpContextAccessor> MockHttpContextAccessor { get; private set; }
+    protected Mock<ITenantResolutionService> MockTenantResolution { get; private set; }
     protected Mock<ICkCacheService> MockCkCacheService { get; private set; }
     protected Mock<ITenantRepository> MockTenantRepository { get; private set; }
     protected Mock<IOctoSession> MockSession { get; private set; }
@@ -30,6 +32,7 @@ public abstract class TestBase
         MockServer = new Mock<McpServer>();
         TestServiceProvider = new TestServiceProvider();
         MockHttpContextAccessor = new Mock<IOctoHttpContextAccessor>();
+        MockTenantResolution = new Mock<ITenantResolutionService>();
         MockCkCacheService = new Mock<ICkCacheService>();
         MockTenantRepository = new Mock<ITenantRepository>();
         MockSession = new Mock<IOctoSession>();
@@ -39,12 +42,19 @@ public abstract class TestBase
 
         // Register services in test service provider
         TestServiceProvider.RegisterService(MockHttpContextAccessor.Object);
+        TestServiceProvider.RegisterService(MockTenantResolution.Object);
         TestServiceProvider.RegisterService(MockCkCacheService.Object);
         TestServiceProvider.RegisterService<IRtEntityToDtoMapper>(new RtEntityToDtoMapper(MockCkCacheService.Object));
 
         // Setup HttpContextAccessor
         MockHttpContextAccessor.Setup(h => h.GetTenantRepositoryAsync())
             .ReturnsAsync(MockTenantRepository.Object);
+
+        // Setup TenantResolutionService
+        MockTenantResolution.Setup(t => t.GetTenantRepositoryAsync(It.IsAny<string?>()))
+            .ReturnsAsync(MockTenantRepository.Object);
+        MockTenantResolution.Setup(t => t.ResolveTenantId(It.IsAny<string?>()))
+            .Returns("test-tenant");
 
         // Setup TenantRepository
         MockTenantRepository.Setup(tr => tr.TenantId).Returns("test-tenant");

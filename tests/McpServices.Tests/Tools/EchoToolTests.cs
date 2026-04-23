@@ -1,8 +1,6 @@
 using FluentAssertions;
+using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Backend.McpServices.Tools;
-using Meshmakers.Octo.Services.Infrastructure;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using Xunit;
 
@@ -113,35 +111,34 @@ public class EchoToolTests : TestBase
         // Arrange
         const string inputMessage = "Test Message";
         const string customTenantId = "custom-tenant-123";
-        
+
         // Override the tenant ID for this test
-        MockHttpContextAccessor.Setup(h => h.GetTenantId()).Returns(customTenantId);
         MockTenantRepository.Setup(tr => tr.TenantId).Returns(customTenantId);
-        
+
         // Act
         var result = await EchoTool.Echo(MockServer.Object, inputMessage);
-        
+
         // Assert
         result.Should().NotBeNull();
         result.Should().Contain(customTenantId);
         result.Should().Be($"hello {inputMessage}, from tenant {customTenantId}");
     }
-    
+
     [Fact]
     public async Task Echo_AccessesCorrectServices()
     {
         // Arrange
         const string inputMessage = "Service Test";
-        
+
         // Act
         var result = await EchoTool.Echo(MockServer.Object, inputMessage);
-        
+
         // Assert
         result.Should().NotBeNull();
-        
+
         // Verify that the correct services were accessed
         MockServer.Verify(s => s.Services, Times.Once);
-        MockHttpContextAccessor.Verify(h => h.GetTenantRepositoryAsync(), Times.Once);
+        MockTenantResolution.Verify(t => t.GetTenantRepositoryAsync(It.IsAny<string?>()), Times.Once);
         MockTenantRepository.Verify(tr => tr.TenantId, Times.Once);
     }
     

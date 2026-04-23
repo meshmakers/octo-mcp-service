@@ -16,6 +16,10 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <InternalsVisibleTo Include="McpServices.Tests" />
+    </ItemGroup>
+
+    <ItemGroup>
         <Content Include="..\..\.dockerignore">
             <Link>.dockerignore</Link>
         </Content>
@@ -23,10 +27,14 @@
 
     <ItemGroup>
         <PackageReference Include="NLog.Web.AspNetCore" Version="6.1.2" />
-        <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.1.0" />
+        <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
+        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.3" />
+        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
+        <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.2" />
+        <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.15.1" />
 
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.5" />
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.5" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.7" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.7" />
 
         <PackageReference Include="Meshmakers.Octo.Services.Infrastructure" Version="$(OctoVersion)"/>
         <PackageReference Include="Meshmakers.Octo.Services.Observability" Version="$(OctoVersion)"/>
