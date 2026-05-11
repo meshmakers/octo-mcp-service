@@ -41,11 +41,6 @@ public sealed class TypeSchemaResponse : ErrorResponse
     public bool? IsCollectionRoot { get; init; }
 
     /// <summary>
-    ///     Indicates if this type is a stream type for real-time data
-    /// </summary>
-    public bool? IsStreamType { get; init; }
-
-    /// <summary>
     ///     Optional description of the type
     /// </summary>
     public string? Description { get; init; }

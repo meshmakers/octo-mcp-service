@@ -169,7 +169,6 @@ public sealed class SchemaDiscoveryTools
                 IsAbstract = typeGraph.IsAbstract,
                 IsFinal = typeGraph.IsFinal,
                 IsCollectionRoot = typeGraph.IsCollectionRoot,
-                IsStreamType = typeGraph.IsStreamType,
                 Description = typeGraph.Description,
                 DerivedFrom = typeGraph.DerivedFromCkTypeId?.ToString(),
                 InheritanceHierarchy = typeGraph.GetBaseTypes(false),
