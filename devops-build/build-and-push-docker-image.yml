@@ -37,7 +37,11 @@ steps:
         docker buildx rm mybuilder
 
   - task: CmdLine@2
-    condition: or(eq(variables.isMain, true), eq(variables.isTest, true), eq(variables.isRelease, true))
+    # Skip on release — the first task already pushed to both private and
+    # public, and re-running `docker buildx create --name mybuilder` from
+    # the same agent slot fails with "existing instance for mybuilder".
+    # Same condition as octo-report-services/build-and-push-docker-image.yml.
+    condition: or(eq(variables.isTest, true), and(eq(variables.isMain, true), eq(variables.isRelease, false)))
     displayName: Build/Push to private ${{ parameters.Repository }}:$(Build.BuildNumber)
     inputs:
       script: |
