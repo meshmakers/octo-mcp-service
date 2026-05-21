@@ -16,10 +16,13 @@ WORKDIR /src
 COPY . .
 ENV NUGET_XMLDOC_MODE=none
 WORKDIR "/src/src/McpServices"
-RUN dotnet build "./McpServices.csproj" -o /app/build -c Release -p:OctoNugetPrivateServer=${OCTO_PRIVATE_NUGET_SERVICE} -p:OctoVersion=${OCTO_VERSION}
+# `${OCTO_VERSION:+-p:OctoVersion=…}` only emits the -p switch when
+# OCTO_VERSION is non-empty. Passing `-p:OctoVersion=` (blank) suppresses
+# the Directory.Build.props fallback (3.3.* / 0.1.*) and NU1015 fires.
+RUN dotnet build "./McpServices.csproj" -o /app/build -c Release -p:OctoNugetPrivateServer=${OCTO_PRIVATE_NUGET_SERVICE} ${OCTO_VERSION:+-p:OctoVersion=${OCTO_VERSION}}
 
 FROM build AS publish
-RUN dotnet publish "./McpServices.csproj" -o /app/publish /p:UseAppHost=false -c Release -p:OctoNugetPrivateServer=${OCTO_PRIVATE_NUGET_SERVICE} -p:OctoVersion=${OCTO_VERSION}
+RUN dotnet publish "./McpServices.csproj" -o /app/publish /p:UseAppHost=false -c Release -p:OctoNugetPrivateServer=${OCTO_PRIVATE_NUGET_SERVICE} ${OCTO_VERSION:+-p:OctoVersion=${OCTO_VERSION}}
 
 FROM base AS final
 WORKDIR /app
