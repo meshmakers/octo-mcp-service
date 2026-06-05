@@ -51,6 +51,10 @@ try
     builder.Services.Configure<DynamicToolOptions>(options =>
         builder.Configuration.GetSection("DynamicTools").Bind(options));
 
+    // Endpoint URLs of the OctoMesh backend services used by SDK-based MCP tools.
+    builder.Services.Configure<OctoServiceUrlOptions>(options =>
+        builder.Configuration.GetSection("OctoServiceUrls").Bind(options));
+
     // NLog: Setup NLog for Dependency injection
     builder.Logging.ClearProviders();
     builder.Logging.SetMinimumLevel(LogLevel.Trace);
@@ -73,6 +77,7 @@ try
     // Add MCP authentication and tenant resolution services
     builder.Services.AddSingleton<IMcpSessionTokenStore, McpSessionTokenStore>();
     builder.Services.AddTransient<ITenantResolutionService, TenantResolutionService>();
+    builder.Services.AddSingleton<IOctoServiceClientFactory, OctoServiceClientFactory>();
     builder.Services.AddHttpClient("identity")
         .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
         {
