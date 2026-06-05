@@ -47,6 +47,9 @@ public abstract class ToolTestBase : TestBase
     /// <summary>Mocked AdminPanel SDK client returned by the factory for the current test.</summary>
     protected Mock<IAdminPanelClient> MockAdminPanelClient { get; }
 
+    /// <summary>File-transfer store — real instance, in-memory. Internal because the store type is internal.</summary>
+    internal FileTransferStore FileTransferStore { get; }
+
     protected ToolTestBase()
     {
         MockTokenStore = new Mock<IMcpSessionTokenStore>();
@@ -58,6 +61,7 @@ public abstract class ToolTestBase : TestBase
         MockReportingClient = new Mock<IReportingServicesClient>();
         MockBotClient = new Mock<IBotServicesClient>();
         MockAdminPanelClient = new Mock<IAdminPanelClient>();
+        FileTransferStore = new FileTransferStore();
 
         // Factory hands out the per-test mocks regardless of which tenant the tool requests.
         MockClientFactory
@@ -84,6 +88,7 @@ public abstract class ToolTestBase : TestBase
 
         TestServiceProvider.RegisterService(MockTokenStore.Object);
         TestServiceProvider.RegisterService(MockClientFactory.Object);
+        TestServiceProvider.RegisterService<IFileTransferStore>(FileTransferStore);
     }
 
     /// <summary>Mark the current MCP session as authenticated with the given access token.</summary>

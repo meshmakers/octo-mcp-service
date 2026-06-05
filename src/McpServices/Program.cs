@@ -78,6 +78,8 @@ try
     builder.Services.AddSingleton<IMcpSessionTokenStore, McpSessionTokenStore>();
     builder.Services.AddTransient<ITenantResolutionService, TenantResolutionService>();
     builder.Services.AddSingleton<IOctoServiceClientFactory, OctoServiceClientFactory>();
+    builder.Services.AddSingleton<IFileTransferStore, FileTransferStore>();
+    builder.Services.AddHostedService<FileTransferSweeper>();
     builder.Services.AddHttpClient("identity")
         .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
         {
