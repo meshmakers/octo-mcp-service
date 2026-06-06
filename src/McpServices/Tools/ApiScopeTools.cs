@@ -45,6 +45,7 @@ public sealed class ApiScopeTools
 
     /// <summary>Create a new API scope.</summary>
     [McpServerTool(Name = "create_api_scope")]
+    [McpRisk(McpRiskLevel.High)]
     [Description("Create a new OAuth API scope. Equivalent to octo-cli CreateApiScope.")]
     public static async Task<ApiScopeResponse> CreateApiScope(
         McpServer server,
@@ -90,6 +91,7 @@ public sealed class ApiScopeTools
 
     /// <summary>Update an existing API scope.</summary>
     [McpServerTool(Name = "update_api_scope")]
+    [McpRisk(McpRiskLevel.High)]
     [Description("Update an existing OAuth API scope. Equivalent to octo-cli UpdateApiScope.")]
     public static async Task<ApiScopeResponse> UpdateApiScope(
         McpServer server,
@@ -136,6 +138,7 @@ public sealed class ApiScopeTools
 
     /// <summary>Delete an API scope. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "delete_api_scope")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Delete an OAuth API scope. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli DeleteApiScope.")]
     public static async Task<ApiScopeResponse> DeleteApiScope(

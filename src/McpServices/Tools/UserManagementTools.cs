@@ -47,6 +47,7 @@ public sealed class UserManagementTools
 
     /// <summary>Create a new user. Optionally with a password.</summary>
     [McpServerTool(Name = "create_user")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Create a new user account. Equivalent to octo-cli CreateUser. Username and email are lower-cased.")]
     public static async Task<UserResponse> CreateUser(
         McpServer server,
@@ -93,6 +94,7 @@ public sealed class UserManagementTools
 
     /// <summary>Update an existing user's e-mail or rename.</summary>
     [McpServerTool(Name = "update_user")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Update an existing user (e-mail and/or username). Equivalent to octo-cli UpdateUser. Pass only the " +
         "fields you want to change.")]
@@ -148,6 +150,7 @@ public sealed class UserManagementTools
 
     /// <summary>Delete a user. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "delete_user")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Delete a user. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli DeleteUser.")]
     public static async Task<UserResponse> DeleteUser(
         McpServer server,
@@ -195,6 +198,7 @@ public sealed class UserManagementTools
 
     /// <summary>Reset the password of a user. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "reset_user_password")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Reset the password of a user. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli ResetPassword.")]
     public static async Task<UserResponse> ResetPassword(
@@ -248,6 +252,7 @@ public sealed class UserManagementTools
 
     /// <summary>Add a role to a user.</summary>
     [McpServerTool(Name = "add_user_to_role")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Assign a role to a user. Equivalent to octo-cli AddUserToRole.")]
     public static async Task<UserResponse> AddUserToRole(
         McpServer server,
@@ -290,6 +295,7 @@ public sealed class UserManagementTools
 
     /// <summary>Remove a role from a user. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "remove_user_from_role")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Remove a role from a user. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli RemoveUserFromRole.")]
     public static async Task<UserResponse> RemoveUserFromRole(

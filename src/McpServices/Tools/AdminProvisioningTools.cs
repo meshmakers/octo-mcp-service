@@ -62,6 +62,7 @@ public sealed class AdminProvisioningTools
 
     /// <summary>Create a new admin provisioning mapping for a target tenant.</summary>
     [McpServerTool(Name = "create_admin_provisioning_mapping")]
+    [McpRisk(McpRiskLevel.High)]
     [Description("Create a new admin provisioning mapping. Equivalent to octo-cli CreateAdminProvisioningMapping.")]
     public static async Task<AdminProvisioningResponse> CreateMapping(
         McpServer server,
@@ -116,6 +117,7 @@ public sealed class AdminProvisioningTools
 
     /// <summary>Provision the calling user as admin in a target tenant.</summary>
     [McpServerTool(Name = "provision_current_user_as_admin")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Provision the calling user as admin in a target tenant via the matching admin-provisioning mapping. " +
         "Equivalent to octo-cli ProvisionCurrentUser.")]
@@ -158,6 +160,7 @@ public sealed class AdminProvisioningTools
 
     /// <summary>Delete an admin provisioning mapping. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "delete_admin_provisioning_mapping")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Delete an admin provisioning mapping. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli " +
         "DeleteAdminProvisioningMapping.")]

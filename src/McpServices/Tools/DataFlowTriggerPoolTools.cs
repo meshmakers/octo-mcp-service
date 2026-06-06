@@ -18,6 +18,7 @@ public sealed class DataFlowTriggerPoolTools
 
     /// <summary>Deploy a data flow.</summary>
     [McpServerTool(Name = "deploy_data_flow")]
+    [McpRisk(McpRiskLevel.High)]
     [Description("Deploy a data flow. Equivalent to octo-cli DeployDataFlow.")]
     public static async Task<CommunicationActionResponse> DeployDataFlow(
         McpServer server,
@@ -30,6 +31,7 @@ public sealed class DataFlowTriggerPoolTools
 
     /// <summary>Undeploy a data flow. Destructive: requires confirm.</summary>
     [McpServerTool(Name = "undeploy_data_flow")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Undeploy a data flow. DESTRUCTIVE — stops the data flow until re-deployed. Requires confirm=true. " +
         "Equivalent to octo-cli UndeployDataFlow.")]
@@ -83,6 +85,7 @@ public sealed class DataFlowTriggerPoolTools
 
     /// <summary>Deploy all pipeline triggers for the tenant.</summary>
     [McpServerTool(Name = "deploy_triggers")]
+    [McpRisk(McpRiskLevel.High)]
     [Description("Deploy all pipeline triggers for the tenant. Equivalent to octo-cli DeployTriggers.")]
     public static async Task<CommunicationResponse> DeployTriggers(
         McpServer server,
@@ -112,6 +115,7 @@ public sealed class DataFlowTriggerPoolTools
 
     /// <summary>Undeploy all pipeline triggers for the tenant. Destructive: requires confirm.</summary>
     [McpServerTool(Name = "undeploy_triggers")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Undeploy all pipeline triggers for the tenant. DESTRUCTIVE — pipelines stop firing on their triggers. " +
         "Requires confirm=true. Equivalent to octo-cli UndeployTriggers.")]

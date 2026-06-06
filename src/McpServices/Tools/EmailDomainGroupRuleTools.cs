@@ -81,6 +81,7 @@ public sealed class EmailDomainGroupRuleTools
 
     /// <summary>Create a new rule.</summary>
     [McpServerTool(Name = "create_email_domain_group_rule")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Create a new email-domain group rule. New users whose email matches the pattern are auto-added to the " +
         "target group. Equivalent to octo-cli CreateEmailDomainGroupRule.")]
@@ -129,6 +130,7 @@ public sealed class EmailDomainGroupRuleTools
 
     /// <summary>Update an existing rule.</summary>
     [McpServerTool(Name = "update_email_domain_group_rule")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Update an email-domain group rule. Equivalent to octo-cli UpdateEmailDomainGroupRule.")]
     public static async Task<EmailDomainGroupRuleResponse> UpdateRule(
         McpServer server,
@@ -178,6 +180,7 @@ public sealed class EmailDomainGroupRuleTools
 
     /// <summary>Delete a rule. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "delete_email_domain_group_rule")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Delete an email-domain group rule. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli " +
         "DeleteEmailDomainGroupRule.")]

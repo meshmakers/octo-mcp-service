@@ -70,6 +70,7 @@ public sealed class TenantManagementTools
 
     /// <summary>Create a new child tenant under the resolved parent tenant.</summary>
     [McpServerTool(Name = "create_tenant")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Create a new child tenant under the given parent tenant. Equivalent to the octo-cli CreateTenant command. " +
         "Note: unlike the CLI, this does NOT automatically provision the calling user as admin — call the identity " +
@@ -145,6 +146,7 @@ public sealed class TenantManagementTools
 
     /// <summary>Delete a child tenant. Destructive: requires <paramref name="confirm"/> to be true.</summary>
     [McpServerTool(Name = "delete_tenant")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Delete a child tenant. DESTRUCTIVE — requires confirm=true. Equivalent to the octo-cli DeleteTenant " +
         "command without the interactive confirmation prompt.")]
@@ -217,6 +219,7 @@ public sealed class TenantManagementTools
 
     /// <summary>Reset a child tenant to factory defaults. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "clean_tenant")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Reset a child tenant to its initial state, deleting all data and resetting the construction kit to " +
         "system-only models. DESTRUCTIVE — requires confirm=true.")]
@@ -233,6 +236,7 @@ public sealed class TenantManagementTools
 
     /// <summary>Attach an existing database as a child tenant.</summary>
     [McpServerTool(Name = "attach_tenant")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Attach an existing database as a child tenant. The database must already exist; only the metadata " +
         "binding is created. Non-destructive.")]
@@ -276,6 +280,7 @@ public sealed class TenantManagementTools
 
     /// <summary>Detach a child tenant without deleting its database.</summary>
     [McpServerTool(Name = "detach_tenant")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Detach a child tenant: removes the metadata binding but leaves the database intact. Non-destructive at " +
         "the data level; the tenant becomes invisible until re-attached.")]
@@ -291,6 +296,7 @@ public sealed class TenantManagementTools
 
     /// <summary>Clear the cache of a child tenant. Destructive in performance terms; requires confirm.</summary>
     [McpServerTool(Name = "clear_tenant_cache")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Clear the in-memory caches of a child tenant. May cause temporary performance degradation while caches " +
         "re-warm. Requires confirm=true.")]
@@ -307,6 +313,7 @@ public sealed class TenantManagementTools
 
     /// <summary>Update the system construction-kit model of a child tenant.</summary>
     [McpServerTool(Name = "update_system_ck_model")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Update the system construction-kit model of a child tenant to the currently-published version. " +
         "Non-destructive but may affect entity validation behaviour.")]

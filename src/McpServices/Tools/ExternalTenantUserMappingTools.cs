@@ -87,6 +87,7 @@ public sealed class ExternalTenantUserMappingTools
 
     /// <summary>Create a new mapping.</summary>
     [McpServerTool(Name = "create_external_tenant_user_mapping")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Create a new external tenant user mapping. Equivalent to octo-cli CreateExternalTenantUserMapping.")]
     public static async Task<ExternalTenantUserMappingResponse> CreateMapping(
         McpServer server,
@@ -136,6 +137,7 @@ public sealed class ExternalTenantUserMappingTools
 
     /// <summary>Update the role assignments on a mapping.</summary>
     [McpServerTool(Name = "update_external_tenant_user_mapping")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Update the role assignments on an external tenant user mapping. Equivalent to octo-cli UpdateExternalTenantUserMapping.")]
     public static async Task<ExternalTenantUserMappingResponse> UpdateMapping(
         McpServer server,
@@ -174,6 +176,7 @@ public sealed class ExternalTenantUserMappingTools
 
     /// <summary>Delete a mapping. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "delete_external_tenant_user_mapping")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Delete an external tenant user mapping. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli DeleteExternalTenantUserMapping.")]
     public static async Task<ExternalTenantUserMappingResponse> DeleteMapping(
         McpServer server,

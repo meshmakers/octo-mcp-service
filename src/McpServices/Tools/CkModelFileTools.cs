@@ -20,6 +20,7 @@ public sealed class CkModelFileTools
 {
     /// <summary>Import a Construction Kit model file (JSON or zipped JSON). Caller must prepare_file_upload first.</summary>
     [McpServerTool(Name = "import_ck_model")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Import a CK model from an uploaded file. Call prepare_file_upload first, PUT the JSON/zip to the " +
         "returned URL, then invoke this tool with the transferId. Equivalent to octo-cli " +
@@ -35,6 +36,7 @@ public sealed class CkModelFileTools
 
     /// <summary>Import a runtime model file. Caller must prepare_file_upload first.</summary>
     [McpServerTool(Name = "import_runtime_model")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Import a runtime model from an uploaded file. Call prepare_file_upload first, PUT the JSON/zip to " +
         "the returned URL, then invoke this tool with the transferId. importStrategy controls whether " +

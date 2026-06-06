@@ -266,6 +266,7 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Created entity with runtime ID</returns>
     [McpServerTool(Name = "create_entity")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Create a new entity of specified Construction Kit type")]
     public static async Task<CreateEntityResponse> CreateEntity(
         McpServer server,
@@ -327,6 +328,7 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Updated entity</returns>
     [McpServerTool(Name = "update_entity")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Update an existing entity with new data")]
     public static async Task<UpdateEntityResponse> UpdateEntity(
         McpServer server, string rtId, string ckTypeId, List<AttributeUpdateItem> entityData,

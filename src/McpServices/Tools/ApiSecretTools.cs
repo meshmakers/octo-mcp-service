@@ -60,6 +60,7 @@ public sealed class ApiSecretTools
 
     /// <summary>Create a new secret for a client.</summary>
     [McpServerTool(Name = "create_client_secret")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Create a new API secret on a client. Equivalent to octo-cli CreateApiSecretClient. The server returns " +
         "the encrypted value; capture it from the response.")]
@@ -111,6 +112,7 @@ public sealed class ApiSecretTools
 
     /// <summary>Update a client secret.</summary>
     [McpServerTool(Name = "update_client_secret")]
+    [McpRisk(McpRiskLevel.High)]
     [Description("Update a client secret. Equivalent to octo-cli UpdateApiSecretClient.")]
     public static async Task<ApiSecretResponse> UpdateClientSecret(
         McpServer server,
@@ -160,6 +162,7 @@ public sealed class ApiSecretTools
 
     /// <summary>Delete a client secret. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "delete_client_secret")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Delete a client secret. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli " +
         "DeleteApiSecretClient.")]
@@ -254,6 +257,7 @@ public sealed class ApiSecretTools
 
     /// <summary>Create a new secret for an API resource.</summary>
     [McpServerTool(Name = "create_api_resource_secret")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Create a new API secret on an API resource. Equivalent to octo-cli CreateApiSecretApiResource.")]
     public static async Task<ApiSecretResponse> CreateApiResourceSecret(
@@ -304,6 +308,7 @@ public sealed class ApiSecretTools
 
     /// <summary>Update an API resource secret.</summary>
     [McpServerTool(Name = "update_api_resource_secret")]
+    [McpRisk(McpRiskLevel.High)]
     [Description("Update an API resource secret. Equivalent to octo-cli UpdateApiSecretApiResource.")]
     public static async Task<ApiSecretResponse> UpdateApiResourceSecret(
         McpServer server,
@@ -353,6 +358,7 @@ public sealed class ApiSecretTools
 
     /// <summary>Delete an API resource secret. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "delete_api_resource_secret")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Delete an API resource secret. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli " +
         "DeleteApiSecretApiResource.")]

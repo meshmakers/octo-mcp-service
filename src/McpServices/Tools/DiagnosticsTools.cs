@@ -18,6 +18,7 @@ public sealed class DiagnosticsTools
 {
     /// <summary>Reconfigure the log level of a backend service at runtime.</summary>
     [McpServerTool(Name = "reconfigure_log_level")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Reconfigure the log level of a backend service at runtime. The serviceName selects which service " +
         "receives the request: 'Identity', 'AssetRepository', 'Communication', 'Reporting', 'Bot', or " +

@@ -45,6 +45,7 @@ public sealed class ApiResourceTools
 
     /// <summary>Create a new API resource.</summary>
     [McpServerTool(Name = "create_api_resource")]
+    [McpRisk(McpRiskLevel.High)]
     [Description("Create a new OAuth API resource. Equivalent to octo-cli CreateApiResource.")]
     public static async Task<ApiResourceResponse> CreateApiResource(
         McpServer server,
@@ -92,6 +93,7 @@ public sealed class ApiResourceTools
 
     /// <summary>Update an existing API resource.</summary>
     [McpServerTool(Name = "update_api_resource")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Update an existing OAuth API resource. Pass only the fields you want to change. Equivalent to octo-cli " +
         "UpdateApiResource.")]
@@ -142,6 +144,7 @@ public sealed class ApiResourceTools
 
     /// <summary>Delete an API resource. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "delete_api_resource")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Delete an OAuth API resource. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli " +
         "DeleteApiResource.")]

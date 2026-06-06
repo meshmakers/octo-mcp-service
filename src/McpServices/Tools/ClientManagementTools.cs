@@ -87,6 +87,7 @@ public sealed class ClientManagementTools
 
     /// <summary>Add a new ClientCredentials OAuth client.</summary>
     [McpServerTool(Name = "add_client_credentials_client")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Create a new OAuth client with grant type 'client_credentials'. Equivalent to octo-cli " +
         "AddClientCredentialsClient. Set autoProvisionInChildTenants=true to mirror this client into every new " +
@@ -146,6 +147,7 @@ public sealed class ClientManagementTools
 
     /// <summary>Add a new DeviceCode OAuth client.</summary>
     [McpServerTool(Name = "add_device_code_client")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Create a new OAuth client with grant type 'device_code'. Equivalent to octo-cli AddDeviceCodeClient.")]
     public static async Task<ClientResponse> AddDeviceCodeClient(
         McpServer server,
@@ -195,6 +197,7 @@ public sealed class ClientManagementTools
 
     /// <summary>Add a new AuthorizationCode OAuth client.</summary>
     [McpServerTool(Name = "add_authorization_code_client")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Create a new OAuth client with grant type 'authorization_code'. Equivalent to octo-cli " +
         "AddAuthorizationCodeClient. Defaults RedirectUris and PostLogoutRedirectUris to the clientUri unless " +
@@ -262,6 +265,7 @@ public sealed class ClientManagementTools
 
     /// <summary>Delete an OAuth client. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "delete_client")]
+    [McpRisk(McpRiskLevel.High)]
     [Description("Delete an OAuth client. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli DeleteClient.")]
     public static async Task<ClientResponse> DeleteClient(
         McpServer server,
@@ -350,6 +354,7 @@ public sealed class ClientManagementTools
 
     /// <summary>Back-fill a flagged client into every existing sub-tenant.</summary>
     [McpServerTool(Name = "provision_client_in_existing_tenants")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Back-fill a flagged ClientCredentials client into every existing sub-tenant (idempotent). Equivalent " +
         "to octo-cli ProvisionClientInExistingTenants.")]
@@ -389,6 +394,7 @@ public sealed class ClientManagementTools
 
     /// <summary>Manually provision a flagged client into a specific sub-tenant.</summary>
     [McpServerTool(Name = "provision_client_in_tenant")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Manually provision a ClientCredentials client into a single named sub-tenant. Equivalent to octo-cli " +
         "ProvisionClientInTenant.")]
@@ -434,6 +440,7 @@ public sealed class ClientManagementTools
 
     /// <summary>Remove a client mirror from a sub-tenant. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "unprovision_client_from_tenant")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Remove a client mirror from a sub-tenant. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli " +
         "UnprovisionClientFromTenant.")]
@@ -489,6 +496,7 @@ public sealed class ClientManagementTools
 
     /// <summary>Toggle the AutoProvisionInChildTenants flag on an existing client.</summary>
     [McpServerTool(Name = "set_client_auto_provision")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Toggle AutoProvisionInChildTenants on an existing client. Note: flipping true does NOT back-fill — " +
         "call provision_client_in_existing_tenants for that. Equivalent to octo-cli SetClientAutoProvision.")]
@@ -545,6 +553,7 @@ public sealed class ClientManagementTools
 
     /// <summary>Grant a scope to a client by reading the current client and writing back the extended scope list.</summary>
     [McpServerTool(Name = "add_scope_to_client")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Grant a scope to a client. Reads the current client, appends the scope to AllowedScopes, and writes " +
         "back via UpdateClient. Equivalent to octo-cli AddScopeToClient.")]

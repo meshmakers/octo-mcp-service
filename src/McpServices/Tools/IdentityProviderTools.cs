@@ -52,6 +52,7 @@ public sealed class IdentityProviderTools
 
     /// <summary>Delete an identity provider. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "delete_identity_provider")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Delete an identity provider by runtime ID. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli " +
         "DeleteIdentityProvider.")]
@@ -100,6 +101,7 @@ public sealed class IdentityProviderTools
 
     /// <summary>Add a Google/Microsoft/Facebook OAuth identity provider.</summary>
     [McpServerTool(Name = "add_oauth_identity_provider")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Create a Google, Microsoft or Facebook OAuth identity provider. Equivalent to octo-cli AddOAuthIdentityProvider.")]
     public static async Task<IdentityProviderResponse> AddOAuthIdentityProvider(
@@ -156,6 +158,7 @@ public sealed class IdentityProviderTools
 
     /// <summary>Add an Azure Entra ID identity provider.</summary>
     [McpServerTool(Name = "add_azure_entra_id_identity_provider")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Create an Azure Entra ID identity provider. Equivalent to octo-cli AddAzureEntryIdIdentityProvider.")]
     public static async Task<IdentityProviderResponse> AddAzureEntraIdIdentityProvider(
         McpServer server,
@@ -195,6 +198,7 @@ public sealed class IdentityProviderTools
 
     /// <summary>Add an OpenLDAP identity provider.</summary>
     [McpServerTool(Name = "add_open_ldap_identity_provider")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Create an OpenLDAP identity provider. Equivalent to octo-cli AddOpenLdapIdentityProvider.")]
     public static async Task<IdentityProviderResponse> AddOpenLdapIdentityProvider(
         McpServer server,
@@ -235,6 +239,7 @@ public sealed class IdentityProviderTools
 
     /// <summary>Add a Microsoft Active Directory identity provider.</summary>
     [McpServerTool(Name = "add_active_directory_identity_provider")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Create a Microsoft Active Directory identity provider. Equivalent to octo-cli " +
         "AddActiveDirectoryIdentityProvider.")]
@@ -273,6 +278,7 @@ public sealed class IdentityProviderTools
 
     /// <summary>Add an OctoTenant identity provider for cross-tenant authentication.</summary>
     [McpServerTool(Name = "add_octo_tenant_identity_provider")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Create an OctoTenant identity provider for cross-tenant authentication via a parent tenant. " +
         "Equivalent to octo-cli AddOctoTenantIdentityProvider.")]
@@ -348,6 +354,7 @@ public sealed class IdentityProviderTools
 
     /// <summary>Update common fields on an identity provider — fetches, patches, writes back.</summary>
     [McpServerTool(Name = "update_identity_provider")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Update common fields on an existing identity provider. Fetches the provider, preserves type-specific " +
         "properties (LDAP/AD host+port, Azure tenant+authority, OctoTenant parent), and applies the changes. " +

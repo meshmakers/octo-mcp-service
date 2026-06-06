@@ -84,6 +84,7 @@ public sealed class CkModelLibraryTools
 
     /// <summary>Refresh catalog caches (specific catalog or all).</summary>
     [McpServerTool(Name = "refresh_ck_catalogs")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Refresh CK model catalog caches. Equivalent to octo-cli RefreshCatalogs.")]
     public static async Task<RefreshCkCatalogsResponse> RefreshCatalogs(
         McpServer server,
@@ -245,6 +246,7 @@ public sealed class CkModelLibraryTools
 
     /// <summary>Import a CK model with its dependencies from a catalog. Returns job IDs (no waiting).</summary>
     [McpServerTool(Name = "import_ck_from_catalog")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Import a CK model from a catalog including all dependencies (in dependency order). Returns the job IDs " +
         "enqueued — poll asset jobs separately to track completion. Equivalent to octo-cli ImportFromCatalog " +
@@ -306,6 +308,7 @@ public sealed class CkModelLibraryTools
 
     /// <summary>Import every CK model that needs update or fix. Destructive: requires confirm.</summary>
     [McpServerTool(Name = "fix_all_ck_models")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Find every installed CK model that needs an update or fix, resolve dependencies, and enqueue imports. " +
         "DESTRUCTIVE — modifies the installed model set. Requires confirm=true. Equivalent to octo-cli FixAll " +

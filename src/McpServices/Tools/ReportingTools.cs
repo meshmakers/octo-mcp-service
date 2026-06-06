@@ -13,6 +13,7 @@ public sealed class ReportingTools
 {
     /// <summary>Enable reporting for the tenant.</summary>
     [McpServerTool(Name = "enable_reporting")]
+    [McpRisk(McpRiskLevel.High)]
     [Description("Enable the reporting service for the resolved tenant. Equivalent to octo-cli EnableReporting.")]
     public static async Task<TimeSeriesResponse> EnableReporting(
         McpServer server,
@@ -42,6 +43,7 @@ public sealed class ReportingTools
 
     /// <summary>Disable reporting for the tenant. Destructive: requires confirm.</summary>
     [McpServerTool(Name = "disable_reporting")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Disable the reporting service for the resolved tenant. DESTRUCTIVE — reports stop being generated " +
         "until re-enabled. Requires confirm=true. Equivalent to octo-cli DisableReporting.")]

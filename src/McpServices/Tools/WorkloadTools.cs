@@ -60,6 +60,7 @@ public sealed class WorkloadTools
 
     /// <summary>Stage a new ChartVersion on a workload. Does NOT deploy.</summary>
     [McpServerTool(Name = "update_workload_chart_version")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Set ChartVersion on a single workload. Server validates the value against a SemVer regex. Does NOT " +
         "trigger a deploy — call deploy_workload afterwards if needed. Equivalent to octo-cli " +
@@ -105,6 +106,7 @@ public sealed class WorkloadTools
 
     /// <summary>Trigger a deploy of a workload via its parent pool.</summary>
     [McpServerTool(Name = "deploy_workload")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Trigger a deploy of one workload through its parent pool. Equivalent to octo-cli DeployWorkload.")]
     public static async Task<CommunicationActionResponse> DeployWorkload(
@@ -142,6 +144,7 @@ public sealed class WorkloadTools
 
     /// <summary>Trigger an undeploy of a workload. Destructive: requires confirm.</summary>
     [McpServerTool(Name = "undeploy_workload")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Trigger an undeploy of one workload. DESTRUCTIVE — workload stops running until re-deployed. " +
         "Requires confirm=true. Equivalent to octo-cli UndeployWorkload.")]
@@ -190,6 +193,7 @@ public sealed class WorkloadTools
 
     /// <summary>Reassign pipelines from their current adapter to a new target adapter. Destructive: requires confirm.</summary>
     [McpServerTool(Name = "move_pipelines")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Bulk-reassign pipelines from their current adapter to a new target adapter. Source and target adapter " +
         "must share the same CkTypeId; per-pipeline failures are reported in the result list without aborting " +

@@ -17,6 +17,7 @@ public sealed class TenantBackupTools
 {
     /// <summary>Dump a tenant — starts the dump job, waits for completion, publishes the result as a download.</summary>
     [McpServerTool(Name = "dump_tenant")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Create a dump of a tenant's data and publish it as a downloadable .tar.gz file. Waits for the dump " +
         "job to complete (default 30 min) then registers the file for download. GET " +
@@ -84,6 +85,7 @@ public sealed class TenantBackupTools
 
     /// <summary>Restore a tenant from an uploaded dump. Destructive: requires confirm.</summary>
     [McpServerTool(Name = "restore_tenant")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Restore a tenant from an uploaded dump file. Call prepare_file_upload first, PUT the .tar.gz to the " +
         "returned URL, then invoke this tool with the transferId. DESTRUCTIVE — overwrites tenant data. " +

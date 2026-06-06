@@ -84,6 +84,7 @@ public sealed class GroupManagementTools
 
     /// <summary>Create a new group.</summary>
     [McpServerTool(Name = "create_group")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Create a new group with optional description and initial role assignments. Equivalent to octo-cli " +
         "CreateGroup.")]
@@ -129,6 +130,7 @@ public sealed class GroupManagementTools
 
     /// <summary>Update group metadata (name, description).</summary>
     [McpServerTool(Name = "update_group")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Update group metadata (name, description). Equivalent to octo-cli UpdateGroup.")]
     public static async Task<GroupResponse> UpdateGroup(
         McpServer server,
@@ -171,6 +173,7 @@ public sealed class GroupManagementTools
 
     /// <summary>Delete a group. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "delete_group")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Delete a group. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli DeleteGroup.")]
     public static async Task<GroupResponse> DeleteGroup(
         McpServer server,
@@ -217,6 +220,7 @@ public sealed class GroupManagementTools
 
     /// <summary>Replace the roles attached to a group.</summary>
     [McpServerTool(Name = "update_group_roles")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Replace the role assignments of a group. Equivalent to octo-cli UpdateGroupRoles. Pass the full target " +
         "list — semantics are replace-all, not merge.")]
@@ -256,6 +260,7 @@ public sealed class GroupManagementTools
 
     /// <summary>Add a user to a group.</summary>
     [McpServerTool(Name = "add_user_to_group")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Add a user to a group. Equivalent to octo-cli AddUserToGroup.")]
     public static async Task<GroupResponse> AddUserToGroup(
         McpServer server,
@@ -293,6 +298,7 @@ public sealed class GroupManagementTools
 
     /// <summary>Remove a user from a group. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "remove_user_from_group")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Remove a user from a group. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli " +
         "RemoveUserFromGroup.")]
@@ -342,6 +348,7 @@ public sealed class GroupManagementTools
 
     /// <summary>Add a child group to a parent group.</summary>
     [McpServerTool(Name = "add_group_to_group")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Nest one group inside another. Equivalent to octo-cli AddGroupToGroup.")]
     public static async Task<GroupResponse> AddGroupToGroup(
         McpServer server,
@@ -383,6 +390,7 @@ public sealed class GroupManagementTools
 
     /// <summary>Remove a child group from a parent group. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "remove_group_from_group")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Un-nest a child group from a parent. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli " +
         "RemoveGroupFromGroup.")]

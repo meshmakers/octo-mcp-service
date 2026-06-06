@@ -52,6 +52,7 @@ public sealed class PipelineTools
 
     /// <summary>Deploy a pipeline definition (YAML/JSON string) to the corresponding adapter.</summary>
     [McpServerTool(Name = "deploy_pipeline")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Deploy a pipeline definition (YAML or JSON) to the given adapter. The definition is passed inline as " +
         "a string — unlike the CLI which reads from a file. Equivalent to octo-cli DeployPipeline.")]
@@ -97,6 +98,7 @@ public sealed class PipelineTools
 
     /// <summary>Execute a pipeline and return the execution ID.</summary>
     [McpServerTool(Name = "execute_pipeline")]
+    [McpRisk(McpRiskLevel.High)]
     [Description("Execute a pipeline and return the execution ID. Equivalent to octo-cli ExecutePipeline.")]
     public static async Task<ExecutePipelineResponse> ExecutePipeline(
         McpServer server,
@@ -135,6 +137,7 @@ public sealed class PipelineTools
 
     /// <summary>Toggle debug capture on a pipeline.</summary>
     [McpServerTool(Name = "set_pipeline_debug")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Enable or disable debug capture for a pipeline. Re-pushes the adapter configuration so the change " +
         "takes effect immediately when the adapter is online. Equivalent to octo-cli SetPipelineDebug.")]

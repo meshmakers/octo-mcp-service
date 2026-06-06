@@ -50,6 +50,7 @@ public sealed class BlueprintTools
 
     /// <summary>Apply a blueprint to the tenant.</summary>
     [McpServerTool(Name = "install_blueprint")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Apply a blueprint to the tenant for the first time. With force=true, re-applies seed data via upsert " +
         "(recovery path). Equivalent to octo-cli InstallBlueprint.")]
@@ -209,6 +210,7 @@ public sealed class BlueprintTools
 
     /// <summary>Apply a blueprint update. Destructive unless dryRun=true; otherwise requires confirm=true.</summary>
     [McpServerTool(Name = "update_blueprint")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Apply a blueprint update. DESTRUCTIVE — requires confirm=true unless dryRun is also true. Equivalent to " +
         "octo-cli UpdateBlueprint.")]
@@ -301,6 +303,7 @@ public sealed class BlueprintTools
 
     /// <summary>Roll the tenant back to a previously-created blueprint backup. Destructive: requires confirm.</summary>
     [McpServerTool(Name = "rollback_blueprint")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Roll the tenant back to a previously-created blueprint backup. DESTRUCTIVE — current tenant data will " +
         "be replaced. Requires confirm=true. Equivalent to octo-cli RollbackBlueprint.")]
@@ -384,6 +387,7 @@ public sealed class BlueprintTools
 
     /// <summary>Uninstall a blueprint from the tenant. Destructive: requires confirm.</summary>
     [McpServerTool(Name = "uninstall_blueprint")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Remove a blueprint from the tenant. DESTRUCTIVE — locked owned entities are erased. With cascade=true, " +
         "dependents are uninstalled first and orphaned dependencies are auto-cleaned. Requires confirm=true. " +

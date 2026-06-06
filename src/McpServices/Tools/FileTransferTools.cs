@@ -94,6 +94,7 @@ public sealed class FileTransferTools
 
     /// <summary>Trigger run-fixup-scripts for the resolved tenant. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "run_fixup_scripts")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Start the run-fixup-scripts job for the resolved tenant. DESTRUCTIVE — scripts execute against tenant " +
         "data. Requires confirm=true. Returns the job id; poll bot-service to track progress. Equivalent to " +

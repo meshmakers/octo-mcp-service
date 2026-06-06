@@ -18,6 +18,7 @@ public sealed class TimeSeriesTools
 
     /// <summary>Enable Stream Data ingestion for the tenant.</summary>
     [McpServerTool(Name = "enable_stream_data")]
+    [McpRisk(McpRiskLevel.High)]
     [Description("Enable Stream Data ingestion for the resolved tenant. Equivalent to octo-cli EnableStreamData.")]
     public static async Task<TimeSeriesResponse> EnableStreamData(
         McpServer server,
@@ -47,6 +48,7 @@ public sealed class TimeSeriesTools
 
     /// <summary>Disable Stream Data ingestion for the tenant. Destructive: requires confirm.</summary>
     [McpServerTool(Name = "disable_stream_data")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Disable Stream Data ingestion for the resolved tenant. DESTRUCTIVE — ingestion stops until re-enabled. " +
         "Requires confirm=true. Equivalent to octo-cli DisableStreamData.")]
@@ -90,6 +92,7 @@ public sealed class TimeSeriesTools
 
     /// <summary>Activate a CkArchive: provisions the per-archive CrateDB table.</summary>
     [McpServerTool(Name = "activate_archive")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Activate a CkArchive: provisions the per-archive CrateDB table and transitions the archive to " +
         "'Activated'. Allowed from 'Created', 'Disabled', or 'Failed'; idempotent on 'Activated'. Equivalent " +
@@ -105,6 +108,7 @@ public sealed class TimeSeriesTools
 
     /// <summary>Disable an archive: data preserved, ingest stops. Allowed only from Activated.</summary>
     [McpServerTool(Name = "disable_archive")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Disable a CkArchive: transitions to 'Disabled' (data preserved). Allowed only from 'Activated'. " +
         "Equivalent to octo-cli DisableArchive.")]
@@ -119,6 +123,7 @@ public sealed class TimeSeriesTools
 
     /// <summary>Re-enable a previously disabled archive.</summary>
     [McpServerTool(Name = "enable_archive")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Re-enable a previously disabled archive (Disabled → Activated). Re-validates column paths against the " +
         "current CK model; no DDL. Equivalent to octo-cli EnableArchive.")]
@@ -133,6 +138,7 @@ public sealed class TimeSeriesTools
 
     /// <summary>Retry archive activation after a DDL failure.</summary>
     [McpServerTool(Name = "retry_archive_activation")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Retry activation of an archive after a previous DDL failure. Allowed only from 'Failed'. " +
         "Equivalent to octo-cli RetryArchiveActivation.")]
@@ -147,6 +153,7 @@ public sealed class TimeSeriesTools
 
     /// <summary>Delete a CkArchive. Destructive: drops the table and loses data.</summary>
     [McpServerTool(Name = "delete_archive")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Drop the per-archive CrateDB table (idempotent) and soft-delete the CkArchive entity. DESTRUCTIVE — " +
         "historical data is lost. Allowed from any status. Requires confirm=true. Equivalent to octo-cli " +
@@ -207,6 +214,7 @@ public sealed class TimeSeriesTools
 
     /// <summary>Freeze a rollup archive until a target timestamp.</summary>
     [McpServerTool(Name = "freeze_rollup_archive")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Freeze a rollup archive at the given timestamp. Monotonic — rejected if the new value is earlier than " +
         "the current FrozenUntil. Equivalent to octo-cli FreezeRollupArchive.")]
@@ -246,6 +254,7 @@ public sealed class TimeSeriesTools
 
     /// <summary>Clear FrozenUntil on a rollup archive. Idempotent.</summary>
     [McpServerTool(Name = "unfreeze_rollup_archive")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Clear FrozenUntil on a rollup archive. Idempotent. Set acceptGaps=true when source data inside the " +
         "previously-frozen range has been truncated and the operator knowingly accepts the resulting gaps. " +
@@ -288,6 +297,7 @@ public sealed class TimeSeriesTools
 
     /// <summary>Rewind a rollup's watermark. Destructive: rows in the rewound range are temporarily out of sync.</summary>
     [McpServerTool(Name = "rewind_rollup_watermark")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Reset a rollup's watermark (truncated to bucket boundary) so subsequent orchestrator ticks re-aggregate " +
         "the rewound range. DESTRUCTIVE — rows in that range are temporarily out of sync until the orchestrator " +

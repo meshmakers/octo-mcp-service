@@ -16,6 +16,7 @@ public sealed class CommunicationLifecycleTools
 {
     /// <summary>Enable the communication controller for the tenant.</summary>
     [McpServerTool(Name = "enable_communication")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Enable the communication controller for the resolved tenant. Equivalent to octo-cli " +
         "EnableCommunication.")]
@@ -48,6 +49,7 @@ public sealed class CommunicationLifecycleTools
 
     /// <summary>Disable the communication controller for the tenant. Destructive: requires confirm.</summary>
     [McpServerTool(Name = "disable_communication")]
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Disable the communication controller for the resolved tenant. DESTRUCTIVE — stops all pipeline / data " +
         "flow execution for the tenant until re-enabled. Requires confirm=true. Equivalent to octo-cli " +

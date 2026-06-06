@@ -47,6 +47,7 @@ public sealed class RoleManagementTools
 
     /// <summary>Create a new role.</summary>
     [McpServerTool(Name = "create_role")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Create a new role. Equivalent to octo-cli CreateRole.")]
     public static async Task<RoleResponse> CreateRole(
         McpServer server,
@@ -83,6 +84,7 @@ public sealed class RoleManagementTools
 
     /// <summary>Rename a role.</summary>
     [McpServerTool(Name = "update_role")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Rename an existing role. Equivalent to octo-cli UpdateRole.")]
     public static async Task<RoleResponse> UpdateRole(
         McpServer server,
@@ -120,6 +122,7 @@ public sealed class RoleManagementTools
 
     /// <summary>Delete a role. Destructive: requires confirm=true.</summary>
     [McpServerTool(Name = "delete_role")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Delete a role. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli DeleteRole.")]
     public static async Task<RoleResponse> DeleteRole(
         McpServer server,
