@@ -151,6 +151,29 @@ The SDK clients cache their `ServiceUri` on first use. Sharing one client across
 
 The `*ClientContext.TryBuild` helpers handle this for you. Don't manually construct SDK clients in tool code.
 
+### 8. Risk classification (`[McpRisk]`) for AI Adapter approval gating
+
+Tools have an optional `[McpRisk(McpRiskLevel.Low|Medium|High)]` attribute that classifies their blast radius. The AI Adapter worker calls `get_tool_risk_metadata` once at session start and uses the result to decide whether a tool call needs to be routed through its user-facing approval gate before running.
+
+**This is not authorisation.** Authorisation is delegated to the backend services via the propagated OAuth token. `McpRisk` is informational metadata that the worker reads to drive its own safety story.
+
+Classification convention:
+
+- **Low** (default — omit the attribute): read-only operations, schema introspection, single-instance create/update with narrow scope.
+- **Medium**: single-instance deletes, schema-introspection-driven actions, anything where audit matters more than blocking. Worker logs but does not pause.
+- **High**: destructive or schema-changing operations — bulk delete, dropping a CK type / attribute / enum value, production deploy, force-push, blueprint install/uninstall/apply-update against a tenant. Worker pauses on PreToolUse and surfaces the proposed call to the user for approval.
+
+Place the attribute next to `[McpServerTool]`:
+
+```csharp
+[McpServerTool(Name = "delete_entity")]
+[McpRisk(McpRiskLevel.Medium)]
+[Description("Delete an entity by its runtime ID")]
+public static async Task<DeleteEntityResponse> DeleteEntity(...)
+```
+
+`ToolRiskRegistry` reflects over the McpServices assembly at startup; tools without the attribute resolve as `Low`. When you add a new tool, decide the level at the same time as the implementation — flipping later is a behaviour-change for any consumer that already cached the registry.
+
 ## File I/O Architecture
 
 Tools that need to receive or produce files use a separate HTTP channel: the JSON-RPC tool call coordinates an opaque transfer id, and the actual bytes flow through `FileTransferController` at `/file-transfer/{upload,download}/{id}`.

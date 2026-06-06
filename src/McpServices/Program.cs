@@ -79,6 +79,7 @@ try
     builder.Services.AddTransient<ITenantResolutionService, TenantResolutionService>();
     builder.Services.AddSingleton<IOctoServiceClientFactory, OctoServiceClientFactory>();
     builder.Services.AddSingleton<IFileTransferStore, FileTransferStore>();
+    builder.Services.AddSingleton<IToolRiskRegistry, ToolRiskRegistry>();
     builder.Services.AddHostedService<FileTransferSweeper>();
     builder.Services.AddHttpClient("identity")
         .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler

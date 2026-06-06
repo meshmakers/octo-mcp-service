@@ -402,6 +402,7 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Deletion result</returns>
     [McpServerTool(Name = "delete_entity")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description("Delete an entity by its runtime ID")]
     public static async Task<DeleteEntityResponse> DeleteEntity(
         McpServer server,
