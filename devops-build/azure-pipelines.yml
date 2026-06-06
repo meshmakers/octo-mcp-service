@@ -58,13 +58,20 @@ stages:
               restoreArguments: '--force /p:OctoNugetPrivateServer=$(nugetPrivateServer)'
               noCache: true
           - task: DotNetCoreCLI@2
-            displayName: 'Test'
+            displayName: 'Test (unit + integration)'
             inputs:
               command: 'test'
-              arguments: '--configuration $(buildConfiguration) /p:OctoNugetPrivateServer=$(nugetPrivateServer)'
+              arguments: '--configuration $(buildConfiguration) /p:OctoNugetPrivateServer=$(nugetPrivateServer) --logger "console;verbosity=detailed" --collect:"XPlat Code Coverage"'
               projects: |
                 **/*Tests.csproj
-              testRunTitle: 'CI'
+                !**/*SystemTests.csproj
+              testRunTitle: 'McpServices CI - $(Build.BuildNumber)'
+              publishTestResults: true
+          - task: PublishCodeCoverageResults@2
+            displayName: 'Publish code coverage'
+            condition: succeededOrFailed()
+            inputs:
+              summaryFileLocation: '$(Agent.TempDirectory)/**/coverage.cobertura.xml'
           - template: build-and-push-docker-image.yml
             parameters:
               PublicRegistryServiceConnection: $(DockerRegistryPublicConnection)

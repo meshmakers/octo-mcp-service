@@ -239,6 +239,37 @@ public class MyToolsTests : ToolTestBase
 - **`OctoObjectId` must be a 24-char hex string.** Use realistic values like `"507f1f77bcf86cd799439011"` in tests.
 - **Moq method matchers must use the right type-param.** For methods that take `IEnumerable<T>`, match with `It.IsAny<IEnumerable<T>>()`, not `It.IsAny<List<T>>()`.
 
+### CI: tests in Azure Pipelines
+
+`devops-build/azure-pipelines.yml` runs the full test suite on every push to `main`, `dev/*` and `test/*` branches. The relevant step:
+
+```yaml
+- task: DotNetCoreCLI@2
+  displayName: 'Test (unit + integration)'
+  inputs:
+    command: 'test'
+    arguments: '--configuration $(buildConfiguration) /p:OctoNugetPrivateServer=$(nugetPrivateServer) --logger "console;verbosity=detailed" --collect:"XPlat Code Coverage"'
+    projects: |
+      **/*Tests.csproj
+      !**/*SystemTests.csproj
+    testRunTitle: 'McpServices CI - $(Build.BuildNumber)'
+    publishTestResults: true
+- task: PublishCodeCoverageResults@2
+  displayName: 'Publish code coverage'
+  condition: succeededOrFailed()
+  inputs:
+    summaryFileLocation: '$(Agent.TempDirectory)/**/coverage.cobertura.xml'
+```
+
+Notes:
+
+- **Test config is `Release`** (not `DebugL`). The test step uses `$(buildConfiguration) = Release` and the published NuGet packages from `$(nugetPrivateServer)` — local-only DebugL packages from `../nuget/` are not available on the agent. Mirror this locally with `dotnet test Octo.McpServices.sln -c Release` when you suspect a config-sensitive break.
+- **Results land in the Azure DevOps Tests tab** under run title `McpServices CI - <buildNumber>`. Failed tests show stack traces and console output thanks to the `console;verbosity=detailed` logger.
+- **Code coverage** is collected via `coverlet.collector` (already referenced in `McpServices.Tests.csproj`) and surfaced in the Code Coverage tab of the build. Cobertura XML lands in `$(Agent.TempDirectory)`.
+- **Test glob excludes `*SystemTests.csproj`** so a future `McpServices.SystemTests` project (real-service integration suite) can be added later without breaking the main build — those would need their own pipeline + Testcontainers env, matching the pattern in `octo-identity-services`.
+
+The current suite is ~400 mock-based unit tests + a handful of in-process integration tests (`McpServerIntegrationTests`). If you add real-service-dependent tests, put them in a separate `*SystemTests` project so they're skipped here.
+
 ## Project Layout
 
 ```
