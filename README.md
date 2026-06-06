@@ -1,32 +1,39 @@
 # OctoMesh MCP Service
 
-A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, providing AI assistants with powerful tools to interact with your data mesh infrastructure.
+A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, exposing **~166 tools** that mirror the full surface of `octo-cli` plus generic CK-type CRUD. AI assistants get direct access to tenant administration, identity management, communication-controller, blueprints, time-series, reporting, and large-file transfers — without ever invoking the CLI.
 
 ## 🚀 Features
 
-### **Dynamic CRUD Operations**
-- **Universal Entity Management**: Create, read, update, and delete entities for any Construction Kit type
-- **Type-Safe Operations**: Automatic validation based on CK schemas
-- **Intelligent Filtering**: Advanced query capabilities with pagination and sorting
-- **Association Management**: Navigate relationships between entities
+### **Platform Administration (~140 tools)**
+- **Tenant lifecycle**: create, attach, detach, clean, clear cache, dump, restore
+- **Identity** (Users, Roles, Groups, Clients, Identity Providers): full CRUD + cross-tenant mappings + admin provisioning
+- **API access control**: API resources, API scopes, API secrets (client and resource variants)
+- **OAuth client mirroring**: auto-provision flagged ClientCredentials clients into sub-tenants
 
-### **Schema Discovery & Exploration**
-- **Real-time Schema Discovery**: Explore available CK types and their schemas
-- **Interactive Documentation**: Get detailed information about types, attributes, and associations
-- **Search & Filtering**: Find types by name, description, or model
-- **Validation Support**: Validate parameters before execution
+### **Asset Repository (~28 tools)**
+- **Blueprints**: install, history, preview/apply update, backups + rollback, uninstall with cascade
+- **CK model libraries**: catalog browse, dependency resolution, fix-all
+- **Runtime CK model + entity import/export** (file-based, via streaming upload/download endpoints)
 
-### **Domain-Specific Analytics**
-- **Energy Community Tools**: Analyze consumption patterns, billing documents, and efficiency metrics
-- **Industrial IoT Monitoring**: Track machine performance, alarms, and operational status
-- **Maintenance Management**: Monitor orders, costs, and resource allocation
-- **Advanced Reporting**: Generate executive dashboards and forecasting reports
+### **Communication Controller (25 tools)**
+- **Adapters + pipelines**: deploy, execute, debug capture, schema discovery
+- **Data flows + triggers + pools**: deploy/undeploy + status
+- **Workload CI/CD rollout** (Epic 3054): chart-version staging, deploy, bulk pipeline reassignment
 
-### **Tool Management & Monitoring**
-- **Usage Statistics**: Track tool performance and usage patterns
-- **Error Analytics**: Monitor failures and common issues
-- **Health Monitoring**: Built-in health checks and status reporting
-- **Parameter Validation**: Pre-execution validation with helpful error messages
+### **Time Series, Reporting, Diagnostics (14 tools)**
+- **Stream data + archives**: enable/disable, activate, freeze + rewind rollups
+- **Reporting service**: enable/disable
+- **Runtime log-level reconfiguration**: dispatches to all 6 backend services
+
+### **File transfers (9 tools + 2 HTTP endpoints)**
+- Multi-GB streaming uploads + range-enabled downloads, disk-backed buffers, 30 min TTL
+- Tenant dump → downloadId, tenant restore via TUS-resumable upload
+- CK model + runtime model import (with job polling) and export (with download URL)
+
+### **Generic CK CRUD + Schema Discovery (15 tools)**
+- **Universal entity management**: query/create/update/delete for any CK type
+- **Schema discovery**: list types/models, get type schema, navigate associations
+- **Tool monitoring**: usage statistics, parameter validation, health endpoints
 
 ## 🔧 Installation & Setup
 
@@ -44,20 +51,27 @@ A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Ki
     "EnableDynamicToolGeneration": true,
     "MaxQueryResultLimit": 1000,
     "EnableToolStatistics": true,
-    "DomainTools": {
-      "EnableEnergyTools": true,
-      "EnableIndustryTools": true,
-      "EnableAnalyticsTools": true
-    }
+    "CkTypeGraphCacheDurationMinutes": 30,
+    "PreloadModels": ["System-1.0.0", "Basic-1.0.0"]
   },
   "Runtime": {
     "MongoDB": {
       "ConnectionString": "mongodb://localhost:27017",
       "DatabaseNamePrefix": "octo_"
     }
+  },
+  "OctoServiceUrls": {
+    "AssetServiceUrl": "https://localhost:5001/",
+    "IdentityServiceUrl": "https://localhost:5003/",
+    "CommunicationServiceUrl": "https://localhost:5005/",
+    "BotServiceUrl": "https://localhost:5007/",
+    "ReportingServiceUrl": "https://localhost:5009/",
+    "AdminPanelUrl": "https://localhost:5011/"
   }
 }
 ```
+
+`OctoServiceUrls` configures the backend service endpoints reached by the SDK-based platform-admin tools. Override per-environment via env vars: `OCTO_OCTOSERVICEURLS__ASSETSERVICEURL=https://asset.prod.example.com/` etc.
 
 2. **Start the Service**:
 ```bash
@@ -80,86 +94,140 @@ dotnet run
 
 ## 🛠️ Available Tools
 
-### **CRUD Operations**
-- `query_entities` - Query entities with filtering and pagination
-- `get_entity_by_id` - Retrieve a specific entity by ID
-- `create_entity` - Create new entities with validation
-- `update_entity` - Update existing entities
-- `delete_entity` - Remove entities from the system
+> **166 tools total.** Tools mirror the corresponding `octo-cli` command (snake_case naming). All platform-admin tools accept an optional `tenantId` parameter that falls back to the URL route. Destructive operations require an explicit `confirm: true` parameter (no silent state changes).
 
-### **Schema Discovery**
-- `get_available_types` - List all available CK types
-- `get_type_schema` - Get detailed schema for a specific type
-- `get_available_models` - List all CK models
-- `search_types` - Search types by name or description
+### **Authentication & Identity Bootstrap** (4)
+`authenticate` · `check_auth_status` · `whoami` · `list_tenants`
 
-### **Energy Community**
-- `analyze_energy_consumption` - Analyze consumption patterns over time
-- `get_billing_documents` - Retrieve billing information for customers
+### **Tenant Lifecycle** (9)
+`get_tenants` · `create_tenant` · `delete_tenant`<sup>‡</sup> · `clean_tenant`<sup>‡</sup> · `attach_tenant` · `detach_tenant` · `clear_tenant_cache`<sup>‡</sup> · `update_system_ck_model` · `dump_tenant`<sup>📁</sup> · `restore_tenant`<sup>‡📁</sup>
 
-### **Industrial Operations**
-- `get_machine_alarms` - Monitor active alarms and alerts
-- `get_machine_status` - Check machine operational status
-- `get_maintenance_orders` - Track maintenance activities
+### **Identity — Users / Roles / Groups** (21)
+- Users (7): `get_users` · `create_user` · `update_user` · `delete_user`<sup>‡</sup> · `reset_user_password`<sup>‡</sup> · `add_user_to_role` · `remove_user_from_role`<sup>‡</sup>
+- Roles (4): `get_roles` · `create_role` · `update_role` · `delete_role`<sup>‡</sup>
+- Groups (10): `get_groups` · `get_group` · `create_group` · `update_group` · `delete_group`<sup>‡</sup> · `update_group_roles` · `add_user_to_group` · `remove_user_from_group`<sup>‡</sup> · `add_group_to_group` · `remove_group_from_group`<sup>‡</sup>
 
-### **Advanced Analytics**
-- `generate_energy_efficiency_report` - Comprehensive efficiency analysis
-- `analyze_machine_performance` - Performance and downtime analysis
-- `analyze_maintenance_costs` - Cost analysis and forecasting
-- `generate_executive_dashboard` - High-level KPI dashboard
+### **Identity — OAuth Clients + Identity Providers** (20)
+- Clients (13): `get_clients` · `get_client` · `add_client_credentials_client` · `add_device_code_client` · `add_authorization_code_client` · `delete_client`<sup>‡</sup> · `add_scope_to_client` · `get_client_mirrors` · `provision_client_in_existing_tenants` · `provision_client_in_tenant` · `unprovision_client_from_tenant`<sup>‡</sup> · `set_client_auto_provision`
+- Identity Providers (7): `get_identity_providers` · `delete_identity_provider`<sup>‡</sup> · `update_identity_provider` · `add_oauth_identity_provider` · `add_azure_entra_id_identity_provider` · `add_open_ldap_identity_provider` · `add_active_directory_identity_provider` · `add_octo_tenant_identity_provider`
 
-### **Tool Management**
-- `list_available_tools` - Get information about all tools
-- `get_tool_details` - Detailed tool documentation
-- `get_tool_statistics` - Usage and performance metrics
-- `validate_tool_parameters` - Pre-execution parameter validation
+### **Identity — API Resources / Scopes / Secrets** (16)
+- API Resources (4): `get_api_resources` · `create_api_resource` · `update_api_resource` · `delete_api_resource`<sup>‡</sup>
+- API Scopes (4): `get_api_scopes` · `create_api_scope` · `update_api_scope` · `delete_api_scope`<sup>‡</sup>
+- API Secrets (8): `get_client_secrets` · `create_client_secret` · `update_client_secret` · `delete_client_secret`<sup>‡</sup> · `get_api_resource_secrets` · `create_api_resource_secret` · `update_api_resource_secret` · `delete_api_resource_secret`<sup>‡</sup>
+
+### **Identity — Cross-Tenant Mappings + Admin Provisioning** (14)
+- Email-Domain Group Rules (5): `get_email_domain_group_rules` · `get_email_domain_group_rule` · `create_email_domain_group_rule` · `update_email_domain_group_rule` · `delete_email_domain_group_rule`<sup>‡</sup>
+- External-Tenant User Mappings (5): `get_external_tenant_user_mappings` · `get_external_tenant_user_mapping` · `create_external_tenant_user_mapping` · `update_external_tenant_user_mapping` · `delete_external_tenant_user_mapping`<sup>‡</sup>
+- Admin Provisioning (4): `get_admin_provisioning_mappings` · `create_admin_provisioning_mapping` · `provision_current_user_as_admin` · `delete_admin_provisioning_mapping`<sup>‡</sup>
+
+### **Asset Repository — Blueprints** (10)
+`list_blueprints` · `install_blueprint` · `get_blueprint_history` · `get_blueprint_update_info` · `preview_blueprint_update` · `update_blueprint`<sup>‡</sup> · `list_blueprint_backups` · `rollback_blueprint`<sup>‡</sup> · `list_blueprint_installations` · `uninstall_blueprint`<sup>‡</sup>
+
+### **Asset Repository — CK Model Libraries** (8)
+`list_ck_catalogs` · `list_ck_catalog_models` · `refresh_ck_catalogs` · `get_ck_library_status` · `check_ck_dependencies` · `check_ck_upgrade` · `import_ck_from_catalog` · `fix_all_ck_models`<sup>‡</sup>
+
+### **Communication Controller** (25)
+- Lifecycle (2): `enable_communication` · `disable_communication`<sup>‡</sup>
+- Adapters (4): `get_adapters` · `get_adapter` · `get_adapter_nodes` · `get_pipeline_schema`
+- Pipelines (8): `get_pipeline_status` · `deploy_pipeline` · `execute_pipeline` · `set_pipeline_debug` · `get_pipeline_debug` · `get_pipeline_executions` · `get_latest_pipeline_execution` · `get_pipeline_debug_points`
+- Data Flows / Triggers / Pools (6): `deploy_data_flow` · `undeploy_data_flow`<sup>‡</sup> · `get_data_flow_status` · `deploy_triggers` · `undeploy_triggers`<sup>‡</sup> · `get_pools`
+- Workloads + CI/CD (5): `get_workloads_by_chart` · `update_workload_chart_version` · `deploy_workload` · `undeploy_workload`<sup>‡</sup> · `move_pipelines`<sup>‡</sup>
+
+### **Time Series + Reporting + Diagnostics** (14)
+- Stream Data + Archives (11): `enable_stream_data` · `disable_stream_data`<sup>‡</sup> · `activate_archive` · `disable_archive` · `enable_archive` · `retry_archive_activation` · `delete_archive`<sup>‡</sup> · `list_rollups_for_archive` · `freeze_rollup_archive` · `unfreeze_rollup_archive` · `rewind_rollup_watermark`<sup>‡</sup>
+- Reporting (2): `enable_reporting` · `disable_reporting`<sup>‡</sup>
+- Diagnostics (1): `reconfigure_log_level` (dispatches to Identity/AssetRepository/Communication/Reporting/Bot/AdminPanel)
+
+### **File I/O** (9 tools + 2 HTTP endpoints)
+- Foundation: `prepare_file_upload` · `cancel_file_transfer`
+- CK Model Imports: `import_ck_model` · `import_runtime_model`
+- CK Model Exports: `export_runtime_model_by_query` · `export_runtime_model_by_deep_graph`
+- Tenant Backup: `dump_tenant` · `restore_tenant`<sup>‡</sup>
+- Fixup Scripts: `run_fixup_scripts`<sup>‡</sup> (create via generic `create_entity` with `RtFixup` CK type)
+- HTTP: `PUT /file-transfer/upload/{id}` · `GET /file-transfer/download/{id}` (range-enabled, 5 GiB cap)
+
+### **Generic Runtime CRUD + Schema Discovery** (15)
+- CRUD (6): `query_entities` · `query_entities_simple` · `get_entity_by_id` · `create_entity` · `update_entity` · `delete_entity`<sup>‡</sup>
+- Schema (5): `get_available_types` · `get_type_schema` · `get_available_models` · `search_types` · `get_association_tree` · `navigate_associations`
+- Tool Management (4): `list_available_tools` · `get_tool_details` · `get_tool_statistics` · `validate_tool_parameters`
+- Echo (1): `Echo`
+
+<sup>‡</sup> Destructive — requires `confirm: true`.
+<sup>📁</sup> Uses file-transfer endpoints (see Section *File I/O Flow* below).
+
+## 📂 File I/O Flow
+
+Large-file operations use out-of-band streaming endpoints alongside the JSON-RPC channel.
+
+### Upload flow (import / restore)
+```
+1. Tool call: prepare_file_upload(fileName)
+   → { transferId, uploadUrlPath: "/file-transfer/upload/{transferId}" }
+2. HTTP PUT the file body to <publicUrl> + uploadUrlPath
+   → { transferId, sizeBytes }
+3. Tool call: import_ck_model(transferId, tenantId)
+   or:        restore_tenant(transferId, targetTenantId, databaseName, confirm: true)
+   → waits for the asset / bot job to finish (default timeout 10 / 30 min)
+```
+
+### Download flow (export / dump)
+```
+1. Tool call: dump_tenant(targetTenantId)
+   or:        export_runtime_model_by_query(queryId)
+   → { transferId, downloadUrlPath: "/file-transfer/download/{transferId}" }
+2. HTTP GET <publicUrl> + downloadUrlPath
+   → Streams the bytes with Content-Disposition + range support
+```
+
+Reservations and downloads expire after **30 minutes**; a background sweeper purges them.
 
 ## 📖 Usage Examples
 
-### **Query Energy Customers**
+### **List child tenants**
+```json
+{
+  "tool": "get_tenants",
+  "parameters": { "tenantId": "octosystem" }
+}
+```
+
+### **Create a sub-tenant + provision the calling user as admin**
+```json
+{ "tool": "create_tenant", "parameters": { "childTenantId": "acme", "database": "acme_db" } }
+{ "tool": "provision_current_user_as_admin", "parameters": { "targetTenantId": "acme" } }
+```
+
+### **Roll out a new chart version across all matching workloads (CI/CD)**
+```json
+{ "tool": "get_workloads_by_chart", "parameters": { "chartName": "octo-mesh-adapter" } }
+{ "tool": "update_workload_chart_version", "parameters": { "workloadId": "wl-123", "chartVersion": "1.2.4" } }
+{ "tool": "deploy_workload", "parameters": { "workloadId": "wl-123" } }
+```
+
+### **Install a blueprint and inspect the resulting installation**
+```json
+{ "tool": "install_blueprint", "parameters": { "blueprintId": "EnergyCommunity-1.0.0" } }
+{ "tool": "list_blueprint_installations" }
+```
+
+### **Generic CK entity query**
 ```json
 {
   "tool": "query_entities",
   "parameters": {
     "ckTypeId": "EnergyCommunity-1.0.0/Customer-1.0.0",
-    "filters": "{\"State\": \"Active\"}",
+    "filters": { "Operator": "And", "Fields": [{ "Path": "State", "Operator": "Equals", "Value": "Active" }] },
     "limit": 50
   }
 }
 ```
 
-### **Analyze Energy Consumption**
+### **Dump a tenant and download the .tar.gz**
 ```json
-{
-  "tool": "analyze_energy_consumption",
-  "parameters": {
-    "fromDate": "2024-01-01T00:00:00Z",
-    "toDate": "2024-01-31T23:59:59Z",
-    "facilityId": "12345"
-  }
-}
-```
-
-### **Create New Customer**
-```json
-{
-  "tool": "create_entity",
-  "parameters": {
-    "ckTypeId": "EnergyCommunity-1.0.0/Customer-1.0.0",
-    "entityData": "{\"CustomerNumber\": \"CUST-001\", \"Contact\": {...}, \"State\": \"Active\"}"
-  }
-}
-```
-
-### **Get Machine Alarms**
-```json
-{
-  "tool": "get_machine_alarms",
-  "parameters": {
-    "priorityLevel": "High",
-    "alarmState": "Unacknowledged"
-  }
-}
+{ "tool": "dump_tenant", "parameters": { "targetTenantId": "acme" } }
+// Response: { transferId: "abc123", downloadUrlPath: "/file-transfer/download/abc123", ... }
+// Then: HTTP GET https://mcp.example.com/file-transfer/download/abc123
 ```
 
 ## 🏗️ Architecture
@@ -188,11 +256,11 @@ dotnet run
 ```
 
 ### **Tool Categories**
-- **CRUD Tools**: Universal entity operations for all CK types
-- **Schema Tools**: Discovery and exploration of data models
-- **Domain Tools**: Business-specific analytics and reporting
-- **Analytics Tools**: Advanced reporting and forecasting
-- **Management Tools**: Tool monitoring and administration
+- **Platform Admin Tools**: thin wrappers over the SDK service clients (Identity, Asset, Communication, Reporting, StreamData, Bot, AdminPanel) — equivalent surface to `octo-cli`
+- **Generic CRUD Tools**: universal entity operations for any CK type, talking directly to the runtime engine
+- **Schema Tools**: discovery and exploration of data models
+- **File Transfer Tools**: out-of-band streaming endpoints for import/export/dump/restore
+- **Management Tools**: tool monitoring and administration (`get_tool_statistics`, `validate_tool_parameters`, etc.)
 
 ### **Caching Strategy**
 - **CK Type Graphs**: Cached for 30 minutes (configurable)
@@ -212,15 +280,17 @@ dotnet run
 | `EnableToolStatistics` | `true` | Collect usage statistics |
 | `CkTypeGraphCacheDurationMinutes` | `30` | Cache duration for schemas |
 
-### **Domain Tool Options**
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `EnableEnergyTools` | `true` | Energy community analytics |
-| `EnableIndustryTools` | `true` | Industrial IoT tools |
-| `EnableAnalyticsTools` | `true` | Advanced reporting |
-| `EnableEnvironmentTools` | `false` | Environmental monitoring |
-| `MaxAnalyticsDateRangeDays` | `365` | Maximum date range |
-| `EnableForecasting` | `true` | Predictive analytics |
+### **OctoServiceUrls (Backend Endpoints)**
+| Setting | Used By |
+|---------|---------|
+| `AssetServiceUrl` | Tenant lifecycle, Blueprints, CK Model Libraries, Models, Stream Data tools |
+| `IdentityServiceUrl` | All Identity tools (Users, Roles, Groups, Clients, Providers, API resources/scopes/secrets) |
+| `CommunicationServiceUrl` | Communication Controller tools (adapters, pipelines, workloads, data flows, triggers, pools) |
+| `BotServiceUrl` | File-IO downloads, fixup scripts, tenant dump/restore, log-level dispatch |
+| `ReportingServiceUrl` | Reporting service tools |
+| `AdminPanelUrl` | Admin Panel log-level dispatch only |
+
+Each URL may be empty if you don't use the matching tools — the factory throws `ServiceConfigurationMissingException` on the first call into an unconfigured client.
 
 ## 📊 Monitoring & Health Checks
 
@@ -322,41 +392,82 @@ This is fully stateless — no tenant is stored in session state. The AI client 
 ## 🚀 Development
 
 ### **Adding New Tools**
-1. Create a new tool class with `[McpServerToolType]` attribute
-2. Add tool methods with `[McpServerTool]` attribute
-3. Register in `Program.cs` if needed
-4. Update documentation
 
-### **Custom Domain Tools**
+Tools follow a strict pattern — see `CLAUDE.md` for the full conventions. The short version:
+
+1. Pick the right SDK Client Context (`IdentityClientContext`, `AssetClientContext`, `CommunicationClientContext`, `StreamDataClientContext`, `ReportingClientContext`, or `BotClientContext`) — these handle auth + tenant resolution + factory call.
+2. Use the standard response envelope (`*Response` with `IsSuccess`/`ErrorMessage`/`Message`/`TenantId`).
+3. Destructive operations MUST require an explicit `confirm: true` bool parameter — no interactive prompts.
+4. Add at least four tests per tool: happy path, unauthenticated, missing required args, destructive without confirm (where applicable).
+
 ```csharp
 [McpServerToolType]
-public sealed class CustomDomainTools
+public sealed class MyTools
 {
-    [McpServerTool(Name = "my_custom_tool")]
-    [Description("Custom business logic tool")]
-    public static async Task<object> MyCustomTool(
-        IMcpServer server,
-        string parameter1,
-        int parameter2 = 10)
+    [McpServerTool(Name = "my_tool")]
+    [Description("Equivalent to octo-cli MyCommand.")]
+    public static async Task<MyResponse> MyTool(
+        McpServer server,
+        [Description("Some required arg.")] string requiredArg,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        // Implementation
+        if (string.IsNullOrWhiteSpace(requiredArg))
+        {
+            return new MyResponse { IsSuccess = false, ErrorMessage = "requiredArg is required." };
+        }
+
+        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new MyResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            await ctx.Client!.DoSomething(requiredArg);
+            return new MyResponse { IsSuccess = true, TenantId = ctx.TenantId, Message = "..." };
+        }
+        catch (Exception ex)
+        {
+            return new MyResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
     }
 }
 ```
 
 ### **Testing**
 ```bash
-# Run unit tests
-dotnet test
+# Run all tests (400 tests, ~250 ms)
+dotnet test Octo.McpServices.sln -c DebugL
 
-# Start development server
-dotnet run --environment Development
+# Run tests for a specific tool class
+dotnet test --filter "FullyQualifiedName~TenantManagementToolsTests"
 
-# Test with Claude Desktop
-# Configure MCP server and interact via Claude
+# Build the MCP server
+dotnet build src/McpServices/McpServices.csproj -c DebugL
+
+# Start dev server
+cd src/McpServices && dotnet run --environment Development
 ```
 
 ## 📝 Changelog
+
+### **Version 1.3.0** — File I/O
+- `prepare_file_upload` + `cancel_file_transfer` plus `PUT /file-transfer/upload/{id}` and `GET /file-transfer/download/{id}` HTTP endpoints (disk-backed, 5 GiB cap, 30 min TTL)
+- `import_ck_model`, `import_runtime_model`, `export_runtime_model_by_query`, `export_runtime_model_by_deep_graph` — synchronous job polling, returns downloadId for exports
+- `dump_tenant` + `restore_tenant` — multi-GB streaming, TUS resumable upload for restore
+- `run_fixup_scripts` (Bot service)
+- `BotClientContext` + `JobPollingHelper` infrastructure
+
+### **Version 1.2.0** — Full octo-cli command coverage
+- Phase 1: tenant lifecycle + identity (users / roles / groups / clients / providers) — 48 tools
+- Phase 2: asset (blueprints + CK model libraries) — 18 tools
+- Phase 3: communication controller (adapters / pipelines / workloads / data flows / triggers / pools) — 25 tools
+- Phase 4: time series + reporting + diagnostics — 14 tools
+- Phase 5: identity long-tail (API resources / scopes / secrets, email-domain rules, external tenant mappings, admin provisioning, polymorphic `update_identity_provider`) — 32 tools
+- `OctoServiceClientFactory` builds per-tenant SDK clients; each request gets a fresh client with the session's access token
+- Destructive operations require explicit `confirm: true` (no interactive prompts)
+- 364 unit tests covering all new tools
 
 ### **Version 1.1.0**
 - OAuth2 Device Authorization Flow for CLI/AI client authentication

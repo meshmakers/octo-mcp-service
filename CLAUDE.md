@@ -1,0 +1,324 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+`octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes ~166 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
+
+Two distinct tool families live here:
+
+1. **Platform-admin tools** — thin wrappers over the `Meshmakers.Octo.Sdk.ServiceClient` SDK. One tool per `octo-cli` command. These tools talk HTTP to the Identity / Asset / Communication / Reporting / StreamData / Bot / AdminPanel services.
+2. **Generic CK CRUD + schema tools** — predate the platform-admin tools and talk directly to the runtime engine (MongoDB) via `IRtTenantRepository`. These do not use the SDK service clients.
+
+If you're adding a tool that mirrors an `octo-cli` command, you're always in family 1 — follow the `*ClientContext` pattern below.
+
+## Build & Test Commands
+
+```bash
+# Build the MCP server
+dotnet build src/McpServices/McpServices.csproj -c DebugL
+
+# Build the entire solution (server + tests + resources)
+dotnet build Octo.McpServices.sln -c DebugL
+
+# Run all tests (currently 400, ~250 ms)
+dotnet test Octo.McpServices.sln -c DebugL
+
+# Filter tests by class
+dotnet test --filter "FullyQualifiedName~TenantManagementToolsTests"
+
+# Run dev server (binds to 5017 by default — see launchSettings.json)
+cd src/McpServices && dotnet run --environment Development
+```
+
+**Build configurations:** `Debug`, `Release`, `DebugL` (local dev with `OctoVersion=999.0.0`, uses local NuGet packages from `../nuget/`).
+
+**`TreatWarningsAsErrors` is enabled.** In particular, `CS1591` (missing XML doc) breaks the build for any public member of `McpServices`. Every public type, property, and method on a new tool class needs an XML doc summary.
+
+## Mandatory Conventions (read before adding code)
+
+### 1. Every new tool MUST have unit tests
+
+Minimum coverage per tool:
+
+- **Happy path** — mock the SDK client, return realistic DTO, assert the tool returned `IsSuccess = true` and called the right SDK method with the right arguments.
+- **Unauthenticated** — `GivenUnauthenticated()`, assert `IsSuccess = false` and `ErrorMessage` contains `"Not authenticated"`. No SDK call.
+- **Missing required args** — pass empty / null, assert validation error, no SDK call.
+- **Destructive without confirm** — for any tool with a `confirm` parameter, assert refusing without it.
+
+The current ratio is ~2.4 tests per tool (400 tests for 166 tools). Don't lower it.
+
+### 2. Use the `*ClientContext` helpers — never call the factory directly from a tool
+
+Every SDK-backed tool starts the same way:
+
+```csharp
+var ctx = IdentityClientContext.TryBuild(server, tenantId);
+if (ctx.Error != null)
+{
+    return new MyResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+}
+
+// ctx.Client is the IIdentityServicesClient, ctx.TenantId is the resolved tenant
+```
+
+Six context helpers exist in `src/McpServices/Services/`:
+
+| Context | Backing SDK Client | Tenant routing |
+|---|---|---|
+| `IdentityClientContext` | `IIdentityServicesClient` | per-tenant (`{tenantId}/v1`) |
+| `AssetClientContext` | `IAssetServicesClient` | per-tenant |
+| `CommunicationClientContext` | `ICommunicationServicesClient` | per-tenant, falls back to system |
+| `StreamDataClientContext` | `IStreamDataServicesClient` | system (`api/v1`), tenant passed per call |
+| `ReportingClientContext` | `IReportingServicesClient` | per-tenant, falls back to system |
+| `BotClientContext` | `IBotServicesClient` | system-scoped |
+
+For `Bot` and `AdminPanel` system-scoped one-offs (e.g., `reconfigure_log_level` dispatch), grab them via `server.Services.GetRequiredService<IOctoServiceClientFactory>()` directly — there are no helpers because the call sites are too few.
+
+### 3. Tool method signature pattern
+
+```csharp
+[McpServerTool(Name = "my_snake_case_tool")]
+[Description("Equivalent to octo-cli MyCommand. Plus a sentence about what it does.")]
+public static async Task<MyResponse> MyTool(
+    McpServer server,
+    [Description("Required arg description.")] string requiredArg,
+    [Description("Optional arg description.")] bool? optionalArg = null,
+    [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+```
+
+- Method is `static async Task<TResponse>`.
+- First param is `McpServer server` — never `IMcpServer`.
+- Every parameter gets a `[Description]` attribute. The descriptions become the AI's documentation; write them as if explaining to a colleague.
+- `tenantId` is the last optional parameter on every tenant-scoped tool.
+- Tool name is `snake_case` and mirrors the CLI command verb (e.g. CLI `CreateTenant` → MCP `create_tenant`).
+
+### 4. Response envelope
+
+Every tool returns a structured response with these fields at minimum:
+
+```csharp
+public class MyResponse
+{
+    public bool IsSuccess { get; set; }
+    public string? ErrorMessage { get; set; }
+    public string? Message { get; set; }
+    public string? TenantId { get; set; }
+    // ... tool-specific payload
+}
+```
+
+- **Never throw** out of a tool. Catch exceptions and put `ex.Message` into `ErrorMessage`. The MCP framework will serialise whatever you return.
+- **Never write to `Console.WriteLine`** or `ILogger.LogInformation` for user-visible output. The MCP transport doesn't surface stdout to the AI client.
+- `IsSuccess = false` + `ErrorMessage` is how you communicate problems. The AI client reads these and reasons about next steps.
+
+### 5. Destructive operations require `confirm: true`
+
+The CLI uses an interactive `(y/N)` prompt via `IConfirmationService`. MCP can't do that. Instead:
+
+```csharp
+public static async Task<MyResponse> DeleteThing(
+    McpServer server,
+    string thingId,
+    [Description("Must be true to actually delete.")] bool confirm = false,
+    string? tenantId = null)
+{
+    if (!confirm)
+    {
+        return new MyResponse
+        {
+            IsSuccess = false,
+            ErrorMessage = $"Refusing to delete '{thingId}' without confirm=true."
+        };
+    }
+    // ... actually do it
+}
+```
+
+Test the refusal path. Never default `confirm = true`. Never silently skip the check for "convenience" inside a batch helper — every destructive call goes through the confirm gate.
+
+### 6. SDK DTOs go on the wire as-is
+
+The MCP framework serialises whatever you return. Returning SDK DTOs (`UserDto`, `ClientDto`, `BlueprintApplyResultDto`, etc.) directly is the convention — no MCP-side translation layer. If the SDK changes a DTO shape, the MCP response changes with it, and that's intentional.
+
+For composite responses (list + count + tenant id), define your own wrapper DTO in `src/McpServices/Models/*Responses.cs`. Group by domain (`IdentityResponses.cs`, `AssetResponses.cs`, etc.) — don't make one file per response type.
+
+### 7. Per-request SDK clients (never singleton)
+
+The SDK clients cache their `ServiceUri` on first use. Sharing one client across multiple tenants → wrong tenant in the URL on the second call. **Always** go through `IOctoServiceClientFactory.Create*Client(tenantId, accessToken)` — it returns a fresh instance.
+
+The `*ClientContext.TryBuild` helpers handle this for you. Don't manually construct SDK clients in tool code.
+
+## File I/O Architecture
+
+Tools that need to receive or produce files use a separate HTTP channel: the JSON-RPC tool call coordinates an opaque transfer id, and the actual bytes flow through `FileTransferController` at `/file-transfer/{upload,download}/{id}`.
+
+### Components
+
+- `IFileTransferStore` / `FileTransferStore` — in-memory + disk-backed buffers. Reservations live in `_pending`; completed uploads in `_uploads`; pending downloads in `_downloads`. Files land in `Path.GetTempPath()/octo-mcp-file-transfer/<random>/`.
+- `FileTransferSweeper` — `BackgroundService` that purges expired entries + their files every 5 min.
+- `FileTransferController` — `PUT /file-transfer/upload/{id}` writes the body to the reserved path (5 GiB cap, streaming chunked). `GET /file-transfer/download/{id}` streams the file with range support.
+- `JobPollingHelper` — generic async-job poller for asset + bot service jobs (Succeeded/Failed/Timeout).
+
+### Upload-then-import flow
+
+```
+prepare_file_upload(fileName) → { transferId, uploadUrlPath }
+HTTP PUT to <publicUrl>/file-transfer/upload/{transferId}
+import_ck_model(transferId, tenantId) → waits for job, returns jobId
+```
+
+Inside the import tool: `store.GetUpload(transferId)` returns the on-disk path; pass that to the SDK call (which requires a file path argument, e.g. `ImportCkModelAsync(tenantId, filePath)`). On success, `store.DeleteUpload(transferId)` to clean up.
+
+### Export-then-download flow
+
+```
+export_runtime_model_by_query(queryId) → starts asset job → polls → bot downloads to temp file → store.RegisterDownload(...) → returns { transferId, downloadUrlPath }
+HTTP GET <publicUrl>/file-transfer/download/{transferId}
+```
+
+### Security
+
+Transfer ids are random 128-bit GUIDs in URL paths; they expire in 30 min; no extra auth check on the endpoints. For stricter setups, put the service behind your own auth gateway. **Do not** add base64-in-tool-parameter as an alternative path — the file-transfer endpoints are the only sanctioned mechanism for binary payloads.
+
+## Authentication & Tenant Resolution
+
+Two-layer flow:
+
+1. **OAuth Device Authorization** — `authenticate` tool issues a device code; user logs in via browser; `check_auth_status` polls until tokens are issued; tokens go into `IMcpSessionTokenStore` keyed by the MCP session id from the `Mcp-Session-Id` HTTP header.
+2. **Per-request token injection** — `McpSessionContext.TryGetAccessToken(server)` pulls the current session's access token; the `*ClientContext` helpers feed it to `OctoServiceClientFactory.Create*Client(tenantId, accessToken)`.
+
+Tenant comes from (in order):
+1. Explicit `tenantId` tool parameter
+2. Route parameter `{tenantId}` on the `/{tenantId}/mcp` endpoint
+3. Error from `ITenantResolutionService.ResolveTenantId(...)`
+
+Never store tenant state on the session. Stateless multi-tenancy is the design.
+
+## Test Infrastructure
+
+`tests/McpServices.Tests/` uses xUnit + Moq + FluentAssertions.
+
+- `TestBase` — base mocks (`McpServer`, `TestServiceProvider`, `IOctoHttpContextAccessor`, `ITenantResolutionService`, `ICkCacheService`, `ITenantRepository`).
+- `ToolTestBase : TestBase` — adds `IMcpSessionTokenStore` + `IOctoServiceClientFactory` mocks plus 7 per-SDK-client mocks (`MockIdentityClient`, `MockAssetClient`, `MockCommunicationClient`, `MockStreamDataClient`, `MockReportingClient`, `MockBotClient`, `MockAdminPanelClient`) and the real `FileTransferStore`. Helpers: `GivenAuthenticated()`, `GivenUnauthenticated()`, `GivenTokenExpired()`.
+- `InternalsVisibleTo("McpServices.Tests")` is set on `McpServices.csproj` so tests can access `FileTransferStore` directly (the interface is `IFileTransferStore`).
+
+### Adding a tests file
+
+```csharp
+public class MyToolsTests : ToolTestBase
+{
+    public MyToolsTests() { GivenAuthenticated(); }
+
+    [Fact]
+    public async Task MyTool_HappyPath_CallsSdk()
+    {
+        MockIdentityClient.Setup(c => c.DoSomething("x")).ReturnsAsync(new SomeDto());
+
+        var result = await MyTools.MyTool(MockServer.Object, "x");
+
+        result.IsSuccess.Should().BeTrue();
+        MockIdentityClient.Verify(c => c.DoSomething("x"), Times.Once);
+    }
+
+    [Fact]
+    public async Task MyTool_Unauthenticated_ReturnsAuthError()
+    {
+        GivenUnauthenticated();
+        var result = await MyTools.MyTool(MockServer.Object, "x");
+        result.IsSuccess.Should().BeFalse();
+        MockIdentityClient.Verify(c => c.DoSomething(It.IsAny<string>()), Times.Never);
+    }
+}
+```
+
+### Pitfalls to remember
+
+- **CkTypeId format is `Name-VersionUint`, not SemVer.** `new CkTypeId("MyType-1")` works; `new CkTypeId("MyType-1.0.0")` throws because the SDK reflection-constructs `CkTypeId` from the second path segment and parses the version as `uint`.
+- **`OctoObjectId` must be a 24-char hex string.** Use realistic values like `"507f1f77bcf86cd799439011"` in tests.
+- **Moq method matchers must use the right type-param.** For methods that take `IEnumerable<T>`, match with `It.IsAny<IEnumerable<T>>()`, not `It.IsAny<List<T>>()`.
+
+## Project Layout
+
+```
+src/McpServices/
+├── Program.cs                          # Composition root + endpoint mapping
+├── appsettings.json                    # Includes OctoServiceUrls section
+├── Options/
+│   ├── McpServiceOptions.cs            # MCP-server-specific options
+│   └── OctoServiceUrlOptions.cs        # Backend service URLs
+├── Services/
+│   ├── IOctoServiceClientFactory.cs    # SDK client factory interface
+│   ├── OctoServiceClientFactory.cs     # Builds per-tenant SDK clients
+│   ├── McpSessionContext.cs            # Session id + access token helpers
+│   ├── McpSessionTokenStore.cs         # OAuth tokens keyed by session id
+│   ├── TenantResolutionService.cs      # tool param / route param resolution
+│   ├── {Identity,Asset,Communication,StreamData,Reporting,Bot}ClientContext.cs
+│   ├── IFileTransferStore.cs           # File transfer abstraction
+│   ├── FileTransferStore.cs            # Disk-backed + sweeper
+│   ├── JobPollingHelper.cs             # Async-job polling for asset/bot jobs
+│   ├── DynamicToolService.cs           # Generic CK CRUD discovery (legacy family 2)
+│   └── ToolExecutionService.cs         # Tool stats (legacy family 2)
+├── Routing/
+│   ├── TenantIdRouteConstraint.cs      # MCP /{tenantId}/mcp routing
+│   └── FileTransferController.cs       # PUT/GET /file-transfer/{upload,download}/{id}
+├── Models/                             # Response envelope DTOs grouped by domain
+│   ├── TenantManagementResponses.cs
+│   ├── IdentityResponses.cs
+│   ├── IdentityLongTailResponses.cs
+│   ├── AssetResponses.cs
+│   ├── CommunicationResponses.cs
+│   ├── TimeSeriesResponses.cs
+│   └── FileTransferResponses.cs
+└── Tools/                              # MCP tool classes
+    ├── AuthenticationTools.cs          # OAuth device flow
+    ├── IdentityTools.cs                # whoami, list_tenants
+    ├── TenantManagementTools.cs
+    ├── UserManagementTools.cs / RoleManagementTools.cs / GroupManagementTools.cs
+    ├── ClientManagementTools.cs / IdentityProviderTools.cs
+    ├── ApiResourceTools.cs / ApiScopeTools.cs / ApiSecretTools.cs
+    ├── EmailDomainGroupRuleTools.cs / ExternalTenantUserMappingTools.cs / AdminProvisioningTools.cs
+    ├── BlueprintTools.cs / CkModelLibraryTools.cs
+    ├── CommunicationLifecycleTools.cs / AdapterTools.cs / PipelineTools.cs
+    ├── DataFlowTriggerPoolTools.cs / WorkloadTools.cs
+    ├── TimeSeriesTools.cs / ReportingTools.cs / DiagnosticsTools.cs
+    ├── FileTransferTools.cs / CkModelFileTools.cs / TenantBackupTools.cs
+    ├── RuntimeEntityCrudTools.cs / SchemaDiscoveryTools.cs   # Generic CK CRUD (family 2)
+    ├── ToolManagementTools.cs / EchoTool.cs
+tests/McpServices.Tests/
+├── ToolTestBase.cs                     # Adds SDK client + file-store mocks
+├── TestBase.cs                         # Lower-level base
+├── Services/                           # Factory + Context + Store tests
+└── Tools/                              # One file per Tools/ class
+```
+
+## Things NOT to do
+
+- **Don't bypass `*ClientContext` helpers.** Even if you only need one tenant for one call, go through them — they enforce auth + tenant resolution + factory routing uniformly.
+- **Don't add a tool without tests.** The "I'll add tests later" pattern hasn't held up in this codebase; every commit landed with its tests in the same commit.
+- **Don't accept base64-encoded file content as a tool parameter.** Use the file-transfer endpoints. They handle multi-GB files and stream from disk; base64 in JSON-RPC blows up token budgets and memory.
+- **Don't downgrade `confirm: true` to a default-true.** AI clients should opt into destructive actions explicitly.
+- **Don't write to `Console`** or rely on `ILogger` for user-visible output. Use the `Message` / `ErrorMessage` fields of the response envelope.
+- **Don't share SDK clients across requests.** Per-tenant `ServiceUri` caching makes this unsafe.
+- **Don't manually parse JWT tokens** outside `IdentityTools.cs`. Use the existing pattern (`JwtSecurityTokenHandler`) — or better, lift it into a helper if a third call site appears.
+
+## Adding Tools — Step-by-Step Checklist
+
+1. Find the equivalent `octo-cli` command in `octo-cli/src/ManagementTool/Commands/Implementations/**`. Note: SDK method signature, required args, destructive flag.
+2. Decide which `*ClientContext` to use based on which SDK client the CLI uses.
+3. If a response payload is non-trivial, add a wrapper DTO in `src/McpServices/Models/<domain>Responses.cs`.
+4. Write the tool method following the signature pattern above.
+5. If you needed a new SDK client (Bot, AdminPanel), update `IOctoServiceClientFactory` + `OctoServiceClientFactory` + `OctoServiceUrlOptions` + `ToolTestBase`.
+6. Write tests: happy path + unauthenticated + missing args + (if destructive) confirm-required.
+7. `dotnet test Octo.McpServices.sln -c DebugL` — all green before commit.
+8. Update `README.md` Available Tools section if you added a new category.
+
+## Background — Why the codebase looks like this
+
+The MCP server was originally a thin runtime CRUD proxy (Versions 1.0–1.1). Versions 1.2–1.3 added the full `octo-cli` command surface via the SDK service clients, plus out-of-band file transfer. Two families of tools coexist on purpose:
+
+- The original family talks directly to `IRtTenantRepository` (MongoDB) — fast generic CRUD, schema discovery, no platform-admin operations.
+- The new family talks HTTP to the backend services via `OctoServiceClientFactory` + `*ClientContext` helpers — same code path the CLI uses, so the orchestrated workflows (tenant create + admin provision, blueprint update + auto-backup, workload deploy through pool, etc.) work identically.
+
+Don't try to merge the two families. Generic CRUD doesn't go through the service clients (no HTTP overhead for read-heavy entity queries); platform-admin operations don't bypass the service clients (skipping them would skip the orchestration).
