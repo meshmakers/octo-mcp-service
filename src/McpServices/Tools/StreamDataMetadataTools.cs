@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models.Aggregation;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.Runtime.Engine.CrateDb;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -106,14 +107,15 @@ public sealed class StreamDataMetadataTools
         }
     }
 
-    /// <summary>Get bucket size + column specs for a rollup archive.</summary>
+    /// <summary>Get bucket size + logical CK-attribute paths for a rollup archive.</summary>
     [McpServerTool(Name = "get_rollup_query_metadata")]
     [Description(
-        "Return the query-construction metadata for a rollup archive: its bucket size + the physical " +
-        "column specs that the rollup aggregates. Use this to plan a downsampling or aggregation query " +
-        "against a rollup. Returns Resolved=false if the rtId doesn't resolve to a rollup archive or stream " +
-        "data is not enabled. Equivalent to GraphQL StreamData.rollupQueryMetadata but without the logical-" +
-        "path back-resolution (column specs are physical for now).")]
+        "Return the query-construction metadata for a rollup archive: its bucket size + the logical " +
+        "CK-attribute paths the rollup ultimately aggregates over. For cascade rollups (rollup over rollup) " +
+        "the physical _sum/_count storage columns on the intermediate rollup are walked back to the " +
+        "original CK attribute paths via RollupLogicalPathResolver. Returns Resolved=false if the rtId " +
+        "doesn't resolve to a rollup archive or stream data is not enabled. Equivalent to GraphQL " +
+        "StreamData.rollupQueryMetadata.")]
     public static async Task<RollupQueryMetadataResponse> GetRollupQueryMetadata(
         McpServer server,
         [Description("Rollup archive runtime id.")] string rollupRtId,
@@ -155,12 +157,17 @@ public sealed class StreamDataMetadataTools
                 };
             }
 
-            // For now: project the source-column paths from the rollup's aggregation specs (rather than
-            // back-resolving them to CK-attribute paths via RollupLogicalPathResolver, which lives in
-            // Runtime.Engine.CrateDb — not referenced by the MCP server). Cascade-rollups (rollup over
-            // rollup) therefore surface the intermediate _sum/_count column names rather than the
-            // ultimate CK path; full back-resolution is a follow-up.
-            var paths = rollup.Aggregations.Select(a => a.SourcePath).Distinct().ToList();
+            // Walk the source-archive chain to recover the *logical* CK-attribute paths the rollup
+            // aggregates over. For a single-step rollup (raw → rollup) the spec's SourcePath is already
+            // the CK attribute path and ResolveAsync returns it as-is. For cascade rollups (rollup →
+            // rollup), the spec's SourcePath is a physical _sum/_count column on the parent — the
+            // resolver reverse-maps it through the parent's aggregation specs until it hits a raw /
+            // time-range archive. Specs whose chain is broken are silently dropped (see resolver docs).
+            var archiveStore = ctx.GetArchiveRuntimeStore();
+            var paths = await RollupLogicalPathResolver.ResolveAsync(
+                rollup,
+                id => archiveStore.GetAsync(id),
+                id => rollupStore.GetAsync(id));
 
             return new RollupQueryMetadataResponse
             {
@@ -168,9 +175,9 @@ public sealed class StreamDataMetadataTools
                 TenantId = ctx.TenantId,
                 RollupRtId = rollupRtId,
                 BucketSizeMs = (long)rollup.BucketSize.TotalMilliseconds,
-                LogicalSourcePaths = paths,
+                LogicalSourcePaths = paths.ToList(),
                 Resolved = true,
-                Message = $"Rollup '{rollupRtId}' resolved: {paths.Count} column(s), {rollup.BucketSize}."
+                Message = $"Rollup '{rollupRtId}' resolved: {paths.Count} logical path(s), {rollup.BucketSize}."
             };
         }
         catch (Exception ex)

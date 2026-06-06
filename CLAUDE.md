@@ -225,6 +225,12 @@ ITenantResolutionService.GetTenantContextAsync(tenantId)
 
 Added specifically for the aggregation work — the platform-admin tools only need `ITenantRepository`, but the stream-data accessors live on `ITenantContext` (a wider interface). The implementation calls `ISystemContext.FindTenantContextAsync(tenantId)`. When a future tool needs `GetRollupArchiveRuntimeStore()` or any other context-only accessor, use this same entry point.
 
+### Cascade-rollup back-resolution (`get_rollup_query_metadata`)
+
+The tool returns the *logical* CK-attribute paths a rollup aggregates over, not the physical storage columns. For a single-step rollup (raw → rollup) the spec's `SourcePath` is already a CK attribute path — the resolver returns it verbatim. For cascade rollups (rollup → rollup), the spec's `SourcePath` is a physical column on the parent rollup's table (e.g. `amountValue_sum`); `RollupLogicalPathResolver.ResolveAsync` walks up through the parent's aggregation specs (via `RollupAggregationColumns.Resolve`) until it hits a raw / time-range archive where the path is finally logical. The MCP server passes two callbacks: `getArchive` (from `ITenantContext.GetArchiveRuntimeStore()`) and `getRollup` (from `GetRollupArchiveRuntimeStore()`). Broken chains (missing parent, store inconsistency) are silently dropped per the resolver contract — a single broken spec must not blank the entire picker.
+
+The resolver lives in the `Meshmakers.Octo.Runtime.Engine.CrateDb` package, which is a direct `McpServices.csproj` dependency. It pulls in Npgsql + Dapper + Polly.Core transitively, but only the `RollupLogicalPathResolver` + `RollupAggregationColumns` static helpers are used — no DB connection is established by the MCP server itself.
+
 ### Pre-SDK validation matters
 
 These tools return `IsSuccess=false` + a clear `ErrorMessage` for:

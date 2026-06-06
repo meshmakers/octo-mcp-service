@@ -20,6 +20,7 @@ public class StreamDataMetadataToolsTests : TestBase
     private readonly Mock<ITenantContext> _tenantCtx = new();
     private readonly Mock<IStreamDataRepository> _streamRepo = new();
     private readonly Mock<IRollupArchiveRuntimeStore> _rollupStore = new();
+    private readonly Mock<IArchiveRuntimeStore> _archiveStore = new();
 
     public StreamDataMetadataToolsTests()
     {
@@ -29,6 +30,7 @@ public class StreamDataMetadataToolsTests : TestBase
         _tenantCtx.Setup(c => c.TenantId).Returns("test-tenant");
         _tenantCtx.Setup(c => c.GetStreamDataRepository()).Returns(_streamRepo.Object);
         _tenantCtx.Setup(c => c.GetRollupArchiveRuntimeStore()).Returns(_rollupStore.Object);
+        _tenantCtx.Setup(c => c.GetArchiveRuntimeStore()).Returns(_archiveStore.Object);
     }
 
     // ── get_archive_storage_stats ───────────────────────────────────────────
@@ -142,6 +144,14 @@ public class StreamDataMetadataToolsTests : TestBase
 
         _rollupStore.Setup(s => s.GetAsync(It.IsAny<OctoObjectId>())).ReturnsAsync(snapshot);
 
+        // RollupLogicalPathResolver walks the chain via the archive store — for a single-step rollup
+        // the parent is a raw archive (RollupAggregations==null), so the resolver returns SourcePath
+        // as-is.
+        var rawSource = new ArchiveSnapshot(
+            new OctoObjectId(SourceArchive), SensorCkType, CkArchiveStatus.Activated,
+            RtWellKnownName: null, Columns: []);
+        _archiveStore.Setup(s => s.GetAsync(It.IsAny<OctoObjectId>())).ReturnsAsync(rawSource);
+
         var result = await StreamDataMetadataTools.GetRollupQueryMetadata(
             MockServer.Object, RollupId);
 
@@ -149,6 +159,72 @@ public class StreamDataMetadataToolsTests : TestBase
         result.Resolved.Should().BeTrue();
         result.BucketSizeMs.Should().Be(3_600_000);
         result.LogicalSourcePaths.Should().BeEquivalentTo(["Power", "Temperature"]);
+    }
+
+    [Fact]
+    public async Task GetRollupMetadata_CascadeRollup_BackResolvesPhysicalColumnsToLogicalPaths()
+    {
+        // Monthly is a cascade rollup over Daily. Its specs reference Daily's physical storage columns
+        // (amountValue_sum / amountValue_count) — the studio's column picker needs them collapsed back
+        // to the original CK attribute path. This is the gap ROADMAP #3 closes.
+        var monthlyRtId = new OctoObjectId("507f1f77bcf86cd799439020");
+        var dailyRtId = new OctoObjectId("507f1f77bcf86cd799439021");
+        var rawRtId = new OctoObjectId("507f1f77bcf86cd799439022");
+
+        var monthly = new RollupArchiveSnapshot(
+            RtId: monthlyRtId,
+            TargetCkTypeId: SensorCkType,
+            Status: CkArchiveStatus.Activated,
+            RtWellKnownName: "monthly",
+            SourceArchiveRtId: dailyRtId,
+            BucketSize: TimeSpan.FromDays(30),
+            WatermarkLag: TimeSpan.FromMinutes(15),
+            LastAggregatedBucketEnd: null,
+            Aggregations:
+            [
+                new CkRollupAggregationSpec("amountValue_sum", CkRollupFunction.Sum, null),
+                new CkRollupAggregationSpec("amountValue_count", CkRollupFunction.Sum, null)
+            ],
+            FrozenUntil: null);
+
+        var daily = new RollupArchiveSnapshot(
+            RtId: dailyRtId,
+            TargetCkTypeId: SensorCkType,
+            Status: CkArchiveStatus.Activated,
+            RtWellKnownName: "daily",
+            SourceArchiveRtId: rawRtId,
+            BucketSize: TimeSpan.FromDays(1),
+            WatermarkLag: TimeSpan.FromMinutes(5),
+            LastAggregatedBucketEnd: null,
+            Aggregations:
+            [
+                new CkRollupAggregationSpec("amountValue", CkRollupFunction.Sum, null),
+                new CkRollupAggregationSpec("amountValue", CkRollupFunction.Count, null)
+            ],
+            FrozenUntil: null);
+
+        // Archive-store view: daily appears as an ArchiveSnapshot with RollupAggregations set (cascade
+        // signal); raw appears with RollupAggregations==null (chain termination).
+        var dailyAsArchive = new ArchiveSnapshot(
+            dailyRtId, SensorCkType, CkArchiveStatus.Activated, "daily", Columns: [])
+        {
+            RollupAggregations = daily.Aggregations
+        };
+        var rawAsArchive = new ArchiveSnapshot(
+            rawRtId, SensorCkType, CkArchiveStatus.Activated, "raw", Columns: []);
+
+        _rollupStore.Setup(s => s.GetAsync(monthlyRtId)).ReturnsAsync(monthly);
+        _rollupStore.Setup(s => s.GetAsync(dailyRtId)).ReturnsAsync(daily);
+        _archiveStore.Setup(s => s.GetAsync(dailyRtId)).ReturnsAsync(dailyAsArchive);
+        _archiveStore.Setup(s => s.GetAsync(rawRtId)).ReturnsAsync(rawAsArchive);
+
+        var result = await StreamDataMetadataTools.GetRollupQueryMetadata(
+            MockServer.Object, monthlyRtId.ToString());
+
+        result.IsSuccess.Should().BeTrue();
+        result.Resolved.Should().BeTrue();
+        // Two physical columns (_sum + _count) collapse to one logical CK attribute path.
+        result.LogicalSourcePaths.Should().BeEquivalentTo(["amountValue"]);
     }
 
     [Fact]

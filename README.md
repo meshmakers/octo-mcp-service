@@ -531,6 +531,11 @@ cd src/McpServices && dotnet run --environment Development
 
 ## 📝 Changelog
 
+### **Version 1.5.2** — Cascade-rollup logical-path back-resolution
+- `get_rollup_query_metadata` now walks the rollup chain via `RollupLogicalPathResolver` (from `Meshmakers.Octo.Runtime.Engine.CrateDb`, added as a direct package reference): single-step rollups return their `SourcePath` as-is; cascade rollups (rollup over rollup) collapse the intermediate `_sum`/`_count` storage columns back to the original CK attribute paths — matches the studio's column-picker behavior
+- `ITenantContext.GetArchiveRuntimeStore()` accessor wired into `StreamDataMetadataTools` for the resolver's `getArchive` callback
+- 1 new test (`GetRollupMetadata_CascadeRollup_BackResolvesPhysicalColumnsToLogicalPaths`) plus the existing happy-path test now seeds a raw source archive into the new archive-store mock; suite at 492/492
+
 ### **Version 1.5.1** — Full filter operator coverage
 - `FilterOperatorDto` gains `Like` (SQL-style wildcard), `AnyEq` and `AnyLike` (scalar-array element predicates)
 - Stream-data mapping (`StreamDataAggregationTools.MapFilterOperator`) now wires every DTO value to its engine counterpart — previously `Contains` / `StartsWith` / `EndsWith` / `IsNull` / `IsNotNull` / `Regex` silently degraded to `Equals`

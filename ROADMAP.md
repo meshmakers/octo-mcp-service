@@ -1,6 +1,6 @@
 # Roadmap
 
-Follow-up work for the OctoMesh MCP server. The service is operationally complete as of v1.5.1 — 176 tools cover the full `octo-cli` command surface, the asset-repo GraphQL transient + persisted query APIs (with the full engine filter-operator set), file I/O, and generic CK CRUD. The two items below are the gaps I'd close next, in priority order.
+Follow-up work for the OctoMesh MCP server. The service is operationally complete as of v1.5.2 — 176 tools cover the full `octo-cli` command surface, the asset-repo GraphQL transient + persisted query APIs (with the full engine filter-operator set and cascade-rollup back-resolution), file I/O, and generic CK CRUD. The one item below is the only gap I'd close next.
 
 For the full coverage picture (what's already in vs. what's deferred by design vs. what's never been on the menu), see the changelog in [README.md](README.md) and the architecture sections in [CLAUDE.md](CLAUDE.md).
 
@@ -18,29 +18,9 @@ For the full coverage picture (what's already in vs. what's deferred by design v
 
 ---
 
-## 3. Cascade-rollup logical-path back-resolution
+## 3. Cascade-rollup logical-path back-resolution ✅ Shipped in v1.5.2
 
-**Status**: Known caveat in `get_rollup_query_metadata`.
-
-For a single-step rollup (raw archive → rollup), the tool returns the physical source paths from the rollup's aggregation specs, which match the CK attribute paths on the source. Fine.
-
-For a **cascade rollup** (rollup → rollup), the source paths are the intermediate rollup's physical columns (`_sum`, `_count`, etc.) — not the original CK attribute paths the user would recognize. The GraphQL resolver in asset-repo-services handles this via `RollupLogicalPathResolver` in `Runtime.Engine.CrateDb`, walking back through the chain.
-
-That resolver isn't referenced by the MCP server (it'd add a backend package the MCP doesn't otherwise need). Adding it is straightforward but pulls in transitive deps.
-
-### Sketch
-
-- Add `Meshmakers.Octo.Runtime.Engine.CrateDb` PackageReference to `McpServices.csproj`
-- In `get_rollup_query_metadata`, when the rollup's source is itself a rollup, call `RollupLogicalPathResolver.ResolveAsync(snapshot, getArchive, getRollup, ct)` and return its result instead of the raw `Aggregations.SourcePath` list
-- Test: stub a 2-step cascade chain via the rollup runtime store mock
-
-### Effort
-
-~½ day. The exception: if adding the CrateDb package breaks anything in the dep graph, it could grow.
-
-### Why it's #3 not #1
-
-Cascade rollups are rare in practice — most installations use single-step rollups. The current behaviour isn't *wrong*, it's just less helpful for the niche case. Worth doing eventually; not blocking.
+`get_rollup_query_metadata` now back-resolves cascade rollups via `RollupLogicalPathResolver` (from the `Meshmakers.Octo.Runtime.Engine.CrateDb` package, added as a direct dependency). For a single-step rollup (raw → rollup) the spec's `SourcePath` is returned as-is; for cascade rollups (rollup → rollup) the physical `_sum`/`_count` storage columns are walked back through the parent's aggregation specs until a raw / time-range archive is hit, so the studio picker shows the original CK attribute paths the operator would recognize. Specs whose chain is broken (missing parent, store inconsistency) are silently dropped per the resolver contract.
 
 ---
 

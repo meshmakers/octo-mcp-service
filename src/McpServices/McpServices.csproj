@@ -39,6 +39,7 @@
         <PackageReference Include="Meshmakers.Octo.Services.Infrastructure" Version="$(OctoVersion)"/>
         <PackageReference Include="Meshmakers.Octo.Services.Observability" Version="$(OctoVersion)"/>
         <PackageReference Include="Meshmakers.Octo.Runtime.Engine.MongoDb" Version="$(OctoVersion)"/>
+        <PackageReference Include="Meshmakers.Octo.Runtime.Engine.CrateDb" Version="$(OctoVersion)"/>
         <PackageReference Include="Meshmakers.Octo.Services.Swagger" Version="$(OctoVersion)"/>
         <ProjectReference Include="..\McpServices.Resources\McpServices.Resources.csproj"/>
 
