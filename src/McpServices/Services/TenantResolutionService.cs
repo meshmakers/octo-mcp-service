@@ -42,4 +42,10 @@ internal class TenantResolutionService(
         var tenantId = ResolveTenantId(toolTenantId);
         return await systemContext.FindTenantRepositoryAsync(tenantId);
     }
+
+    public async Task<ITenantContext> GetTenantContextAsync(string? toolTenantId)
+    {
+        var tenantId = ResolveTenantId(toolTenantId);
+        return await systemContext.FindTenantContextAsync(tenantId);
+    }
 }

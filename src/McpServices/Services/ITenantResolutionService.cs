@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 
 namespace Meshmakers.Octo.Backend.McpServices.Services;
@@ -24,4 +25,13 @@ public interface ITenantResolutionService
     /// <param name="toolTenantId">Optional tenant ID passed as tool parameter.</param>
     /// <returns>The tenant repository for the resolved tenant.</returns>
     Task<ITenantRepository> GetTenantRepositoryAsync(string? toolTenantId);
+
+    /// <summary>
+    ///     Resolves the tenant and returns the corresponding tenant context. The tenant context gives access
+    ///     to the stream-data repository, archive runtime store, and rollup runtime store — needed by the
+    ///     stream-data + storage-stats + rollup-metadata MCP tools.
+    /// </summary>
+    /// <param name="toolTenantId">Optional tenant ID passed as tool parameter.</param>
+    /// <returns>The tenant context for the resolved tenant.</returns>
+    Task<ITenantContext> GetTenantContextAsync(string? toolTenantId);
 }
