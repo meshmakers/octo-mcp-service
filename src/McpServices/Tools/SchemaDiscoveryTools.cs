@@ -21,6 +21,64 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 public sealed class SchemaDiscoveryTools
 {
     /// <summary>
+    ///     Get the attribute paths reachable from a CK type that may be used as archive columns.
+    /// </summary>
+    [McpServerTool(Name = "get_available_archive_paths")]
+    [Description(
+        "Return the attribute paths reachable from the given CK type that may be used as columns in a " +
+        "CkArchive. Walks the CK type/record graph and emits one row per reachable path with its " +
+        "primitive type, whether it's a record / array, and the record CK id when applicable. Bounded " +
+        "by maxDepth (default 5) so recursive records terminate. Equivalent to GraphQL " +
+        "Octo.availableArchivePaths.")]
+    public static async Task<AvailableArchivePathsResponse> GetAvailableArchivePaths(
+        McpServer server,
+        [Description("CK type id to introspect, e.g. 'Energy/Sensor' or 'Energy-1/Sensor-1'.")] string ckTypeId,
+        [Description("Maximum recursion depth into nested records. Defaults to 5; clamped to >= 1.")] int? maxDepth = null,
+        [Description("Tenant id. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(ckTypeId))
+        {
+            return new AvailableArchivePathsResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "ckTypeId is required."
+            };
+        }
+
+        try
+        {
+            var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+            var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
+
+            var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
+            await tenantRepository.LoadCacheForTenantAsync(ckCacheService);
+
+            var effectiveMaxDepth = maxDepth ?? AvailableArchivePathsResolver.DefaultMaxDepth;
+            var paths = AvailableArchivePathsResolver.Resolve(
+                ckCacheService, tenantRepository.TenantId,
+                new RtCkId<CkTypeId>(ckTypeId), effectiveMaxDepth);
+
+            return new AvailableArchivePathsResponse
+            {
+                IsSuccess = true,
+                CkTypeId = ckTypeId,
+                MaxDepth = Math.Max(1, effectiveMaxDepth),
+                Paths = paths,
+                PathCount = paths.Count
+            };
+        }
+        catch (Exception ex)
+        {
+            return new AvailableArchivePathsResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = ex.Message,
+                CkTypeId = ckTypeId
+            };
+        }
+    }
+
+    /// <summary>
     ///     Get all models available in the system
     /// </summary>
     /// <param name="server">MCP Server instance</param>

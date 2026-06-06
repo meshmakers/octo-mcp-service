@@ -1,6 +1,8 @@
 # Roadmap
 
-Follow-up work for the OctoMesh MCP server. The service is operationally complete as of v1.5.2 — 176 tools cover the full `octo-cli` command surface, the asset-repo GraphQL transient + persisted query APIs (with the full engine filter-operator set and cascade-rollup back-resolution), file I/O, and generic CK CRUD. The one item below is the only gap I'd close next.
+Follow-up work for the OctoMesh MCP server. As of v1.5.3 the original four-item roadmap is closed — 177 tools cover the full `octo-cli` command surface, the asset-repo GraphQL transient + persisted query APIs (with the full engine filter-operator set and cascade-rollup back-resolution), the `availableArchivePaths` studio introspection, file I/O, and generic CK CRUD.
+
+This file is now a record of what shipped and what was deliberately left off the list. If new gaps surface in practice, add them above the "deliberately not on this list" section.
 
 For the full coverage picture (what's already in vs. what's deferred by design vs. what's never been on the menu), see the changelog in [README.md](README.md) and the architecture sections in [CLAUDE.md](CLAUDE.md).
 
@@ -24,26 +26,9 @@ For the full coverage picture (what's already in vs. what's deferred by design v
 
 ---
 
-## 4. `available_archive_paths` introspection tool
+## 4. `get_available_archive_paths` introspection tool ✅ Shipped in v1.5.3
 
-**Status**: Not implemented. Would mirror `OctoQuery.availableArchivePaths`.
-
-When configuring a new CkArchive, the studio shows a picker of available CK-attribute paths that can be used as columns. The GraphQL resolver walks the CK type graph with a depth cap and returns flat attribute paths annotated with their value types. A future studio-like AI workflow ("set up an archive for this sensor type") would need this.
-
-### Sketch
-
-- New tool: `get_available_archive_paths(ckTypeId, maxDepth = 5)`
-- Reuse: the existing `IRtTenantRepository.GetCkTypeGraphAsync` already in the family-2 toolchain
-- Walk the type graph, emit `{ path, valueType, isOptional }` records
-- Likely lives in `SchemaDiscoveryTools.cs` to stay with family 2
-
-### Effort
-
-~½ day. Specialised introspection; small surface.
-
-### Why it's #4
-
-Useful but situational — the AI only needs it during archive setup, which is a low-frequency operation. The existing `get_type_schema` covers 80% of the same need (it returns the same attribute list, just without the archive-specific recursion cap).
+`get_available_archive_paths(ckTypeId, maxDepth = 5)` walks the CK type/record graph from the given CK type and emits one row per reachable attribute path — primitive type, `IsRecord`, `IsArray`, `RecordTypeId`. Bounded by `maxDepth` (default 5, clamped to ≥1) so recursive records terminate predictably; a visited-record set prevents infinite recursion on self-referential records (tree-shaped records whose child slot points back at the parent type). Mirrors the asset-repo `Octo.availableArchivePaths` GraphQL resolver — the AI now has the same studio-style picker the operator uses when composing a new CkArchive.
 
 ---
 

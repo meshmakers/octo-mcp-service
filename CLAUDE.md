@@ -225,6 +225,17 @@ ITenantResolutionService.GetTenantContextAsync(tenantId)
 
 Added specifically for the aggregation work — the platform-admin tools only need `ITenantRepository`, but the stream-data accessors live on `ITenantContext` (a wider interface). The implementation calls `ISystemContext.FindTenantContextAsync(tenantId)`. When a future tool needs `GetRollupArchiveRuntimeStore()` or any other context-only accessor, use this same entry point.
 
+### Studio archive-path introspection (`get_available_archive_paths`)
+
+Mirrors the asset-repo GraphQL `Octo.availableArchivePaths` resolver. Walks the CK type/record graph from a starting `ckTypeId` and emits one `ArchivePathInfo` per reachable attribute path: `Path`, `PrimitiveType` (the `AttributeValueTypesDto` name as a string), `IsRecord`, `IsArray`, `RecordTypeId`.
+
+- **Termination**: bounded by `maxDepth` (default 5, clamped to ≥1) so recursive records terminate predictably. Plus a visited-record set in the recursion frame so self-referential records (tree-shaped records whose child slot points back at the parent type) don't infinite-loop — the parent record row is emitted once and re-entry into the same record id is skipped (popping the visited set on the way out so a sibling that references the same record at a different path is still walked).
+- **Array-flag propagation**: when the walker descends into a `RecordArray` (or any other array-shaped attribute), the `IsArray` flag carries down into the record's children. A leaf like `Contacts.Email` is therefore `IsArray=true` — the caller can tell apart "this path is a column" from "this path is an element of an array column" without re-reading the parent row.
+- **Missing-record fallback**: when `ValueCkRecordId` references a record that isn't in the cache (model partially loaded, cache stale), the record row itself is still emitted but children are skipped — matches the GraphQL resolver and keeps the picker partially useful.
+- **No SDK call**: the resolver runs entirely against `ICkCacheService` (the same cache the schema-discovery tools use), so no engine round-trip is needed. The tool calls `LoadCacheForTenantAsync` first to make sure the tenant's CK model is hydrated.
+
+The resolver lives in `Services/AvailableArchivePathsResolver.cs` as an `internal static`. If a future tool needs a different traversal (e.g. include navigation properties, emit only leaf paths), extend the helper rather than duplicating the walk.
+
 ### Cascade-rollup back-resolution (`get_rollup_query_metadata`)
 
 The tool returns the *logical* CK-attribute paths a rollup aggregates over, not the physical storage columns. For a single-step rollup (raw → rollup) the spec's `SourcePath` is already a CK attribute path — the resolver returns it verbatim. For cascade rollups (rollup → rollup), the spec's `SourcePath` is a physical column on the parent rollup's table (e.g. `amountValue_sum`); `RollupLogicalPathResolver.ResolveAsync` walks up through the parent's aggregation specs (via `RollupAggregationColumns.Resolve`) until it hits a raw / time-range archive where the path is finally logical. The MCP server passes two callbacks: `getArchive` (from `ITenantContext.GetArchiveRuntimeStore()`) and `getRollup` (from `GetRollupArchiveRuntimeStore()`). Broken chains (missing parent, store inconsistency) are silently dropped per the resolver contract — a single broken spec must not blank the entire picker.

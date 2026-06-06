@@ -1,6 +1,6 @@
 # OctoMesh MCP Service
 
-A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, exposing **~176 tools** that mirror the full surface of `octo-cli`, the asset-repo GraphQL transient + persisted query APIs, plus generic CK-type CRUD. AI assistants get direct access to tenant administration, identity management, communication-controller, blueprints, time-series queries + aggregations, reporting, and large-file transfers — without ever invoking the CLI or sending GraphQL.
+A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, exposing **~177 tools** that mirror the full surface of `octo-cli`, the asset-repo GraphQL transient + persisted query APIs (including the `availableArchivePaths` studio introspection), plus generic CK-type CRUD. AI assistants get direct access to tenant administration, identity management, communication-controller, blueprints, time-series queries + aggregations, reporting, and large-file transfers — without ever invoking the CLI or sending GraphQL.
 
 ## 🚀 Features
 
@@ -100,7 +100,7 @@ dotnet run
 
 ## 🛠️ Available Tools
 
-> **176 tools total.** Most tools mirror the corresponding `octo-cli` command (snake_case naming); the aggregation + persisted-query tools mirror the asset-repo GraphQL transient + persisted query surface. All platform-admin tools accept an optional `tenantId` parameter that falls back to the URL route. Destructive operations require an explicit `confirm: true` parameter (no silent state changes).
+> **177 tools total.** Most tools mirror the corresponding `octo-cli` command (snake_case naming); the aggregation + persisted-query + archive-path-introspection tools mirror the asset-repo GraphQL transient + persisted query surface. All platform-admin tools accept an optional `tenantId` parameter that falls back to the URL route. Destructive operations require an explicit `confirm: true` parameter (no silent state changes).
 
 ### **Authentication & Identity Bootstrap** (4)
 `authenticate` · `check_auth_status` · `whoami` · `list_tenants`
@@ -159,9 +159,9 @@ dotnet run
 - Persisted queries (2): `execute_runtime_query` · `execute_stream_data_query`
 - Archive metadata (2): `get_archive_storage_stats` · `get_rollup_query_metadata`
 
-### **Generic Runtime CRUD + Schema Discovery** (15)
+### **Generic Runtime CRUD + Schema Discovery** (16)
 - CRUD (6): `query_entities` · `query_entities_simple` · `get_entity_by_id` · `create_entity` · `update_entity` · `delete_entity`<sup>‡</sup>
-- Schema (5): `get_available_types` · `get_type_schema` · `get_available_models` · `search_types` · `get_association_tree` · `navigate_associations`
+- Schema (7): `get_available_types` · `get_type_schema` · `get_available_models` · `search_types` · `get_association_tree` · `navigate_associations` · `get_available_archive_paths`
 - Tool Management (4): `list_available_tools` · `get_tool_details` · `get_tool_statistics` · `validate_tool_parameters`
 - Echo (1): `Echo`
 
@@ -530,6 +530,12 @@ cd src/McpServices && dotnet run --environment Development
 ```
 
 ## 📝 Changelog
+
+### **Version 1.5.3** — Studio archive-path introspection
+- New `get_available_archive_paths(ckTypeId, maxDepth=5)` tool walks the CK type/record graph and returns one `{ Path, PrimitiveType, IsRecord, IsArray, RecordTypeId }` row per reachable attribute path — the studio's column-picker behavior when composing a new CkArchive
+- `AvailableArchivePathsResolver` reproduces the asset-repo GraphQL `availableArchivePaths` resolver in MCP-side code; depth-bounded (clamped to ≥1), visited-record cycle guard, array-flag propagates into nested record attributes
+- Lives in `SchemaDiscoveryTools.cs` to stay with the family-2 generic-CRUD tools (uses `ICkCacheService` directly, no SDK call)
+- 9 new tests covering primitive walks, record recursion, RecordArray array-flag propagation, depth cap, self-referential record cycle guard, missing-record fallback, and `maxDepth=0` clamping; suite at 501/501
 
 ### **Version 1.5.2** — Cascade-rollup logical-path back-resolution
 - `get_rollup_query_metadata` now walks the rollup chain via `RollupLogicalPathResolver` (from `Meshmakers.Octo.Runtime.Engine.CrateDb`, added as a direct package reference): single-step rollups return their `SourcePath` as-is; cascade rollups (rollup over rollup) collapse the intermediate `_sum`/`_count` storage columns back to the original CK attribute paths — matches the studio's column-picker behavior
