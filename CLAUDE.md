@@ -236,6 +236,17 @@ These tools return `IsSuccess=false` + a clear `ErrorMessage` for:
 
 Without this, the engine throws on the SDK side, which surfaces as a 500-style exception with less context. The AI client reads `ErrorMessage` and can fix its tool call directly.
 
+### Filter operator coverage
+
+`FilterOperatorDto` mirrors the engine's `FieldFilterOperator`. The DTO set is: `Equals` / `NotEquals` / `Contains` / `StartsWith` / `EndsWith` / `GreaterThan` / `GreaterThanOrEqual` / `LessThan` / `LessThanOrEqual` / `Between` / `In` / `NotIn` / `IsNull` / `IsNotNull` / `Regex` / `Like` / `AnyEq` / `AnyLike`.
+
+- **Substring vs SQL pattern**: `Contains` / `StartsWith` / `EndsWith` take a plain substring; `Like` takes a `%`-wildcard pattern. Prefer the dedicated ops when you don't need wildcards — they're cheaper and clearer.
+- **Array predicates**: `AnyEq` and `AnyLike` only apply to scalar-array CK attributes; they test "any element matches". Using them on a non-array attribute is an engine-side error, not pre-validated.
+- **Null predicates**: `IsNull` and `IsNotNull` ignore the `value` field on `FieldFilterDto`.
+- **No silent fallback**: every operator maps explicitly. `StreamDataAggregationTools.MapFilterOperator` and `RuntimeAggregationTools.BuildTypedFilters` throw `ArgumentOutOfRangeException` on an unknown DTO value rather than silently mapping to `Equals` (the pre-v1.5.1 behavior, which masked filter typos). The CRUD-side `RuntimeEntityCrudTools.ApplyFieldFilter` already threw.
+
+When adding a new engine operator, extend the DTO + both switches + add a `[Theory]` row in `FilterOperatorMappingTests`.
+
 ### Persisted-query execution (`execute_runtime_query` + `execute_stream_data_query`)
 
 These two tools execute a *stored* query entity by RtId. The pattern is: load the entity, dispatch on its CK subtype, build the engine-side query options from the persisted state, optionally merge in runtime overrides, execute, project the result.

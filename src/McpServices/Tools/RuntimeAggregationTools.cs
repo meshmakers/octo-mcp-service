@@ -520,6 +520,34 @@ public sealed class RuntimeAggregationTools
                 case FilterOperatorDto.EndsWith:
                     fieldFilterCriteria.FieldEndsWith(filter.AttributePath, filter.Value?.ToString());
                     break;
+                case FilterOperatorDto.IsNull:
+                    fieldFilterCriteria.FieldIsNull(filter.AttributePath);
+                    break;
+                case FilterOperatorDto.IsNotNull:
+                    fieldFilterCriteria.FieldIsNotNull(filter.AttributePath);
+                    break;
+                case FilterOperatorDto.Regex:
+                    fieldFilterCriteria.FieldMatchRegex(filter.AttributePath, filter.Value);
+                    break;
+                case FilterOperatorDto.Like:
+                    fieldFilterCriteria.FieldLike(filter.AttributePath, filter.Value);
+                    break;
+                case FilterOperatorDto.AnyEq:
+                    fieldFilterCriteria.FieldAnyEq(filter.AttributePath, filter.Value);
+                    break;
+                case FilterOperatorDto.AnyLike:
+                    fieldFilterCriteria.FieldAnyLike(filter.AttributePath, filter.Value);
+                    break;
+                // In/NotIn already handled above when filter.Value is an IEnumerable<object>.
+                // Anything not matched at this point is a value-shape mismatch on In/NotIn
+                // (caller passed a non-collection) — fall through silently to preserve the
+                // legacy behavior of skipping that filter entry rather than failing the whole call.
+                case FilterOperatorDto.In:
+                case FilterOperatorDto.NotIn:
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(filter.Operator), filter.Operator,
+                        $"Unknown filter operator: {filter.Operator}");
             }
         }
 

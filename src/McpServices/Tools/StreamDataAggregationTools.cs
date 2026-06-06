@@ -776,7 +776,12 @@ public sealed class StreamDataAggregationTools
             .ToList();
     }
 
-    private static FieldFilterOperator MapFilterOperator(FilterOperatorDto op) => op switch
+    /// <summary>
+    ///     Maps the MCP-side <see cref="FilterOperatorDto"/> to the engine's <see cref="FieldFilterOperator"/>.
+    ///     Throws on an unknown DTO value so a typo doesn't silently degrade to equality matching (the
+    ///     previous behavior, which masked real filter bugs).
+    /// </summary>
+    internal static FieldFilterOperator MapFilterOperator(FilterOperatorDto op) => op switch
     {
         FilterOperatorDto.Equals => FieldFilterOperator.Equals,
         FilterOperatorDto.NotEquals => FieldFilterOperator.NotEquals,
@@ -787,7 +792,17 @@ public sealed class StreamDataAggregationTools
         FilterOperatorDto.In => FieldFilterOperator.In,
         FilterOperatorDto.NotIn => FieldFilterOperator.NotIn,
         FilterOperatorDto.Between => FieldFilterOperator.Between,
-        _ => FieldFilterOperator.Equals
+        FilterOperatorDto.Contains => FieldFilterOperator.Contains,
+        FilterOperatorDto.StartsWith => FieldFilterOperator.StartsWith,
+        FilterOperatorDto.EndsWith => FieldFilterOperator.EndsWith,
+        FilterOperatorDto.IsNull => FieldFilterOperator.IsNull,
+        FilterOperatorDto.IsNotNull => FieldFilterOperator.IsNotNull,
+        FilterOperatorDto.Regex => FieldFilterOperator.MatchRegEx,
+        FilterOperatorDto.Like => FieldFilterOperator.Like,
+        FilterOperatorDto.AnyEq => FieldFilterOperator.AnyEq,
+        FilterOperatorDto.AnyLike => FieldFilterOperator.AnyLike,
+        _ => throw new ArgumentOutOfRangeException(nameof(op), op,
+            $"Unknown filter operator: {op}")
     };
 }
 

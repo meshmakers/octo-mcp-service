@@ -47,6 +47,24 @@ public enum FilterOperatorDto
     /// <summary>Is not NULL</summary>
     IsNotNull,
 
-    /// <summary>Regular expression</summary>
-    Regex
+    /// <summary>Regular expression match (maps to engine MatchRegEx).</summary>
+    Regex,
+
+    /// <summary>
+    ///     SQL-style wildcard string match — value uses <c>%</c> as the wildcard (e.g. <c>"%inverter%"</c>).
+    ///     For substring/prefix/suffix without wildcards prefer Contains / StartsWith / EndsWith.
+    /// </summary>
+    Like,
+
+    /// <summary>
+    ///     Element-wise equality on a scalar-array attribute (engine <c>AnyEq</c>): true when at least one
+    ///     element equals the comparison value. Use on array-typed CK attributes.
+    /// </summary>
+    AnyEq,
+
+    /// <summary>
+    ///     Element-wise SQL-style match on a scalar-array attribute (engine <c>AnyLike</c>): true when at
+    ///     least one element matches the wildcard pattern.
+    /// </summary>
+    AnyLike
 }

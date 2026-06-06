@@ -531,6 +531,13 @@ cd src/McpServices && dotnet run --environment Development
 
 ## 📝 Changelog
 
+### **Version 1.5.1** — Full filter operator coverage
+- `FilterOperatorDto` gains `Like` (SQL-style wildcard), `AnyEq` and `AnyLike` (scalar-array element predicates)
+- Stream-data mapping (`StreamDataAggregationTools.MapFilterOperator`) now wires every DTO value to its engine counterpart — previously `Contains` / `StartsWith` / `EndsWith` / `IsNull` / `IsNotNull` / `Regex` silently degraded to `Equals`
+- Runtime aggregation mapping (`RuntimeAggregationTools.BuildTypedFilters`) gains the missing `IsNull` / `IsNotNull` / `Regex` / `Like` / `AnyEq` / `AnyLike` cases — they used to drop silently
+- Both filter mappers now throw `ArgumentOutOfRangeException` on an unknown DTO value rather than degrading to `Equals`, so a typo surfaces as an actionable error instead of returning the wrong rows
+- 25 new tests (`FilterOperatorMappingTests` theory matrices); suite at 491/491
+
 ### **Version 1.5.0** — Persisted-query execution
 - Two new tools execute studio-authored persisted queries by RtId, with optional runtime overrides:
   - `execute_runtime_query` — loads `RtPersistentQuery`, dispatches on CK subtype

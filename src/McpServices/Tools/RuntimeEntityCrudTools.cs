@@ -969,6 +969,15 @@ public sealed class RuntimeEntityCrudTools
             case FilterOperatorDto.Regex:
                 fieldFilterCriteria.FieldRegex(filter.AttributePath, filter.Value?.ToString());
                 break;
+            case FilterOperatorDto.Like:
+                fieldFilterCriteria.FieldLike(filter.AttributePath, filter.Value);
+                break;
+            case FilterOperatorDto.AnyEq:
+                fieldFilterCriteria.FieldAnyEq(filter.AttributePath, filter.Value);
+                break;
+            case FilterOperatorDto.AnyLike:
+                fieldFilterCriteria.FieldAnyLike(filter.AttributePath, filter.Value);
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(filter.Operator), filter.Operator,
                     $@"Filter operator {filter.Operator} unsupported");

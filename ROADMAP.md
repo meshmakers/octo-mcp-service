@@ -1,6 +1,6 @@
 # Roadmap
 
-Follow-up work for the OctoMesh MCP server. The service is operationally complete as of v1.5 — 176 tools cover the full `octo-cli` command surface, the asset-repo GraphQL transient + persisted query APIs, file I/O, and generic CK CRUD. The three items below are the gaps I'd close next, in priority order.
+Follow-up work for the OctoMesh MCP server. The service is operationally complete as of v1.5.1 — 176 tools cover the full `octo-cli` command surface, the asset-repo GraphQL transient + persisted query APIs (with the full engine filter-operator set), file I/O, and generic CK CRUD. The two items below are the gaps I'd close next, in priority order.
 
 For the full coverage picture (what's already in vs. what's deferred by design vs. what's never been on the menu), see the changelog in [README.md](README.md) and the architecture sections in [CLAUDE.md](CLAUDE.md).
 
@@ -12,30 +12,9 @@ For the full coverage picture (what's already in vs. what's deferred by design v
 
 ---
 
-## 2. Stream-data filter operator extension
+## 2. Stream-data filter operator extension ✅ Shipped in v1.5.1
 
-**Status**: Detail gap. Engine supports more operators than MCP currently exposes.
-
-Today the stream-data tools accept `FieldFilterCriteriaDto` and map it to the engine's `FieldFilter`. The mapping covers `Equals` / `NotEquals` / `Greater*` / `Less*` / `In` / `NotIn` / `Between`. Unknown operators silently fall back to `Equals`. The engine also has:
-
-- `Like` — SQL-style wildcard string match
-- `MatchRegEx` — regex match
-- `AnyEq` / `AnyLike` — element-wise checks for scalar-array fields
-- `IsNull` / `IsNotNull` — null-presence predicates
-
-`Like` and the null predicates are the most often-asked-for in practice — operators like "give me all sensors whose Name contains 'inverter'" or "rows whose ErrorReason is set" are common AI prompts that today silently degrade to an equality check.
-
-### Sketch
-
-- Extend `FilterOperatorDto` with the missing values
-- Extend the operator switch in `StreamDataAggregationTools.MapFilterOperator`
-- Extend the runtime operator switch in `RuntimeAggregationTools.BuildTypedFilters` (same gap exists there)
-- Add tests for the new branches (~6 tests)
-- Update the AggregationMapper section in CLAUDE.md to drop the "unknown operators fall back to Equals" caveat
-
-### Effort
-
-~½ day. Mechanical extension, no design questions.
+`FilterOperatorDto` now covers the full engine `FieldFilterOperator` set — `Like`, `AnyEq`, `AnyLike` joined the existing values; `IsNull`, `IsNotNull`, `Regex`, `Contains`, `StartsWith`, `EndsWith` are now wired through the stream-data mapping (they were already present in the runtime CRUD switch but silently dropped on the stream-data side). Both `StreamDataAggregationTools.MapFilterOperator` and `RuntimeAggregationTools.BuildTypedFilters` now throw on an unknown DTO value rather than degrading to `Equals` — the typo-masking behavior is gone. See the *Filter operator coverage* section in [CLAUDE.md](CLAUDE.md).
 
 ---
 
