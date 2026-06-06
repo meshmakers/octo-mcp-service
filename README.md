@@ -1,6 +1,6 @@
 # OctoMesh MCP Service
 
-A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, exposing **~174 tools** that mirror the full surface of `octo-cli`, the asset-repo GraphQL transient-query API, plus generic CK-type CRUD. AI assistants get direct access to tenant administration, identity management, communication-controller, blueprints, time-series queries + aggregations, reporting, and large-file transfers — without ever invoking the CLI or sending GraphQL.
+A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, exposing **~176 tools** that mirror the full surface of `octo-cli`, the asset-repo GraphQL transient + persisted query APIs, plus generic CK-type CRUD. AI assistants get direct access to tenant administration, identity management, communication-controller, blueprints, time-series queries + aggregations, reporting, and large-file transfers — without ever invoking the CLI or sending GraphQL.
 
 ## 🚀 Features
 
@@ -100,7 +100,7 @@ dotnet run
 
 ## 🛠️ Available Tools
 
-> **174 tools total.** Most tools mirror the corresponding `octo-cli` command (snake_case naming); the aggregation tools mirror the asset-repo GraphQL transient-query surface. All platform-admin tools accept an optional `tenantId` parameter that falls back to the URL route. Destructive operations require an explicit `confirm: true` parameter (no silent state changes).
+> **176 tools total.** Most tools mirror the corresponding `octo-cli` command (snake_case naming); the aggregation + persisted-query tools mirror the asset-repo GraphQL transient + persisted query surface. All platform-admin tools accept an optional `tenantId` parameter that falls back to the URL route. Destructive operations require an explicit `confirm: true` parameter (no silent state changes).
 
 ### **Authentication & Identity Bootstrap** (4)
 `authenticate` · `check_auth_status` · `whoami` · `list_tenants`
@@ -153,9 +153,10 @@ dotnet run
 - Fixup Scripts: `run_fixup_scripts`<sup>‡</sup> (create via generic `create_entity` with `RtFixup` CK type)
 - HTTP: `PUT /file-transfer/upload/{id}` · `GET /file-transfer/download/{id}` (range-enabled, 5 GiB cap)
 
-### **Runtime + Stream Data Aggregations** (8)
+### **Runtime + Stream Data Aggregations** (10)
 - Runtime aggregation (2): `query_entities_aggregation` · `query_entities_grouping`
 - Stream data (4): `query_stream_data_simple` · `query_stream_data_aggregation` · `query_stream_data_grouping` · `query_stream_data_downsampling`
+- Persisted queries (2): `execute_runtime_query` · `execute_stream_data_query`
 - Archive metadata (2): `get_archive_storage_stats` · `get_rollup_query_metadata`
 
 ### **Generic Runtime CRUD + Schema Discovery** (15)
@@ -256,6 +257,38 @@ Reservations and downloads expire after **30 minutes**; a background sweeper pur
   }
 }
 // Response: { rows: [{ FacilityId: "F1", Region: "EU", count: 12, avgPower: 5.2, peakPower: 11 }, …] }
+```
+
+### **Replay a persisted runtime query authored in the studio**
+```json
+{
+  "tool": "execute_runtime_query",
+  "parameters": {
+    "queryRtId": "70a3e9c1d28b8a0f5c1c79bd",
+    "extraFilters": {
+      "operator": "And",
+      "fields": [{ "attributePath": "Region", "operator": "Equals", "value": "EU" }]
+    }
+  }
+}
+// The tool loads the persisted RtPersistentQuery, dispatches on its CK subtype
+// (RtSimpleRtQuery → entity DTOs; RtAggregationRtQuery / RtGroupingAggregationRtQuery → rows),
+// and AND-combines extraFilters with the persisted filter.
+```
+
+### **Replay a persisted stream-data query with a runtime time-range override**
+```json
+{
+  "tool": "execute_stream_data_query",
+  "parameters": {
+    "queryRtId": "70a3e9c1d28b8a0f5c1c79be",
+    "fromOverride": "2026-06-01T00:00:00Z",
+    "toOverride":   "2026-06-08T00:00:00Z",
+    "limitOverride": 168
+  }
+}
+// The tool reads ArchiveRtId from the persisted query, dispatches on subtype
+// (Simple / Aggregation / GroupingAggregation / Downsampling), and applies the overrides.
 ```
 
 ### **Downsample a sensor archive into hourly buckets**
@@ -497,6 +530,21 @@ cd src/McpServices && dotnet run --environment Development
 ```
 
 ## 📝 Changelog
+
+### **Version 1.5.0** — Persisted-query execution
+- Two new tools execute studio-authored persisted queries by RtId, with optional runtime overrides:
+  - `execute_runtime_query` — loads `RtPersistentQuery`, dispatches on CK subtype
+    (`RtSimpleRtQuery` → entity DTOs filtered to the persisted column list;
+    `RtAggregationRtQuery` → one scalar row; `RtGroupingAggregationRtQuery` → one row per group)
+  - `execute_stream_data_query` — loads `RtStreamDataQuery`, reads `ArchiveRtId` from the entity, dispatches on
+    `RtSimpleSdQuery` / `RtAggregationSdQuery` / `RtGroupingAggregationSdQuery` / `RtDownsamplingSdQuery`
+- Runtime overrides: `extraFilters` (AND-combined with persisted FieldFilter) for both tools; plus
+  `fromOverride`/`toOverride`/`limitOverride`/`sourceRtIdsOverride` for stream-data
+- `AggregationMapper.MapCkAggregationName` bridges the CK `AggregationTypes` enum names to the MCP-side
+  `AggregationFunctionDto`; persisted columns reuse the same projection logic as transient aggregation
+- `RuntimeEntityCrudTools.FilterAttributes` promoted to `internal static` so persisted simple queries can
+  project entity DTOs to the persisted column list (mirrors the studio's column-picker behavior)
+- 15 new tests; suite now passes 466/466
 
 ### **Version 1.4.0** — Runtime + Stream Data Aggregations
 - Eight new tools mirror the asset-repo GraphQL transient-query surface:

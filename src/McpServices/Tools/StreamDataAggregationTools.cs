@@ -3,8 +3,10 @@ using Meshmakers.Octo.Backend.McpServices.Models.Aggregation;
 using Meshmakers.Octo.Backend.McpServices.Models.Filters;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.ConstructionKit.Models.System.Generated.System.v2;
 using Meshmakers.Octo.Runtime.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Runtime.Contracts.StreamData;
 using ModelContextProtocol.Server;
@@ -22,6 +24,124 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 [McpServerToolType]
 public sealed class StreamDataAggregationTools
 {
+    /// <summary>Execute a persisted stream-data query (RtStreamDataQuery) by RtId.</summary>
+    [McpServerTool(Name = "execute_stream_data_query")]
+    [Description(
+        "Execute a persisted stream-data query by RtId. Loads the RtStreamDataQuery entity, reads its " +
+        "ArchiveRtId, and dispatches on the CK subtype: RtSimpleSdQuery returns raw time-series rows, " +
+        "RtAggregationSdQuery / RtGroupingAggregationSdQuery return scalar / grouped aggregations, and " +
+        "RtDownsamplingSdQuery returns time-bucketed rows. Optional from/to/limit/sourceRtIds and " +
+        "extraFilters override the persisted defaults; extraFilters AND-combine. Mirrors GraphQL " +
+        "StreamData.StreamDataQuery.")]
+    public static async Task<PersistedStreamDataQueryResponse> ExecuteStreamDataQuery(
+        McpServer server,
+        [Description("Runtime id of the persisted RtStreamDataQuery entity to execute.")] string queryRtId,
+        [Description("Optional override of start time (UTC).")] DateTime? fromOverride = null,
+        [Description("Optional override of end time (UTC).")] DateTime? toOverride = null,
+        [Description("Optional override of row / bucket limit.")] int? limitOverride = null,
+        [Description("Optional override of source rtIds.")] List<string>? sourceRtIdsOverride = null,
+        [Description("Optional additional field filters AND-combined with the persisted filters.")]
+        FieldFilterCriteriaDto? extraFilters = null,
+        [Description("Tenant id. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(queryRtId))
+        {
+            return new PersistedStreamDataQueryResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "queryRtId is required."
+            };
+        }
+
+        var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+        var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
+        var tenantContext = await tenantResolution.GetTenantContextAsync(tenantId);
+        var resolvedTenantId = tenantRepository.TenantId;
+
+        var streamRepo = tenantContext.GetStreamDataRepository();
+        if (streamRepo == null)
+        {
+            return new PersistedStreamDataQueryResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "Stream data is not enabled for this tenant. Use enable_stream_data first.",
+                QueryRtId = queryRtId,
+                TenantId = resolvedTenantId
+            };
+        }
+
+        using var session = await tenantRepository.GetSessionAsync();
+        session.StartTransaction();
+
+        try
+        {
+            var queryId = new OctoObjectId(queryRtId);
+            var loaded = await tenantRepository.GetRtEntityByRtIdAsync<RtStreamDataQuery>(session, queryId);
+            if (loaded == null)
+            {
+                return new PersistedStreamDataQueryResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = $"Persisted stream-data query '{queryRtId}' not found.",
+                    QueryRtId = queryRtId,
+                    TenantId = resolvedTenantId
+                };
+            }
+
+            if (string.IsNullOrWhiteSpace(loaded.ArchiveRtId))
+            {
+                return new PersistedStreamDataQueryResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = $"Persisted stream-data query '{queryRtId}' is missing ArchiveRtId.",
+                    QueryRtId = queryRtId,
+                    QuerySubtype = loaded.GetType().Name,
+                    TenantId = resolvedTenantId
+                };
+            }
+
+            var archiveRtId = new OctoObjectId(loaded.ArchiveRtId);
+            var ckTypeId = loaded.QueryCkTypeId;
+            var extraMappedFilters = MapFieldFilters(extraFilters);
+            var sourceRtIdOverrideList = MapRtIds(sourceRtIdsOverride);
+
+            return loaded switch
+            {
+                RtSimpleSdQuery simple => await ExecutePersistedSimpleAsync(
+                    simple, streamRepo, archiveRtId, ckTypeId, fromOverride, toOverride, limitOverride,
+                    sourceRtIdOverrideList, extraMappedFilters, queryRtId, resolvedTenantId),
+                RtAggregationSdQuery aggregation => await ExecutePersistedAggregationAsync(
+                    aggregation, streamRepo, archiveRtId, ckTypeId, fromOverride, toOverride,
+                    sourceRtIdOverrideList, extraMappedFilters, queryRtId, resolvedTenantId),
+                RtGroupingAggregationSdQuery grouping => await ExecutePersistedGroupingAsync(
+                    grouping, streamRepo, archiveRtId, ckTypeId, fromOverride, toOverride,
+                    sourceRtIdOverrideList, extraMappedFilters, queryRtId, resolvedTenantId),
+                RtDownsamplingSdQuery downsampling => await ExecutePersistedDownsamplingAsync(
+                    downsampling, streamRepo, archiveRtId, ckTypeId, fromOverride, toOverride,
+                    limitOverride, sourceRtIdOverrideList, extraMappedFilters, queryRtId, resolvedTenantId),
+                _ => new PersistedStreamDataQueryResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = $"Unknown persisted stream-data query subtype: {loaded.GetType().Name}",
+                    QueryRtId = queryRtId,
+                    QuerySubtype = loaded.GetType().Name,
+                    ArchiveRtId = loaded.ArchiveRtId,
+                    TenantId = resolvedTenantId
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            return new PersistedStreamDataQueryResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = ex.Message,
+                QueryRtId = queryRtId,
+                TenantId = resolvedTenantId
+            };
+        }
+    }
+
     /// <summary>Raw time-series values from an archive — column projection + optional filters.</summary>
     [McpServerTool(Name = "query_stream_data_simple")]
     [Description(
@@ -370,6 +490,253 @@ public sealed class StreamDataAggregationTools
         var fn = AggregationMapper.ToEngineFunction(col.Function);
         var path = string.IsNullOrWhiteSpace(col.AttributePath) ? "*" : col.AttributePath;
         return $"{fn}({path})";
+    }
+
+    // ── Persisted stream-data executors ──────────────────────────────────────────────────────
+
+    private static async Task<PersistedStreamDataQueryResponse> ExecutePersistedSimpleAsync(
+        RtSimpleSdQuery query,
+        IStreamDataRepository streamRepo,
+        OctoObjectId archiveRtId,
+        RtCkId<CkTypeId> ckTypeId,
+        DateTime? fromOverride,
+        DateTime? toOverride,
+        int? limitOverride,
+        IReadOnlyList<OctoObjectId>? sourceRtIdsOverride,
+        IReadOnlyList<FieldFilter>? extraFilters,
+        string queryRtId,
+        string resolvedTenantId)
+    {
+        var columnPaths = query.Columns?.ToList() ?? [];
+        var rtIds = sourceRtIdsOverride
+                   ?? query.RtIds?.Select(id => new OctoObjectId(id)).ToList();
+        var sortOrders = query.Sorting?
+            .Select(s => new SortOrderItem(s.AttributePath, (SortOrders)(int)s.SortOrder))
+            .ToList();
+
+        var options = StreamDataQueryOptions.Create()
+            .WithCkTypeId(ckTypeId)
+            .WithColumns(columnPaths)
+            .WithRtIds(rtIds)
+            .WithTimeRange(fromOverride ?? query.From, toOverride ?? query.To)
+            .WithLimit(limitOverride ?? (query.Limit.HasValue ? (int)query.Limit.Value : null))
+            .WithSortOrders(sortOrders)
+            .WithFieldFilters(MergePersistedAndExtraFilters(query.FieldFilter, extraFilters));
+
+        var result = await streamRepo.ExecuteQueryAsync(archiveRtId, options);
+
+        var streamRows = result.Rows.Select(MapRow).ToList();
+        return new PersistedStreamDataQueryResponse
+        {
+            IsSuccess = true,
+            TenantId = resolvedTenantId,
+            QueryRtId = queryRtId,
+            QuerySubtype = nameof(RtSimpleSdQuery),
+            ArchiveRtId = archiveRtId.ToString(),
+            CkTypeId = ckTypeId.ToString(),
+            StreamRows = streamRows,
+            RowCount = streamRows.Count,
+            TotalCount = result.TotalCount
+        };
+    }
+
+    private static async Task<PersistedStreamDataQueryResponse> ExecutePersistedAggregationAsync(
+        RtAggregationSdQuery query,
+        IStreamDataRepository streamRepo,
+        OctoObjectId archiveRtId,
+        RtCkId<CkTypeId> ckTypeId,
+        DateTime? fromOverride,
+        DateTime? toOverride,
+        IReadOnlyList<OctoObjectId>? sourceRtIdsOverride,
+        IReadOnlyList<FieldFilter>? extraFilters,
+        string queryRtId,
+        string resolvedTenantId)
+    {
+        var columns = RuntimeAggregationTools.MapPersistedAggregationColumns(query.Columns);
+        var rtIds = sourceRtIdsOverride
+                   ?? query.RtIds?.Select(id => new OctoObjectId(id)).ToList();
+
+        var options = StreamDataAggregationQueryOptions.Create()
+            .WithCkTypeId(ckTypeId)
+            .WithAggregationColumns(AggregationMapper.ToEngineColumns(columns))
+            .WithRtIds(rtIds)
+            .WithTimeRange(fromOverride ?? query.From, toOverride ?? query.To)
+            .WithFieldFilters(MergePersistedAndExtraFilters(query.FieldFilter, extraFilters));
+
+        var result = await streamRepo.ExecuteAggregationQueryAsync(archiveRtId, options);
+        var rows = ProjectStreamAggregationRows(result, columns, groupByPaths: null);
+
+        return new PersistedStreamDataQueryResponse
+        {
+            IsSuccess = true,
+            TenantId = resolvedTenantId,
+            QueryRtId = queryRtId,
+            QuerySubtype = nameof(RtAggregationSdQuery),
+            ArchiveRtId = archiveRtId.ToString(),
+            CkTypeId = ckTypeId.ToString(),
+            Rows = rows,
+            RowCount = rows.Count
+        };
+    }
+
+    private static async Task<PersistedStreamDataQueryResponse> ExecutePersistedGroupingAsync(
+        RtGroupingAggregationSdQuery query,
+        IStreamDataRepository streamRepo,
+        OctoObjectId archiveRtId,
+        RtCkId<CkTypeId> ckTypeId,
+        DateTime? fromOverride,
+        DateTime? toOverride,
+        IReadOnlyList<OctoObjectId>? sourceRtIdsOverride,
+        IReadOnlyList<FieldFilter>? extraFilters,
+        string queryRtId,
+        string resolvedTenantId)
+    {
+        var groupBy = query.GroupingColumns?.ToList() ?? [];
+        if (groupBy.Count == 0)
+        {
+            return new PersistedStreamDataQueryResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "Persisted grouping aggregation query has no GroupingColumns.",
+                QueryRtId = queryRtId,
+                QuerySubtype = nameof(RtGroupingAggregationSdQuery),
+                ArchiveRtId = archiveRtId.ToString(),
+                CkTypeId = ckTypeId.ToString(),
+                TenantId = resolvedTenantId
+            };
+        }
+
+        var columns = RuntimeAggregationTools.MapPersistedAggregationColumns(query.Columns);
+        var rtIds = sourceRtIdsOverride
+                   ?? query.RtIds?.Select(id => new OctoObjectId(id)).ToList();
+
+        var options = StreamDataGroupedAggregationQueryOptions.Create()
+            .WithCkTypeId(ckTypeId)
+            .WithGroupByColumns(groupBy)
+            .WithAggregationColumns(AggregationMapper.ToEngineColumns(columns))
+            .WithRtIds(rtIds)
+            .WithTimeRange(fromOverride ?? query.From, toOverride ?? query.To)
+            .WithFieldFilters(MergePersistedAndExtraFilters(query.FieldFilter, extraFilters));
+
+        var result = await streamRepo.ExecuteGroupedAggregationQueryAsync(archiveRtId, options);
+        var rows = ProjectStreamAggregationRows(result, columns, groupBy);
+
+        return new PersistedStreamDataQueryResponse
+        {
+            IsSuccess = true,
+            TenantId = resolvedTenantId,
+            QueryRtId = queryRtId,
+            QuerySubtype = nameof(RtGroupingAggregationSdQuery),
+            ArchiveRtId = archiveRtId.ToString(),
+            CkTypeId = ckTypeId.ToString(),
+            Rows = rows,
+            RowCount = rows.Count
+        };
+    }
+
+    private static async Task<PersistedStreamDataQueryResponse> ExecutePersistedDownsamplingAsync(
+        RtDownsamplingSdQuery query,
+        IStreamDataRepository streamRepo,
+        OctoObjectId archiveRtId,
+        RtCkId<CkTypeId> ckTypeId,
+        DateTime? fromOverride,
+        DateTime? toOverride,
+        int? limitOverride,
+        IReadOnlyList<OctoObjectId>? sourceRtIdsOverride,
+        IReadOnlyList<FieldFilter>? extraFilters,
+        string queryRtId,
+        string resolvedTenantId)
+    {
+        var effectiveFrom = fromOverride ?? query.From;
+        var effectiveTo = toOverride ?? query.To;
+        var effectiveLimit = limitOverride
+                              ?? (query.Limit.HasValue ? (int)query.Limit.Value : (int?)null);
+
+        // Downsampling has strict input invariants — the engine enforces from < to and limit > 0.
+        // Surface them upfront so the caller gets an actionable error rather than an engine exception.
+        if (!effectiveFrom.HasValue || !effectiveTo.HasValue || effectiveFrom >= effectiveTo)
+        {
+            return new PersistedStreamDataQueryResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "Downsampling requires from < to (either persisted or overridden).",
+                QueryRtId = queryRtId,
+                QuerySubtype = nameof(RtDownsamplingSdQuery),
+                ArchiveRtId = archiveRtId.ToString(),
+                CkTypeId = ckTypeId.ToString(),
+                TenantId = resolvedTenantId
+            };
+        }
+
+        if (!effectiveLimit.HasValue || effectiveLimit.Value <= 0)
+        {
+            return new PersistedStreamDataQueryResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "Downsampling requires a positive bucket limit (either persisted or overridden).",
+                QueryRtId = queryRtId,
+                QuerySubtype = nameof(RtDownsamplingSdQuery),
+                ArchiveRtId = archiveRtId.ToString(),
+                CkTypeId = ckTypeId.ToString(),
+                TenantId = resolvedTenantId
+            };
+        }
+
+        var columns = RuntimeAggregationTools.MapPersistedAggregationColumns(query.Columns);
+        var rtIds = sourceRtIdsOverride
+                   ?? query.RtIds?.Select(id => new OctoObjectId(id)).ToList();
+
+        var options = StreamDataDownsamplingQueryOptions.Create()
+            .WithCkTypeId(ckTypeId)
+            .WithAggregationColumns(AggregationMapper.ToEngineColumns(columns))
+            .WithTimeRange(effectiveFrom, effectiveTo)
+            .WithLimit(effectiveLimit.Value)
+            .WithRtIds(rtIds)
+            .WithFieldFilters(MergePersistedAndExtraFilters(query.FieldFilter, extraFilters));
+
+        var result = await streamRepo.ExecuteDownsamplingQueryAsync(archiveRtId, options);
+        var rows = result.Rows.Select(r => BuildBucketRow(r, columns)).ToList();
+
+        return new PersistedStreamDataQueryResponse
+        {
+            IsSuccess = true,
+            TenantId = resolvedTenantId,
+            QueryRtId = queryRtId,
+            QuerySubtype = nameof(RtDownsamplingSdQuery),
+            ArchiveRtId = archiveRtId.ToString(),
+            CkTypeId = ckTypeId.ToString(),
+            Rows = rows,
+            RowCount = rows.Count
+        };
+    }
+
+    /// <summary>
+    ///     Maps persisted CK field-filter records to engine <see cref="FieldFilter"/> records and concats
+    ///     them with the runtime override filters (AND-combined per the persisted-query spec).
+    /// </summary>
+    private static IReadOnlyList<FieldFilter>? MergePersistedAndExtraFilters(
+        IEnumerable<RtFieldFilterRecord>? persistedFilters,
+        IReadOnlyList<FieldFilter>? extraFilters)
+    {
+        var mapped = persistedFilters?
+            .Select(f => new FieldFilter(
+                f.AttributePath,
+                (FieldFilterOperator)(int)f.Operator,
+                f.ComparisonValue,
+                null))
+            .ToList();
+
+        if (mapped is null || mapped.Count == 0)
+        {
+            return extraFilters;
+        }
+
+        if (extraFilters is null || extraFilters.Count == 0)
+        {
+            return mapped;
+        }
+
+        return mapped.Concat(extraFilters).ToList();
     }
 
     private static StreamDataRowResponse MapRow(StreamDataRow row) => new()

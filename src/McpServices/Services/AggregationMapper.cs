@@ -149,4 +149,23 @@ internal static class AggregationMapper
                 c.AttributePath ?? "*",
                 ToEngineFunction(c.Function)))
             .ToList();
+
+    /// <summary>
+    ///     Maps the CK <c>AggregationTypes</c> enum name (Count / Minimum / Maximum / Average / Sum, plus the
+    ///     legacy short forms Min/Max/Avg) to the MCP-side <see cref="AggregationFunctionDto"/>.
+    ///     The persisted query columns carry the enum value as a CK enum — we read the name and map.
+    /// </summary>
+    public static AggregationFunctionDto MapCkAggregationName(string ckEnumName) => ckEnumName switch
+    {
+        "Count" => AggregationFunctionDto.count,
+        "Sum" => AggregationFunctionDto.sum,
+        "Average" => AggregationFunctionDto.avg,
+        "Avg" => AggregationFunctionDto.avg,
+        "Minimum" => AggregationFunctionDto.min,
+        "Min" => AggregationFunctionDto.min,
+        "Maximum" => AggregationFunctionDto.max,
+        "Max" => AggregationFunctionDto.max,
+        _ => throw new ArgumentOutOfRangeException(nameof(ckEnumName), ckEnumName,
+            $"Unknown CK aggregation type: {ckEnumName}")
+    };
 }

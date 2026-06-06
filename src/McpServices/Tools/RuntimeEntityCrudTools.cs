@@ -725,7 +725,7 @@ public sealed class RuntimeEntityCrudTools
     ///     Supports dot notation for record attributes (e.g., "States.Name" keeps the Name
     ///     attribute within each States record).
     /// </summary>
-    private static void FilterAttributes(RtTypeWithAttributesDto entityDto, HashSet<string> pathSet)
+    internal static void FilterAttributes(RtTypeWithAttributesDto entityDto, HashSet<string> pathSet)
     {
         if (entityDto.Attributes == null)
         {

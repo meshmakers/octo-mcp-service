@@ -1,36 +1,14 @@
 # Roadmap
 
-Follow-up work for the OctoMesh MCP server. The service is operationally complete as of v1.4 — 174 tools cover the full `octo-cli` command surface, the asset-repo GraphQL transient-query API, file I/O, and generic CK CRUD. The four items below are the gaps I'd close next, in priority order.
+Follow-up work for the OctoMesh MCP server. The service is operationally complete as of v1.5 — 176 tools cover the full `octo-cli` command surface, the asset-repo GraphQL transient + persisted query APIs, file I/O, and generic CK CRUD. The three items below are the gaps I'd close next, in priority order.
 
 For the full coverage picture (what's already in vs. what's deferred by design vs. what's never been on the menu), see the changelog in [README.md](README.md) and the architecture sections in [CLAUDE.md](CLAUDE.md).
 
 ---
 
-## 1. Persisted-query execution
+## 1. Persisted-query execution ✅ Shipped in v1.5
 
-**Status**: Concept agreed, implementation deferred during the aggregation phase.
-
-The transient aggregation tools (`query_entities_aggregation` etc.) cover ad-hoc queries. What's missing is the path for **stored** queries:
-
-- `Runtime.RuntimeQuery(rtId)` — execute a persisted `RtRuntimeQuery` entity by runtime id
-- `StreamData.StreamDataQuery(rtId)` — execute a persisted stream-data query entity
-
-These are first-class CK entities (`RtSimpleSdQuery`, `RtAggregationSdQuery`, `RtGroupingAggregationSdQuery`, `RtDownsamplingSdQuery` for the stream side). A user creates them once in the studio, then the AI replays them with optional runtime overrides (time range, additional filters, limit).
-
-### Why it's the highest-value follow-up
-
-Persisted queries are how non-trivial reports are authored. The transient tools work for one-shot analysis; the persisted ones work for "run last quarter's compliance report" or "show me what the asset team set up for energy efficiency". Without these, the AI has to redefine the query body every call.
-
-### Sketch
-
-- New tools: `execute_runtime_query(queryRtId, …overrides)`, `execute_stream_data_query(queryRtId, …overrides)`
-- Pre-resolution: load the RtEntity, dispatch on its CK subtype to the matching engine method
-- Reuse: same response shapes (`AggregationResultResponse`, `StreamDataResultResponse`, etc.)
-- The CLI doesn't have this either — it'd be a new capability, not just CLI parity
-
-### Effort
-
-~1 day. The shape's already laid out in the analysis from v1.4.
+`execute_runtime_query` and `execute_stream_data_query` load the persisted query entity by RtId, dispatch on its CK subtype (`RtSimpleRtQuery` / `RtAggregationRtQuery` / `RtGroupingAggregationRtQuery` for runtime; `RtSimpleSdQuery` / `RtAggregationSdQuery` / `RtGroupingAggregationSdQuery` / `RtDownsamplingSdQuery` for stream-data), and execute via the matching engine method. Runtime overrides (`extraFilters` AND-combined with the persisted filter, plus `from`/`to`/`limit`/`sourceRtIds` for stream-data) preserve the studio's runtime-arg semantics. See the changelog and the *Persisted-query execution* section in [CLAUDE.md](CLAUDE.md).
 
 ---
 

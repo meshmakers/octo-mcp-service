@@ -236,6 +236,20 @@ These tools return `IsSuccess=false` + a clear `ErrorMessage` for:
 
 Without this, the engine throws on the SDK side, which surfaces as a 500-style exception with less context. The AI client reads `ErrorMessage` and can fix its tool call directly.
 
+### Persisted-query execution (`execute_runtime_query` + `execute_stream_data_query`)
+
+These two tools execute a *stored* query entity by RtId. The pattern is: load the entity, dispatch on its CK subtype, build the engine-side query options from the persisted state, optionally merge in runtime overrides, execute, project the result.
+
+- **Loading**: `ITenantRepository.GetRtEntityByRtIdAsync<RtPersistentQuery>` / `<RtStreamDataQuery>` — the generic GetRtEntity overload uses the entity's CK type from its base, so callers don't have to thread a `ckTypeId` separately.
+- **Dispatch on CK subtype** (using `switch` on runtime type, mirroring the GraphQL resolver):
+  - Runtime side: `RtSimpleRtQuery` → entity DTOs filtered to the persisted `Columns` list (reuses `RuntimeEntityCrudTools.FilterAttributes` for nested record/sub-path support); `RtAggregationRtQuery` → scalar projection via `AggregationInput.AggregateResult`; `RtGroupingAggregationRtQuery` → grouped projection via `AggregateFieldGroupBy`.
+  - Stream side: `RtSimpleSdQuery` / `RtAggregationSdQuery` / `RtGroupingAggregationSdQuery` / `RtDownsamplingSdQuery` map to the four `IStreamDataRepository.Execute*Async` methods. The persisted `ArchiveRtId` is read off the entity — no separate argument.
+- **CK enum → MCP enum**: `AggregationMapper.MapCkAggregationName` translates the CK `AggregationTypes` enum string names (`Count`/`Sum`/`Average`/`Minimum`/`Maximum`, plus the short forms `Avg`/`Min`/`Max`) to `AggregationFunctionDto`. The persisted aggregation columns then go through the same `ApplyToAggregationInput` / `ToEngineColumns` helpers as the transient tools — the projection layer doesn't need to know whether the columns came from a runtime arg or a persisted entity.
+- **Runtime overrides**: `extraFilters` is AND-combined with the persisted `FieldFilter` for both tools. Stream-data adds `fromOverride` / `toOverride` / `limitOverride` / `sourceRtIdsOverride` — each falls back to the persisted value when omitted. The merge semantics (extra AND persisted) mirror `StreamDataQueryDtoType.MergeFilters` in asset-repo-services so the studio's runtime-arg behavior is preserved across both APIs.
+- **Pre-SDK validation**: empty queryRtId, entity not found, missing ArchiveRtId on stream queries, empty `GroupingColumns` on grouped subtypes, and downsampling-specific `from < to` + positive `limit` requirements all surface as `IsSuccess=false` with an actionable message.
+
+The response envelope `PersistedRuntimeQueryResponse` / `PersistedStreamDataQueryResponse` discriminates by `QuerySubtype` so the AI client knows whether `Entities` (simple) or `Rows` (aggregation) carries the payload.
+
 ## Authentication & Tenant Resolution
 
 Two-layer flow:
