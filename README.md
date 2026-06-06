@@ -1,6 +1,6 @@
 # OctoMesh MCP Service
 
-A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, exposing **~166 tools** that mirror the full surface of `octo-cli` plus generic CK-type CRUD. AI assistants get direct access to tenant administration, identity management, communication-controller, blueprints, time-series, reporting, and large-file transfers — without ever invoking the CLI.
+A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, exposing **~174 tools** that mirror the full surface of `octo-cli`, the asset-repo GraphQL transient-query API, plus generic CK-type CRUD. AI assistants get direct access to tenant administration, identity management, communication-controller, blueprints, time-series queries + aggregations, reporting, and large-file transfers — without ever invoking the CLI or sending GraphQL.
 
 ## 🚀 Features
 
@@ -29,6 +29,12 @@ A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Ki
 - Multi-GB streaming uploads + range-enabled downloads, disk-backed buffers, 30 min TTL
 - Tenant dump → downloadId, tenant restore via TUS-resumable upload
 - CK model + runtime model import (with job polling) and export (with download URL)
+
+### **Runtime + Stream Data Aggregations (8 tools)**
+- **Runtime aggregations**: scalar + grouped (`avg(Power) group by Region`, `count(*)` …)
+- **Stream-data queries**: raw rows, scalar aggregation, grouped aggregation, time-bucket downsampling
+- **Archive metadata**: bulk storage stats (row count / on-disk size / health) + rollup query metadata
+- Mirrors the asset-repo GraphQL transient-query surface so AI clients don't need GraphQL at all
 
 ### **Generic CK CRUD + Schema Discovery (15 tools)**
 - **Universal entity management**: query/create/update/delete for any CK type
@@ -94,7 +100,7 @@ dotnet run
 
 ## 🛠️ Available Tools
 
-> **166 tools total.** Tools mirror the corresponding `octo-cli` command (snake_case naming). All platform-admin tools accept an optional `tenantId` parameter that falls back to the URL route. Destructive operations require an explicit `confirm: true` parameter (no silent state changes).
+> **174 tools total.** Most tools mirror the corresponding `octo-cli` command (snake_case naming); the aggregation tools mirror the asset-repo GraphQL transient-query surface. All platform-admin tools accept an optional `tenantId` parameter that falls back to the URL route. Destructive operations require an explicit `confirm: true` parameter (no silent state changes).
 
 ### **Authentication & Identity Bootstrap** (4)
 `authenticate` · `check_auth_status` · `whoami` · `list_tenants`
@@ -146,6 +152,11 @@ dotnet run
 - Tenant Backup: `dump_tenant` · `restore_tenant`<sup>‡</sup>
 - Fixup Scripts: `run_fixup_scripts`<sup>‡</sup> (create via generic `create_entity` with `RtFixup` CK type)
 - HTTP: `PUT /file-transfer/upload/{id}` · `GET /file-transfer/download/{id}` (range-enabled, 5 GiB cap)
+
+### **Runtime + Stream Data Aggregations** (8)
+- Runtime aggregation (2): `query_entities_aggregation` · `query_entities_grouping`
+- Stream data (4): `query_stream_data_simple` · `query_stream_data_aggregation` · `query_stream_data_grouping` · `query_stream_data_downsampling`
+- Archive metadata (2): `get_archive_storage_stats` · `get_rollup_query_metadata`
 
 ### **Generic Runtime CRUD + Schema Discovery** (15)
 - CRUD (6): `query_entities` · `query_entities_simple` · `get_entity_by_id` · `create_entity` · `update_entity` · `delete_entity`<sup>‡</sup>
@@ -228,6 +239,41 @@ Reservations and downloads expire after **30 minutes**; a background sweeper pur
 { "tool": "dump_tenant", "parameters": { "targetTenantId": "acme" } }
 // Response: { transferId: "abc123", downloadUrlPath: "/file-transfer/download/abc123", ... }
 // Then: HTTP GET https://mcp.example.com/file-transfer/download/abc123
+```
+
+### **Aggregate sensor readings grouped by facility**
+```json
+{
+  "tool": "query_entities_grouping",
+  "parameters": {
+    "ckTypeId": "Industry.Energy-1/Sensor-1",
+    "groupByAttributePaths": ["FacilityId", "Region"],
+    "aggregations": [
+      { "function": "count" },
+      { "function": "avg", "attributePath": "Power", "alias": "avgPower" },
+      { "function": "max", "attributePath": "Power", "alias": "peakPower" }
+    ]
+  }
+}
+// Response: { rows: [{ FacilityId: "F1", Region: "EU", count: 12, avgPower: 5.2, peakPower: 11 }, …] }
+```
+
+### **Downsample a sensor archive into hourly buckets**
+```json
+{
+  "tool": "query_stream_data_downsampling",
+  "parameters": {
+    "archiveRtId": "69fda707d47638c68edc7fea",
+    "aggregations": [
+      { "function": "avg", "attributePath": "Power" },
+      { "function": "max", "attributePath": "Power", "alias": "peak" }
+    ],
+    "from": "2026-06-01T00:00:00Z",
+    "to":   "2026-06-08T00:00:00Z",
+    "limit": 168
+  }
+}
+// Response: rows = one bucket per hour, columns: bucketStart, avg_Power, peak
 ```
 
 ## 🏗️ Architecture
@@ -451,6 +497,18 @@ cd src/McpServices && dotnet run --environment Development
 ```
 
 ## 📝 Changelog
+
+### **Version 1.4.0** — Runtime + Stream Data Aggregations
+- Eight new tools mirror the asset-repo GraphQL transient-query surface:
+  - Runtime: `query_entities_aggregation`, `query_entities_grouping`
+  - Stream data: `query_stream_data_simple`, `query_stream_data_aggregation`, `query_stream_data_grouping`, `query_stream_data_downsampling`
+  - Bonus reads: `get_archive_storage_stats`, `get_rollup_query_metadata`
+- Lowercase aggregation function strings (`sum`/`avg`/`min`/`max`/`count`) — AI-ergonomic, mirrors SQL conventions
+- Default response-column aliases (`avg_Power`, `count`, …) with optional explicit override per column
+- Pre-SDK validation: at-least-one rule, attribute-path required for non-count, alias uniqueness, group-by duplicate check
+- `ITenantResolutionService.GetTenantContextAsync` added — unlocks `ITenantContext.GetStreamDataRepository`/`GetArchiveRuntimeStore`/`GetRollupArchiveRuntimeStore`
+- `StreamDataContext` helper encapsulates the four-stage resolution cascade (Tenant → Context → StreamRepo → Archive snapshot)
+- 51 new tests; suite now passes 451/451
 
 ### **Version 1.3.0** — File I/O
 - `prepare_file_upload` + `cancel_file_transfer` plus `PUT /file-transfer/upload/{id}` and `GET /file-transfer/download/{id}` HTTP endpoints (disk-backed, 5 GiB cap, 30 min TTL)

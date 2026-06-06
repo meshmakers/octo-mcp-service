@@ -6,12 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes ~166 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
 
-Two distinct tool families live here:
+Three distinct tool families live here — be aware which one you're touching:
 
 1. **Platform-admin tools** — thin wrappers over the `Meshmakers.Octo.Sdk.ServiceClient` SDK. One tool per `octo-cli` command. These tools talk HTTP to the Identity / Asset / Communication / Reporting / StreamData / Bot / AdminPanel services.
-2. **Generic CK CRUD + schema tools** — predate the platform-admin tools and talk directly to the runtime engine (MongoDB) via `IRtTenantRepository`. These do not use the SDK service clients.
+2. **Generic CK CRUD + schema tools** — predate the platform-admin tools and talk directly to the runtime engine (MongoDB) via `ITenantRepository`. These do not use the SDK service clients.
+3. **Aggregation + stream-data query tools** — newer; mirror the asset-repo GraphQL transient-query surface. They share family 2's path (talk to the engine directly via `ITenantRepository` / `ITenantContext.GetStreamDataRepository`), but use the lowercase `AggregationFunctionDto` enum and the `AggregationMapper` helper — *not* the platform-admin `*ClientContext` pattern.
 
-If you're adding a tool that mirrors an `octo-cli` command, you're always in family 1 — follow the `*ClientContext` pattern below.
+If you're adding a tool that mirrors an `octo-cli` command, you're in family 1 — follow the `*ClientContext` pattern below. If you're adding a runtime/stream-data read or aggregation, you're in family 2 or 3.
 
 ## Build & Test Commands
 
@@ -182,6 +183,59 @@ HTTP GET <publicUrl>/file-transfer/download/{transferId}
 
 Transfer ids are random 128-bit GUIDs in URL paths; they expire in 30 min; no extra auth check on the endpoints. For stricter setups, put the service behind your own auth gateway. **Do not** add base64-in-tool-parameter as an alternative path — the file-transfer endpoints are the only sanctioned mechanism for binary payloads.
 
+## Aggregation Tools Architecture
+
+The aggregation + stream-data tools (`RuntimeAggregationTools`, `StreamDataAggregationTools`, `StreamDataMetadataTools`) talk **directly to the runtime engine** — same architectural layer as the generic CRUD tools, but with their own conventions.
+
+### Lowercase function strings — `AggregationFunctionDto`
+
+Counter to the rest of the codebase which uses PascalCase enum names, the aggregation enum uses **lowercase short names** (`count`/`sum`/`avg`/`min`/`max`). This is intentional and AI-driven: LLMs construct lowercase strings more reliably than enum-style strings, and lowercase mirrors SQL conventions. The translation to the engine's `AggregationFunction` (which uses `Count/Sum/Average/Minimum/Maximum`) happens in `AggregationMapper.ToEngineFunction`. Do not "fix" the enum to PascalCase.
+
+### `AggregationMapper` is the single point of validation + engine mapping
+
+Every aggregation tool routes through `Services/AggregationMapper.cs`:
+
+- `Validate(aggregations)` — at-least-one rule, non-count requires `attributePath`, alias uniqueness
+- `ValidateGroupBy(paths)` — non-empty list, no blanks, no duplicates
+- `DeriveAlias(column)` — `<function>_<sanitised-path>` when no explicit alias (e.g. `avg_Power`); special-case `"count"` for unparametrised count
+- `ApplyToAggregationInput(input, columns)` — pushes columns into the runtime engine's `AggregationInput` (used by runtime aggregation tools)
+- `ToEngineColumns(columns)` — maps to `AggregationColumn[]` (used by stream-data tools)
+
+When you add a new aggregation tool, **don't bypass these helpers**. The validation outputs are the user-visible error messages — keeping them consistent matters.
+
+### Engine column key convention (stream-data only)
+
+Stream-data aggregation results come back as `StreamDataRow` instances with `Values` keyed by the engine's column name format `{Function}({path})` — the `ToString()` of `AggregationColumn`. The projection layer rebuilds the same key (`EngineColumnKey` helper inside `StreamDataAggregationTools`) to look up each value, then writes it under the MCP-side alias from `AggregationMapper.DeriveAlias`. Group-key columns flow straight from `Values` into the response dict, indexed by the group-by attribute paths the caller supplied.
+
+### `StreamDataContext` resolves the four-stage cascade
+
+Stream-data tools take an `archiveRtId` (not a `ckTypeId`) — the target CK type is on the archive snapshot. The resolution involves four nullable accessors:
+
+```
+ITenantResolutionService.GetTenantContextAsync(tenantId)
+    → ITenantContext.GetStreamDataRepository()       → null if StreamData not enabled
+    → ITenantContext.GetArchiveRuntimeStore()
+        → archiveStore.GetAsync(rtId)                → null if archive not found
+        → snapshot.TargetCkTypeId                    → the ckTypeId for the engine call
+```
+
+`StreamDataContext.TryResolveAsync` collapses this into a single result with a structured error message per failure mode. Every stream-data tool starts with that call.
+
+### `ITenantResolutionService.GetTenantContextAsync`
+
+Added specifically for the aggregation work — the platform-admin tools only need `ITenantRepository`, but the stream-data accessors live on `ITenantContext` (a wider interface). The implementation calls `ISystemContext.FindTenantContextAsync(tenantId)`. When a future tool needs `GetRollupArchiveRuntimeStore()` or any other context-only accessor, use this same entry point.
+
+### Pre-SDK validation matters
+
+These tools return `IsSuccess=false` + a clear `ErrorMessage` for:
+- empty aggregation list
+- non-count function without attributePath
+- duplicate aliases
+- empty / duplicate group-by paths
+- invalid time windows (`from >= to`, `limit <= 0`)
+
+Without this, the engine throws on the SDK side, which surfaces as a 500-style exception with less context. The AI client reads `ErrorMessage` and can fix its tool call directly.
+
 ## Authentication & Tenant Resolution
 
 Two-layer flow:
@@ -289,6 +343,7 @@ src/McpServices/
 │   ├── IFileTransferStore.cs           # File transfer abstraction
 │   ├── FileTransferStore.cs            # Disk-backed + sweeper
 │   ├── JobPollingHelper.cs             # Async-job polling for asset/bot jobs
+│   ├── AggregationMapper.cs            # Lowercase enum → engine + validation (family 3)
 │   ├── DynamicToolService.cs           # Generic CK CRUD discovery (legacy family 2)
 │   └── ToolExecutionService.cs         # Tool stats (legacy family 2)
 ├── Routing/
@@ -301,7 +356,12 @@ src/McpServices/
 │   ├── AssetResponses.cs
 │   ├── CommunicationResponses.cs
 │   ├── TimeSeriesResponses.cs
-│   └── FileTransferResponses.cs
+│   ├── FileTransferResponses.cs
+│   └── Aggregation/                    # Family 3 — lowercase function enum, alias rules, response shapes
+│       ├── AggregationFunctionDto.cs   # count/sum/avg/min/max — DON'T fix to PascalCase
+│       ├── AggregationColumnDto.cs     # { Function, AttributePath?, Alias? }
+│       ├── SortColumnDto.cs            # asc/desc
+│       └── AggregationResponses.cs     # AggregationResultResponse + Stream/Downsampling/Stats/RollupMeta
 └── Tools/                              # MCP tool classes
     ├── AuthenticationTools.cs          # OAuth device flow
     ├── IdentityTools.cs                # whoami, list_tenants
@@ -316,6 +376,9 @@ src/McpServices/
     ├── TimeSeriesTools.cs / ReportingTools.cs / DiagnosticsTools.cs
     ├── FileTransferTools.cs / CkModelFileTools.cs / TenantBackupTools.cs
     ├── RuntimeEntityCrudTools.cs / SchemaDiscoveryTools.cs   # Generic CK CRUD (family 2)
+    ├── RuntimeAggregationTools.cs                            # Aggregations (family 3)
+    ├── StreamDataAggregationTools.cs                         # 4 stream-data query variants (family 3)
+    ├── StreamDataMetadataTools.cs                            # storage_stats + rollup_query_metadata (family 3)
     ├── ToolManagementTools.cs / EchoTool.cs
 tests/McpServices.Tests/
 ├── ToolTestBase.cs                     # Adds SDK client + file-store mocks
@@ -347,9 +410,10 @@ tests/McpServices.Tests/
 
 ## Background — Why the codebase looks like this
 
-The MCP server was originally a thin runtime CRUD proxy (Versions 1.0–1.1). Versions 1.2–1.3 added the full `octo-cli` command surface via the SDK service clients, plus out-of-band file transfer. Two families of tools coexist on purpose:
+The MCP server was originally a thin runtime CRUD proxy (Versions 1.0–1.1). Versions 1.2–1.3 added the full `octo-cli` command surface via the SDK service clients, plus out-of-band file transfer. Version 1.4 added aggregation + stream-data query parity with the asset-repo GraphQL transient-query API. Three families of tools coexist on purpose:
 
-- The original family talks directly to `IRtTenantRepository` (MongoDB) — fast generic CRUD, schema discovery, no platform-admin operations.
-- The new family talks HTTP to the backend services via `OctoServiceClientFactory` + `*ClientContext` helpers — same code path the CLI uses, so the orchestrated workflows (tenant create + admin provision, blueprint update + auto-backup, workload deploy through pool, etc.) work identically.
+- **Family 1** talks HTTP to the backend services via `OctoServiceClientFactory` + `*ClientContext` helpers — same code path the CLI uses, so the orchestrated workflows (tenant create + admin provision, blueprint update + auto-backup, workload deploy through pool, etc.) work identically.
+- **Family 2** talks directly to `ITenantRepository` (MongoDB) — fast generic CRUD and schema discovery, no platform-admin operations, no HTTP overhead.
+- **Family 3** also talks directly to the engine (via `ITenantRepository` for runtime aggregations; via `ITenantContext.GetStreamDataRepository()` for stream-data queries), with its own lowercase enum + `AggregationMapper` conventions. Mirrors the asset-repo GraphQL transient-query surface so the AI never has to construct GraphQL.
 
-Don't try to merge the two families. Generic CRUD doesn't go through the service clients (no HTTP overhead for read-heavy entity queries); platform-admin operations don't bypass the service clients (skipping them would skip the orchestration).
+Don't try to merge them. Generic CRUD doesn't go through the service clients (no HTTP overhead for read-heavy entity queries); platform-admin operations don't bypass the service clients (skipping them would skip the orchestration); aggregations don't go through `*ClientContext` (they need direct engine access for `RtEntityQueryOptions` configuration). The three layers have different cost profiles and different validation needs.
