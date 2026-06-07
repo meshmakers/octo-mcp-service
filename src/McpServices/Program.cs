@@ -149,10 +149,16 @@ try
         options.AppName = McpTexts.SwaggerClient_Description;
     }).AddVersion();
 
-    // Add MCP services with enhanced tool discovery
+    // Add MCP services with enhanced tool discovery.
+    // WithResourcesFromAssembly picks up every [McpServerResourceType] in this assembly
+    // (CkSchemaResources, KnowledgeResources — issue #4110) and registers their
+    // [McpServerResource]-attributed methods. Worker calls `resources/list` once at session
+    // start, then `resources/read` per resource it needs to materialise into CLAUDE.md,
+    // replacing the prior pattern of repeated `tools/call get_*` round-trips.
     builder.Services.AddMcpServer()
         .WithHttpTransport()
-        .WithToolsFromAssembly();
+        .WithToolsFromAssembly()
+        .WithResourcesFromAssembly();
     // .WithTools<EchoTool>()
     //  .WithTools<SampleLlmTool>()
     //  .WithTools<ToolManagement>();
