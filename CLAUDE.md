@@ -174,6 +174,31 @@ public static async Task<DeleteEntityResponse> DeleteEntity(...)
 
 `ToolRiskRegistry` reflects over the McpServices assembly at startup; tools without the attribute resolve as `Low`. When you add a new tool, decide the level at the same time as the implementation — flipping later is a behaviour-change for any consumer that already cached the registry.
 
+### 9. Optimistic locking on `update_entity` / `delete_entity`
+
+Concurrent AI sessions can write to the same runtime entity. `update_entity` and `delete_entity` accept an optional `expected_version` (the `RtVersion` the caller observed on its prior read):
+
+- **Omitted** → last-write-wins, identical to pre-#4111 behaviour. `update_entity` still bumps `RtVersion` on the way out so a later optimistic call sees a meaningful token.
+- **Matches stored** → the write/delete proceeds, the response carries the bumped `CurrentRtVersion`.
+- **Stale** → no write/delete happens. Response is `IsSuccess=false`, `IsConflict=true`, and carries `CurrentRtVersion` + the current `Entity` payload — enough for the caller to rebase its change without a second `get_entity_by_id` round-trip.
+
+The tool layer increments `RtVersion` explicitly because the engine's `UpdateOneRtEntityByIdAsync` path does not (auto-bump lives only in `BulkRtMutation`). The increment saturates at `ulong.MaxValue` to avoid `OverflowException` on the pathological case.
+
+Caller pattern:
+
+```
+read = get_entity_by_id(...)            // read.entity.rtVersion = 7
+edit = mutate(read.entity)
+res  = update_entity(..., expected_version: 7)
+if (res.is_conflict) {
+    // res.entity is the current row; rebase or surface to user
+    edit2 = merge(res.entity, ...)
+    update_entity(..., expected_version: res.current_rt_version)
+}
+```
+
+When you add a new write tool (single-entity create / update / delete pattern), wire `expected_version` the same way and bump `RtVersion` on commit. Don't reach for `RtChangedDateTime` as an alternative token — it survives blueprint writes that `RtVersion` doesn't, but timestamp ties at sub-millisecond resolution are real and the token must be monotonic-per-write.
+
 ## File I/O Architecture
 
 Tools that need to receive or produce files use a separate HTTP channel: the JSON-RPC tool call coordinates an opaque transfer id, and the actual bytes flow through `FileTransferController` at `/file-transfer/{upload,download}/{id}`.

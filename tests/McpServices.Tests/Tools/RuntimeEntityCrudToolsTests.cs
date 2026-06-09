@@ -1,7 +1,9 @@
 using FluentAssertions;
+using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Models.Filters;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.Runtime.Contracts.Repositories;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Runtime.Contracts.RepositoryEntities;
 using Moq;
@@ -474,6 +476,247 @@ public class RuntimeEntityCrudToolsTests : TestBase
 
         r.IsSuccess.Should().BeFalse();
         r.ErrorMessage.Should().Contain("Database connection failed");
+    }
+
+    // ===== Optimistic locking (#4111) ============================================
+    // The contract: callers pass expected_version (= the RtVersion they saw when they
+    // read the entity). The tool refuses the write if the stored version moved on, and
+    // surfaces the current row so the caller can rebase. Backward-compat: omitting
+    // expected_version skips the check entirely.
+
+    [Fact]
+    public async Task UpdateEntity_WithMatchingExpectedVersion_BumpsAndSucceeds()
+    {
+        // Arrange
+        var rtId = OctoObjectId.GenerateNewId();
+        var existing = new RtEntity
+        {
+            RtId = rtId,
+            CkTypeId = new RtCkId<CkTypeId>(TestCkTypeId),
+            RtVersion = 7
+        };
+        var updated = new RtEntity
+        {
+            RtId = rtId,
+            CkTypeId = new RtCkId<CkTypeId>(TestCkTypeId),
+            RtVersion = 8
+        };
+        // GetRtEntityByRtIdAsync is called twice — once for the pre-check, once after the
+        // commit to fetch the post-write payload. Sequence the returns.
+        MockTenantRepository
+            .SetupSequence(r => r.GetRtEntityByRtIdAsync(It.IsAny<IOctoSession>(), It.IsAny<RtEntityId>()))
+            .ReturnsAsync(existing)
+            .ReturnsAsync(updated);
+
+        // Act
+        var result = await RuntimeEntityCrudTools.UpdateEntity(
+            MockServer.Object,
+            rtId.ToString(),
+            TestCkTypeId,
+            new List<AttributeUpdateItem>(),
+            expectedVersion: 7);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.IsConflict.Should().BeFalse();
+        result.CurrentRtVersion.Should().Be(8);
+        // Tool must have written with the bumped version — verifies the post-update path
+        // is wired so the next optimistic call can use this as its new expected_version.
+        MockTenantRepository.Verify(r => r.UpdateOneRtEntityByIdAsync(
+            It.IsAny<IOctoSession>(),
+            It.IsAny<RtCkId<CkTypeId>>(),
+            It.IsAny<OctoObjectId>(),
+            It.Is<RtEntity>(e => e.RtVersion == 8)), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateEntity_WithoutExpectedVersion_StillBumpsAndSkipsCheck()
+    {
+        // Arrange — backward-compat path: callers that never pass expected_version still
+        // get a bumped RtVersion so a NEW caller arriving later has a meaningful token.
+        var rtId = OctoObjectId.GenerateNewId();
+        var existing = new RtEntity
+        {
+            RtId = rtId,
+            CkTypeId = new RtCkId<CkTypeId>(TestCkTypeId),
+            RtVersion = 12
+        };
+        var updated = new RtEntity
+        {
+            RtId = rtId,
+            CkTypeId = new RtCkId<CkTypeId>(TestCkTypeId),
+            RtVersion = 13
+        };
+        MockTenantRepository
+            .SetupSequence(r => r.GetRtEntityByRtIdAsync(It.IsAny<IOctoSession>(), It.IsAny<RtEntityId>()))
+            .ReturnsAsync(existing)
+            .ReturnsAsync(updated);
+
+        // Act
+        var result = await RuntimeEntityCrudTools.UpdateEntity(
+            MockServer.Object,
+            rtId.ToString(),
+            TestCkTypeId,
+            new List<AttributeUpdateItem>());
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.CurrentRtVersion.Should().Be(13);
+        MockTenantRepository.Verify(r => r.UpdateOneRtEntityByIdAsync(
+            It.IsAny<IOctoSession>(),
+            It.IsAny<RtCkId<CkTypeId>>(),
+            It.IsAny<OctoObjectId>(),
+            It.Is<RtEntity>(e => e.RtVersion == 13)), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateEntity_WithStaleExpectedVersion_ReturnsConflictAndDoesNotWrite()
+    {
+        // Arrange
+        var rtId = OctoObjectId.GenerateNewId();
+        var existing = new RtEntity
+        {
+            RtId = rtId,
+            CkTypeId = new RtCkId<CkTypeId>(TestCkTypeId),
+            RtVersion = 9 // stored
+        };
+        MockTenantRepository
+            .Setup(r => r.GetRtEntityByRtIdAsync(It.IsAny<IOctoSession>(), It.IsAny<RtEntityId>()))
+            .ReturnsAsync(existing);
+
+        // Act — caller had version 5; stored is 9
+        var result = await RuntimeEntityCrudTools.UpdateEntity(
+            MockServer.Object,
+            rtId.ToString(),
+            TestCkTypeId,
+            new List<AttributeUpdateItem>(),
+            expectedVersion: 5);
+
+        // Assert
+        result.IsSuccess.Should().BeFalse();
+        result.IsConflict.Should().BeTrue();
+        result.CurrentRtVersion.Should().Be(9);
+        result.Entity.Should().NotBeNull("conflict response must carry the current row so the caller can rebase");
+        result.ErrorMessage.Should().Contain("5").And.Contain("9");
+        // No write happened.
+        MockTenantRepository.Verify(r => r.UpdateOneRtEntityByIdAsync(
+            It.IsAny<IOctoSession>(),
+            It.IsAny<RtCkId<CkTypeId>>(),
+            It.IsAny<OctoObjectId>(),
+            It.IsAny<RtEntity>()), Times.Never);
+        // Transaction aborted on the refused path.
+        MockSession.Verify(s => s.AbortTransactionAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task DeleteEntity_WithMatchingExpectedVersion_Succeeds()
+    {
+        // Arrange
+        var rtId = OctoObjectId.GenerateNewId();
+        var existing = new RtEntity
+        {
+            RtId = rtId,
+            CkTypeId = new RtCkId<CkTypeId>(TestCkTypeId),
+            RtVersion = 4
+        };
+        MockTenantRepository
+            .Setup(r => r.GetRtEntityByRtIdAsync(It.IsAny<IOctoSession>(), It.IsAny<RtEntityId>()))
+            .ReturnsAsync(existing);
+
+        // Act
+        var result = await RuntimeEntityCrudTools.DeleteEntity(
+            MockServer.Object,
+            TestCkTypeId,
+            rtId.ToString(),
+            expectedVersion: 4);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.IsConflict.Should().BeFalse();
+        MockTenantRepository.Verify(r => r.DeleteOneRtEntityByRtIdAsync(
+            It.IsAny<IOctoSession>(),
+            It.IsAny<RtCkId<CkTypeId>>(),
+            It.IsAny<OctoObjectId>(),
+            It.IsAny<DeleteOptions>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DeleteEntity_WithStaleExpectedVersion_ReturnsConflictAndDoesNotDelete()
+    {
+        // Arrange — somebody else just wrote to the entity; the caller's expected_version
+        // is stale. The tool must refuse the delete so the caller can re-evaluate (maybe
+        // the new state isn't worth deleting anymore).
+        var rtId = OctoObjectId.GenerateNewId();
+        var existing = new RtEntity
+        {
+            RtId = rtId,
+            CkTypeId = new RtCkId<CkTypeId>(TestCkTypeId),
+            RtVersion = 6
+        };
+        MockTenantRepository
+            .Setup(r => r.GetRtEntityByRtIdAsync(It.IsAny<IOctoSession>(), It.IsAny<RtEntityId>()))
+            .ReturnsAsync(existing);
+
+        // Act — caller had version 2; stored is 6
+        var result = await RuntimeEntityCrudTools.DeleteEntity(
+            MockServer.Object,
+            TestCkTypeId,
+            rtId.ToString(),
+            expectedVersion: 2);
+
+        // Assert
+        result.IsSuccess.Should().BeFalse();
+        result.IsConflict.Should().BeTrue();
+        result.CurrentRtVersion.Should().Be(6);
+        result.Entity.Should().NotBeNull();
+        result.ErrorMessage.Should().Contain("2").And.Contain("6");
+        MockTenantRepository.Verify(r => r.DeleteOneRtEntityByRtIdAsync(
+            It.IsAny<IOctoSession>(),
+            It.IsAny<RtCkId<CkTypeId>>(),
+            It.IsAny<OctoObjectId>(),
+            It.IsAny<DeleteOptions>()), Times.Never);
+        MockSession.Verify(s => s.AbortTransactionAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateEntity_RtVersionAtUlongMax_SaturatesWithoutOverflow()
+    {
+        // Arrange — pathological but checked: an entity that already hit ulong.MaxValue
+        // must not throw OverflowException on the bump. We saturate.
+        var rtId = OctoObjectId.GenerateNewId();
+        var existing = new RtEntity
+        {
+            RtId = rtId,
+            CkTypeId = new RtCkId<CkTypeId>(TestCkTypeId),
+            RtVersion = ulong.MaxValue
+        };
+        var updated = new RtEntity
+        {
+            RtId = rtId,
+            CkTypeId = new RtCkId<CkTypeId>(TestCkTypeId),
+            RtVersion = ulong.MaxValue
+        };
+        MockTenantRepository
+            .SetupSequence(r => r.GetRtEntityByRtIdAsync(It.IsAny<IOctoSession>(), It.IsAny<RtEntityId>()))
+            .ReturnsAsync(existing)
+            .ReturnsAsync(updated);
+
+        // Act
+        var result = await RuntimeEntityCrudTools.UpdateEntity(
+            MockServer.Object,
+            rtId.ToString(),
+            TestCkTypeId,
+            new List<AttributeUpdateItem>(),
+            expectedVersion: ulong.MaxValue);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.CurrentRtVersion.Should().Be(ulong.MaxValue);
+        MockTenantRepository.Verify(r => r.UpdateOneRtEntityByIdAsync(
+            It.IsAny<IOctoSession>(),
+            It.IsAny<RtCkId<CkTypeId>>(),
+            It.IsAny<OctoObjectId>(),
+            It.Is<RtEntity>(e => e.RtVersion == ulong.MaxValue)), Times.Once);
     }
 
     #region Helper Methods

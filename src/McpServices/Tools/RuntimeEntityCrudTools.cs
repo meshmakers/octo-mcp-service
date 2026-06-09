@@ -325,6 +325,11 @@ public sealed class RuntimeEntityCrudTools
     ///     JSON formated an array of attribute path and value to be updated.
     ///     For example,  [{attributePath: 'contact.test', value: 'test'}]
     /// </param>
+    /// <param name="expectedVersion">
+    ///     Optional optimistic-lock token. When present and the stored <c>RtVersion</c>
+    ///     does not match, the call returns <c>IsSuccess=false</c> + <c>IsConflict=true</c>
+    ///     with the current <c>RtVersion</c> and entity payload — no write happens.
+    /// </param>
     /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Updated entity</returns>
     [McpServerTool(Name = "update_entity")]
@@ -332,6 +337,12 @@ public sealed class RuntimeEntityCrudTools
     [Description("Update an existing entity with new data")]
     public static async Task<UpdateEntityResponse> UpdateEntity(
         McpServer server, string rtId, string ckTypeId, List<AttributeUpdateItem> entityData,
+        [Description(
+            "Optional optimistic-lock token. Pass the RtVersion the caller read with the entity. " +
+            "If the server's current RtVersion differs, the write is refused and the response " +
+            "carries IsConflict=true plus the current RtVersion + Entity so the caller can " +
+            "rebase. Omit to skip the check (last-write-wins).")]
+        ulong? expectedVersion = null,
         string? tenantId = null)
     {
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
@@ -352,7 +363,35 @@ public sealed class RuntimeEntityCrudTools
                     $"Entity with ID '{rtId}' not found in type '{ckTypeId}'");
             }
 
+            // Optimistic-lock gate. Abort *inside* the transaction (so any reads we already
+            // did roll back cleanly) and surface the current row to the caller — they get
+            // enough to decide retry-with-merge without a second round-trip.
+            if (expectedVersion.HasValue && existingEntity.RtVersion != expectedVersion.Value)
+            {
+                await session.AbortTransactionAsync();
+                return new UpdateEntityResponse
+                {
+                    IsSuccess = false,
+                    IsConflict = true,
+                    CurrentRtVersion = existingEntity.RtVersion,
+                    TypeId = ckTypeId,
+                    RtId = rtId,
+                    Entity = rtEntityToDtoMapper.ConvertToDto(tenantRepository.TenantId, existingEntity,
+                        AttributeValueResolveFlags.ResolveEnumsToNames),
+                    ErrorMessage =
+                        $"Stale expected_version: caller had {expectedVersion.Value}, current is {existingEntity.RtVersion}."
+                };
+            }
+
             Assign(existingEntity, ckCacheService, tenantRepository.TenantId, entityData);
+            // Bump RtVersion explicitly — the engine's Mongo layer does not auto-increment
+            // it on update_one (auto-bump lives only on the bulk-mutation path). Without
+            // this, the next optimistic-locked update would never see a fresh token and
+            // the contract degrades to "lock once and lose forever". Saturate at ulong.MaxValue
+            // so the math never throws — an entity reaching 2^64 writes is theoretical only.
+            existingEntity.RtVersion = existingEntity.RtVersion == ulong.MaxValue
+                ? existingEntity.RtVersion
+                : existingEntity.RtVersion + 1;
 
             // Update entity
             await tenantRepository.UpdateOneRtEntityByIdAsync(session, rtEntityId.CkTypeId, rtEntityId.RtId,
@@ -377,6 +416,7 @@ public sealed class RuntimeEntityCrudTools
                 IsSuccess = true,
                 TypeId = ckTypeId,
                 RtId = rtId,
+                CurrentRtVersion = updatedEntity.RtVersion,
                 Entity = rtEntityToDtoMapper.ConvertToDto(tenantRepository.TenantId, updatedEntity,
                     AttributeValueResolveFlags.ResolveEnumsToNames)
             };
@@ -401,6 +441,11 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="server">MCP Server instance</param>
     /// <param name="ckTypeId">Construction Kit Type ID</param>
     /// <param name="rtId">Runtime entity ID</param>
+    /// <param name="expectedVersion">
+    ///     Optional optimistic-lock token. When present and the stored <c>RtVersion</c>
+    ///     does not match, the call returns <c>IsSuccess=false</c> + <c>IsConflict=true</c>
+    ///     with the current <c>RtVersion</c> and entity payload — no delete happens.
+    /// </param>
     /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Deletion result</returns>
     [McpServerTool(Name = "delete_entity")]
@@ -410,10 +455,17 @@ public sealed class RuntimeEntityCrudTools
         McpServer server,
         string ckTypeId,
         string rtId,
+        [Description(
+            "Optional optimistic-lock token. Pass the RtVersion the caller read with the entity. " +
+            "If the server's current RtVersion differs, the delete is refused and the response " +
+            "carries IsConflict=true plus the current RtVersion + Entity so the caller can " +
+            "decide whether the entity changed in a way that makes the delete still appropriate.")]
+        ulong? expectedVersion = null,
         string? tenantId = null)
     {
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
+        var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
         using var session = await tenantRepository.GetSessionAsync();
         session.StartTransaction();
@@ -426,6 +478,25 @@ public sealed class RuntimeEntityCrudTools
             if (existingEntity == null)
             {
                 throw new ArgumentException($"Entity with ID '{rtId}' not found in type '{ckTypeId}'");
+            }
+
+            // Optimistic-lock gate — mirrors update_entity. Same contract: abort the
+            // transaction, return current row + version so the caller can decide retry.
+            if (expectedVersion.HasValue && existingEntity.RtVersion != expectedVersion.Value)
+            {
+                await session.AbortTransactionAsync();
+                return new DeleteEntityResponse
+                {
+                    IsSuccess = false,
+                    IsConflict = true,
+                    CurrentRtVersion = existingEntity.RtVersion,
+                    CkTypeId = ckTypeId,
+                    RtId = rtId,
+                    Entity = rtEntityToDtoMapper.ConvertToDto(tenantRepository.TenantId, existingEntity,
+                        AttributeValueResolveFlags.ResolveEnumsToNames),
+                    ErrorMessage =
+                        $"Stale expected_version: caller had {expectedVersion.Value}, current is {existingEntity.RtVersion}."
+                };
             }
 
             // Delete entity
