@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Xunit;
 
@@ -153,5 +154,219 @@ public class CustomAppGenerationToolsTests : TestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("at least one");
+    }
+
+    // ===== create_tenant_app_repo (#4146) =========================================
+    // The tool delegates to IGitHubRepoApiClient. Tests inject a stub client into the
+    // server's IServiceProvider and assert the tool maps each Outcome onto the right
+    // response shape. The HTTP plumbing in GitHubRepoApiClient itself is covered by
+    // a dedicated test in GitHubRepoApiClientTests.
+
+    [Fact]
+    public async Task CreateTenantAppRepo_HappyPath_ReturnsUrlsAndMetadata()
+    {
+        var stub = new StubGitHubRepoApiClient
+        {
+            Result = new GitHubRepoCreateResult
+            {
+                Outcome = GitHubRepoCreateOutcome.Created,
+                Repo = new GitHubRepoInfo
+                {
+                    Owner = "meshmakers",
+                    FullName = "meshmakers/customer-list",
+                    CloneUrl = "https://github.com/meshmakers/customer-list.git",
+                    SshUrl = "git@github.com:meshmakers/customer-list.git",
+                    DefaultBranch = "main",
+                    RepoId = 1234567,
+                },
+            }
+        };
+        TestServiceProvider.RegisterService<IGitHubRepoApiClient>(stub);
+
+        var result = await CustomAppGenerationTools.CreateTenantAppRepo(
+            MockServer.Object,
+            name: "customer-list",
+            accessToken: "ghp_fake",
+            description: "A list view",
+            isPrivate: true,
+            org: "meshmakers");
+
+        result.IsSuccess.Should().BeTrue();
+        result.IsConflict.Should().BeFalse();
+        result.Owner.Should().Be("meshmakers");
+        result.FullName.Should().Be("meshmakers/customer-list");
+        result.CloneUrl.Should().Be("https://github.com/meshmakers/customer-list.git");
+        result.SshUrl.Should().Be("git@github.com:meshmakers/customer-list.git");
+        result.DefaultBranch.Should().Be("main");
+        result.RepoId.Should().Be(1234567);
+        stub.LastCall.Should().NotBeNull();
+        stub.LastCall!.Name.Should().Be("customer-list");
+        stub.LastCall.Org.Should().Be("meshmakers");
+        stub.LastCall.IsPrivate.Should().BeTrue();
+        // PAT must reach the client unchanged — no manipulation in the tool layer.
+        stub.LastCall.AccessToken.Should().Be("ghp_fake");
+    }
+
+    [Fact]
+    public async Task CreateTenantAppRepo_NoAccessToken_RefusesBeforeApiCall()
+    {
+        // The tool refuses an empty PAT pre-call. Reaching the API with an empty bearer
+        // would surface as a 401 — friendlier to return the actionable error here.
+        var stub = new StubGitHubRepoApiClient();
+        TestServiceProvider.RegisterService<IGitHubRepoApiClient>(stub);
+
+        var result = await CustomAppGenerationTools.CreateTenantAppRepo(
+            MockServer.Object,
+            name: "customer-list",
+            accessToken: "");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("accessToken");
+        result.ErrorMessage.Should().Contain("GH_TOKEN", "the error must point the agent at the env var convention");
+        stub.LastCall.Should().BeNull("the client must not be called when validation fails");
+    }
+
+    [Fact]
+    public async Task CreateTenantAppRepo_EmptyName_RefusesBeforeApiCall()
+    {
+        var stub = new StubGitHubRepoApiClient();
+        TestServiceProvider.RegisterService<IGitHubRepoApiClient>(stub);
+
+        var result = await CustomAppGenerationTools.CreateTenantAppRepo(
+            MockServer.Object,
+            name: " ",
+            accessToken: "ghp_fake");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("name");
+        stub.LastCall.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("foo/bar")]
+    [InlineData("with space")]
+    public async Task CreateTenantAppRepo_NameWithInvalidChars_RefusesBeforeApiCall(string badName)
+    {
+        var stub = new StubGitHubRepoApiClient();
+        TestServiceProvider.RegisterService<IGitHubRepoApiClient>(stub);
+
+        var result = await CustomAppGenerationTools.CreateTenantAppRepo(
+            MockServer.Object,
+            name: badName,
+            accessToken: "ghp_fake");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("Invalid repo name");
+        stub.LastCall.Should().BeNull("pre-validation must short-circuit the API call");
+    }
+
+    [Fact]
+    public async Task CreateTenantAppRepo_NameCollision_ReturnsIsConflictWithExistingUrls()
+    {
+        var stub = new StubGitHubRepoApiClient
+        {
+            Result = new GitHubRepoCreateResult
+            {
+                Outcome = GitHubRepoCreateOutcome.Conflict,
+                ErrorMessage = "Repo meshmakers/customer-list already exists. Reuse it or pick a different name.",
+                Repo = new GitHubRepoInfo
+                {
+                    Owner = "meshmakers",
+                    FullName = "meshmakers/customer-list",
+                    CloneUrl = "https://github.com/meshmakers/customer-list.git",
+                    SshUrl = "git@github.com:meshmakers/customer-list.git",
+                    DefaultBranch = "main",
+                    RepoId = 999,
+                },
+            }
+        };
+        TestServiceProvider.RegisterService<IGitHubRepoApiClient>(stub);
+
+        var result = await CustomAppGenerationTools.CreateTenantAppRepo(
+            MockServer.Object,
+            name: "customer-list",
+            accessToken: "ghp_fake",
+            org: "meshmakers");
+
+        result.IsSuccess.Should().BeFalse();
+        result.IsConflict.Should().BeTrue("the conflict shape lets the agent reuse without a second round-trip");
+        result.CloneUrl.Should().Be("https://github.com/meshmakers/customer-list.git",
+            "the existing repo's URL is the actionable bit");
+        result.FullName.Should().Be("meshmakers/customer-list");
+        result.ErrorMessage.Should().Contain("already exists");
+    }
+
+    [Fact]
+    public async Task CreateTenantAppRepo_PatExpired_ReturnsUnauthorisedErrorWithoutIsConflict()
+    {
+        var stub = new StubGitHubRepoApiClient
+        {
+            Result = new GitHubRepoCreateResult
+            {
+                Outcome = GitHubRepoCreateOutcome.Unauthorised,
+                ErrorMessage = "GitHub rejected the PAT (401). Rotate the tenant binding.",
+            }
+        };
+        TestServiceProvider.RegisterService<IGitHubRepoApiClient>(stub);
+
+        var result = await CustomAppGenerationTools.CreateTenantAppRepo(
+            MockServer.Object,
+            name: "customer-list",
+            accessToken: "ghp_expired");
+
+        result.IsSuccess.Should().BeFalse();
+        result.IsConflict.Should().BeFalse("a 401 is not a name collision; mixing them would hide the rotation signal");
+        result.ErrorMessage.Should().Contain("PAT");
+    }
+
+    [Fact]
+    public async Task CreateTenantAppRepo_NoOrg_CallsClientWithNullOrg()
+    {
+        var stub = new StubGitHubRepoApiClient
+        {
+            Result = new GitHubRepoCreateResult
+            {
+                Outcome = GitHubRepoCreateOutcome.Created,
+                Repo = new GitHubRepoInfo
+                {
+                    Owner = "gerald",
+                    FullName = "gerald/personal-app",
+                    CloneUrl = "https://github.com/gerald/personal-app.git",
+                    SshUrl = "git@github.com:gerald/personal-app.git",
+                    DefaultBranch = "main",
+                    RepoId = 42,
+                },
+            }
+        };
+        TestServiceProvider.RegisterService<IGitHubRepoApiClient>(stub);
+
+        await CustomAppGenerationTools.CreateTenantAppRepo(
+            MockServer.Object,
+            name: "personal-app",
+            accessToken: "ghp_fake");
+
+        stub.LastCall!.Org.Should().BeNull("omitting org routes to POST /user/repos under the PAT-owner's account");
+        stub.LastCall.IsPrivate.Should().BeTrue("private is the default — tenant code is sensitive by default");
+    }
+
+    private sealed class StubGitHubRepoApiClient : IGitHubRepoApiClient
+    {
+        public GitHubRepoCreateResult Result { get; set; } = new()
+        {
+            Outcome = GitHubRepoCreateOutcome.UnexpectedError,
+            ErrorMessage = "Test stub was not configured."
+        };
+
+        public CallRecord? LastCall { get; private set; }
+
+        public Task<GitHubRepoCreateResult> CreateAsync(
+            string accessToken, string name, string? description, bool isPrivate, string? org,
+            CancellationToken cancellationToken = default)
+        {
+            LastCall = new CallRecord(accessToken, name, description, isPrivate, org);
+            return Task.FromResult(Result);
+        }
+
+        public sealed record CallRecord(string AccessToken, string Name, string? Description, bool IsPrivate, string? Org);
     }
 }

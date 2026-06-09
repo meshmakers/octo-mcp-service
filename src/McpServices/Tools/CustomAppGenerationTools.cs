@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Text.RegularExpressions;
 using Meshmakers.Octo.Backend.McpServices.Models;
+using Meshmakers.Octo.Backend.McpServices.Services;
+using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -197,6 +199,126 @@ public sealed class CustomAppGenerationTools
         if (l.Contains("calendar") || l.Contains("schedule")) return "calendarIcon";
         if (l.Contains("message") || l.Contains("chat") || l.Contains("notification")) return "envelopeIcon";
         return "gridIcon";
+    }
+
+    /// <summary>
+    ///     Creates a new GitHub repo under the PAT-owner's account or an explicit org (#4146).
+    ///     Used as the first step of a Custom-App-generation session so the workspace's
+    ///     <c>git remote add origin</c> + first push has a destination. Credentials flow:
+    ///     the worker pod's materialiser writes the tenant's PAT into the <c>GH_TOKEN</c>
+    ///     env var; the agent reads it via Bash and passes it on this tool's
+    ///     <c>accessToken</c> parameter. The MCP service never persists the PAT.
+    /// </summary>
+    [McpServerTool(Name = "create_tenant_app_repo")]
+    [McpRisk(McpRiskLevel.Medium)]
+    [Description(
+        "Create a new GitHub repo for a tenant's Custom-App (#4146). Pass the PAT from " +
+        "the worker pod's $GH_TOKEN env var on `accessToken`. Returns clone URLs + " +
+        "default branch + repo id. On a name collision the response carries " +
+        "IsConflict=true with the existing repo's URL so the agent can reuse rather than " +
+        "loop on retries. The tool never writes the PAT to logs or persisted state.")]
+    public static async Task<CreateTenantAppRepoResponse> CreateTenantAppRepo(
+        McpServer server,
+        [Description(
+            "The new repo's name. Validated against GitHub's pattern (alphanumerics, dashes, " +
+            "underscores, dots; no slashes). Required.")]
+        string name,
+        [Description(
+            "GitHub PAT with `repo` scope. Read the worker pod's $GH_TOKEN env var via the " +
+            "CLI's Bash tool and pass the value here. Required — the tool refuses to call " +
+            "GitHub with an empty token rather than risk a 401 cascade.")]
+        string accessToken,
+        [Description("Optional short description shown on the GitHub repo page. Default null (no description).")]
+        string? description = null,
+        [Description(
+            "Create as a private repo. Default true — tenant code shouldn't accidentally " +
+            "land in a public repo. Override only when the operator explicitly wants public.")]
+        bool isPrivate = true,
+        [Description(
+            "Optional GitHub org slug. When set, creates under POST /orgs/{org}/repos; the " +
+            "PAT must have admin access on the org. When null, creates under the PAT-owner's " +
+            "user account.")]
+        string? org = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return new CreateTenantAppRepoResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "Required: name."
+            };
+        }
+        if (string.IsNullOrWhiteSpace(accessToken))
+        {
+            return new CreateTenantAppRepoResponse
+            {
+                IsSuccess = false,
+                ErrorMessage =
+                    "Required: accessToken. Read $GH_TOKEN from the worker pod env via Bash; the materialiser " +
+                    "writes it on session start when an AiCredentialBinding(Kind=GitHubPat) is registered for the tenant."
+            };
+        }
+        // Pre-validate the obvious cases at the tool layer so GitHub doesn't have to. Saves
+        // a round-trip and the resulting 422-disambiguation logic in the client.
+        if (name.Contains('/') || name.Contains(' '))
+        {
+            return new CreateTenantAppRepoResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = $"Invalid repo name '{name}'. Repo names cannot contain '/' or spaces."
+            };
+        }
+
+        try
+        {
+            var client = server.Services!.GetRequiredService<IGitHubRepoApiClient>();
+            var result = await client.CreateAsync(accessToken, name, description, isPrivate, org, cancellationToken);
+            return result.Outcome switch
+            {
+                GitHubRepoCreateOutcome.Created => new CreateTenantAppRepoResponse
+                {
+                    IsSuccess = true,
+                    Message = $"Created repo {result.Repo!.FullName}.",
+                    Owner = result.Repo.Owner,
+                    FullName = result.Repo.FullName,
+                    CloneUrl = result.Repo.CloneUrl,
+                    SshUrl = result.Repo.SshUrl,
+                    DefaultBranch = result.Repo.DefaultBranch,
+                    RepoId = result.Repo.RepoId,
+                },
+                GitHubRepoCreateOutcome.Conflict => new CreateTenantAppRepoResponse
+                {
+                    IsSuccess = false,
+                    IsConflict = true,
+                    ErrorMessage = result.ErrorMessage,
+                    Owner = result.Repo?.Owner,
+                    FullName = result.Repo?.FullName,
+                    CloneUrl = result.Repo?.CloneUrl,
+                    SshUrl = result.Repo?.SshUrl,
+                    DefaultBranch = result.Repo?.DefaultBranch,
+                    RepoId = result.Repo?.RepoId,
+                },
+                GitHubRepoCreateOutcome.Unauthorised => new CreateTenantAppRepoResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = result.ErrorMessage,
+                },
+                _ => new CreateTenantAppRepoResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = result.ErrorMessage,
+                },
+            };
+        }
+        catch (Exception ex)
+        {
+            return new CreateTenantAppRepoResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = ex.Message,
+            };
+        }
     }
 }
 

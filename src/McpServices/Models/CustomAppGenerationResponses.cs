@@ -177,3 +177,47 @@ public sealed class RoutePlan
     /// <summary>Translation key for the breadcrumb / page title.</summary>
     public required string TitleKey { get; init; }
 }
+
+/// <summary>
+///     Response of <c>create_tenant_app_repo</c> (#4146). Returns the URLs the agent needs
+///     to wire <c>git remote add origin</c> and the metadata an App Catalog can later read.
+///     On a name-collision conflict (HTTP 422 from GitHub), <see cref="IsConflict" /> is true
+///     and the existing repo's URL is in <see cref="CloneUrl" /> so the agent can decide to
+///     reuse the repo or surface to the operator that a name change is needed.
+/// </summary>
+public sealed class CreateTenantAppRepoResponse
+{
+    /// <summary>Whether the call succeeded.</summary>
+    public bool IsSuccess { get; set; }
+
+    /// <summary>Set when <see cref="IsSuccess" /> is false.</summary>
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>Free-text message for the AI client (success summary).</summary>
+    public string? Message { get; set; }
+
+    /// <summary>Owner login (the PAT-owner's user or the explicit org).</summary>
+    public string? Owner { get; set; }
+
+    /// <summary>Full repo name (<c>owner/name</c>).</summary>
+    public string? FullName { get; set; }
+
+    /// <summary>
+    ///     Set to <c>true</c> when GitHub refused with HTTP 422 because a repo of that name
+    ///     already exists. <see cref="CloneUrl" /> + <see cref="FullName" /> carry the
+    ///     existing repo's URLs so the agent can reuse without a second round-trip.
+    /// </summary>
+    public bool IsConflict { get; set; }
+
+    /// <summary>HTTPS clone URL — what the agent passes to <c>git remote add origin</c>.</summary>
+    public string? CloneUrl { get; set; }
+
+    /// <summary>SSH clone URL — alternative for the dev-bridge case.</summary>
+    public string? SshUrl { get; set; }
+
+    /// <summary>Default branch name (typically <c>main</c>).</summary>
+    public string? DefaultBranch { get; set; }
+
+    /// <summary>GitHub's numeric repository id, useful for cross-referencing with the API.</summary>
+    public long? RepoId { get; set; }
+}

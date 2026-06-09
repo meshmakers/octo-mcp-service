@@ -86,6 +86,15 @@ try
         {
             ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
         });
+    // #4146 — the named "github" client targets https://api.github.com. No custom cert
+    // handler because GitHub's cert chain is in the system trust store on the worker
+    // pod and the adapter image. Timeout pinned so a stuck GitHub side never blocks
+    // the MCP request slot indefinitely.
+    builder.Services.AddHttpClient("github", c =>
+    {
+        c.Timeout = TimeSpan.FromSeconds(20);
+    });
+    builder.Services.AddSingleton<IGitHubRepoApiClient, GitHubRepoApiClient>();
 
     builder.Services.AddCors();
     builder.Services.AddControllers()
