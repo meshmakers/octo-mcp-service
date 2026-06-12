@@ -170,6 +170,260 @@ public sealed class CustomAppGenerationTools
         });
     }
 
+    /// <summary>
+    ///     Expand a <see cref="CustomAppScaffoldPlanResponse" /> + per-page CK type bindings
+    ///     into the structured operation list the agent applies via its built-in
+    ///     <c>Write</c>/<c>Edit</c> tools. The MCP server cannot write to the agent's
+    ///     workspace directly — this tool centralises design while keeping the agent in
+    ///     control of the apply. Pure-logic — no I/O, no auth.
+    ///     <para>
+    ///         The 7 per-page templates (page TS/HTML/SCSS, service, service spec, DTO,
+    ///         GraphQL query) and the 2 cross-cutting edits (app.routes.ts,
+    ///         my-command-settings.service.ts) are anchored to
+    ///         <c>meshmakers/template-repo</c>'s conventions; an edit whose anchor pattern
+    ///         doesn't match the workspace's file shape is omitted with a clear
+    ///         <c>NextSteps</c> hint so the agent can fall back to a manual edit.
+    ///         custom-svg-icons.ts is handled via <c>NextSteps</c> only — its append-only
+    ///         shape (the last icon varies per project) makes a stable anchor pattern
+    ///         brittle.
+    ///     </para>
+    /// </summary>
+    [McpServerTool(Name = "apply_custom_app_scaffold")]
+    [McpRisk(McpRiskLevel.Medium)]
+    [Description(
+        "Expand a plan_custom_app_scaffold output into the canonical Custom-App file " +
+        "contents + route/drawer edits (#4135 / M3 B-2c-2). Returns WriteOps the agent " +
+        "applies via Write, EditOps it applies via Edit, and NextSteps for things the " +
+        "tool can't pre-fill (GraphQL leaves for unbound pages, grid columns, icon " +
+        "append). Pass the plan plus per-page CK type bindings keyed by RouteSlug — the " +
+        "tool pre-fills DTO + GraphQL leaves from each binding's attribute list. Pure-" +
+        "logic — no I/O, no auth.")]
+    public static Task<ApplyCustomAppScaffoldResponse> ApplyCustomAppScaffold(
+        McpServer server,
+        [Description("Output of plan_custom_app_scaffold — must have IsSuccess=true and at least one page.")]
+        CustomAppScaffoldPlanResponse plan,
+        [Description("Per-page CK type bindings, keyed by RouteSlug. Pages without an entry get DTO + GraphQL stubs with TODO markers.")]
+        Dictionary<string, ApplyScaffoldTypeBinding>? typeBindings = null,
+        [Description("Workspace-relative path to app.routes.ts. Defaults to 'src/custom-app/src/app/app.routes.ts'.")]
+        string? appRoutesPath = null,
+        [Description("Workspace-relative path to my-command-settings.service.ts. Defaults to 'src/custom-app/src/app/services/my-command-settings.service.ts'.")]
+        string? commandSettingsPath = null,
+        [Description("Workspace-relative path to custom-svg-icons.ts. Defaults to 'src/custom-app/src/app/custom-svg-icons.ts'.")]
+        string? customSvgIconsPath = null)
+    {
+        if (plan == null)
+        {
+            return Task.FromResult(new ApplyCustomAppScaffoldResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "plan is required.",
+            });
+        }
+        if (!plan.IsSuccess)
+        {
+            return Task.FromResult(new ApplyCustomAppScaffoldResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "plan.IsSuccess must be true — pass a successful plan_custom_app_scaffold output.",
+            });
+        }
+        if (plan.Pages.Count == 0)
+        {
+            return Task.FromResult(new ApplyCustomAppScaffoldResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "plan must contain at least one Page.",
+            });
+        }
+
+        var bindings = typeBindings ?? new Dictionary<string, ApplyScaffoldTypeBinding>(StringComparer.Ordinal);
+        var routesPath = string.IsNullOrWhiteSpace(appRoutesPath)
+            ? "src/custom-app/src/app/app.routes.ts" : appRoutesPath;
+        var settingsPath = string.IsNullOrWhiteSpace(commandSettingsPath)
+            ? "src/custom-app/src/app/services/my-command-settings.service.ts" : commandSettingsPath;
+        var iconsPath = string.IsNullOrWhiteSpace(customSvgIconsPath)
+            ? "src/custom-app/src/app/custom-svg-icons.ts" : customSvgIconsPath;
+
+        var writeOps = new List<WriteOp>();
+        var routeEntries = new List<string>();
+        var drawerEntries = new List<string>();
+        var iconImports = new List<string>();
+        var iconNextSteps = new List<string>();
+        var nextSteps = new List<string>();
+
+        for (var i = 0; i < plan.Pages.Count; i++)
+        {
+            var page = plan.Pages[i];
+            bindings.TryGetValue(page.RouteSlug, out var binding);
+            var values = CustomAppTemplateRenderer.BuildValues(page, binding);
+
+            var pageFolder = $"src/custom-app/src/app/pages/{page.RouteSlug}";
+            writeOps.Add(new WriteOp
+            {
+                Path = $"{pageFolder}/{page.RouteSlug}.ts",
+                Content = CustomAppTemplateRenderer.Render(CustomAppTemplates.PageComponentTs, values),
+                Purpose = "page-component",
+            });
+            writeOps.Add(new WriteOp
+            {
+                Path = $"{pageFolder}/{page.RouteSlug}.html",
+                Content = CustomAppTemplateRenderer.Render(CustomAppTemplates.PageTemplateHtml, values),
+                Purpose = "page-template",
+            });
+            writeOps.Add(new WriteOp
+            {
+                Path = $"{pageFolder}/{page.RouteSlug}.scss",
+                Content = CustomAppTemplates.PageStylesScss,
+                Purpose = "page-styles",
+            });
+            writeOps.Add(new WriteOp
+            {
+                Path = $"src/custom-app/src/app/services/{page.RouteSlug}.service.ts",
+                Content = CustomAppTemplateRenderer.Render(CustomAppTemplates.ServiceTs, values),
+                Purpose = "service",
+            });
+            writeOps.Add(new WriteOp
+            {
+                Path = $"src/custom-app/src/app/services/{page.RouteSlug}.service.spec.ts",
+                Content = CustomAppTemplateRenderer.Render(CustomAppTemplates.ServiceSpecTs, values),
+                Purpose = "service-spec",
+            });
+            writeOps.Add(new WriteOp
+            {
+                Path = $"src/custom-app/src/app/models/{page.RouteSlug}-entry.ts",
+                Content = CustomAppTemplateRenderer.Render(CustomAppTemplates.ModelTs, values),
+                Purpose = "dto",
+            });
+            writeOps.Add(new WriteOp
+            {
+                Path = $"src/custom-app/src/app/graphQL/get{page.ClassName}.graphql",
+                Content = CustomAppTemplateRenderer.Render(CustomAppTemplates.QueryGraphql, values),
+                Purpose = "graphql-query",
+            });
+
+            // Build the per-page snippets that aggregate into single EditOps below.
+            var route = plan.Routes.FirstOrDefault(r => r.Path == page.RouteSlug);
+            if (route != null)
+            {
+                routeEntries.Add(BuildRouteEntry(route, page));
+            }
+            var drawer = plan.DrawerItems.FirstOrDefault(d => d.Id == page.RouteSlug);
+            if (drawer != null)
+            {
+                drawerEntries.Add(BuildDrawerEntry(drawer));
+                iconImports.Add(drawer.SvgIcon);
+                iconNextSteps.Add(
+                    $"Add an icon export for `{drawer.SvgIcon}` to {iconsPath} (one ${nameof(SuggestIcon)}-style SVGIcon constant). " +
+                    "Append at the end of the file — its append-only shape makes a stable Edit anchor brittle.");
+            }
+
+            if (binding == null)
+            {
+                nextSteps.Add(
+                    $"Page '{page.RouteSlug}' has no type binding — DTO + GraphQL query carry TODO stubs. " +
+                    $"Fill in the DTO fields in models/{page.RouteSlug}-entry.ts and the leaf list in graphQL/get{page.ClassName}.graphql before running `npm run codegen`.");
+            }
+            else
+            {
+                nextSteps.Add(
+                    $"Page '{page.RouteSlug}' bound to {binding.TypeId}. Pick the grid columns in pages/{page.RouteSlug}/{page.RouteSlug}.html — the DTO + GraphQL stub already enumerate the attributes.");
+            }
+        }
+
+        var editOps = new List<EditOp>();
+
+        if (routeEntries.Count > 0)
+        {
+            // Anchor: the close of the :lang children block + the wildcard ** route start.
+            // This 4-line sequence is unique in the template-repo's app.routes.ts.
+            const string routesOld = "    ],\n  },\n  {\n    path: '**',";
+            var routesNew = string.Join("", routeEntries) + routesOld;
+            editOps.Add(new EditOp
+            {
+                Path = routesPath,
+                OldString = routesOld,
+                NewString = routesNew,
+                Purpose = "route-registration",
+            });
+        }
+
+        if (drawerEntries.Count > 0)
+        {
+            // Anchor: the close of the commandItems array + the next override.
+            const string settingsOld = "    ];\n  }\n\n  override get navigateRelativeToRoute(): ActivatedRoute {";
+            var settingsNew = string.Join("", drawerEntries) + settingsOld;
+            editOps.Add(new EditOp
+            {
+                Path = settingsPath,
+                OldString = settingsOld,
+                NewString = settingsNew,
+                Purpose = "drawer-item",
+            });
+        }
+
+        if (iconImports.Count > 0)
+        {
+            var imports = string.Join(", ", iconImports.Distinct(StringComparer.Ordinal));
+            nextSteps.Add(
+                $"Import {{ {imports} }} from `{iconsPath.Replace("/custom-svg-icons.ts", "/custom-svg-icons")}` in {settingsPath} so the drawer entries can reference the icon constants.");
+            nextSteps.AddRange(iconNextSteps);
+        }
+
+        nextSteps.Add(
+            "After applying the WriteOps + EditOps, run `npm run codegen` from `src/custom-app/` " +
+            "to emit each `getXxx.generated.ts` from the new `getXxx.graphql` and refresh `globalTypes.ts`. " +
+            "Then run `npm run lint && npm run test:ci && npm run build:prod` before pushing.");
+
+        return Task.FromResult(new ApplyCustomAppScaffoldResponse
+        {
+            IsSuccess = true,
+            Message = $"Expanded plan into {writeOps.Count} write op(s) + {editOps.Count} edit op(s) for {plan.Pages.Count} page(s).",
+            WriteOps = writeOps,
+            EditOps = editOps,
+            NextSteps = nextSteps,
+        });
+    }
+
+    /// <summary>
+    ///     Format one route entry for <c>app.routes.ts</c>'s <c>:lang</c> children block.
+    ///     Mirrors the lazy-load shape used in <c>meshmakers/ai-sandbox-app</c> PR #8.
+    /// </summary>
+    private static string BuildRouteEntry(RoutePlan route, ScaffoldedPageInfo page)
+    {
+        // Breadcrumb label: humanise the kebab slug ("audit-log" → "Audit Log").
+        var label = string.Join(" ", route.Path.Split('-')
+            .Where(p => p.Length > 0)
+            .Select(p => char.ToUpperInvariant(p[0]) + p[1..].ToLowerInvariant()));
+        return
+            "      {\n" +
+            $"        path: '{route.Path}',\n" +
+            "        loadComponent: () =>\n" +
+            $"          import('{route.ComponentPath}').then((m) => m.{route.ComponentClassName}Component),\n" +
+            "        data: {\n" +
+            "          breadcrumb: [\n" +
+            "            { label: 'Home', url: '' },\n" +
+            $"            {{ label: '{label}' }},\n" +
+            "          ],\n" +
+            "        },\n" +
+            "      },\n";
+    }
+
+    /// <summary>
+    ///     Format one drawer command-settings entry. Mirrors the shape in template-repo's
+    ///     <c>my-command-settings.service.ts</c>.
+    /// </summary>
+    private static string BuildDrawerEntry(DrawerItemPlan drawer)
+    {
+        return
+            "      {\n" +
+            $"        id: '{drawer.Id}',\n" +
+            "        type: 'link',\n" +
+            $"        text: '{drawer.Text}',\n" +
+            $"        svgIcon: {drawer.SvgIcon},\n" +
+            $"        link: async (): Promise<string> => '{drawer.Id}',\n" +
+            "      },\n";
+    }
+
     private static string Kebab(string s)
     {
         // "User List" / "userList" / "user_list" -> "user-list"

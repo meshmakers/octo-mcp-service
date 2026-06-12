@@ -221,3 +221,137 @@ public sealed class CreateTenantAppRepoResponse
     /// <summary>GitHub's numeric repository id, useful for cross-referencing with the API.</summary>
     public long? RepoId { get; set; }
 }
+
+/// <summary>
+///     Response of <c>apply_custom_app_scaffold</c> (#4135 / M3 B-2c-2). Expands a
+///     <see cref="CustomAppScaffoldPlanResponse" /> plus per-page CK type bindings into a
+///     structured operation list the AI agent then applies via its built-in Write/Edit
+///     tools. The MCP server cannot write to the agent's workspace directly — this tool
+///     centralises design while keeping the agent in control of the apply.
+/// </summary>
+public sealed class ApplyCustomAppScaffoldResponse
+{
+    /// <summary>Whether the call succeeded.</summary>
+    public bool IsSuccess { get; set; }
+
+    /// <summary>Set when <see cref="IsSuccess" /> is false.</summary>
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>Free-text message for the AI client (success summary).</summary>
+    public string? Message { get; set; }
+
+    /// <summary>
+    ///     File-creation operations the agent applies via its built-in <c>Write</c> tool.
+    ///     Each carries the workspace-relative path, the canonical content, and a
+    ///     semantic <see cref="WriteOp.Purpose" /> tag.
+    /// </summary>
+    public List<WriteOp> WriteOps { get; set; } = new();
+
+    /// <summary>
+    ///     In-place edits to existing files the agent applies via its built-in <c>Edit</c>
+    ///     tool. Each carries the path and a precise <c>(OldString, NewString)</c> pair the
+    ///     agent passes verbatim. An edit whose anchor pattern doesn't match the workspace's
+    ///     actual file is omitted; the operator-facing fallback is recorded in
+    ///     <see cref="NextSteps" />.
+    /// </summary>
+    public List<EditOp> EditOps { get; set; } = new();
+
+    /// <summary>
+    ///     Plain-English next steps the agent should perform AFTER applying the ops —
+    ///     things this tool can't pre-fill (GraphQL query body from CK attributes, grid
+    ///     columns from the operator's chosen attribute subset, manual route edits when
+    ///     the auto-anchor didn't match).
+    /// </summary>
+    public List<string> NextSteps { get; set; } = new();
+}
+
+/// <summary>One file the agent should create via <c>Write</c>.</summary>
+public sealed class WriteOp
+{
+    /// <summary>Workspace-relative path of the file to create.</summary>
+    public required string Path { get; init; }
+
+    /// <summary>Canonical content the agent writes verbatim.</summary>
+    public required string Content { get; init; }
+
+    /// <summary>
+    ///     Semantic tag describing what kind of file this is — used for the agent's
+    ///     trace + the tool's <see cref="ApplyCustomAppScaffoldResponse.Message" />.
+    ///     Values: <c>page-component</c>, <c>page-template</c>, <c>page-styles</c>,
+    ///     <c>service</c>, <c>service-spec</c>, <c>dto</c>, <c>graphql-query</c>.
+    /// </summary>
+    public required string Purpose { get; init; }
+}
+
+/// <summary>One in-place edit the agent applies via <c>Edit</c>.</summary>
+public sealed class EditOp
+{
+    /// <summary>Workspace-relative path of the file to edit.</summary>
+    public required string Path { get; init; }
+
+    /// <summary>Existing substring the agent passes to <c>Edit</c>'s <c>old_string</c>.</summary>
+    public required string OldString { get; init; }
+
+    /// <summary>Replacement substring the agent passes to <c>Edit</c>'s <c>new_string</c>.</summary>
+    public required string NewString { get; init; }
+
+    /// <summary>
+    ///     Semantic tag for the trace. Values: <c>route-registration</c>,
+    ///     <c>drawer-item</c>, <c>icon-import</c>.
+    /// </summary>
+    public required string Purpose { get; init; }
+}
+
+/// <summary>
+///     Per-page CK type binding the agent passes to <c>apply_custom_app_scaffold</c>.
+///     The tool pre-fills the DTO interface fields + the GraphQL query leaves from
+///     <see cref="Attributes" />. Pages without a binding entry get empty DTO/GraphQL
+///     stubs and a <c>NextSteps</c> hint to fill them in manually.
+/// </summary>
+public sealed class ApplyScaffoldTypeBinding
+{
+    /// <summary>
+    ///     The CK type's stable id (e.g. <c>System.Ai-3/AiAuditEvent</c>). Used for the
+    ///     Apollo service comment + the model file's header so a reviewer can trace
+    ///     the page back to the source type.
+    /// </summary>
+    public required string TypeId { get; init; }
+
+    /// <summary>
+    ///     The GraphQL operation name under <c>runtime.</c> — e.g. <c>systemAiAuditEvent</c>.
+    ///     Derived from the type id by camel-casing the leaf segment; pass it explicitly
+    ///     so the tool doesn't have to re-derive the convention.
+    /// </summary>
+    public required string GraphqlOperationName { get; init; }
+
+    /// <summary>
+    ///     The attributes to project into the DTO interface + the GraphQL query leaves.
+    ///     Order is preserved in both outputs. Empty list → empty DTO + TODO-only query.
+    /// </summary>
+    public List<ApplyScaffoldAttribute> Attributes { get; set; } = new();
+}
+
+/// <summary>One CK attribute the binding projects into the page's DTO + GraphQL query.</summary>
+public sealed class ApplyScaffoldAttribute
+{
+    /// <summary>
+    ///     Attribute name as the GraphQL schema exposes it (camelCase — e.g.
+    ///     <c>eventType</c>, <c>actorRef</c>). Used verbatim as both the DTO field name
+    ///     and the GraphQL leaf name.
+    /// </summary>
+    public required string Name { get; init; }
+
+    /// <summary>
+    ///     TypeScript type for the DTO field — <c>string</c>, <c>number</c>, <c>Date</c>,
+    ///     <c>boolean</c>. The agent maps the CK <c>AttributeValueTypes</c> to a TS type.
+    ///     Free-form so a future custom type doesn't need a tool change.
+    /// </summary>
+    public required string TsType { get; init; }
+
+    /// <summary>
+    ///     Whether the attribute is nullable in the CK schema. Optional fields surface as
+    ///     <c>name?: type | null</c> in the DTO and get coalesced to <c>?? null</c> in the
+    ///     mapping function.
+    /// </summary>
+    public bool IsOptional { get; init; }
+}

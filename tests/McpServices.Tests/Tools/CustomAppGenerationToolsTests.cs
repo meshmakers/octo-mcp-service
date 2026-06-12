@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Xunit;
@@ -347,6 +348,213 @@ public class CustomAppGenerationToolsTests : TestBase
 
         stub.LastCall!.Org.Should().BeNull("omitting org routes to POST /user/repos under the PAT-owner's account");
         stub.LastCall.IsPrivate.Should().BeTrue("private is the default — tenant code is sensitive by default");
+    }
+
+    // ===== apply_custom_app_scaffold (M3 B-2c-2) ===================================
+    // Pure-logic expansion of a plan into WriteOps + EditOps + NextSteps. The MCP
+    // server can't write to the agent's workspace directly; these tests pin that the
+    // returned ops contain the canonical content shape the agent then applies via its
+    // built-in Write/Edit tools.
+
+    [Fact]
+    public async Task ApplyCustomAppScaffold_HappyPath_EmitsSevenWriteOpsPerPage()
+    {
+        var plan = await CustomAppGenerationTools.PlanCustomAppScaffold(
+            MockServer.Object, appSlug: "demo", drawerItems: "Audit Log");
+
+        var binding = new ApplyScaffoldTypeBinding
+        {
+            TypeId = "System.Ai-3/AiAuditEvent",
+            GraphqlOperationName = "systemAiAuditEvent",
+            Attributes = new List<ApplyScaffoldAttribute>
+            {
+                new() { Name = "at", TsType = "string", IsOptional = false },
+                new() { Name = "eventType", TsType = "string", IsOptional = false },
+                new() { Name = "detail", TsType = "string", IsOptional = true },
+            },
+        };
+
+        var result = await CustomAppGenerationTools.ApplyCustomAppScaffold(
+            MockServer.Object,
+            plan,
+            new Dictionary<string, ApplyScaffoldTypeBinding> { ["audit-log"] = binding });
+
+        result.IsSuccess.Should().BeTrue();
+        result.WriteOps.Should().HaveCount(7, "one page → page.ts + page.html + page.scss + service + spec + dto + graphql");
+        result.WriteOps.Select(w => w.Purpose).Should().BeEquivalentTo(
+            "page-component", "page-template", "page-styles", "service",
+            "service-spec", "dto", "graphql-query");
+        result.EditOps.Should().HaveCount(2, "one route registration + one drawer item");
+        result.EditOps.Select(e => e.Purpose).Should().Contain(new[] { "route-registration", "drawer-item" });
+    }
+
+    [Fact]
+    public async Task ApplyCustomAppScaffold_BindingAttributes_LandInDtoAndGraphqlAndMapper()
+    {
+        var plan = await CustomAppGenerationTools.PlanCustomAppScaffold(
+            MockServer.Object, appSlug: "demo", drawerItems: "Audit Log");
+
+        var binding = new ApplyScaffoldTypeBinding
+        {
+            TypeId = "System.Ai-3/AiAuditEvent",
+            GraphqlOperationName = "systemAiAuditEvent",
+            Attributes = new List<ApplyScaffoldAttribute>
+            {
+                new() { Name = "at", TsType = "string", IsOptional = false },
+                new() { Name = "detail", TsType = "string", IsOptional = true },
+            },
+        };
+
+        var result = await CustomAppGenerationTools.ApplyCustomAppScaffold(
+            MockServer.Object,
+            plan,
+            new Dictionary<string, ApplyScaffoldTypeBinding> { ["audit-log"] = binding });
+
+        var dto = result.WriteOps.Single(w => w.Purpose == "dto");
+        dto.Content.Should().Contain("at: string;");
+        dto.Content.Should().Contain("detail?: string | null;",
+            "optional attributes carry the | null tail");
+
+        var gql = result.WriteOps.Single(w => w.Purpose == "graphql-query");
+        gql.Content.Should().Contain("systemAiAuditEvent(first: $first)");
+        gql.Content.Should().Contain("at");
+        gql.Content.Should().Contain("detail");
+
+        var svc = result.WriteOps.Single(w => w.Purpose == "service");
+        svc.Content.Should().Contain("at: node.at,");
+        svc.Content.Should().Contain("detail: node.detail ?? null,",
+            "optional attributes get the ?? null coalesce in the mapper");
+    }
+
+    [Fact]
+    public async Task ApplyCustomAppScaffold_NoTypeBinding_EmitsTodoStubs()
+    {
+        var plan = await CustomAppGenerationTools.PlanCustomAppScaffold(
+            MockServer.Object, appSlug: "demo", drawerItems: "Mystery Page");
+
+        var result = await CustomAppGenerationTools.ApplyCustomAppScaffold(
+            MockServer.Object, plan);
+
+        result.IsSuccess.Should().BeTrue();
+        var dto = result.WriteOps.Single(w => w.Purpose == "dto");
+        dto.Content.Should().Contain("// TODO: list the fields");
+        var gql = result.WriteOps.Single(w => w.Purpose == "graphql-query");
+        gql.Content.Should().Contain("# TODO: list the attributes");
+
+        result.NextSteps.Should().Contain(s => s.Contains("mystery-page") && s.Contains("no type binding"));
+    }
+
+    [Fact]
+    public async Task ApplyCustomAppScaffold_MultiplePages_BundlesRouteAndDrawerEdits()
+    {
+        // Three pages → three route entries land in ONE EditOp (bundled before the
+        // wildcard anchor). Same for drawer entries. The agent applies two single
+        // EditOps rather than 3 + 3 separate ones; that's the whole point of bundling.
+        var plan = await CustomAppGenerationTools.PlanCustomAppScaffold(
+            MockServer.Object, appSlug: "demo",
+            drawerItems: "Audit Log, Asset Table, Settings");
+
+        var result = await CustomAppGenerationTools.ApplyCustomAppScaffold(
+            MockServer.Object, plan);
+
+        result.IsSuccess.Should().BeTrue();
+        result.WriteOps.Should().HaveCount(21, "7 per page × 3 pages");
+        result.EditOps.Should().HaveCount(2);
+
+        var route = result.EditOps.Single(e => e.Purpose == "route-registration");
+        route.NewString.Should().Contain("'audit-log'");
+        route.NewString.Should().Contain("'asset-table'");
+        route.NewString.Should().Contain("'settings'");
+
+        var drawer = result.EditOps.Single(e => e.Purpose == "drawer-item");
+        drawer.NewString.Should().Contain("id: 'audit-log'");
+        drawer.NewString.Should().Contain("id: 'asset-table'");
+        drawer.NewString.Should().Contain("id: 'settings'");
+    }
+
+    [Fact]
+    public async Task ApplyCustomAppScaffold_RouteEditAnchor_PreservesWildcardSuffix()
+    {
+        // The route EditOp's NewString MUST end with the same anchor it replaces — the
+        // OldString of '    ],\n  },\n  {\n    path: \'**\',' must be present at the end
+        // of NewString or the Edit becomes a delete-and-truncate.
+        var plan = await CustomAppGenerationTools.PlanCustomAppScaffold(
+            MockServer.Object, appSlug: "demo", drawerItems: "Audit Log");
+
+        var result = await CustomAppGenerationTools.ApplyCustomAppScaffold(
+            MockServer.Object, plan);
+
+        var route = result.EditOps.Single(e => e.Purpose == "route-registration");
+        route.OldString.Should().Be("    ],\n  },\n  {\n    path: '**',");
+        route.NewString.Should().EndWith(route.OldString);
+    }
+
+    [Fact]
+    public async Task ApplyCustomAppScaffold_NullPlan_ReturnsValidationError()
+    {
+        var result = await CustomAppGenerationTools.ApplyCustomAppScaffold(
+            MockServer.Object, plan: null!);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("plan");
+    }
+
+    [Fact]
+    public async Task ApplyCustomAppScaffold_PlanWithIsSuccessFalse_Refuses()
+    {
+        var badPlan = new CustomAppScaffoldPlanResponse { IsSuccess = false, ErrorMessage = "x" };
+
+        var result = await CustomAppGenerationTools.ApplyCustomAppScaffold(
+            MockServer.Object, badPlan);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("IsSuccess");
+    }
+
+    [Fact]
+    public async Task ApplyCustomAppScaffold_EmptyPagesList_Refuses()
+    {
+        var emptyPlan = new CustomAppScaffoldPlanResponse { IsSuccess = true, AppSlug = "demo" };
+
+        var result = await CustomAppGenerationTools.ApplyCustomAppScaffold(
+            MockServer.Object, emptyPlan);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("Page");
+    }
+
+    [Fact]
+    public async Task ApplyCustomAppScaffold_CustomPaths_PropagateToEditOps()
+    {
+        // Operators with a non-default workspace layout pass custom file paths; the
+        // EditOps must carry those paths verbatim so the agent's Edit lands on the
+        // right file.
+        var plan = await CustomAppGenerationTools.PlanCustomAppScaffold(
+            MockServer.Object, appSlug: "demo", drawerItems: "Audit Log");
+
+        var result = await CustomAppGenerationTools.ApplyCustomAppScaffold(
+            MockServer.Object, plan, typeBindings: null,
+            appRoutesPath: "custom/path/app.routes.ts",
+            commandSettingsPath: "custom/path/cmd.service.ts");
+
+        result.IsSuccess.Should().BeTrue();
+        var route = result.EditOps.Single(e => e.Purpose == "route-registration");
+        route.Path.Should().Be("custom/path/app.routes.ts");
+        var drawer = result.EditOps.Single(e => e.Purpose == "drawer-item");
+        drawer.Path.Should().Be("custom/path/cmd.service.ts");
+    }
+
+    [Fact]
+    public async Task ApplyCustomAppScaffold_NextSteps_PromptsCodegenAndBuild()
+    {
+        var plan = await CustomAppGenerationTools.PlanCustomAppScaffold(
+            MockServer.Object, appSlug: "demo", drawerItems: "Audit Log");
+
+        var result = await CustomAppGenerationTools.ApplyCustomAppScaffold(
+            MockServer.Object, plan);
+
+        result.NextSteps.Should().Contain(s => s.Contains("npm run codegen"));
+        result.NextSteps.Should().Contain(s => s.Contains("npm run build:prod"));
     }
 
     private sealed class StubGitHubRepoApiClient : IGitHubRepoApiClient
