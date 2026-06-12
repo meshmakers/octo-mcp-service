@@ -337,10 +337,19 @@ public sealed class ApplyScaffoldTypeBinding
 }
 
 /// <summary>
-///     Response of <c>export_runtime_graphql_sdl</c> (M3 B-2c-schema-availability). Carries
-///     the introspection JSON the agent writes to <c>src/custom-app/schema.json</c> as
-///     codegen's schema input. Per-tenant — different tenants have different CK models,
-///     so the GraphQL surface (the dynamically typed <c>runtime.</c> fields) varies.
+///     Response of <c>export_runtime_graphql_sdl</c> (M3 B-2c-schema-availability). The
+///     introspection body lands at <c>/file-transfer/download/{TransferId}</c> — the agent
+///     downloads it to <c>src/custom-app/schema.json</c> and feeds it to graphql-codegen.
+///     Per-tenant — different tenants have different CK models, so the GraphQL surface
+///     (the dynamically typed <c>runtime.</c> fields) varies.
+///     <para>
+///         Architecture note: the body does NOT travel inside this response object. The
+///         introspection JSON for a typical tenant is 3-5 MB; embedding it would OOM the
+///         MCP pod on the JSON-RPC serializer's escape pass (verified at Gate-21 — the
+///         <c>SharedArrayPool.Rent</c> in <c>Utf8JsonWriter.WriteStringEscapeValue</c>
+///         exhausted the 512 MiB pod). The file-transfer channel is the existing
+///         sanctioned path for payloads larger than a few KB.
+///     </para>
 /// </summary>
 public sealed class ExportRuntimeGraphqlSdlResponse
 {
@@ -357,27 +366,28 @@ public sealed class ExportRuntimeGraphqlSdlResponse
     public string? TenantId { get; set; }
 
     /// <summary>
-    ///     Raw GraphQL introspection JSON. Save it as <c>src/custom-app/schema.json</c> in
-    ///     the workspace, then run
-    ///     <c>npx graphql-codegen --config codegen.yml --schema schema.json</c> (or update
-    ///     <c>codegen.yml</c>'s <c>schema</c> field to point at the JSON). graphql-codegen
-    ///     accepts both SDL and introspection JSON; JSON skips the SDL-printer round-trip.
+    ///     File-transfer-store id. The introspection body is available at
+    ///     <see cref="DownloadUrlPath" /> as long as the entry hasn't expired
+    ///     (TTL defaults to 30 min — see <c>FileTransferStore</c>).
     /// </summary>
-    public string? IntrospectionJson { get; set; }
+    public string? TransferId { get; set; }
 
     /// <summary>
-    ///     Number of types in the introspection result (success only). A sanity gauge —
-    ///     a healthy tenant usually has dozens to hundreds; single-digits suggests the
-    ///     tenant's CK model hasn't been loaded yet.
+    ///     Server-relative URL path the agent issues a GET against to download the
+    ///     introspection JSON. Combined with the workspace's <c>$MCP_PUBLIC_BASE_URL</c>
+    ///     (or the host the agent's MCP transport already knows), the full URL is
+    ///     <c>{base}/file-transfer/download/{TransferId}</c>.
     /// </summary>
-    public int? TypeCount { get; set; }
+    public string? DownloadUrlPath { get; set; }
 
-    /// <summary>
-    ///     Length of <see cref="IntrospectionJson" /> in bytes (success only). The agent
-    ///     uses this to decide whether to write to disk or stream — for now always writes
-    ///     to disk; reported anyway for the trace.
-    /// </summary>
-    public int? ByteCount { get; set; }
+    /// <summary>Suggested file name to save the download as.</summary>
+    public string? FileName { get; set; }
+
+    /// <summary>Body size in bytes. Reported for the agent's trace + the response message.</summary>
+    public long? ByteCount { get; set; }
+
+    /// <summary>Expiry of the file-transfer entry (UTC). After this point the GET returns 404.</summary>
+    public DateTime? ExpiresAtUtc { get; set; }
 }
 
 /// <summary>One CK attribute the binding projects into the page's DTO + GraphQL query.</summary>

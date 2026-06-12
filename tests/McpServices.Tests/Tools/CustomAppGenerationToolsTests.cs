@@ -563,17 +563,13 @@ public class CustomAppGenerationToolsTests : ToolTestBase
     // these tests cover the tool's mapping from outcome → response envelope.
 
     [Fact]
-    public async Task ExportRuntimeGraphqlSdl_HappyPath_ReturnsJsonAndTypeCount()
+    public async Task ExportRuntimeGraphqlSdl_HappyPath_RegistersDownloadAndReturnsTransferId()
     {
         GivenAuthenticated();
+        const string payload = "{\"data\":{\"__schema\":{\"types\":[{\"name\":\"X\"},{\"name\":\"Y\"}]}}}";
         var stub = new StubIntrospectionClient
         {
-            Result = new RuntimeGraphqlIntrospectionResult
-            {
-                Outcome = RuntimeGraphqlIntrospectionOutcome.Succeeded,
-                Json = "{\"data\":{\"__schema\":{\"types\":[{\"name\":\"X\"},{\"name\":\"Y\"}]}}}",
-                TypeCount = 2,
-            },
+            PayloadToWrite = payload,
         };
         TestServiceProvider.RegisterService<IRuntimeGraphqlIntrospectionClient>(stub);
 
@@ -582,14 +578,25 @@ public class CustomAppGenerationToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeTrue();
         result.TenantId.Should().Be("test-tenant");
-        result.IntrospectionJson.Should().Contain("__schema");
-        result.TypeCount.Should().Be(2);
-        result.ByteCount.Should().Be(result.IntrospectionJson!.Length);
+        result.TransferId.Should().NotBeNullOrWhiteSpace();
+        result.DownloadUrlPath.Should().Be($"/file-transfer/download/{result.TransferId}");
+        result.FileName.Should().Be("schema-test-tenant.json");
+        result.ByteCount.Should().Be(payload.Length);
+        result.ExpiresAtUtc.Should().BeAfter(DateTime.UtcNow);
+
+        // The download entry must exist in the store so the agent's GET resolves.
+        var download = FileTransferStore.GetDownload(result.TransferId!);
+        download.Should().NotBeNull();
+        download!.FileName.Should().Be("schema-test-tenant.json");
+        File.Exists(download.FilePath).Should().BeTrue();
+        File.ReadAllText(download.FilePath).Should().Be(payload);
+
         stub.LastCall.Should().NotBeNull();
         stub.LastCall!.TenantId.Should().Be("test-tenant");
-        // The bearer token from McpSessionContext must reach the introspection client
-        // unchanged — the tool layer never mutates it.
         stub.LastCall.AccessToken.Should().NotBeNullOrWhiteSpace();
+
+        // Cleanup so subsequent tests don't see leaked entries.
+        FileTransferStore.DeleteDownload(result.TransferId!);
     }
 
     [Fact]
@@ -627,7 +634,7 @@ public class CustomAppGenerationToolsTests : ToolTestBase
         result.IsSuccess.Should().BeFalse();
         result.TenantId.Should().Be("test-tenant", "the tenant id must be in the response so the agent's trace links the error to the call");
         result.ErrorMessage.Should().Contain("401");
-        result.IntrospectionJson.Should().BeNull();
+        result.TransferId.Should().BeNull();
     }
 
     [Fact]
@@ -649,6 +656,7 @@ public class CustomAppGenerationToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("unreachable");
+        result.TransferId.Should().BeNull();
     }
 
     [Fact]
@@ -670,10 +678,15 @@ public class CustomAppGenerationToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("GraphQL errors");
+        result.TransferId.Should().BeNull();
     }
 
     private sealed class StubIntrospectionClient : IRuntimeGraphqlIntrospectionClient
     {
+        // When set, FetchToStreamAsync writes this string into the provided stream and
+        // returns Succeeded with the byte count.
+        public string? PayloadToWrite { get; set; }
+
         public RuntimeGraphqlIntrospectionResult Result { get; set; } = new()
         {
             Outcome = RuntimeGraphqlIntrospectionOutcome.UnexpectedError,
@@ -682,11 +695,22 @@ public class CustomAppGenerationToolsTests : ToolTestBase
 
         public CallRecord? LastCall { get; private set; }
 
-        public Task<RuntimeGraphqlIntrospectionResult> FetchAsync(
-            string accessToken, string tenantId, CancellationToken cancellationToken = default)
+        public async Task<RuntimeGraphqlIntrospectionResult> FetchToStreamAsync(
+            string accessToken, string tenantId, Stream output, CancellationToken cancellationToken = default)
         {
             LastCall = new CallRecord(accessToken, tenantId);
-            return Task.FromResult(Result);
+            if (PayloadToWrite != null)
+            {
+                var bytes = System.Text.Encoding.UTF8.GetBytes(PayloadToWrite);
+                await output.WriteAsync(bytes, cancellationToken);
+                await output.FlushAsync(cancellationToken);
+                return new RuntimeGraphqlIntrospectionResult
+                {
+                    Outcome = RuntimeGraphqlIntrospectionOutcome.Succeeded,
+                    ByteCount = bytes.Length,
+                };
+            }
+            return Result;
         }
 
         public sealed record CallRecord(string AccessToken, string TenantId);

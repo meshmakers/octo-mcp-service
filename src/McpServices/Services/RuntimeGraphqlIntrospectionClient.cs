@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text.Json;
 using Meshmakers.Octo.Backend.McpServices.Options;
 using Microsoft.Extensions.Options;
 
@@ -54,14 +53,22 @@ public sealed class RuntimeGraphqlIntrospectionClient(
         }
         """;
 
+    // Sniff prefix used for the streaming-safe envelope check. The real introspection
+    // response always starts with this exact byte sequence; if we don't see it in the
+    // first 32 bytes, the body isn't an introspection result and we surface
+    // UnexpectedError without trying to stream-parse it.
+    private const string ExpectedJsonPrefix = "{\"data\":{\"__schema\":";
+
     /// <inheritdoc />
-    public async Task<RuntimeGraphqlIntrospectionResult> FetchAsync(
+    public async Task<RuntimeGraphqlIntrospectionResult> FetchToStreamAsync(
         string accessToken,
         string tenantId,
+        Stream output,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accessToken);
         ArgumentException.ThrowIfNullOrWhiteSpace(tenantId);
+        ArgumentNullException.ThrowIfNull(output);
 
         var assetBase = urlOptions.Value.AssetServiceUrl;
         if (string.IsNullOrWhiteSpace(assetBase))
@@ -90,7 +97,12 @@ public sealed class RuntimeGraphqlIntrospectionClient(
         HttpResponseMessage response;
         try
         {
-            response = await client.SendAsync(request, cancellationToken);
+            // Pass ResponseHeadersRead so we can start streaming the body before the full
+            // payload lands in the HttpClient buffer. The full introspection response can be
+            // 3-5 MB for a tenant with many CK types; not buffering it twice (HttpClient +
+            // our String allocation) matters.
+            response = await client.SendAsync(
+                request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
@@ -104,73 +116,63 @@ public sealed class RuntimeGraphqlIntrospectionClient(
             };
         }
 
-        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        using (response)
         {
-            return new RuntimeGraphqlIntrospectionResult
-            {
-                Outcome = RuntimeGraphqlIntrospectionOutcome.Unauthorised,
-                ErrorMessage =
-                    $"asset-services rejected the introspection request ({(int)response.StatusCode}). " +
-                    "The session's access token may be expired or missing the tenant scope.",
-            };
-        }
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var preview = await ReadBodyPreviewAsync(response, cancellationToken);
-            return new RuntimeGraphqlIntrospectionResult
-            {
-                Outcome = RuntimeGraphqlIntrospectionOutcome.NotReachable,
-                ErrorMessage =
-                    $"asset-services returned HTTP {(int)response.StatusCode}: {preview}",
-            };
-        }
-
-        var json = await response.Content.ReadAsStringAsync(cancellationToken);
-        int? typeCount = null;
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            // Standard GraphQL introspection envelope: { "data": { "__schema": { "types": [...] } } }.
-            if (doc.RootElement.TryGetProperty("data", out var data) &&
-                data.TryGetProperty("__schema", out var schema) &&
-                schema.TryGetProperty("types", out var types) &&
-                types.ValueKind == JsonValueKind.Array)
-            {
-                typeCount = types.GetArrayLength();
-            }
-            else if (doc.RootElement.TryGetProperty("errors", out var errors))
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
                 return new RuntimeGraphqlIntrospectionResult
                 {
-                    Outcome = RuntimeGraphqlIntrospectionOutcome.UnexpectedError,
-                    ErrorMessage = $"asset-services returned GraphQL errors: {errors.GetRawText()}",
+                    Outcome = RuntimeGraphqlIntrospectionOutcome.Unauthorised,
+                    ErrorMessage =
+                        $"asset-services rejected the introspection request ({(int)response.StatusCode}). " +
+                        "The session's access token may be expired or missing the tenant scope.",
                 };
             }
-            else
+
+            if (!response.IsSuccessStatusCode)
             {
+                var preview = await ReadBodyPreviewAsync(response, cancellationToken);
+                return new RuntimeGraphqlIntrospectionResult
+                {
+                    Outcome = RuntimeGraphqlIntrospectionOutcome.NotReachable,
+                    ErrorMessage =
+                        $"asset-services returned HTTP {(int)response.StatusCode}: {preview}",
+                };
+            }
+
+            await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+
+            // Sniff the first chunk for the expected envelope. If the body is a GraphQL
+            // errors response (`{"errors":[…]}`), bail before we copy any of it into the
+            // file the caller is going to register for download.
+            var sniffBuffer = new byte[Math.Max(ExpectedJsonPrefix.Length * 2, 64)];
+            var sniffRead = await responseStream.ReadAtLeastAsync(
+                sniffBuffer, ExpectedJsonPrefix.Length, throwOnEndOfStream: false, cancellationToken);
+            var sniffStr = System.Text.Encoding.UTF8.GetString(sniffBuffer, 0, sniffRead);
+            if (!sniffStr.StartsWith(ExpectedJsonPrefix, StringComparison.Ordinal))
+            {
+                // Surface GraphQL errors verbatim if present so the caller can log them; otherwise
+                // include the raw prefix.
                 return new RuntimeGraphqlIntrospectionResult
                 {
                     Outcome = RuntimeGraphqlIntrospectionOutcome.UnexpectedError,
-                    ErrorMessage = "asset-services response did not contain data.__schema.types[].",
+                    ErrorMessage = sniffStr.Contains("\"errors\"", StringComparison.Ordinal)
+                        ? $"asset-services returned GraphQL errors: {sniffStr.Trim()}"
+                        : $"asset-services response did not start with the expected envelope: {sniffStr.Trim()}",
                 };
             }
-        }
-        catch (JsonException ex)
-        {
+
+            // Write the sniff prefix + stream the rest.
+            await output.WriteAsync(sniffBuffer.AsMemory(0, sniffRead), cancellationToken);
+            await responseStream.CopyToAsync(output, cancellationToken);
+            await output.FlushAsync(cancellationToken);
+
             return new RuntimeGraphqlIntrospectionResult
             {
-                Outcome = RuntimeGraphqlIntrospectionOutcome.UnexpectedError,
-                ErrorMessage = $"asset-services response was not valid JSON: {ex.Message}",
+                Outcome = RuntimeGraphqlIntrospectionOutcome.Succeeded,
+                ByteCount = output.CanSeek ? output.Position : null,
             };
         }
-
-        return new RuntimeGraphqlIntrospectionResult
-        {
-            Outcome = RuntimeGraphqlIntrospectionOutcome.Succeeded,
-            Json = json,
-            TypeCount = typeCount,
-        };
     }
 
     private static async Task<string> ReadBodyPreviewAsync(

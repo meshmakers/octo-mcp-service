@@ -427,20 +427,23 @@ public sealed class CustomAppGenerationTools
     /// <summary>
     ///     Fetch the live OctoMesh runtime GraphQL introspection JSON for the tenant — what
     ///     <c>npm run codegen</c> needs as input to emit the typed Apollo client (M3
-    ///     B-2c-schema-availability). The agent calls this once per session, writes the
-    ///     returned JSON to <c>src/custom-app/schema.json</c>, then runs
+    ///     B-2c-schema-availability). The tool streams the response body straight into a
+    ///     file-transfer-store entry — typical introspection is 3-5 MB which would OOM the
+    ///     pod's JSON-RPC serializer if embedded in the response. The agent issues a GET
+    ///     against the returned <c>DownloadUrlPath</c>, writes the body to
+    ///     <c>src/custom-app/schema.json</c>, then runs
     ///     <c>npx graphql-codegen --config codegen.yml --schema schema.json</c>.
     ///     Per-tenant — the GraphQL surface is built from the tenant's installed CK model.
     /// </summary>
     [McpServerTool(Name = "export_runtime_graphql_sdl")]
     [McpRisk(McpRiskLevel.Low)]
     [Description(
-        "Fetch the live OctoMesh runtime GraphQL introspection for the tenant — what " +
-        "`npm run codegen` consumes (M3 B-2c-schema-availability). Returns the raw " +
-        "introspection JSON; the agent writes it to src/custom-app/schema.json and " +
-        "runs `npx graphql-codegen --config codegen.yml --schema schema.json`. Per-" +
-        "tenant: the GraphQL surface varies with the tenant's CK model. Read-only against " +
-        "the asset-services GraphQL endpoint; never mutates.")]
+        "Fetch the live OctoMesh runtime GraphQL introspection for the tenant (M3 " +
+        "B-2c-schema-availability). Streams the body into a file-transfer entry; the agent " +
+        "downloads via GET DownloadUrlPath, saves to src/custom-app/schema.json, then runs " +
+        "`npx graphql-codegen --config codegen.yml --schema schema.json`. Per-tenant: the " +
+        "GraphQL surface varies with the tenant's CK model. Read-only against the " +
+        "asset-services GraphQL endpoint; never mutates.")]
     public static async Task<ExportRuntimeGraphqlSdlResponse> ExportRuntimeGraphqlSdl(
         McpServer server,
         [Description("Tenant whose GraphQL surface to introspect. Falls back to the route's tenant.")]
@@ -473,10 +476,33 @@ public sealed class CustomAppGenerationTools
         }
 
         var introspectionClient = server.Services!.GetRequiredService<IRuntimeGraphqlIntrospectionClient>();
-        var outcome = await introspectionClient.FetchAsync(accessToken, resolvedTenantId, cancellationToken);
+        var store = server.Services!.GetRequiredService<IFileTransferStore>();
+
+        var fileName = $"schema-{resolvedTenantId}.json";
+        var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}_{fileName}");
+        RuntimeGraphqlIntrospectionResult outcome;
+        try
+        {
+            await using (var fs = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                outcome = await introspectionClient.FetchToStreamAsync(
+                    accessToken, resolvedTenantId, fs, cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            TryDeleteFile(tempPath);
+            return new ExportRuntimeGraphqlSdlResponse
+            {
+                IsSuccess = false,
+                TenantId = resolvedTenantId,
+                ErrorMessage = $"Failed to stream introspection to temp file: {ex.Message}",
+            };
+        }
 
         if (outcome.Outcome != RuntimeGraphqlIntrospectionOutcome.Succeeded)
         {
+            TryDeleteFile(tempPath);
             return new ExportRuntimeGraphqlSdlResponse
             {
                 IsSuccess = false,
@@ -485,15 +511,38 @@ public sealed class CustomAppGenerationTools
             };
         }
 
+        var sessionId = McpSessionContext.GetSessionId(server);
+        var transferId = store.RegisterDownload(sessionId, tempPath, fileName);
+        var size = outcome.ByteCount ?? new FileInfo(tempPath).Length;
+
         return new ExportRuntimeGraphqlSdlResponse
         {
             IsSuccess = true,
             TenantId = resolvedTenantId,
-            Message = $"Fetched introspection for tenant '{resolvedTenantId}' — {outcome.TypeCount ?? 0} types, {outcome.Json?.Length ?? 0} bytes.",
-            IntrospectionJson = outcome.Json,
-            TypeCount = outcome.TypeCount,
-            ByteCount = outcome.Json?.Length,
+            TransferId = transferId,
+            DownloadUrlPath = $"/file-transfer/download/{transferId}",
+            FileName = fileName,
+            ByteCount = size,
+            ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
+            Message =
+                $"Introspection for tenant '{resolvedTenantId}' ready ({size:N0} bytes). " +
+                $"GET '/file-transfer/download/{transferId}' to fetch.",
         };
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // best-effort cleanup
+        }
     }
 
     private static string Kebab(string s)
