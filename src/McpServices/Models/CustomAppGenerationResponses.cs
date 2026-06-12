@@ -336,6 +336,50 @@ public sealed class ApplyScaffoldTypeBinding
     public List<ApplyScaffoldAttribute> Attributes { get; set; } = new();
 }
 
+/// <summary>
+///     Response of <c>export_runtime_graphql_sdl</c> (M3 B-2c-schema-availability). Carries
+///     the introspection JSON the agent writes to <c>src/custom-app/schema.json</c> as
+///     codegen's schema input. Per-tenant — different tenants have different CK models,
+///     so the GraphQL surface (the dynamically typed <c>runtime.</c> fields) varies.
+/// </summary>
+public sealed class ExportRuntimeGraphqlSdlResponse
+{
+    /// <summary>Whether the introspection succeeded.</summary>
+    public bool IsSuccess { get; set; }
+
+    /// <summary>Set when <see cref="IsSuccess" /> is false.</summary>
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>Free-text message for the AI client (success summary).</summary>
+    public string? Message { get; set; }
+
+    /// <summary>Tenant the schema was introspected for.</summary>
+    public string? TenantId { get; set; }
+
+    /// <summary>
+    ///     Raw GraphQL introspection JSON. Save it as <c>src/custom-app/schema.json</c> in
+    ///     the workspace, then run
+    ///     <c>npx graphql-codegen --config codegen.yml --schema schema.json</c> (or update
+    ///     <c>codegen.yml</c>'s <c>schema</c> field to point at the JSON). graphql-codegen
+    ///     accepts both SDL and introspection JSON; JSON skips the SDL-printer round-trip.
+    /// </summary>
+    public string? IntrospectionJson { get; set; }
+
+    /// <summary>
+    ///     Number of types in the introspection result (success only). A sanity gauge —
+    ///     a healthy tenant usually has dozens to hundreds; single-digits suggests the
+    ///     tenant's CK model hasn't been loaded yet.
+    /// </summary>
+    public int? TypeCount { get; set; }
+
+    /// <summary>
+    ///     Length of <see cref="IntrospectionJson" /> in bytes (success only). The agent
+    ///     uses this to decide whether to write to disk or stream — for now always writes
+    ///     to disk; reported anyway for the trace.
+    /// </summary>
+    public int? ByteCount { get; set; }
+}
+
 /// <summary>One CK attribute the binding projects into the page's DTO + GraphQL query.</summary>
 public sealed class ApplyScaffoldAttribute
 {

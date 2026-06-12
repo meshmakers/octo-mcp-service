@@ -95,6 +95,10 @@ try
         c.Timeout = TimeSpan.FromSeconds(20);
     });
     builder.Services.AddSingleton<IGitHubRepoApiClient, GitHubRepoApiClient>();
+    // M3 B-2c-schema-availability — runtime GraphQL introspection client. Uses the
+    // existing "identity" named HttpClient (already configured for the self-signed
+    // ClusterIP certs that asset-services serves on).
+    builder.Services.AddSingleton<IRuntimeGraphqlIntrospectionClient, RuntimeGraphqlIntrospectionClient>();
 
     builder.Services.AddCors();
     builder.Services.AddControllers()

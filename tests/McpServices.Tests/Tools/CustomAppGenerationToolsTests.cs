@@ -11,7 +11,7 @@ namespace McpServices.Tests.Tools;
 ///     pure-logic (no SDK call, no DB call, no auth) so the tests drive them with the bare
 ///     <see cref="TestBase" /> MockServer — no token plumbing, no client mocks.
 /// </summary>
-public class CustomAppGenerationToolsTests : TestBase
+public class CustomAppGenerationToolsTests : ToolTestBase
 {
     // ----- get_custom_app_template_manifest -----
 
@@ -555,6 +555,141 @@ public class CustomAppGenerationToolsTests : TestBase
 
         result.NextSteps.Should().Contain(s => s.Contains("npm run codegen"));
         result.NextSteps.Should().Contain(s => s.Contains("npm run build:prod"));
+    }
+
+    // ===== export_runtime_graphql_sdl (M3 B-2c-schema-availability) ================
+    // Wraps the runtime GraphQL introspection call. The HTTP plumbing lives in
+    // RuntimeGraphqlIntrospectionClient (covered separately by its own test file);
+    // these tests cover the tool's mapping from outcome → response envelope.
+
+    [Fact]
+    public async Task ExportRuntimeGraphqlSdl_HappyPath_ReturnsJsonAndTypeCount()
+    {
+        GivenAuthenticated();
+        var stub = new StubIntrospectionClient
+        {
+            Result = new RuntimeGraphqlIntrospectionResult
+            {
+                Outcome = RuntimeGraphqlIntrospectionOutcome.Succeeded,
+                Json = "{\"data\":{\"__schema\":{\"types\":[{\"name\":\"X\"},{\"name\":\"Y\"}]}}}",
+                TypeCount = 2,
+            },
+        };
+        TestServiceProvider.RegisterService<IRuntimeGraphqlIntrospectionClient>(stub);
+
+        var result = await CustomAppGenerationTools.ExportRuntimeGraphqlSdl(
+            MockServer.Object, tenantId: "ai-sandbox" /* mock resolver always returns "test-tenant" */);
+
+        result.IsSuccess.Should().BeTrue();
+        result.TenantId.Should().Be("test-tenant");
+        result.IntrospectionJson.Should().Contain("__schema");
+        result.TypeCount.Should().Be(2);
+        result.ByteCount.Should().Be(result.IntrospectionJson!.Length);
+        stub.LastCall.Should().NotBeNull();
+        stub.LastCall!.TenantId.Should().Be("test-tenant");
+        // The bearer token from McpSessionContext must reach the introspection client
+        // unchanged — the tool layer never mutates it.
+        stub.LastCall.AccessToken.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task ExportRuntimeGraphqlSdl_Unauthenticated_ReturnsAuthError()
+    {
+        GivenUnauthenticated();
+        var stub = new StubIntrospectionClient();
+        TestServiceProvider.RegisterService<IRuntimeGraphqlIntrospectionClient>(stub);
+
+        var result = await CustomAppGenerationTools.ExportRuntimeGraphqlSdl(
+            MockServer.Object, tenantId: "ai-sandbox" /* mock resolver always returns "test-tenant" */);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("Not authenticated");
+        stub.LastCall.Should().BeNull("the introspection client must not be called when auth fails");
+    }
+
+    [Fact]
+    public async Task ExportRuntimeGraphqlSdl_AssetServicesRejects401_SurfacesUnauthorisedOutcome()
+    {
+        GivenAuthenticated();
+        var stub = new StubIntrospectionClient
+        {
+            Result = new RuntimeGraphqlIntrospectionResult
+            {
+                Outcome = RuntimeGraphqlIntrospectionOutcome.Unauthorised,
+                ErrorMessage = "asset-services rejected the introspection request (401)…",
+            },
+        };
+        TestServiceProvider.RegisterService<IRuntimeGraphqlIntrospectionClient>(stub);
+
+        var result = await CustomAppGenerationTools.ExportRuntimeGraphqlSdl(
+            MockServer.Object, tenantId: "ai-sandbox" /* mock resolver always returns "test-tenant" */);
+
+        result.IsSuccess.Should().BeFalse();
+        result.TenantId.Should().Be("test-tenant", "the tenant id must be in the response so the agent's trace links the error to the call");
+        result.ErrorMessage.Should().Contain("401");
+        result.IntrospectionJson.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ExportRuntimeGraphqlSdl_AssetServicesUnreachable_SurfacesNotReachable()
+    {
+        GivenAuthenticated();
+        var stub = new StubIntrospectionClient
+        {
+            Result = new RuntimeGraphqlIntrospectionResult
+            {
+                Outcome = RuntimeGraphqlIntrospectionOutcome.NotReachable,
+                ErrorMessage = "asset-services GraphQL endpoint unreachable: dial tcp: i/o timeout",
+            },
+        };
+        TestServiceProvider.RegisterService<IRuntimeGraphqlIntrospectionClient>(stub);
+
+        var result = await CustomAppGenerationTools.ExportRuntimeGraphqlSdl(
+            MockServer.Object, tenantId: "ai-sandbox" /* mock resolver always returns "test-tenant" */);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("unreachable");
+    }
+
+    [Fact]
+    public async Task ExportRuntimeGraphqlSdl_GraphqlErrors_SurfacesUnexpectedError()
+    {
+        GivenAuthenticated();
+        var stub = new StubIntrospectionClient
+        {
+            Result = new RuntimeGraphqlIntrospectionResult
+            {
+                Outcome = RuntimeGraphqlIntrospectionOutcome.UnexpectedError,
+                ErrorMessage = "asset-services returned GraphQL errors: [{\"message\":\"introspection disabled\"}]",
+            },
+        };
+        TestServiceProvider.RegisterService<IRuntimeGraphqlIntrospectionClient>(stub);
+
+        var result = await CustomAppGenerationTools.ExportRuntimeGraphqlSdl(
+            MockServer.Object, tenantId: "ai-sandbox" /* mock resolver always returns "test-tenant" */);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("GraphQL errors");
+    }
+
+    private sealed class StubIntrospectionClient : IRuntimeGraphqlIntrospectionClient
+    {
+        public RuntimeGraphqlIntrospectionResult Result { get; set; } = new()
+        {
+            Outcome = RuntimeGraphqlIntrospectionOutcome.UnexpectedError,
+            ErrorMessage = "Test stub was not configured.",
+        };
+
+        public CallRecord? LastCall { get; private set; }
+
+        public Task<RuntimeGraphqlIntrospectionResult> FetchAsync(
+            string accessToken, string tenantId, CancellationToken cancellationToken = default)
+        {
+            LastCall = new CallRecord(accessToken, tenantId);
+            return Task.FromResult(Result);
+        }
+
+        public sealed record CallRecord(string AccessToken, string TenantId);
     }
 
     private sealed class StubGitHubRepoApiClient : IGitHubRepoApiClient

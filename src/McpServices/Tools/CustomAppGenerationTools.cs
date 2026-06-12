@@ -424,6 +424,78 @@ public sealed class CustomAppGenerationTools
             "      },\n";
     }
 
+    /// <summary>
+    ///     Fetch the live OctoMesh runtime GraphQL introspection JSON for the tenant — what
+    ///     <c>npm run codegen</c> needs as input to emit the typed Apollo client (M3
+    ///     B-2c-schema-availability). The agent calls this once per session, writes the
+    ///     returned JSON to <c>src/custom-app/schema.json</c>, then runs
+    ///     <c>npx graphql-codegen --config codegen.yml --schema schema.json</c>.
+    ///     Per-tenant — the GraphQL surface is built from the tenant's installed CK model.
+    /// </summary>
+    [McpServerTool(Name = "export_runtime_graphql_sdl")]
+    [McpRisk(McpRiskLevel.Low)]
+    [Description(
+        "Fetch the live OctoMesh runtime GraphQL introspection for the tenant — what " +
+        "`npm run codegen` consumes (M3 B-2c-schema-availability). Returns the raw " +
+        "introspection JSON; the agent writes it to src/custom-app/schema.json and " +
+        "runs `npx graphql-codegen --config codegen.yml --schema schema.json`. Per-" +
+        "tenant: the GraphQL surface varies with the tenant's CK model. Read-only against " +
+        "the asset-services GraphQL endpoint; never mutates.")]
+    public static async Task<ExportRuntimeGraphqlSdlResponse> ExportRuntimeGraphqlSdl(
+        McpServer server,
+        [Description("Tenant whose GraphQL surface to introspect. Falls back to the route's tenant.")]
+        string? tenantId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var accessToken = McpSessionContext.TryGetAccessToken(server);
+        if (accessToken == null)
+        {
+            return new ExportRuntimeGraphqlSdlResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "Not authenticated. Call 'authenticate' first.",
+            };
+        }
+
+        string resolvedTenantId;
+        try
+        {
+            var resolver = server.Services!.GetRequiredService<ITenantResolutionService>();
+            resolvedTenantId = resolver.ResolveTenantId(tenantId);
+        }
+        catch (Exception ex)
+        {
+            return new ExportRuntimeGraphqlSdlResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = $"Failed to resolve tenant: {ex.Message}",
+            };
+        }
+
+        var introspectionClient = server.Services!.GetRequiredService<IRuntimeGraphqlIntrospectionClient>();
+        var outcome = await introspectionClient.FetchAsync(accessToken, resolvedTenantId, cancellationToken);
+
+        if (outcome.Outcome != RuntimeGraphqlIntrospectionOutcome.Succeeded)
+        {
+            return new ExportRuntimeGraphqlSdlResponse
+            {
+                IsSuccess = false,
+                TenantId = resolvedTenantId,
+                ErrorMessage = outcome.ErrorMessage,
+            };
+        }
+
+        return new ExportRuntimeGraphqlSdlResponse
+        {
+            IsSuccess = true,
+            TenantId = resolvedTenantId,
+            Message = $"Fetched introspection for tenant '{resolvedTenantId}' — {outcome.TypeCount ?? 0} types, {outcome.Json?.Length ?? 0} bytes.",
+            IntrospectionJson = outcome.Json,
+            TypeCount = outcome.TypeCount,
+            ByteCount = outcome.Json?.Length,
+        };
+    }
+
     private static string Kebab(string s)
     {
         // "User List" / "userList" / "user_list" -> "user-list"
