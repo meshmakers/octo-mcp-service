@@ -318,9 +318,14 @@ public sealed class ApplyScaffoldTypeBinding
     public required string TypeId { get; init; }
 
     /// <summary>
-    ///     The GraphQL operation name under <c>runtime.</c> — e.g. <c>systemAiAuditEvent</c>.
-    ///     Derived from the type id by camel-casing the leaf segment; pass it explicitly
-    ///     so the tool doesn't have to re-derive the convention.
+    ///     The camelCase GraphQL field name under <c>runtime.</c> the query selects —
+    ///     e.g. <c>systemAiAuditEvent</c>, <c>systemTenantModeConfiguration</c>. This is
+    ///     NOT the GraphQL query name (which is always <c>Get&lt;ClassName&gt;</c> and
+    ///     gets derived by the tool); it is the FIELD on <c>runtime</c> that resolves to
+    ///     the typed connection. Mistaking the two breaks codegen against the live
+    ///     schema. Derived from the type id by camel-casing the leaf segment; pass it
+    ///     explicitly so the tool doesn't have to re-derive the convention from the type
+    ///     id (which the tool doesn't parse).
     /// </summary>
     public required string GraphqlOperationName { get; init; }
 
