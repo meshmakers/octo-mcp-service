@@ -36,11 +36,11 @@
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
         <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.9" />
 
-        <PackageReference Include="Meshmakers.Octo.Services.Infrastructure" Version="$(OctoVersion)"/>
-        <PackageReference Include="Meshmakers.Octo.Services.Observability" Version="$(OctoVersion)"/>
-        <PackageReference Include="Meshmakers.Octo.Runtime.Engine.MongoDb" Version="$(OctoVersion)"/>
-        <PackageReference Include="Meshmakers.Octo.Runtime.Engine.CrateDb" Version="$(OctoVersion)"/>
-        <PackageReference Include="Meshmakers.Octo.Services.Swagger" Version="$(OctoVersion)"/>
+        <PackageReference Include="Meshmakers.Octo.Services.Infrastructure" Version="$(OctoCoreLibVersion)"/>
+        <PackageReference Include="Meshmakers.Octo.Services.Observability" Version="$(OctoCoreLibVersion)"/>
+        <PackageReference Include="Meshmakers.Octo.Runtime.Engine.MongoDb" Version="$(OctoCoreLibVersion)"/>
+        <PackageReference Include="Meshmakers.Octo.Runtime.Engine.CrateDb" Version="$(OctoCoreLibVersion)"/>
+        <PackageReference Include="Meshmakers.Octo.Services.Swagger" Version="$(OctoCoreLibVersion)"/>
         <ProjectReference Include="..\McpServices.Resources\McpServices.Resources.csproj"/>
 
     </ItemGroup>
