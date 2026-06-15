@@ -193,3 +193,47 @@ public class MovePipelinesResponse : CommunicationResponse
     /// <summary>How many failed (atomic per-pipeline, batch does not abort).</summary>
     public int FailureCount { get; set; }
 }
+
+/// <summary>
+///     Response for <c>validate_pipeline_definition</c> (M4-B.1). Distinguishes "tool
+///     call succeeded but the definition has schema errors" (<see cref="IsValid"/>=false,
+///     <see cref="CommunicationResponse.IsSuccess"/>=true, <see cref="Errors"/> populated) from
+///     "tool call itself failed" (<see cref="CommunicationResponse.IsSuccess"/>=false).
+/// </summary>
+public class ValidatePipelineDefinitionResponse : CommunicationResponse
+{
+    /// <summary>Adapter runtime ID the schema validation ran against.</summary>
+    public string? AdapterId { get; set; }
+
+    /// <summary>
+    ///     Whether the pipeline definition satisfies the adapter's composite JSON Schema.
+    ///     Distinct from <see cref="CommunicationResponse.IsSuccess"/> — a successful tool call
+    ///     can still report an invalid definition with errors.
+    /// </summary>
+    public bool IsValid { get; set; }
+
+    /// <summary>
+    ///     Number of nodes the validator counted in the definition's <c>nodes[]</c> array.
+    ///     Sanity gauge — an empty pipeline can pass schema but is rarely intended.
+    /// </summary>
+    public int NodeCount { get; set; }
+
+    /// <summary>Per-error list. Empty when <see cref="IsValid"/> is true.</summary>
+    public List<ValidatePipelineDefinitionError> Errors { get; set; } = new();
+}
+
+/// <summary>One validation error from <c>validate_pipeline_definition</c>.</summary>
+public class ValidatePipelineDefinitionError
+{
+    /// <summary>JSON pointer into the pipeline definition where the error occurred.</summary>
+    public required string Path { get; set; }
+
+    /// <summary>JSON pointer into the schema document that triggered the error.</summary>
+    public string? SchemaPath { get; set; }
+
+    /// <summary>Schema keyword that fired (e.g. <c>required</c>, <c>type</c>, <c>enum</c>).</summary>
+    public string? Keyword { get; set; }
+
+    /// <summary>Human-readable error message from the schema evaluator.</summary>
+    public required string Message { get; set; }
+}

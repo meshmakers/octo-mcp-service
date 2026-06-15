@@ -171,4 +171,133 @@ public class PipelineToolsTests : ToolTestBase
         result.DebugPointsJson.Should().Contain("n1");
         result.ExecutionId.Should().Be(execId);
     }
+
+    // ===== validate_pipeline_definition (M4-B.1) ==================================
+    // Tool composes get_pipeline_schema + a JSON-Schema validator (JsonSchema.Net).
+    // Mock the schema endpoint with a minimal-but-real JSON Schema; assert the tool
+    // distinguishes "tool call succeeded" (IsSuccess) from "definition is valid"
+    // (IsValid).
+
+    private const string MinimalPipelineSchema = """
+        {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "required": ["name", "nodes"],
+          "properties": {
+            "name":  { "type": "string" },
+            "nodes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["nodeType", "id"],
+                "properties": {
+                  "nodeType": { "type": "string" },
+                  "id":       { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+        """;
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_ValidYaml_ReturnsIsValidTrueWithNodeCount()
+    {
+        MockCommunicationClient.Setup(c => c.GetPipelineSchemaAsync(AdapterId))
+            .ReturnsAsync(MinimalPipelineSchema);
+
+        const string yaml = """
+            name: my-pipeline
+            nodes:
+              - nodeType: FromHttpRequest@1
+                id: trigger
+              - nodeType: ApplyChanges@1
+                id: load
+            """;
+
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, AdapterId, yaml);
+
+        result.IsSuccess.Should().BeTrue("the tool call itself completed");
+        result.IsValid.Should().BeTrue("the YAML satisfies the schema");
+        result.NodeCount.Should().Be(2);
+        result.Errors.Should().BeEmpty();
+        result.AdapterId.Should().Be(AdapterId);
+    }
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_ValidJson_AlsoParses()
+    {
+        // Auto-detect kicks in on the leading `{` and skips the YAML path.
+        MockCommunicationClient.Setup(c => c.GetPipelineSchemaAsync(AdapterId))
+            .ReturnsAsync(MinimalPipelineSchema);
+
+        const string json =
+            """{"name":"my-pipeline","nodes":[{"nodeType":"FromHttpRequest@1","id":"t"}]}""";
+
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, AdapterId, json);
+
+        result.IsSuccess.Should().BeTrue();
+        result.IsValid.Should().BeTrue();
+        result.NodeCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_MissingRequiredField_ReportsErrorAndIsValidFalse()
+    {
+        MockCommunicationClient.Setup(c => c.GetPipelineSchemaAsync(AdapterId))
+            .ReturnsAsync(MinimalPipelineSchema);
+
+        // Missing `name` at the root — `nodes` is present, so node count should still
+        // make it into the response.
+        const string yaml = """
+            nodes:
+              - nodeType: ApplyChanges@1
+                id: load
+            """;
+
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, AdapterId, yaml);
+
+        result.IsSuccess.Should().BeTrue("the tool ran cleanly, the definition just doesn't validate");
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().NotBeEmpty();
+        result.Errors.Should().Contain(e => e.Message.Contains("name", StringComparison.OrdinalIgnoreCase));
+        result.NodeCount.Should().Be(1, "the validator still counts nodes even when other fields fail");
+    }
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_BadlyFormedYaml_ReportsParseErrorAtRoot()
+    {
+        MockCommunicationClient.Setup(c => c.GetPipelineSchemaAsync(AdapterId))
+            .ReturnsAsync(MinimalPipelineSchema);
+
+        // YAML that can't be parsed at all.
+        const string broken = "name: foo\n  nodes: [   ]   bad indentation here\n";
+
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, AdapterId, broken);
+
+        result.IsSuccess.Should().BeTrue("tool itself runs; we just couldn't parse");
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().HaveCount(1);
+        result.Errors[0].Path.Should().Be("$");
+    }
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_EmptyAdapterId_RefusesBeforeApiCall()
+    {
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, "", "name: x");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("adapterId");
+        MockCommunicationClient.Verify(c => c.GetPipelineSchemaAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_EmptyDefinition_RefusesBeforeApiCall()
+    {
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, AdapterId, "");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("pipelineDefinition");
+        MockCommunicationClient.Verify(c => c.GetPipelineSchemaAsync(It.IsAny<string>()), Times.Never);
+    }
 }

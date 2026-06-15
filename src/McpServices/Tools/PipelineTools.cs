@@ -1,7 +1,14 @@
 using System.ComponentModel;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Json.Schema;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using ModelContextProtocol.Server;
+using YamlDotNet.Core;
+using YamlDotNet.RepresentationModel;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 
 // ReSharper disable UnusedMember.Global
 
@@ -336,5 +343,197 @@ public sealed class PipelineTools
         {
             return new GetPipelineDebugPointsResponse { IsSuccess = false, ErrorMessage = ex.Message };
         }
+    }
+
+    /// <summary>
+    ///     M4-B.1 — validate a pipeline-definition string against the adapter's composite
+    ///     JSON Schema BEFORE handing it to <c>deploy_pipeline</c> (which only validates as
+    ///     a side effect of deploy). Lets the agent lint a candidate definition without
+    ///     leaving a half-deployed pipeline on the adapter if the definition is wrong.
+    ///     Pure-read against the adapter's schema endpoint; no mutation.
+    /// </summary>
+    [McpServerTool(Name = "validate_pipeline_definition")]
+    [McpRisk(McpRiskLevel.Low)]
+    [Description(
+        "Validate a pipeline definition (YAML or JSON) against the target adapter's " +
+        "composite pipeline JSON Schema (M4-B.1). Returns the per-error list with JSON " +
+        "pointers + node count. Use this BEFORE deploy_pipeline so the agent can iterate " +
+        "on the definition without leaving a half-deployed pipeline behind on validation " +
+        "failure. Read-only — never touches the adapter's deployed state.")]
+    public static async Task<ValidatePipelineDefinitionResponse> ValidatePipelineDefinition(
+        McpServer server,
+        [Description("Adapter runtime ID whose pipeline schema the definition is validated against.")]
+        string adapterId,
+        [Description("Pipeline definition (YAML or JSON) as a string. The tool auto-detects format from the leading non-whitespace character.")]
+        string pipelineDefinition,
+        [Description("Tenant to operate on. Falls back to URL route.")]
+        string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(adapterId))
+        {
+            return new ValidatePipelineDefinitionResponse
+            {
+                IsSuccess = false, ErrorMessage = "adapterId is required."
+            };
+        }
+        if (string.IsNullOrWhiteSpace(pipelineDefinition))
+        {
+            return new ValidatePipelineDefinitionResponse
+            {
+                IsSuccess = false, ErrorMessage = "pipelineDefinition is required."
+            };
+        }
+
+        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new ValidatePipelineDefinitionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        // 1. Pull the adapter's composite JSON Schema (same one deploy_pipeline validates against).
+        string schemaJson;
+        try
+        {
+            schemaJson = await ctx.Client!.GetPipelineSchemaAsync(adapterId);
+        }
+        catch (Exception ex)
+        {
+            return new ValidatePipelineDefinitionResponse
+            {
+                IsSuccess = false,
+                TenantId = ctx.TenantId,
+                AdapterId = adapterId,
+                ErrorMessage = $"Failed to fetch pipeline schema for adapter {adapterId}: {ex.Message}",
+            };
+        }
+
+        // 2. Parse the definition (auto-detect YAML vs JSON by leading non-whitespace char —
+        //    `{` or `[` → JSON; anything else → YAML).
+        JsonNode? definitionNode;
+        try
+        {
+            definitionNode = ParsePipelineDefinitionToJsonNode(pipelineDefinition);
+        }
+        catch (Exception ex)
+        {
+            return new ValidatePipelineDefinitionResponse
+            {
+                IsSuccess = true, // tool call itself succeeded; the definition just doesn't parse
+                IsValid = false,
+                TenantId = ctx.TenantId,
+                AdapterId = adapterId,
+                Message = "Definition does not parse as YAML or JSON — see Errors for the first parse failure.",
+                Errors = { new ValidatePipelineDefinitionError { Path = "$", Message = ex.Message } },
+            };
+        }
+        if (definitionNode is null)
+        {
+            return new ValidatePipelineDefinitionResponse
+            {
+                IsSuccess = true,
+                IsValid = false,
+                TenantId = ctx.TenantId,
+                AdapterId = adapterId,
+                Message = "Definition parsed to a null root — empty or whitespace-only input.",
+                Errors = { new ValidatePipelineDefinitionError { Path = "$", Message = "empty definition" } },
+            };
+        }
+
+        // 3. JSON-Schema-validate the parsed definition.
+        JsonSchema schema;
+        try
+        {
+            schema = JsonSchema.FromText(schemaJson);
+        }
+        catch (Exception ex)
+        {
+            return new ValidatePipelineDefinitionResponse
+            {
+                IsSuccess = false,
+                TenantId = ctx.TenantId,
+                AdapterId = adapterId,
+                ErrorMessage =
+                    $"The adapter's pipeline schema did not parse as a JSON Schema document: {ex.Message}. " +
+                    "This is an adapter-side bug (the schema endpoint returned an invalid JSON Schema), not a " +
+                    "problem with the supplied pipelineDefinition.",
+            };
+        }
+
+        // JsonSchema.Net's Evaluate expects a JsonElement, not a JsonNode — round-trip via
+        // JsonDocument so the schema evaluator sees the same representation it's built on.
+        using var definitionDoc = JsonDocument.Parse(definitionNode.ToJsonString());
+        var evaluation = schema.Evaluate(definitionDoc.RootElement, new EvaluationOptions
+        {
+            OutputFormat = OutputFormat.List,
+        });
+
+        var errors = new List<ValidatePipelineDefinitionError>();
+        if (!evaluation.IsValid && evaluation.Details != null)
+        {
+            foreach (var detail in evaluation.Details)
+            {
+                if (detail.Errors is null) continue;
+                foreach (var (keyword, message) in detail.Errors)
+                {
+                    errors.Add(new ValidatePipelineDefinitionError
+                    {
+                        Path = detail.InstanceLocation.ToString(),
+                        SchemaPath = detail.EvaluationPath.ToString(),
+                        Keyword = keyword,
+                        Message = message,
+                    });
+                }
+            }
+        }
+
+        // 4. Cheap node-count sanity: count nodes[] entries if present in the root object.
+        int nodeCount = 0;
+        if (definitionNode is JsonObject root && root.TryGetPropertyValue("nodes", out var nodes) && nodes is JsonArray arr)
+        {
+            nodeCount = arr.Count;
+        }
+
+        return new ValidatePipelineDefinitionResponse
+        {
+            IsSuccess = true,
+            TenantId = ctx.TenantId,
+            AdapterId = adapterId,
+            IsValid = evaluation.IsValid,
+            NodeCount = nodeCount,
+            Errors = errors,
+            Message = evaluation.IsValid
+                ? $"Definition is valid against the adapter's composite schema ({nodeCount} node(s))."
+                : $"Definition has {errors.Count} schema error(s); see Errors for details.",
+        };
+    }
+
+    /// <summary>
+    ///     Auto-detect YAML vs JSON from the first non-whitespace character. <c>{</c> or
+    ///     <c>[</c> → JSON. Anything else → YAML, deserialized via YamlDotNet into a
+    ///     dynamic object and re-serialized through System.Text.Json to land as a
+    ///     <see cref="JsonNode"/> the schema evaluator understands.
+    /// </summary>
+    private static JsonNode? ParsePipelineDefinitionToJsonNode(string pipelineDefinition)
+    {
+        var firstNonWs = pipelineDefinition.AsSpan().TrimStart();
+        if (firstNonWs.IsEmpty)
+        {
+            return null;
+        }
+        if (firstNonWs[0] == '{' || firstNonWs[0] == '[')
+        {
+            return JsonNode.Parse(pipelineDefinition);
+        }
+        // YAML — round-trip via YamlDotNet → object → System.Text.Json node.
+        var deserializer = new DeserializerBuilder()
+            .WithNamingConvention(CamelCaseNamingConvention.Instance)
+            .Build();
+        var obj = deserializer.Deserialize<object?>(pipelineDefinition);
+        if (obj is null) return null;
+        var serializer = new SerializerBuilder()
+            .JsonCompatible()
+            .Build();
+        var asJson = serializer.Serialize(obj);
+        return JsonNode.Parse(asJson);
     }
 }
