@@ -82,6 +82,32 @@ public class ExecutePipelineResponse : CommunicationResponse
     public string? ExecutionId { get; set; }
 }
 
+/// <summary>
+/// Response for dry_run_pipeline (M4-B.2). Carries the execution id and the
+/// SDK-side catalog of Load nodes that DO honour the dry-run flag so the agent
+/// can compare against the debug stream and reason about which side effects
+/// (if any) might have fired despite the dry-run setting.
+/// </summary>
+public class DryRunPipelineResponse : CommunicationResponse
+{
+    /// <summary>Pipeline runtime ID.</summary>
+    public string? PipelineId { get; set; }
+
+    /// <summary>ID of the started dry-run execution.</summary>
+    public string? ExecutionId { get; set; }
+
+    /// <summary>
+    /// NodeName@Version keys of every SDK-shipped Load node that honours
+    /// <c>IPipelineExecutionMode.IsDryRun</c>. The agent compares this set against
+    /// the actual Load nodes in the pipeline definition (read via
+    /// <c>get_pipeline_schema</c>) to populate the converse —
+    /// <c>LoadNodesNotHonouringDryRun</c> — locally. Adapter-specific Load nodes
+    /// (Modbus, IEC, OPC-UA, etc.) opt in via their own catalog and are NOT
+    /// listed here.
+    /// </summary>
+    public string[]? SdkHonouredLoadNodes { get; set; }
+}
+
 /// <summary>Response for set_pipeline_debug.</summary>
 public class SetPipelineDebugResponse : CommunicationResponse
 {

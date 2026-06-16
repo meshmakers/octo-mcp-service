@@ -72,7 +72,7 @@ public class PipelineToolsTests : ToolTestBase
     [Fact]
     public async Task ExecutePipeline_HappyPath_ReturnsExecutionId()
     {
-        MockCommunicationClient.Setup(c => c.ExecutePipelineAsync(PipelineId, null))
+        MockCommunicationClient.Setup(c => c.ExecutePipelineAsync(PipelineId, null, false))
             .ReturnsAsync("exec-1234");
 
         var result = await PipelineTools.ExecutePipeline(MockServer.Object, PipelineId);
@@ -84,13 +84,80 @@ public class PipelineToolsTests : ToolTestBase
     [Fact]
     public async Task ExecutePipeline_WithInput_PassesInput()
     {
-        MockCommunicationClient.Setup(c => c.ExecutePipelineAsync(PipelineId, "{\"k\":1}"))
+        MockCommunicationClient.Setup(c => c.ExecutePipelineAsync(PipelineId, "{\"k\":1}", false))
             .ReturnsAsync("exec-2");
 
         var result = await PipelineTools.ExecutePipeline(MockServer.Object, PipelineId, "{\"k\":1}");
 
         result.IsSuccess.Should().BeTrue();
         result.ExecutionId.Should().Be("exec-2");
+    }
+
+    [Fact]
+    public async Task DryRunPipeline_HappyPath_CallsSdkWithIsDryRunTrue()
+    {
+        MockCommunicationClient.Setup(c => c.ExecutePipelineAsync(PipelineId, null, true))
+            .ReturnsAsync("dryrun-1");
+
+        var result = await PipelineTools.DryRunPipeline(MockServer.Object, PipelineId);
+
+        result.IsSuccess.Should().BeTrue();
+        result.ExecutionId.Should().Be("dryrun-1");
+        result.SdkHonouredLoadNodes.Should().NotBeNullOrEmpty();
+        result.SdkHonouredLoadNodes!.Should().Contain("ApplyChanges@1");
+        MockCommunicationClient.Verify(c => c.ExecutePipelineAsync(PipelineId, null, true), Times.Once);
+        MockCommunicationClient.Verify(c => c.ExecutePipelineAsync(It.IsAny<string>(), It.IsAny<string>(), false),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task DryRunPipeline_WithInput_PassesInputAndIsDryRunTrue()
+    {
+        MockCommunicationClient.Setup(c => c.ExecutePipelineAsync(PipelineId, "{\"k\":1}", true))
+            .ReturnsAsync("dryrun-2");
+
+        var result = await PipelineTools.DryRunPipeline(MockServer.Object, PipelineId, "{\"k\":1}");
+
+        result.IsSuccess.Should().BeTrue();
+        result.ExecutionId.Should().Be("dryrun-2");
+    }
+
+    [Fact]
+    public async Task DryRunPipeline_MissingPipelineId_ReturnsValidationError()
+    {
+        var result = await PipelineTools.DryRunPipeline(MockServer.Object, string.Empty);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("pipelineId");
+        MockCommunicationClient.Verify(c => c.ExecutePipelineAsync(It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<bool>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DryRunPipeline_Unauthenticated_ReturnsAuthError()
+    {
+        GivenUnauthenticated();
+
+        var result = await PipelineTools.DryRunPipeline(MockServer.Object, PipelineId);
+
+        result.IsSuccess.Should().BeFalse();
+        MockCommunicationClient.Verify(c => c.ExecutePipelineAsync(It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<bool>()), Times.Never);
+    }
+
+    [Fact]
+    public void DryRunPipeline_SdkHonouredCatalog_HasExpectedSize()
+    {
+        // Pin the catalog size — Commit 2's DryRunHonouredLoadNodes.All in octo-mesh-adapter
+        // ships exactly 10 retrofitted Load nodes; this MCP-side mirror must match.
+        PipelineTools.SdkHonouredLoadNodesCatalog.Should().HaveCount(10);
+        PipelineTools.SdkHonouredLoadNodesCatalog.Should().BeEquivalentTo(new[]
+        {
+            "ApplyChanges@1", "ApplyChanges@2", "DeployPipeline@1", "SendEMail@1",
+            "GrafanaProvisionTenant@1", "GrafanaDeprovisionTenant@1",
+            "SaveStreamDataInArchive@1", "SaveTimeRangeStreamDataInArchive@1",
+            "SftpUpload@1", "ToDiscord@1"
+        });
     }
 
     [Fact]

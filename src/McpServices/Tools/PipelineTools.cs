@@ -142,6 +142,85 @@ public sealed class PipelineTools
         }
     }
 
+    /// <summary>
+    /// SDK-side catalog of Load node types that honour <c>IPipelineExecutionMode.IsDryRun</c>.
+    /// Kept in sync with <c>DryRunHonouredLoadNodes.All</c> in octo-mesh-adapter; the test in
+    /// that repo pins the SDK-side catalog membership, so dropping a name here is caught at the
+    /// MCP-side test below. Adapter-specific Load nodes (Modbus, IEC, OPC-UA) live in their own
+    /// adapter's registry and are NOT listed here.
+    /// </summary>
+    internal static readonly string[] SdkHonouredLoadNodesCatalog =
+    {
+        "ApplyChanges@1",
+        "ApplyChanges@2",
+        "DeployPipeline@1",
+        "SendEMail@1",
+        "GrafanaProvisionTenant@1",
+        "GrafanaDeprovisionTenant@1",
+        "SaveStreamDataInArchive@1",
+        "SaveTimeRangeStreamDataInArchive@1",
+        "SftpUpload@1",
+        "ToDiscord@1"
+    };
+
+    /// <summary>
+    /// M4-B.2 — run an existing pipeline with every dry-run-honouring Load node's
+    /// side effect suppressed. Honouring nodes record their would-have-written
+    /// payload on the debug stream (read via <c>get_pipeline_debug_points</c> after
+    /// the execution completes); non-honouring nodes (adapter-specific Loads that
+    /// haven't opted in) run for real, so the agent should compare the deployed
+    /// pipeline's Load-node types against <c>SdkHonouredLoadNodes</c> in the
+    /// response to identify potential live side effects before authorising.
+    /// </summary>
+    [McpServerTool(Name = "dry_run_pipeline")]
+    [McpRisk(McpRiskLevel.Medium)]
+    [Description(
+        "Execute a pipeline in DRY-RUN mode (M4-B.2): every SDK-shipped Load node that has been " +
+        "retrofitted suppresses its real sink and records a 'would-have-written' payload on the " +
+        "debug stream instead. Returns the execution id and the list of SDK-honoured Load node " +
+        "types. The pipeline must be deployed first (use deploy_pipeline). Read the captured " +
+        "intents via get_pipeline_debug_points after the execution completes. " +
+        "Risk: Medium — adapter-specific Load nodes (Modbus, IEC, OPC-UA, etc.) that have not " +
+        "opted in will still fire their real side effect.")]
+    public static async Task<DryRunPipelineResponse> DryRunPipeline(
+        McpServer server,
+        [Description("Pipeline runtime ID.")] string pipelineId,
+        [Description("Optional pipeline input (string — JSON, YAML, or plain).")] string? pipelineInput = null,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(pipelineId))
+        {
+            return new DryRunPipelineResponse { IsSuccess = false, ErrorMessage = "pipelineId is required." };
+        }
+
+        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new DryRunPipelineResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            var executionId = await ctx.Client!.ExecutePipelineAsync(pipelineId, pipelineInput, isDryRun: true);
+            return new DryRunPipelineResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                PipelineId = pipelineId,
+                ExecutionId = executionId,
+                SdkHonouredLoadNodes = SdkHonouredLoadNodesCatalog,
+                Message =
+                    $"Pipeline '{pipelineId}' dry-run started (id={executionId}). " +
+                    "Use get_pipeline_debug_points to read the captured 'would-have-written' intents " +
+                    "once the execution completes."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new DryRunPipelineResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
     /// <summary>Toggle debug capture on a pipeline.</summary>
     [McpServerTool(Name = "set_pipeline_debug")]
     [McpRisk(McpRiskLevel.Medium)]
