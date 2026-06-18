@@ -85,18 +85,59 @@ cd src/McpServices
 dotnet run
 ```
 
-3. **Configure Claude Desktop**:
-```json
-{
-  "mcpServers": {
-    "octo-mesh": {
-      "command": "node",
-      "args": ["src/mcp-bridge.js"],
-      "cwd": "/path/to/octo-mcp-service"
-    }
-  }
-}
-```
+3. **Register with Claude Code (recommended)**
+
+   The MCP service speaks HTTP+SSE natively — register it directly with the `claude mcp add` CLI. No stdio shim needed.
+
+   **Local dev** (against `dotnet run` on port 5016):
+   ```bash
+   claude mcp add --transport http --scope user octomesh http://localhost:5016/mcp
+   ```
+
+   **Remote environment** (e.g. `test-2`):
+   ```bash
+   claude mcp add --transport http --scope user octomesh-test-2 https://mcp.test-2.mm.cloud/mcp
+   ```
+
+   Verify both are reachable:
+   ```bash
+   claude mcp list
+   # octomesh:         http://localhost:5016/mcp (HTTP) - ✓ Connected
+   # octomesh-test-2:  https://mcp.test-2.mm.cloud/mcp (HTTP) - ✓ Connected
+   ```
+
+   Then restart your Claude Code session so the tool catalogue is enumerated. First call against the server should be `authenticate(tenantId="<your-tenant>")` to start the OAuth Device Flow; `check_auth_status` confirms once you've completed the browser login.
+
+   Scope options:
+   - `--scope user` — available in every project (recommended for remote endpoints)
+   - `--scope local` — current project only (recommended when the URL is checkout-relative)
+   - `--scope project` — committed to a `.mcp.json` in the repo (recommended when teams need a shared remote MCP)
+
+4. **Configure Claude Desktop** (alternative)
+
+   Claude Desktop also supports HTTP transport via its `claude_desktop_config.json`:
+
+   - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+   ```json
+   {
+     "mcpServers": {
+       "octomesh-local": {
+         "type": "http",
+         "url": "http://localhost:5016/mcp"
+       },
+       "octomesh-test-2": {
+         "type": "http",
+         "url": "https://mcp.test-2.mm.cloud/mcp"
+       }
+     }
+   }
+   ```
+
+   Multiple environments register as siblings — each gets its own tool namespace (`mcp__octomesh-local__*`, `mcp__octomesh-test-2__*`). The local-dev HTTPS port `5017` works the same way — point the URL at `https://localhost:5017/<tenantId>/mcp` if your dev profile binds HTTPS instead of HTTP.
+
+   **Note on legacy stdio bridge:** earlier versions of this repo shipped `src/mcp-bridge.js`, a Node-based stdio→HTTPS shim that was required when Claude Code only spoke stdio. That shim is removed — Claude Code 1.0+ and recent Claude Desktop both speak HTTP MCP directly, which is simpler, supports per-call tenant routing via the tool parameter (instead of being baked into the bridge URL), and doesn't need `NODE_TLS_REJECT_UNAUTHORIZED=0`.
 
 ## 🛠️ Available Tools
 
