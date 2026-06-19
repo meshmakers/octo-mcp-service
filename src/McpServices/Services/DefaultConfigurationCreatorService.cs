@@ -22,7 +22,11 @@ internal class DefaultConfigurationCreatorService(
         migrationService: null,
         ckModelUpgradeService: null,
         runtimeRepositoryProvider: null,
-        serviceEnabledKey: null, // auto-enabled for all tenants
+        // No per-tenant enablement flag — MCP runs on every tenant the host knows
+        // about. Both nulls intentional: serviceEnabledKey=null disables the
+        // Enable/Disable/IsEnabled lifecycle (no on-off switch), and autoEnable=false
+        // because there is nothing to auto-enable in the first place.
+        serviceEnabledKey: null,
         autoEnable: false,
         // AB#4208 — pair with octo-common-services Fix 1+2. Wiring the registry
         // is defensive today (MCP's StartTenantAsync is a no-op so the registry
