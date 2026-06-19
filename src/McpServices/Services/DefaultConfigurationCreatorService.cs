@@ -18,14 +18,22 @@ internal class DefaultConfigurationCreatorService(
     IDiagnosticsService diagnosticsService,
     IOptions<McpServiceOptions> options,
     ICommandClient<CreateIdentityDataCommandRequest> createIdentityDataCommandClient,
-    ISystemContext systemContext)
+    ISystemContext systemContext,
+    FailedTenantRegistry failedTenantRegistry)
     : DefaultConfigurationCreatorServiceStandardized(logger, systemContext, createIdentityDataCommandClient,
         Constants.McpServiceIdentityDataVersionKey,
         Constants.McpServiceIdentityDataVersionValue,
-        null, // migrationService
-        null, // ckModelUpgradeService
-        null, // runtimeRepositoryProvider
-        null  // serviceEnabledKey - auto-enabled for all tenants
+        migrationService: null,
+        ckModelUpgradeService: null,
+        runtimeRepositoryProvider: null,
+        serviceEnabledKey: null, // auto-enabled for all tenants
+        autoEnable: false,
+        // AB#4208 — pair with octo-common-services Fix 1+2. Wiring the registry
+        // is defensive today (MCP's StartTenantAsync is a no-op so the registry
+        // path is unused), but it future-proofs any later override that may
+        // throw, ensuring failures survive a pod restart instead of being lost
+        // to the in-process pending list alone.
+        failedTenantRegistry: failedTenantRegistry
     )
 {
     public override async Task InitializeAsync()
