@@ -231,6 +231,34 @@ HTTP GET <publicUrl>/file-transfer/download/{transferId}
 
 Transfer ids are random 128-bit GUIDs in URL paths; they expire in 30 min; no extra auth check on the endpoints. For stricter setups, put the service behind your own auth gateway. **Do not** add base64-in-tool-parameter as an alternative path — the file-transfer endpoints are the only sanctioned mechanism for binary payloads.
 
+### CK + runtime model upload formats (gotchas)
+
+`import_ck_model` and `import_runtime_model` are NOT JSON-only — confirmed accepted formats:
+
+- **Single compiled YAML** from the CK MSBuild output at `bin/<config>/net10.0/octo-ck-libraries/<Project>/out/ck-<name>-<major>.yaml`. Easiest path after a `dotnet build`.
+- **Single compiled JSON** in the same shape as files under `~/.octo/local-catalog/ck-models/v2/<letter>/<Model>/<major>/ck-<name>-<version>.json`.
+- **Zip containing the source ConstructionKit/ folder** (ckModel.yaml + types/ + enums/ + attributes/ + associations/ + records/).
+- For runtime models: a single YAML/JSON conforming to `runtime-model.schema.json` (an `entities:` list keyed by `rtId` + `ckTypeId`), or a zip thereof.
+
+The tool description says "PUT the file to the returned URL" — historically said "PUT the JSON/zip" which was misleading. Asset-services accepts all of the above; schema validation happens server-side after the file lands in the file-transfer store.
+
+### Service-managed CK models — don't use import_ck_from_catalog
+
+The CK library status flags every model as either user-managed or **service-managed** (`isServiceManaged: true`). Service-managed models include `System` (always), `System.Communication`, `System.StreamData`, `System.Reporting`, `System.UI`, `System.Ai`, `System.Bot`, `System.Identity`, `System.Notification` — anything that backs a backend service feature.
+
+For service-managed models, `import_ck_from_catalog` will silently no-op even when the model is NOT loaded in the target tenant. The tool returns `IsSuccess=true` with messages like "Enqueued 0 import job(s)" or "Nothing to import — already up to date", but `get_available_models` will not list the model afterwards. Misleading but consistent.
+
+The correct way to make those models available is the matching `enable_<feature>` tool:
+
+| Service-managed model | Enable tool |
+|---|---|
+| `System.Communication-*` | `enable_communication` |
+| `System.StreamData-*` | `enable_stream_data` |
+| `System.Reporting-*` | `enable_reporting` |
+| `System.UI-*` | (no MCP tool yet — install via Studio or octo-cli) |
+
+For user-managed CK models (Basic.*, Industry.*, EnergyIQ, Loxone, custom tenant models), `import_ck_from_catalog` works correctly and DOES load them, even though the same "Enqueued 0 import job(s)" message appears. The reliable verification is `get_ck_library_status` — it reports the actually-loaded version and `modelState=Available`. `get_available_models` may be stale right after an import.
+
 ## Aggregation Tools Architecture
 
 The aggregation + stream-data tools (`RuntimeAggregationTools`, `StreamDataAggregationTools`, `StreamDataMetadataTools`) talk **directly to the runtime engine** — same architectural layer as the generic CRUD tools, but with their own conventions.

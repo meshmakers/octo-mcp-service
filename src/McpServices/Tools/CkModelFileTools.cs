@@ -18,13 +18,20 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 [McpServerToolType]
 public sealed class CkModelFileTools
 {
-    /// <summary>Import a Construction Kit model file (JSON or zipped JSON). Caller must prepare_file_upload first.</summary>
+    /// <summary>Import a Construction Kit model file (compiled YAML, JSON, or zipped variant). Caller must prepare_file_upload first.</summary>
     [McpServerTool(Name = "import_ck_model")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
-        "Import a CK model from an uploaded file. Call prepare_file_upload first, PUT the JSON/zip to the " +
-        "returned URL, then invoke this tool with the transferId. Equivalent to octo-cli " +
-        "ImportConstructionKitModel.")]
+        "Import a CK model from an uploaded file. Call prepare_file_upload first, PUT the file to the " +
+        "returned URL, then invoke this tool with the transferId. Accepted formats: (1) a single compiled " +
+        "YAML built by the CK MSBuild task (typically at bin/<config>/net10.0/octo-ck-libraries/<Project>/" +
+        "out/ck-<modelname>-<major>.yaml) — this is the easiest path from a `dotnet build` of a CK project; " +
+        "(2) a single compiled JSON in the same catalog format as ~/.octo/local-catalog files; (3) a zip " +
+        "containing the source ConstructionKit/ folder with ckModel.yaml + types/enums/attributes/" +
+        "associations/records subfolders. The model's `dependencies` must already be loaded in the target " +
+        "tenant or the job fails — for service-managed deps (System.Communication / StreamData / Reporting " +
+        "/ UI / Ai) use enable_<feature> tools, for catalog deps use import_ck_from_catalog. " +
+        "Equivalent to octo-cli ImportConstructionKitModel.")]
     public static async Task<JobStartedResponse> ImportCkModel(
         McpServer server,
         [Description("Transfer id from prepare_file_upload.")] string transferId,
@@ -34,14 +41,16 @@ public sealed class CkModelFileTools
             (asset, tid, path) => asset.ImportCkModelAsync(tid, path),
             opName: "CK model import");
 
-    /// <summary>Import a runtime model file. Caller must prepare_file_upload first.</summary>
+    /// <summary>Import a runtime model file (YAML, JSON, or zipped variant). Caller must prepare_file_upload first.</summary>
     [McpServerTool(Name = "import_runtime_model")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
-        "Import a runtime model from an uploaded file. Call prepare_file_upload first, PUT the JSON/zip to " +
-        "the returned URL, then invoke this tool with the transferId. importStrategy controls whether " +
-        "existing entities are replaced ('Upsert') or rejected ('InsertOnly'). Equivalent to octo-cli " +
-        "ImportRuntimeModel.")]
+        "Import a runtime model from an uploaded file. Call prepare_file_upload first, PUT the file to " +
+        "the returned URL, then invoke this tool with the transferId. Accepted formats: a single runtime " +
+        "model YAML (with `$schema: https://schemas.meshmakers.cloud/runtime-model.schema.json` and an " +
+        "`entities:` list), the equivalent JSON, or a zip containing one such file. importStrategy " +
+        "controls whether existing entities are replaced ('Upsert') or rejected ('InsertOnly'). Equivalent " +
+        "to octo-cli ImportRuntimeModel.")]
     public static async Task<JobStartedResponse> ImportRuntimeModel(
         McpServer server,
         [Description("Transfer id from prepare_file_upload.")] string transferId,
