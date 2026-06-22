@@ -43,7 +43,7 @@ public sealed class DiagnosticsTools
             };
         }
 
-        var accessToken = McpSessionContext.TryGetAccessToken(server);
+        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
         if (accessToken == null)
         {
             return new TimeSeriesResponse
@@ -59,7 +59,7 @@ public sealed class DiagnosticsTools
             {
                 case "identity":
                 {
-                    var ctx = IdentityClientContext.TryBuild(server, tenantId);
+                    var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
                     if (ctx.Error != null) return Error(ctx.Error);
                     await ctx.Client!.ReconfigureLogLevelAsync(loggerName, minLogLevel, maxLogLevel);
                     return Ok(ctx.TenantId, "Identity", loggerName, minLogLevel, maxLogLevel);
@@ -67,7 +67,7 @@ public sealed class DiagnosticsTools
                 case "assetrepository":
                 case "asset":
                 {
-                    var ctx = AssetClientContext.TryBuild(server, tenantId);
+                    var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
                     if (ctx.Error != null) return Error(ctx.Error);
                     await ctx.Client!.ReconfigureLogLevelAsync(loggerName, minLogLevel, maxLogLevel);
                     return Ok(ctx.TenantId, "AssetRepository", loggerName, minLogLevel, maxLogLevel);
@@ -75,14 +75,14 @@ public sealed class DiagnosticsTools
                 case "communicationcontroller":
                 case "communication":
                 {
-                    var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+                    var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
                     if (ctx.Error != null) return Error(ctx.Error);
                     await ctx.Client!.ReconfigureLogLevelAsync(loggerName, minLogLevel, maxLogLevel);
                     return Ok(ctx.TenantId, "Communication", loggerName, minLogLevel, maxLogLevel);
                 }
                 case "reporting":
                 {
-                    var ctx = ReportingClientContext.TryBuild(server, tenantId);
+                    var ctx = await ReportingClientContext.TryBuildAsync(server, tenantId);
                     if (ctx.Error != null) return Error(ctx.Error);
                     await ctx.Client!.ReconfigureLogLevelAsync(loggerName, minLogLevel, maxLogLevel);
                     return Ok(ctx.TenantId, "Reporting", loggerName, minLogLevel, maxLogLevel);

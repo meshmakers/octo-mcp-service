@@ -25,7 +25,7 @@ public sealed class ClientManagementTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetClientsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -62,7 +62,7 @@ public sealed class ClientManagementTools
             return new ClientResponse { IsSuccess = false, ErrorMessage = "clientId is required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -106,7 +106,7 @@ public sealed class ClientManagementTools
             return validation;
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -162,7 +162,7 @@ public sealed class ClientManagementTools
             return validation;
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -221,7 +221,7 @@ public sealed class ClientManagementTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -287,7 +287,7 @@ public sealed class ClientManagementTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -325,7 +325,7 @@ public sealed class ClientManagementTools
             return new GetClientMirrorsResponse { IsSuccess = false, ErrorMessage = "clientId is required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetClientMirrorsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -368,7 +368,7 @@ public sealed class ClientManagementTools
             return new ClientMirrorBackfillResponse { IsSuccess = false, ErrorMessage = "clientId is required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ClientMirrorBackfillResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -413,7 +413,7 @@ public sealed class ClientManagementTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ClientMirrorProvisionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -470,7 +470,7 @@ public sealed class ClientManagementTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ClientMirrorProvisionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -511,7 +511,7 @@ public sealed class ClientManagementTools
             return new ClientResponse { IsSuccess = false, ErrorMessage = "clientId is required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -572,7 +572,7 @@ public sealed class ClientManagementTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };

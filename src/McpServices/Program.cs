@@ -76,6 +76,7 @@ try
 
     // Add MCP authentication and tenant resolution services
     builder.Services.AddSingleton<IMcpSessionTokenStore, McpSessionTokenStore>();
+    builder.Services.AddSingleton<ISessionTokenRefresher, SessionTokenRefresher>();
     builder.Services.AddTransient<ITenantResolutionService, TenantResolutionService>();
     builder.Services.AddSingleton<IOctoServiceClientFactory, OctoServiceClientFactory>();
     builder.Services.AddSingleton<IFileTransferStore, FileTransferStore>();

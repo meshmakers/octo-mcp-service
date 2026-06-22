@@ -38,7 +38,7 @@ public sealed class TenantBackupTools
             };
         }
 
-        var bot = BotClientContext.TryBuild(server, tenantId);
+        var bot = await BotClientContext.TryBuildAsync(server, tenantId);
         if (bot.Error != null)
         {
             return new FileDownloadResponse { IsSuccess = false, ErrorMessage = bot.Error };
@@ -132,7 +132,7 @@ public sealed class TenantBackupTools
             };
         }
 
-        var bot = BotClientContext.TryBuild(server, tenantId);
+        var bot = await BotClientContext.TryBuildAsync(server, tenantId);
         if (bot.Error != null)
         {
             return new JobStartedResponse { IsSuccess = false, ErrorMessage = bot.Error };

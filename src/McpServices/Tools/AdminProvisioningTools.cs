@@ -36,7 +36,7 @@ public sealed class AdminProvisioningTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetAdminProvisioningMappingsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -83,7 +83,7 @@ public sealed class AdminProvisioningTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new AdminProvisioningResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -135,7 +135,7 @@ public sealed class AdminProvisioningTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new AdminProvisioningResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -189,7 +189,7 @@ public sealed class AdminProvisioningTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new AdminProvisioningResponse { IsSuccess = false, ErrorMessage = ctx.Error };

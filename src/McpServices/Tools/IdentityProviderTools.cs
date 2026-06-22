@@ -24,7 +24,7 @@ public sealed class IdentityProviderTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetIdentityProvidersResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -76,7 +76,7 @@ public sealed class IdentityProviderTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new IdentityProviderResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -330,7 +330,7 @@ public sealed class IdentityProviderTools
         IdentityProviderDto dto,
         string name)
     {
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new IdentityProviderResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -381,7 +381,7 @@ public sealed class IdentityProviderTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new IdentityProviderResponse { IsSuccess = false, ErrorMessage = ctx.Error };

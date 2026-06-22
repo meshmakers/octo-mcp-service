@@ -19,9 +19,9 @@ public class ClientContextTests : ToolTestBase
     }
 
     [Fact]
-    public void IdentityClientContext_WhenUnauthenticated_ReturnsAuthError()
+    public async Task IdentityClientContext_WhenUnauthenticated_ReturnsAuthError()
     {
-        var ctx = IdentityClientContext.TryBuild(MockServer.Object, tenantIdParam: null);
+        var ctx = await IdentityClientContext.TryBuildAsync(MockServer.Object, tenantIdParam: null);
 
         ctx.Client.Should().BeNull();
         ctx.TenantId.Should().BeNull();
@@ -29,11 +29,11 @@ public class ClientContextTests : ToolTestBase
     }
 
     [Fact]
-    public void IdentityClientContext_WhenAuthenticated_ReturnsClient()
+    public async Task IdentityClientContext_WhenAuthenticated_ReturnsClient()
     {
         GivenAuthenticated("tok-1");
 
-        var ctx = IdentityClientContext.TryBuild(MockServer.Object, tenantIdParam: null);
+        var ctx = await IdentityClientContext.TryBuildAsync(MockServer.Object, tenantIdParam: null);
 
         ctx.Client.Should().NotBeNull();
         ctx.TenantId.Should().Be(DefaultTenantId);
@@ -43,57 +43,57 @@ public class ClientContextTests : ToolTestBase
     }
 
     [Fact]
-    public void IdentityClientContext_WithExplicitTenant_PassesItToResolver()
+    public async Task IdentityClientContext_WithExplicitTenant_PassesItToResolver()
     {
         GivenAuthenticated();
         MockTenantResolution.Setup(t => t.ResolveTenantId("explicit-tenant")).Returns("explicit-tenant");
 
-        var ctx = IdentityClientContext.TryBuild(MockServer.Object, "explicit-tenant");
+        var ctx = await IdentityClientContext.TryBuildAsync(MockServer.Object, "explicit-tenant");
 
         ctx.TenantId.Should().Be("explicit-tenant");
         MockClientFactory.Verify(f => f.CreateIdentityClient("explicit-tenant", It.IsAny<string>()), Times.Once);
     }
 
     [Fact]
-    public void IdentityClientContext_WithExpiredToken_ReturnsAuthError()
+    public async Task IdentityClientContext_WithExpiredToken_ReturnsAuthError()
     {
         GivenTokenExpired();
 
-        var ctx = IdentityClientContext.TryBuild(MockServer.Object, tenantIdParam: null);
+        var ctx = await IdentityClientContext.TryBuildAsync(MockServer.Object, tenantIdParam: null);
 
         ctx.Client.Should().BeNull();
         ctx.Error.Should().Contain("Not authenticated");
     }
 
     [Fact]
-    public void IdentityClientContext_WhenResolverThrows_PropagatesAsError()
+    public async Task IdentityClientContext_WhenResolverThrows_PropagatesAsError()
     {
         GivenAuthenticated();
         MockTenantResolution
             .Setup(t => t.ResolveTenantId(It.IsAny<string?>()))
             .Throws(new InvalidOperationException("No tenant ID specified."));
 
-        var ctx = IdentityClientContext.TryBuild(MockServer.Object, tenantIdParam: null);
+        var ctx = await IdentityClientContext.TryBuildAsync(MockServer.Object, tenantIdParam: null);
 
         ctx.Client.Should().BeNull();
         ctx.Error.Should().Be("No tenant ID specified.");
     }
 
     [Fact]
-    public void AssetClientContext_WhenUnauthenticated_ReturnsAuthError()
+    public async Task AssetClientContext_WhenUnauthenticated_ReturnsAuthError()
     {
-        var ctx = AssetClientContext.TryBuild(MockServer.Object, tenantIdParam: null);
+        var ctx = await AssetClientContext.TryBuildAsync(MockServer.Object, tenantIdParam: null);
 
         ctx.Client.Should().BeNull();
         ctx.Error.Should().Contain("Not authenticated");
     }
 
     [Fact]
-    public void AssetClientContext_WhenAuthenticated_ReturnsClient()
+    public async Task AssetClientContext_WhenAuthenticated_ReturnsClient()
     {
         GivenAuthenticated("tok-2");
 
-        var ctx = AssetClientContext.TryBuild(MockServer.Object, tenantIdParam: null);
+        var ctx = await AssetClientContext.TryBuildAsync(MockServer.Object, tenantIdParam: null);
 
         ctx.Client.Should().NotBeNull();
         ctx.TenantId.Should().Be(DefaultTenantId);
@@ -101,20 +101,20 @@ public class ClientContextTests : ToolTestBase
     }
 
     [Fact]
-    public void CommunicationClientContext_WhenUnauthenticated_ReturnsAuthError()
+    public async Task CommunicationClientContext_WhenUnauthenticated_ReturnsAuthError()
     {
-        var ctx = CommunicationClientContext.TryBuild(MockServer.Object, tenantIdParam: null);
+        var ctx = await CommunicationClientContext.TryBuildAsync(MockServer.Object, tenantIdParam: null);
 
         ctx.Client.Should().BeNull();
         ctx.Error.Should().Contain("Not authenticated");
     }
 
     [Fact]
-    public void CommunicationClientContext_WhenAuthenticated_ReturnsClient()
+    public async Task CommunicationClientContext_WhenAuthenticated_ReturnsClient()
     {
         GivenAuthenticated("tok-3");
 
-        var ctx = CommunicationClientContext.TryBuild(MockServer.Object, tenantIdParam: null);
+        var ctx = await CommunicationClientContext.TryBuildAsync(MockServer.Object, tenantIdParam: null);
 
         ctx.Client.Should().NotBeNull();
         ctx.TenantId.Should().Be(DefaultTenantId);
@@ -122,20 +122,20 @@ public class ClientContextTests : ToolTestBase
     }
 
     [Fact]
-    public void StreamDataClientContext_WhenUnauthenticated_ReturnsAuthError()
+    public async Task StreamDataClientContext_WhenUnauthenticated_ReturnsAuthError()
     {
-        var ctx = StreamDataClientContext.TryBuild(MockServer.Object, tenantIdParam: null);
+        var ctx = await StreamDataClientContext.TryBuildAsync(MockServer.Object, tenantIdParam: null);
 
         ctx.Client.Should().BeNull();
         ctx.Error.Should().Contain("Not authenticated");
     }
 
     [Fact]
-    public void StreamDataClientContext_WhenAuthenticated_ReturnsClient()
+    public async Task StreamDataClientContext_WhenAuthenticated_ReturnsClient()
     {
         GivenAuthenticated("tok-sd");
 
-        var ctx = StreamDataClientContext.TryBuild(MockServer.Object, tenantIdParam: null);
+        var ctx = await StreamDataClientContext.TryBuildAsync(MockServer.Object, tenantIdParam: null);
 
         ctx.Client.Should().NotBeNull();
         ctx.TenantId.Should().Be(DefaultTenantId);
@@ -143,20 +143,20 @@ public class ClientContextTests : ToolTestBase
     }
 
     [Fact]
-    public void ReportingClientContext_WhenUnauthenticated_ReturnsAuthError()
+    public async Task ReportingClientContext_WhenUnauthenticated_ReturnsAuthError()
     {
-        var ctx = ReportingClientContext.TryBuild(MockServer.Object, tenantIdParam: null);
+        var ctx = await ReportingClientContext.TryBuildAsync(MockServer.Object, tenantIdParam: null);
 
         ctx.Client.Should().BeNull();
         ctx.Error.Should().Contain("Not authenticated");
     }
 
     [Fact]
-    public void ReportingClientContext_WhenAuthenticated_ReturnsClient()
+    public async Task ReportingClientContext_WhenAuthenticated_ReturnsClient()
     {
         GivenAuthenticated("tok-rep");
 
-        var ctx = ReportingClientContext.TryBuild(MockServer.Object, tenantIdParam: null);
+        var ctx = await ReportingClientContext.TryBuildAsync(MockServer.Object, tenantIdParam: null);
 
         ctx.Client.Should().NotBeNull();
         ctx.TenantId.Should().Be(DefaultTenantId);

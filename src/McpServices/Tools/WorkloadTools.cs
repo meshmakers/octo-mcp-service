@@ -31,7 +31,7 @@ public sealed class WorkloadTools
             return new GetWorkloadsByChartResponse { IsSuccess = false, ErrorMessage = "chartName is required." };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetWorkloadsByChartResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -80,7 +80,7 @@ public sealed class WorkloadTools
             };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -119,7 +119,7 @@ public sealed class WorkloadTools
             return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = "workloadId is required." };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -168,7 +168,7 @@ public sealed class WorkloadTools
             };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -227,7 +227,7 @@ public sealed class WorkloadTools
             };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new MovePipelinesResponse { IsSuccess = false, ErrorMessage = ctx.Error };

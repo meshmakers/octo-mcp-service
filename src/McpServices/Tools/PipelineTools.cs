@@ -34,7 +34,7 @@ public sealed class PipelineTools
             return new PipelineDeploymentResponse { IsSuccess = false, ErrorMessage = "pipelineId is required." };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new PipelineDeploymentResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -80,7 +80,7 @@ public sealed class PipelineTools
             };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new PipelineDeploymentResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -118,7 +118,7 @@ public sealed class PipelineTools
             return new ExecutePipelineResponse { IsSuccess = false, ErrorMessage = "pipelineId is required." };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ExecutePipelineResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -193,7 +193,7 @@ public sealed class PipelineTools
             return new DryRunPipelineResponse { IsSuccess = false, ErrorMessage = "pipelineId is required." };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new DryRunPipelineResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -238,7 +238,7 @@ public sealed class PipelineTools
             return new SetPipelineDebugResponse { IsSuccess = false, ErrorMessage = "pipelineId is required." };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new SetPipelineDebugResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -277,7 +277,7 @@ public sealed class PipelineTools
             return new GetPipelineDebugResponse { IsSuccess = false, ErrorMessage = "pipelineId is required." };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetPipelineDebugResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -313,7 +313,7 @@ public sealed class PipelineTools
             return new GetPipelineExecutionsResponse { IsSuccess = false, ErrorMessage = "pipelineId is required." };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetPipelineExecutionsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -357,7 +357,7 @@ public sealed class PipelineTools
             };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetLatestPipelineExecutionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -400,7 +400,7 @@ public sealed class PipelineTools
             };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetPipelineDebugPointsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -463,7 +463,7 @@ public sealed class PipelineTools
             };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ValidatePipelineDefinitionResponse { IsSuccess = false, ErrorMessage = ctx.Error };

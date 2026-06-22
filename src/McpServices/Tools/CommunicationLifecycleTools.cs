@@ -24,7 +24,7 @@ public sealed class CommunicationLifecycleTools
         McpServer server,
         [Description("Tenant to enable communication for. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new CommunicationLifecycleResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -68,7 +68,7 @@ public sealed class CommunicationLifecycleTools
             };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new CommunicationLifecycleResponse { IsSuccess = false, ErrorMessage = ctx.Error };

@@ -11,9 +11,13 @@ internal sealed record ReportingClientContext(
     string? TenantId,
     string? Error)
 {
-    public static ReportingClientContext TryBuild(McpServer server, string? tenantIdParam)
+    /// <summary>
+    ///     Resolves the access token (including lazy refresh) and builds a Reporting client for
+    ///     <paramref name="tenantIdParam"/>.
+    /// </summary>
+    public static async Task<ReportingClientContext> TryBuildAsync(McpServer server, string? tenantIdParam)
     {
-        var accessToken = McpSessionContext.TryGetAccessToken(server);
+        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
         if (accessToken == null)
         {
             return new ReportingClientContext(null, null, "Not authenticated. Call 'authenticate' first.");

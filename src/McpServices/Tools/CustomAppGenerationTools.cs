@@ -450,7 +450,7 @@ public sealed class CustomAppGenerationTools
         string? tenantId = null,
         CancellationToken cancellationToken = default)
     {
-        var accessToken = McpSessionContext.TryGetAccessToken(server);
+        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
         if (accessToken == null)
         {
             return new ExportRuntimeGraphqlSdlResponse

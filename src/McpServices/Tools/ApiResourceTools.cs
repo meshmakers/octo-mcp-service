@@ -19,7 +19,7 @@ public sealed class ApiResourceTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetApiResourcesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -61,7 +61,7 @@ public sealed class ApiResourceTools
             return new ApiResourceResponse { IsSuccess = false, ErrorMessage = "name is required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ApiResourceResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -111,7 +111,7 @@ public sealed class ApiResourceTools
             return new ApiResourceResponse { IsSuccess = false, ErrorMessage = "name is required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ApiResourceResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -168,7 +168,7 @@ public sealed class ApiResourceTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ApiResourceResponse { IsSuccess = false, ErrorMessage = ctx.Error };

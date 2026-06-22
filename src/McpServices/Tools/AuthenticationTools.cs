@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IdentityModel.Tokens.Jwt;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Meshmakers.Octo.Backend.McpServices.Models;
@@ -259,6 +260,95 @@ public sealed class AuthenticationTools
         catch (Exception ex)
         {
             return new CheckAuthStatusResponse
+            {
+                IsSuccess = false,
+                IsAuthenticated = false,
+                ErrorMessage = ex.Message
+            };
+        }
+    }
+
+    /// <summary>
+    ///     Report the current authentication status of the MCP session. Forces a lazy
+    ///     <c>refresh_token</c> grant if the stored access token is expired but a refresh
+    ///     token is available. Mirrors octo-cli's <c>AuthStatus</c> command.
+    /// </summary>
+    [McpServerTool(Name = "auth_status")]
+    [Description(
+        "Show authentication status for the current MCP session. Forces a token refresh if the access " +
+        "token is expired but a refresh token is available — equivalent to octo-cli's AuthStatus command. " +
+        "Returns identity claims (sub / name / tenant) when the token is a parseable JWT, plus the UTC " +
+        "expiry of the stored access token.")]
+    public static async Task<AuthStatusResponse> AuthStatus(McpServer server)
+    {
+        try
+        {
+            var sessionId = GetSessionId(server);
+            var tokenStore = server.Services!.GetRequiredService<IMcpSessionTokenStore>();
+
+            var before = tokenStore.GetTokens(sessionId);
+            var wasExpired = before != null && before.IsExpired;
+
+            var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
+            if (accessToken == null)
+            {
+                return new AuthStatusResponse
+                {
+                    IsSuccess = true,
+                    IsAuthenticated = false,
+                    Message = "Not authenticated. Call 'authenticate' first."
+                };
+            }
+
+            var after = tokenStore.GetTokens(sessionId);
+            var wasRefreshed = wasExpired && after != null && !after.IsExpired;
+
+            string? sub = null;
+            string? name = null;
+            string? tenant = null;
+            try
+            {
+                var handler = new JwtSecurityTokenHandler();
+                var jwt = handler.ReadJwtToken(accessToken);
+                foreach (var claim in jwt.Claims)
+                {
+                    switch (claim.Type)
+                    {
+                        case "sub":
+                            sub ??= claim.Value;
+                            break;
+                        case "name":
+                            name ??= claim.Value;
+                            break;
+                        case "tenant":
+                        case "tenant_id":
+                            tenant ??= claim.Value;
+                            break;
+                    }
+                }
+            }
+            catch
+            {
+                // Opaque (non-JWT) bearer — leave claim fields null; IsAuthenticated still true.
+            }
+
+            return new AuthStatusResponse
+            {
+                IsSuccess = true,
+                IsAuthenticated = true,
+                WasRefreshed = wasRefreshed,
+                ExpiresAtUtc = after?.ExpiresAtUtc,
+                SubjectId = sub,
+                UserName = name,
+                TenantId = tenant,
+                Message = wasRefreshed
+                    ? "Access token was refreshed."
+                    : "Authenticated."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new AuthStatusResponse
             {
                 IsSuccess = false,
                 IsAuthenticated = false,

@@ -24,7 +24,7 @@ public sealed class TimeSeriesTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = StreamDataClientContext.TryBuild(server, tenantId);
+        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new TimeSeriesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -66,7 +66,7 @@ public sealed class TimeSeriesTools
             };
         }
 
-        var ctx = StreamDataClientContext.TryBuild(server, tenantId);
+        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new TimeSeriesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -185,7 +185,7 @@ public sealed class TimeSeriesTools
             return new ListRollupsResponse { IsSuccess = false, ErrorMessage = "sourceArchiveRtId is required." };
         }
 
-        var ctx = StreamDataClientContext.TryBuild(server, tenantId);
+        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ListRollupsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -229,7 +229,7 @@ public sealed class TimeSeriesTools
             return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = "rollupRtId is required." };
         }
 
-        var ctx = StreamDataClientContext.TryBuild(server, tenantId);
+        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -270,7 +270,7 @@ public sealed class TimeSeriesTools
             return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = "rollupRtId is required." };
         }
 
-        var ctx = StreamDataClientContext.TryBuild(server, tenantId);
+        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -323,7 +323,7 @@ public sealed class TimeSeriesTools
             };
         }
 
-        var ctx = StreamDataClientContext.TryBuild(server, tenantId);
+        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -369,7 +369,7 @@ public sealed class TimeSeriesTools
             };
         }
 
-        var ctx = StreamDataClientContext.TryBuild(server, tenantId);
+        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ctx.Error };

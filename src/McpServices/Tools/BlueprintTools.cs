@@ -25,7 +25,7 @@ public sealed class BlueprintTools
         [Description("Page size (default 100).")] int take = 100,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ListBlueprintsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -65,7 +65,7 @@ public sealed class BlueprintTools
             return new InstallBlueprintResponse { IsSuccess = false, ErrorMessage = "blueprintId is required." };
         }
 
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new InstallBlueprintResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -100,7 +100,7 @@ public sealed class BlueprintTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new BlueprintHistoryResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -135,7 +135,7 @@ public sealed class BlueprintTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new BlueprintUpdateInfoResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -176,7 +176,7 @@ public sealed class BlueprintTools
             return new BlueprintUpdatePreviewResponse { IsSuccess = false, ErrorMessage = "targetVersion is required." };
         }
 
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new BlueprintUpdatePreviewResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -237,7 +237,7 @@ public sealed class BlueprintTools
             };
         }
 
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new UpdateBlueprintResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -277,7 +277,7 @@ public sealed class BlueprintTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ListBlueprintBackupsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -327,7 +327,7 @@ public sealed class BlueprintTools
             };
         }
 
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new RollbackBlueprintResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -361,7 +361,7 @@ public sealed class BlueprintTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ListBlueprintInstallationsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -413,7 +413,7 @@ public sealed class BlueprintTools
             };
         }
 
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new UninstallBlueprintResponse { IsSuccess = false, ErrorMessage = ctx.Error };

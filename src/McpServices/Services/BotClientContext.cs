@@ -12,9 +12,12 @@ internal sealed record BotClientContext(
     string? TenantId,
     string? Error)
 {
-    public static BotClientContext TryBuild(McpServer server, string? tenantIdParam)
+    /// <summary>
+    ///     Resolves the access token (including lazy refresh) and builds a Bot client.
+    /// </summary>
+    public static async Task<BotClientContext> TryBuildAsync(McpServer server, string? tenantIdParam)
     {
-        var accessToken = McpSessionContext.TryGetAccessToken(server);
+        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
         if (accessToken == null)
         {
             return new BotClientContext(null, null, "Not authenticated. Call 'authenticate' first.");

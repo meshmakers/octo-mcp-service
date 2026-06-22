@@ -19,7 +19,7 @@ public sealed class ReportingTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = ReportingClientContext.TryBuild(server, tenantId);
+        var ctx = await ReportingClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new TimeSeriesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -61,7 +61,7 @@ public sealed class ReportingTools
             };
         }
 
-        var ctx = ReportingClientContext.TryBuild(server, tenantId);
+        var ctx = await ReportingClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new TimeSeriesResponse { IsSuccess = false, ErrorMessage = ctx.Error };

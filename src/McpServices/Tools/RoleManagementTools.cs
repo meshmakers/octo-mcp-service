@@ -21,7 +21,7 @@ public sealed class RoleManagementTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetRolesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -59,7 +59,7 @@ public sealed class RoleManagementTools
             return new RoleResponse { IsSuccess = false, ErrorMessage = "roleName is required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new RoleResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -97,7 +97,7 @@ public sealed class RoleManagementTools
             return new RoleResponse { IsSuccess = false, ErrorMessage = "roleName and newRoleName are required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new RoleResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -144,7 +144,7 @@ public sealed class RoleManagementTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new RoleResponse { IsSuccess = false, ErrorMessage = ctx.Error };

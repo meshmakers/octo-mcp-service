@@ -12,9 +12,13 @@ internal sealed record CommunicationClientContext(
     string? TenantId,
     string? Error)
 {
-    public static CommunicationClientContext TryBuild(McpServer server, string? tenantIdParam)
+    /// <summary>
+    ///     Resolves the access token (including lazy refresh) and builds a Communication client for
+    ///     <paramref name="tenantIdParam"/>.
+    /// </summary>
+    public static async Task<CommunicationClientContext> TryBuildAsync(McpServer server, string? tenantIdParam)
     {
-        var accessToken = McpSessionContext.TryGetAccessToken(server);
+        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
         if (accessToken == null)
         {
             return new CommunicationClientContext(null, null, "Not authenticated. Call 'authenticate' first.");

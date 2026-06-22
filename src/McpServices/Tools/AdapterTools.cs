@@ -21,7 +21,7 @@ public sealed class AdapterTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetAdaptersResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -58,7 +58,7 @@ public sealed class AdapterTools
             return new GetAdapterResponse { IsSuccess = false, ErrorMessage = "adapterId is required." };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetAdapterResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -90,7 +90,7 @@ public sealed class AdapterTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetAdapterNodesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -127,7 +127,7 @@ public sealed class AdapterTools
             return new GetPipelineSchemaResponse { IsSuccess = false, ErrorMessage = "adapterId is required." };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetPipelineSchemaResponse { IsSuccess = false, ErrorMessage = ctx.Error };

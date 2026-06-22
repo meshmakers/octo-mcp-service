@@ -58,7 +58,7 @@ public sealed class DataFlowTriggerPoolTools
             return new GetDataFlowStatusResponse { IsSuccess = false, ErrorMessage = "dataFlowId is required." };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetDataFlowStatusResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -91,7 +91,7 @@ public sealed class DataFlowTriggerPoolTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new CommunicationResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -133,7 +133,7 @@ public sealed class DataFlowTriggerPoolTools
             };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new CommunicationResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -164,7 +164,7 @@ public sealed class DataFlowTriggerPoolTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetPoolsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -211,7 +211,7 @@ public sealed class DataFlowTriggerPoolTools
             };
         }
 
-        var ctx = CommunicationClientContext.TryBuild(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = ctx.Error };

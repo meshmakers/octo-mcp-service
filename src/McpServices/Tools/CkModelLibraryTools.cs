@@ -22,7 +22,7 @@ public sealed class CkModelLibraryTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ListCkCatalogsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -59,7 +59,7 @@ public sealed class CkModelLibraryTools
         [Description("Page size (default 100).")] int take = 100,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ListCkCatalogModelsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -91,7 +91,7 @@ public sealed class CkModelLibraryTools
         [Description("Optional catalog name. If omitted, all catalogs are refreshed.")] string? catalogName = null,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new RefreshCkCatalogsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -125,7 +125,7 @@ public sealed class CkModelLibraryTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new CkLibraryStatusResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -169,7 +169,7 @@ public sealed class CkModelLibraryTools
             };
         }
 
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new CkDependenciesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -216,7 +216,7 @@ public sealed class CkModelLibraryTools
             };
         }
 
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new CkUpgradeCheckResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -262,7 +262,7 @@ public sealed class CkModelLibraryTools
             return new CkImportResponse { IsSuccess = false, ErrorMessage = "catalogName and modelId are required." };
         }
 
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new CkImportResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -318,7 +318,7 @@ public sealed class CkModelLibraryTools
         [Description("Must be true to actually enqueue imports.")] bool confirm = false,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = AssetClientContext.TryBuild(server, tenantId);
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new CkImportResponse { IsSuccess = false, ErrorMessage = ctx.Error };

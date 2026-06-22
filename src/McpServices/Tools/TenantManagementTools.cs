@@ -24,7 +24,7 @@ public sealed class TenantManagementTools
         [Description("Parent tenant whose child tenants should be listed. If omitted, the tenant is resolved from the URL route.")]
         string? tenantId = null)
     {
-        var accessToken = McpSessionContext.TryGetAccessToken(server);
+        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
         if (accessToken == null)
         {
             return new GetTenantsResponse
@@ -84,7 +84,7 @@ public sealed class TenantManagementTools
         [Description("Parent tenant under which the child is created. If omitted, the tenant is resolved from the URL route.")]
         string? tenantId = null)
     {
-        var accessToken = McpSessionContext.TryGetAccessToken(server);
+        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
         if (accessToken == null)
         {
             return new CreateTenantResponse
@@ -159,7 +159,7 @@ public sealed class TenantManagementTools
         [Description("Parent tenant under which the child lives. If omitted, the tenant is resolved from the URL route.")]
         string? tenantId = null)
     {
-        var accessToken = McpSessionContext.TryGetAccessToken(server);
+        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
         if (accessToken == null)
         {
             return new DeleteTenantResponse
@@ -332,13 +332,13 @@ public sealed class TenantManagementTools
         string? ParentTenantId,
         string? Error);
 
-    private static Task<AssetClientContext> TryBuildContext(McpServer server, string? tenantId)
+    private static async Task<AssetClientContext> TryBuildContext(McpServer server, string? tenantId)
     {
-        var accessToken = McpSessionContext.TryGetAccessToken(server);
+        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
         if (accessToken == null)
         {
-            return Task.FromResult(new AssetClientContext(null, null,
-                "Not authenticated. Call 'authenticate' first."));
+            return new AssetClientContext(null, null,
+                "Not authenticated. Call 'authenticate' first.");
         }
 
         try
@@ -346,11 +346,11 @@ public sealed class TenantManagementTools
             var tenantResolver = server.Services!.GetRequiredService<ITenantResolutionService>();
             var parent = tenantResolver.ResolveTenantId(tenantId);
             var factory = server.Services!.GetRequiredService<IOctoServiceClientFactory>();
-            return Task.FromResult(new AssetClientContext(factory.CreateAssetClient(parent, accessToken), parent, null));
+            return new AssetClientContext(factory.CreateAssetClient(parent, accessToken), parent, null);
         }
         catch (Exception ex)
         {
-            return Task.FromResult(new AssetClientContext(null, null, ex.Message));
+            return new AssetClientContext(null, null, ex.Message);
         }
     }
 

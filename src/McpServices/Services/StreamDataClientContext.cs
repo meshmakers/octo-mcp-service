@@ -12,9 +12,13 @@ internal sealed record StreamDataClientContext(
     string? TenantId,
     string? Error)
 {
-    public static StreamDataClientContext TryBuild(McpServer server, string? tenantIdParam)
+    /// <summary>
+    ///     Resolves the access token (including lazy refresh) and builds a Stream Data client for
+    ///     <paramref name="tenantIdParam"/>.
+    /// </summary>
+    public static async Task<StreamDataClientContext> TryBuildAsync(McpServer server, string? tenantIdParam)
     {
-        var accessToken = McpSessionContext.TryGetAccessToken(server);
+        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
         if (accessToken == null)
         {
             return new StreamDataClientContext(null, null, "Not authenticated. Call 'authenticate' first.");

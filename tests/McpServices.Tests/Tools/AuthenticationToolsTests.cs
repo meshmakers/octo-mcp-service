@@ -88,6 +88,63 @@ public class AuthenticationToolsTests : TestBase
     }
 
     [Fact]
+    public async Task AuthStatus_WhenSessionFreshAndJwt_ReturnsClaims()
+    {
+        // Hand-crafted JWT (HS256, signature ignored — JwtSecurityTokenHandler.ReadJwtToken does not verify).
+        // Payload: { "sub": "user-123", "name": "Alice", "tenant": "acme" }
+        const string jwt =
+            "eyJhbGciOiJIUzI1NiJ9." +
+            "eyJzdWIiOiJ1c2VyLTEyMyIsIm5hbWUiOiJBbGljZSIsInRlbmFudCI6ImFjbWUifQ." +
+            "QqXBnz5HwR2QmVlS5cGSrhYxsxV3SfNCs8U5DTKxDBI";
+        var expires = DateTime.UtcNow.AddHours(1);
+        _mockTokenStore.Setup(s => s.GetTokens(It.IsAny<string>()))
+            .Returns(new McpSessionTokens { AccessToken = jwt, ExpiresAtUtc = expires });
+
+        var result = await AuthenticationTools.AuthStatus(MockServer.Object);
+
+        result.IsSuccess.Should().BeTrue();
+        result.IsAuthenticated.Should().BeTrue();
+        result.WasRefreshed.Should().BeFalse("fresh token doesn't trigger a refresh");
+        result.SubjectId.Should().Be("user-123");
+        result.UserName.Should().Be("Alice");
+        result.TenantId.Should().Be("acme");
+        result.ExpiresAtUtc.Should().BeCloseTo(expires, TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task AuthStatus_WhenUnauthenticated_ReturnsNotAuthenticated()
+    {
+        _mockTokenStore.Setup(s => s.GetTokens(It.IsAny<string>())).Returns((McpSessionTokens?)null);
+
+        var result = await AuthenticationTools.AuthStatus(MockServer.Object);
+
+        result.IsSuccess.Should().BeTrue();
+        result.IsAuthenticated.Should().BeFalse();
+        result.Message.Should().Contain("Not authenticated");
+    }
+
+    [Fact]
+    public async Task AuthStatus_WhenOpaqueToken_StillReportsAuthenticatedWithoutClaims()
+    {
+        // Non-JWT bearer (e.g., adapter-minted opaque token) — IsAuthenticated must still be true
+        // and the claim fields must be null rather than raising.
+        _mockTokenStore.Setup(s => s.GetTokens(It.IsAny<string>()))
+            .Returns(new McpSessionTokens
+            {
+                AccessToken = "opaque-not-a-jwt",
+                ExpiresAtUtc = DateTime.UtcNow.AddHours(1)
+            });
+
+        var result = await AuthenticationTools.AuthStatus(MockServer.Object);
+
+        result.IsSuccess.Should().BeTrue();
+        result.IsAuthenticated.Should().BeTrue();
+        result.SubjectId.Should().BeNull();
+        result.UserName.Should().BeNull();
+        result.TenantId.Should().BeNull();
+    }
+
+    [Fact]
     public async Task CheckAuthStatus_WhenDeviceAuthExpired_ReturnsExpiredError()
     {
         // Arrange

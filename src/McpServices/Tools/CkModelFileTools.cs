@@ -79,13 +79,13 @@ public sealed class CkModelFileTools
             return new FileDownloadResponse { IsSuccess = false, ErrorMessage = "queryId is required." };
         }
 
-        var asset = AssetClientContext.TryBuild(server, tenantId);
+        var asset = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (asset.Error != null)
         {
             return new FileDownloadResponse { IsSuccess = false, ErrorMessage = asset.Error };
         }
 
-        var bot = BotClientContext.TryBuild(server, tenantId);
+        var bot = await BotClientContext.TryBuildAsync(server, tenantId);
         if (bot.Error != null)
         {
             return new FileDownloadResponse { IsSuccess = false, ErrorMessage = bot.Error };
@@ -129,13 +129,13 @@ public sealed class CkModelFileTools
             };
         }
 
-        var asset = AssetClientContext.TryBuild(server, tenantId);
+        var asset = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (asset.Error != null)
         {
             return new FileDownloadResponse { IsSuccess = false, ErrorMessage = asset.Error };
         }
 
-        var bot = BotClientContext.TryBuild(server, tenantId);
+        var bot = await BotClientContext.TryBuildAsync(server, tenantId);
         if (bot.Error != null)
         {
             return new FileDownloadResponse { IsSuccess = false, ErrorMessage = bot.Error };
@@ -180,13 +180,13 @@ public sealed class CkModelFileTools
             };
         }
 
-        var asset = AssetClientContext.TryBuild(server, tenantId);
+        var asset = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (asset.Error != null)
         {
             return new JobStartedResponse { IsSuccess = false, ErrorMessage = asset.Error };
         }
 
-        var bot = BotClientContext.TryBuild(server, tenantId);
+        var bot = await BotClientContext.TryBuildAsync(server, tenantId);
         if (bot.Error != null)
         {
             return new JobStartedResponse { IsSuccess = false, ErrorMessage = bot.Error };

@@ -22,34 +22,34 @@ public sealed class FileTransferTools
         "Reserve a slot for an upcoming file upload. Returns an opaque transferId and the relative URL path " +
         "the caller must PUT the file body to. The slot expires after ~30 minutes. After PUTting the body, " +
         "pass the transferId to the actual import / restore tool (e.g. import_ck_model, restore_tenant).")]
-    public static Task<PrepareFileUploadResponse> PrepareFileUpload(
+    public static async Task<PrepareFileUploadResponse> PrepareFileUpload(
         McpServer server,
         [Description("Logical file name (for extension hint + Content-Disposition).")] string fileName)
     {
-        var accessToken = McpSessionContext.TryGetAccessToken(server);
+        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
         if (accessToken == null)
         {
-            return Task.FromResult(new PrepareFileUploadResponse
+            return new PrepareFileUploadResponse
             {
                 IsSuccess = false,
                 ErrorMessage = "Not authenticated. Call 'authenticate' first."
-            });
+            };
         }
 
         if (string.IsNullOrWhiteSpace(fileName))
         {
-            return Task.FromResult(new PrepareFileUploadResponse
+            return new PrepareFileUploadResponse
             {
                 IsSuccess = false,
                 ErrorMessage = "fileName is required."
-            });
+            };
         }
 
         var store = server.Services!.GetRequiredService<IFileTransferStore>();
         var sessionId = McpSessionContext.GetSessionId(server);
         var (transferId, _) = store.ReserveUpload(sessionId, fileName);
 
-        return Task.FromResult(new PrepareFileUploadResponse
+        return new PrepareFileUploadResponse
         {
             IsSuccess = true,
             TransferId = transferId,
@@ -58,7 +58,7 @@ public sealed class FileTransferTools
             Message =
                 $"Reserved upload slot. PUT the file body to '/file-transfer/upload/{transferId}' " +
                 "and then call the matching import / restore tool with this transferId."
-        });
+        };
     }
 
     /// <summary>Cancel an upload reservation or discard a finished upload buffer.</summary>
@@ -113,7 +113,7 @@ public sealed class FileTransferTools
             };
         }
 
-        var ctx = BotClientContext.TryBuild(server, tenantId);
+        var ctx = await BotClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new JobStartedResponse { IsSuccess = false, ErrorMessage = ctx.Error };

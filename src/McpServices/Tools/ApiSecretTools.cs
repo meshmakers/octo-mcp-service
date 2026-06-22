@@ -31,7 +31,7 @@ public sealed class ApiSecretTools
             return new GetApiSecretsResponse { IsSuccess = false, ErrorMessage = "clientId is required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetApiSecretsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -81,7 +81,7 @@ public sealed class ApiSecretTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -131,7 +131,7 @@ public sealed class ApiSecretTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -191,7 +191,7 @@ public sealed class ApiSecretTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -231,7 +231,7 @@ public sealed class ApiSecretTools
             return new GetApiSecretsResponse { IsSuccess = false, ErrorMessage = "apiResourceName is required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetApiSecretsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -277,7 +277,7 @@ public sealed class ApiSecretTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -327,7 +327,7 @@ public sealed class ApiSecretTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -388,7 +388,7 @@ public sealed class ApiSecretTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ctx.Error };

@@ -26,7 +26,7 @@ public sealed class ExternalTenantUserMappingTools
         [Description("Page size.")] int? take = null,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetExternalTenantUserMappingsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -62,7 +62,7 @@ public sealed class ExternalTenantUserMappingTools
             return new ExternalTenantUserMappingResponse { IsSuccess = false, ErrorMessage = "rtId is required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ExternalTenantUserMappingResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -107,7 +107,7 @@ public sealed class ExternalTenantUserMappingTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ExternalTenantUserMappingResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -150,7 +150,7 @@ public sealed class ExternalTenantUserMappingTools
             return new ExternalTenantUserMappingResponse { IsSuccess = false, ErrorMessage = "rtId is required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ExternalTenantUserMappingResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -198,7 +198,7 @@ public sealed class ExternalTenantUserMappingTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ExternalTenantUserMappingResponse { IsSuccess = false, ErrorMessage = ctx.Error };

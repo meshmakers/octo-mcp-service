@@ -12,9 +12,13 @@ internal sealed record AssetClientContext(
     string? TenantId,
     string? Error)
 {
-    public static AssetClientContext TryBuild(McpServer server, string? tenantIdParam)
+    /// <summary>
+    ///     Resolves the access token (including lazy refresh) and builds an Asset client for
+    ///     <paramref name="tenantIdParam"/>.
+    /// </summary>
+    public static async Task<AssetClientContext> TryBuildAsync(McpServer server, string? tenantIdParam)
     {
-        var accessToken = McpSessionContext.TryGetAccessToken(server);
+        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
         if (accessToken == null)
         {
             return new AssetClientContext(null, null, "Not authenticated. Call 'authenticate' first.");

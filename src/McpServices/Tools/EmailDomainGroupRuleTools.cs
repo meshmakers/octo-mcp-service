@@ -20,7 +20,7 @@ public sealed class EmailDomainGroupRuleTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetEmailDomainGroupRulesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -56,7 +56,7 @@ public sealed class EmailDomainGroupRuleTools
             return new EmailDomainGroupRuleResponse { IsSuccess = false, ErrorMessage = "rtId is required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new EmailDomainGroupRuleResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -101,7 +101,7 @@ public sealed class EmailDomainGroupRuleTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new EmailDomainGroupRuleResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -150,7 +150,7 @@ public sealed class EmailDomainGroupRuleTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new EmailDomainGroupRuleResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -204,7 +204,7 @@ public sealed class EmailDomainGroupRuleTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new EmailDomainGroupRuleResponse { IsSuccess = false, ErrorMessage = ctx.Error };

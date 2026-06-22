@@ -21,7 +21,7 @@ public sealed class UserManagementTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetUsersResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -61,7 +61,7 @@ public sealed class UserManagementTools
             return new UserResponse { IsSuccess = false, ErrorMessage = "userName and email are required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new UserResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -119,7 +119,7 @@ public sealed class UserManagementTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new UserResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -172,7 +172,7 @@ public sealed class UserManagementTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new UserResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -226,7 +226,7 @@ public sealed class UserManagementTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new UserResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -269,7 +269,7 @@ public sealed class UserManagementTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new UserResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -323,7 +323,7 @@ public sealed class UserManagementTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new UserResponse { IsSuccess = false, ErrorMessage = ctx.Error };

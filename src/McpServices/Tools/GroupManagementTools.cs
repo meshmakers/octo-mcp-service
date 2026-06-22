@@ -22,7 +22,7 @@ public sealed class GroupManagementTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetGroupsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -59,7 +59,7 @@ public sealed class GroupManagementTools
             return new GroupResponse { IsSuccess = false, ErrorMessage = "groupId is required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GroupResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -100,7 +100,7 @@ public sealed class GroupManagementTools
             return new GroupResponse { IsSuccess = false, ErrorMessage = "groupName is required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GroupResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -144,7 +144,7 @@ public sealed class GroupManagementTools
             return new GroupResponse { IsSuccess = false, ErrorMessage = "groupId and groupName are required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GroupResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -195,7 +195,7 @@ public sealed class GroupManagementTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GroupResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -235,7 +235,7 @@ public sealed class GroupManagementTools
             return new GroupResponse { IsSuccess = false, ErrorMessage = "groupId is required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GroupResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -273,7 +273,7 @@ public sealed class GroupManagementTools
             return new GroupResponse { IsSuccess = false, ErrorMessage = "groupId and userId are required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GroupResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -323,7 +323,7 @@ public sealed class GroupManagementTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GroupResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -365,7 +365,7 @@ public sealed class GroupManagementTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GroupResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -420,7 +420,7 @@ public sealed class GroupManagementTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GroupResponse { IsSuccess = false, ErrorMessage = ctx.Error };

@@ -19,7 +19,7 @@ public sealed class ApiScopeTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new GetApiScopesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -60,7 +60,7 @@ public sealed class ApiScopeTools
             return new ApiScopeResponse { IsSuccess = false, ErrorMessage = "name is required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ApiScopeResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -106,7 +106,7 @@ public sealed class ApiScopeTools
             return new ApiScopeResponse { IsSuccess = false, ErrorMessage = "name is required." };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ApiScopeResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -161,7 +161,7 @@ public sealed class ApiScopeTools
             };
         }
 
-        var ctx = IdentityClientContext.TryBuild(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
             return new ApiScopeResponse { IsSuccess = false, ErrorMessage = ctx.Error };
