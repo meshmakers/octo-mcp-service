@@ -1,11 +1,7 @@
-using IdentityModel;
-using Meshmakers.Common.Shared;
 using Meshmakers.Octo.Backend.McpServices.Options;
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
-using Meshmakers.Octo.Communication.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands;
-using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands.Payloads;
 using Meshmakers.Octo.Services.Infrastructure;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using Microsoft.Extensions.Options;
@@ -18,14 +14,26 @@ internal class DefaultConfigurationCreatorService(
     IDiagnosticsService diagnosticsService,
     IOptions<McpServiceOptions> options,
     ICommandClient<CreateIdentityDataCommandRequest> createIdentityDataCommandClient,
-    ISystemContext systemContext)
+    ISystemContext systemContext,
+    FailedTenantRegistry failedTenantRegistry)
     : DefaultConfigurationCreatorServiceStandardized(logger, systemContext, createIdentityDataCommandClient,
         Constants.McpServiceIdentityDataVersionKey,
         Constants.McpServiceIdentityDataVersionValue,
-        null, // migrationService
-        null, // ckModelUpgradeService
-        null, // runtimeRepositoryProvider
-        null  // serviceEnabledKey - auto-enabled for all tenants
+        migrationService: null,
+        ckModelUpgradeService: null,
+        runtimeRepositoryProvider: null,
+        // No per-tenant enablement flag — MCP runs on every tenant the host knows
+        // about. Both nulls intentional: serviceEnabledKey=null disables the
+        // Enable/Disable/IsEnabled lifecycle (no on-off switch), and autoEnable=false
+        // because there is nothing to auto-enable in the first place.
+        serviceEnabledKey: null,
+        autoEnable: false,
+        // AB#4208 — pair with octo-common-services Fix 1+2. Wiring the registry
+        // is defensive today (MCP's StartTenantAsync is a no-op so the registry
+        // path is unused), but it future-proofs any later override that may
+        // throw, ensuring failures survive a pod restart instead of being lost
+        // to the in-process pending list alone.
+        failedTenantRegistry: failedTenantRegistry
     )
 {
     public override async Task InitializeAsync()
@@ -48,52 +56,15 @@ internal class DefaultConfigurationCreatorService(
 
     protected override void CreateClients(CreateIdentityDataCommandRequest createIdentityDataCommandRequest)
     {
-        createIdentityDataCommandRequest.Clients = new List<DistClientDto>
-        {
-            // Swagger UI client (Authorization Code Flow)
-            new(Constants.McpServicesSwaggerClientId,
-                "OctoMesh MCP Services Swagger Client",
-                options.Value.PublicUrl)
-            {
-                AllowedGrantTypes = [OidcConstants.GrantTypes.AuthorizationCode],
-
-                RedirectUris =
-                [
-                    options.Value.PublicUrl.EnsureEndsWith("/swagger/oauth2-redirect.html")
-                ],
-
-                PostLogoutRedirectUris = [options.Value.PublicUrl.EnsureEndsWith("/")],
-                AllowedCorsOrigins = [options.Value.PublicUrl.TrimEnd('/')],
-                AllowedScopes =
-                [
-                    CommonConstants.Scopes.OpenId,
-                    CommonConstants.Scopes.Profile,
-                    CommonConstants.Scopes.Email,
-                    JwtClaimTypes.Role,
-                    CommonConstants.OctoApiFullAccess
-                ]
-            },
-
-            // MCP Device Authorization Flow client (for CLI/AI clients like Claude Code)
-            new(Constants.McpServicesDeviceClientId,
-                "OctoMesh MCP Services Device Client",
-                options.Value.PublicUrl)
-            {
-                AllowedGrantTypes = [OidcConstants.GrantTypes.DeviceCode],
-                AllowOfflineAccess = true,
-                RedirectUris = [],
-                PostLogoutRedirectUris = [],
-                AllowedCorsOrigins = [],
-                AllowedScopes =
-                [
-                    CommonConstants.Scopes.OpenId,
-                    CommonConstants.Scopes.Profile,
-                    CommonConstants.Scopes.Email,
-                    JwtClaimTypes.Role,
-                    CommonConstants.OctoApiFullAccess,
-                    CommonConstants.Scopes.OfflineAccess
-                ]
-            }
-        };
+        // AB#4208 — MCP clients are now seeded by the System.Identity.Bootstrap
+        // blueprint (entities 660…33 / 660…34) with AutoProvisionInChildTenants=true
+        // and propagated to child tenants by IClientMirrorProvisioningService.
+        // Sending them again here would double-write the entity, and because the
+        // DistClientDto wire format does not carry AutoProvisionInChildTenants the
+        // Identity-side CreateClientIfNotExistAsync would silently reset the flag
+        // to false — breaking the mirror flow. Leave empty: the standardized base
+        // still emits the command (the version key keeps tracking that MCP has
+        // had a chance to set its OIDC data), the consumer iterates an empty
+        // Clients list, and the blueprint owns the actual entity state.
     }
 }
