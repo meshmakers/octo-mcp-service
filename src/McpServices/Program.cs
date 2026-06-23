@@ -12,6 +12,7 @@ using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Configuration;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Extensions;
+using Meshmakers.Octo.Runtime.Engine.CrateDb.Extensions;
 using Meshmakers.Octo.Communication.Contracts.MessageObjects;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
@@ -136,7 +137,23 @@ try
         });
 
     builder.Services.AddRuntimeEngine()
-        .AddMongoDbRuntimeRepository();
+        .AddMongoDbRuntimeRepository()
+        // AB#4232: wire the CrateDB StreamData factory so ITenantContext.GetStreamDataRepository()
+        // resolves to a real repository instead of returning null. Without this, every
+        // stream_data_* MCP tool surfaces the misleading "Stream data is not enabled for this
+        // tenant" error even on tenants where StreamData is fully provisioned and queryable
+        // via asset-repo's GraphQL surface. The helm chart's streamdata-env (octo-helm-pro
+        // 0.x) already emits OCTO_MCP__STREAMDATA{HOST,USER,PASSWORD} + OCTO_STREAMDATA__ENABLED,
+        // bound here via ConfigureMcpStreamDataConfiguration → McpServiceOptions.
+        .AddCrateDbStreamDataRepository<ConfigureMcpStreamDataConfiguration>();
+
+    // AB#4232: matches asset-repo-services. Auto-imports System.StreamData (incl. CkRollupArchive)
+    // into a tenant the first time EnableStreamData runs; without it the engine falls back to the
+    // hardcoded 1.0.0 version (TenantContext.EnsureStreamDataCkModelImportedAsync) which is older
+    // than the version every cluster ships today and would refuse the import as a downgrade.
+    builder.Services.AddSingleton<Meshmakers.Octo.Runtime.Contracts.MongoDb.Services.IStreamDataCkModelDescriptor>(
+        _ => new Meshmakers.Octo.Runtime.Contracts.MongoDb.Services.StreamDataCkModelDescriptor(
+            Meshmakers.Octo.ConstructionKit.Models.StreamData.Generated.System.StreamData.v1.SystemStreamDataCkIds.CkModelId));
 
     builder.Services.AddOctoApiVersioningAndDocumentation(options =>
     {

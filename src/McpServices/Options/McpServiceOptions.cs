@@ -71,4 +71,23 @@ public class McpServiceOptions
     ///     Gets or sets the minimal log level to be logged
     /// </summary>
     public LogLevelDto MinLogLevel { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the CrateDB host for StreamData queries (e.g. <c>crate-octo-crate.cratedb.svc.cluster.local</c>
+    ///     in the cluster, <c>localhost:4301</c> for local dev). Consumed by
+    ///     <c>ConfigureMcpStreamDataConfiguration</c> when the root-level <c>StreamData:Enabled</c>
+    ///     instance gate is on.
+    /// </summary>
+    public string? StreamDataHost { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the CrateDB user used by the StreamData repository.
+    /// </summary>
+    public string? StreamDataUser { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the CrateDB user's password used by the StreamData repository. Sourced from the
+    ///     <c>streamDataPassword</c> backend secret in cluster deployments.
+    /// </summary>
+    public string? StreamDataPassword { get; set; }
 }
