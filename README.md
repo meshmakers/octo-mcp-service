@@ -186,11 +186,12 @@ dotnet run
 - Reporting (2): `enable_reporting` · `disable_reporting`<sup>‡</sup>
 - Diagnostics (1): `reconfigure_log_level` (dispatches to Identity/AssetRepository/Communication/Reporting/Bot/AdminPanel)
 
-### **File I/O** (9 tools + 2 HTTP endpoints)
+### **File I/O** (11 tools + 2 HTTP endpoints)
 - Foundation: `prepare_file_upload` · `cancel_file_transfer`
 - CK Model Imports: `import_ck_model` · `import_runtime_model`
 - CK Model Exports: `export_runtime_model_by_query` · `export_runtime_model_by_deep_graph`
 - Tenant Backup: `dump_tenant` · `restore_tenant`<sup>‡</sup>
+- Archive Data: `export_archive_data` · `import_archive_data`
 - Fixup Scripts: `run_fixup_scripts`<sup>‡</sup> (create via generic `create_entity` with `RtFixup` CK type)
 - HTTP: `PUT /file-transfer/upload/{id}` · `GET /file-transfer/download/{id}` (range-enabled, 5 GiB cap)
 
