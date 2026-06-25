@@ -41,6 +41,29 @@ public class TenantBackupToolsTests : ToolTestBase
         result.FileName.Should().Be("target-tenant-dump.tar.gz");
         result.DownloadUrlPath.Should().StartWith("/file-transfer/download/");
         FileTransferStore.GetDownload(result.TransferId!).Should().NotBeNull();
+        MockBotClient.Verify(c => c.StartDumpRepositoryAsync("target-tenant", false), Times.Once);
+    }
+
+    [Fact]
+    public async Task DumpTenant_IncludeArchiveData_PassesFlagToSdk()
+    {
+        MockBotClient.Setup(c => c.StartDumpRepositoryAsync("target-tenant", true))
+            .ReturnsAsync(new JobResponseDto("dump-job-arc"));
+        GivenJobSucceeds("dump-job-arc");
+        MockBotClient.Setup(c => c.DownloadDumpToFileAsync(
+                "target-tenant", "dump-job-arc", It.IsAny<string>(),
+                It.IsAny<Action<long>?>(), It.IsAny<CancellationToken>()))
+            .Returns((string _, string _, string path, Action<long>? _, CancellationToken _) =>
+            {
+                File.WriteAllText(path, "dump-bytes");
+                return Task.CompletedTask;
+            });
+
+        var result = await TenantBackupTools.DumpTenant(MockServer.Object, "target-tenant",
+            includeArchiveData: true);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        MockBotClient.Verify(c => c.StartDumpRepositoryAsync("target-tenant", true), Times.Once);
     }
 
     [Fact]
@@ -117,7 +140,8 @@ public class TenantBackupToolsTests : ToolTestBase
         result.ErrorMessage.Should().Contain("confirm=true");
         MockBotClient.Verify(c => c.RestoreRepositoryWithTusAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()),
+            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<Action<double>?>(),
+            It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -127,7 +151,7 @@ public class TenantBackupToolsTests : ToolTestBase
         var (transferId, _) = StageRestoreUpload();
         MockBotClient.Setup(c => c.RestoreRepositoryWithTusAsync(
                 "target", "newdb", It.IsAny<string>(),
-                null, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()))
+                null, false, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new JobResponseDto("restore-1"));
         GivenJobSucceeds("restore-1");
 
@@ -138,6 +162,28 @@ public class TenantBackupToolsTests : ToolTestBase
         result.JobId.Should().Be("restore-1");
         // Upload buffer cleaned up on success.
         FileTransferStore.GetUpload(transferId).Should().BeNull();
+        MockBotClient.Verify(c => c.RestoreRepositoryWithTusAsync(
+            "target", "newdb", It.IsAny<string>(),
+            null, false, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RestoreTenant_RestoreArchiveData_PassesFlagToSdk()
+    {
+        var (transferId, _) = StageRestoreUpload();
+        MockBotClient.Setup(c => c.RestoreRepositoryWithTusAsync(
+                "target", "newdb", It.IsAny<string>(),
+                null, true, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new JobResponseDto("restore-arc"));
+        GivenJobSucceeds("restore-arc");
+
+        var result = await TenantBackupTools.RestoreTenant(MockServer.Object,
+            transferId, "target", "newdb", restoreArchiveData: true, confirm: true);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        MockBotClient.Verify(c => c.RestoreRepositoryWithTusAsync(
+            "target", "newdb", It.IsAny<string>(),
+            null, true, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -146,7 +192,7 @@ public class TenantBackupToolsTests : ToolTestBase
         var (transferId, _) = StageRestoreUpload();
         MockBotClient.Setup(c => c.RestoreRepositoryWithTusAsync(
                 "target", "newdb", It.IsAny<string>(),
-                "olddb", It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()))
+                "olddb", false, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new JobResponseDto("restore-2"));
         GivenJobSucceeds("restore-2");
 
@@ -156,7 +202,7 @@ public class TenantBackupToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue();
         MockBotClient.Verify(c => c.RestoreRepositoryWithTusAsync(
             "target", "newdb", It.IsAny<string>(),
-            "olddb", It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()), Times.Once);
+            "olddb", false, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

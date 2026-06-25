@@ -21,11 +21,17 @@ public sealed class TenantBackupTools
     [Description(
         "Create a dump of a tenant's data and publish it as a downloadable .tar.gz file. Waits for the dump " +
         "job to complete (default 30 min) then registers the file for download. GET " +
-        "/file-transfer/download/{downloadId} to fetch. Equivalent to octo-cli DumpTenant.")]
+        "/file-transfer/download/{downloadId} to fetch. When includeArchiveData=true the backup also includes " +
+        "all archives' CrateDB rows — the result is a larger '.octobak.zip' file instead of a plain .tar.gz. " +
+        "Equivalent to octo-cli DumpTenant.")]
     public static async Task<FileDownloadResponse> DumpTenant(
         McpServer server,
         [Description("Tenant ID to dump.")] string targetTenantId,
         [Description("Optional file name for the download (default '{tenant}-dump.tar.gz').")] string? fileName = null,
+        [Description(
+            "Include all archives' CrateDB rows in the backup. When true the result is a larger '.octobak.zip' " +
+            "file. Default false (plain .tar.gz, MongoDB only).")]
+        bool includeArchiveData = false,
         [Description("Wait timeout in minutes (default 30).")] int waitTimeoutMinutes = 30,
         [Description("Calling/system tenant context. Falls back to URL route.")] string? tenantId = null)
     {
@@ -46,7 +52,7 @@ public sealed class TenantBackupTools
 
         try
         {
-            var startResponse = await bot.Client!.StartDumpRepositoryAsync(targetTenantId);
+            var startResponse = await bot.Client!.StartDumpRepositoryAsync(targetTenantId, includeArchiveData);
             await JobPollingHelper.WaitForJobAsync(bot.Client, startResponse.JobId,
                 TimeSpan.FromMinutes(waitTimeoutMinutes));
 
@@ -89,7 +95,10 @@ public sealed class TenantBackupTools
     [Description(
         "Restore a tenant from an uploaded dump file. Call prepare_file_upload first, PUT the .tar.gz to the " +
         "returned URL, then invoke this tool with the transferId. DESTRUCTIVE — overwrites tenant data. " +
-        "Requires confirm=true. Uses TUS resumable upload from server side. Equivalent to octo-cli RestoreTenant.")]
+        "Requires confirm=true. Uses TUS resumable upload from server side. When restoreArchiveData=true the " +
+        "archives' CrateDB rows are restored too (no-op on a plain .tar.gz that has none); archives whose " +
+        "schema doesn't match the target are skipped and reported, and archives are restored to their " +
+        "backed-up state. Equivalent to octo-cli RestoreTenant.")]
     public static async Task<JobStartedResponse> RestoreTenant(
         McpServer server,
         [Description("Transfer id from prepare_file_upload (the dump file).")] string transferId,
@@ -97,6 +106,10 @@ public sealed class TenantBackupTools
         [Description("Database name to restore.")] string databaseName,
         [Description("Optional original database name (when restoring under a different name).")]
         string? oldDatabaseName = null,
+        [Description(
+            "Restore the archives' CrateDB rows in addition to MongoDB data. No-op on a plain .tar.gz; " +
+            "archives whose schema doesn't match the target are skipped and reported. Default false.")]
+        bool restoreArchiveData = false,
         [Description("Must be true to actually restore.")] bool confirm = false,
         [Description("Wait timeout in minutes (default 30).")] int waitTimeoutMinutes = 30,
         [Description("Calling/system tenant context. Falls back to URL route.")] string? tenantId = null)
@@ -141,7 +154,8 @@ public sealed class TenantBackupTools
         try
         {
             var startResponse = await bot.Client!.RestoreRepositoryWithTusAsync(
-                targetTenantId, databaseName, upload.FilePath, oldDatabaseName);
+                targetTenantId, databaseName, upload.FilePath, oldDatabaseName,
+                restoreArchiveData: restoreArchiveData);
 
             await JobPollingHelper.WaitForJobAsync(bot.Client, startResponse.JobId,
                 TimeSpan.FromMinutes(waitTimeoutMinutes));
