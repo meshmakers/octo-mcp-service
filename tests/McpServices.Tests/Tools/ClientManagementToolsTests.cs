@@ -3,6 +3,7 @@ using IdentityModel;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.ConstructionKit.Contracts;
 using Moq;
 using Xunit;
 
@@ -247,5 +248,113 @@ public class ClientManagementToolsTests : ToolTestBase
         result.IsSuccess.Should().BeFalse();
         MockIdentityClient.Verify(c => c.UpdateClient(It.IsAny<string>(), It.IsAny<ClientDto>()),
             Times.Never);
+    }
+
+    // ---------- AB#4183: client role / group assignment ----------
+
+    [Fact]
+    public async Task GetClientRoles_HappyPath_ReturnsRoleIds()
+    {
+        MockIdentityClient.Setup(c => c.GetClientDirectRoles("c1"))
+            .ReturnsAsync(new[] { "660000000000000000000002" });
+
+        var result = await ClientManagementTools.GetClientRoles(MockServer.Object, "c1");
+
+        result.IsSuccess.Should().BeTrue();
+        result.RoleIds.Should().ContainSingle().Which.Should().Be("660000000000000000000002");
+    }
+
+    [Fact]
+    public async Task GetClientRoles_Unauthenticated_ReturnsAuthError()
+    {
+        GivenUnauthenticated();
+        var result = await ClientManagementTools.GetClientRoles(MockServer.Object, "c1");
+        result.IsSuccess.Should().BeFalse();
+        MockIdentityClient.Verify(c => c.GetClientDirectRoles(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AddClientToRole_HappyPath_CallsSdk()
+    {
+        var result = await ClientManagementTools.AddClientToRole(MockServer.Object, "c1", "DataAnalyst");
+
+        result.IsSuccess.Should().BeTrue();
+        MockIdentityClient.Verify(c => c.AddRoleToClient("c1", "DataAnalyst"), Times.Once);
+    }
+
+    [Fact]
+    public async Task AddClientToRole_MissingArgs_ReturnsValidationError()
+    {
+        var result = await ClientManagementTools.AddClientToRole(MockServer.Object, "", "");
+        result.IsSuccess.Should().BeFalse();
+        MockIdentityClient.Verify(c => c.AddRoleToClient(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AddClientToRole_Unauthenticated_ReturnsAuthError()
+    {
+        GivenUnauthenticated();
+        var result = await ClientManagementTools.AddClientToRole(MockServer.Object, "c1", "DataAnalyst");
+        result.IsSuccess.Should().BeFalse();
+        MockIdentityClient.Verify(c => c.AddRoleToClient(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RemoveClientFromRole_WithoutConfirm_Refuses()
+    {
+        var result = await ClientManagementTools.RemoveClientFromRole(MockServer.Object, "c1", "DataAnalyst");
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("confirm=true");
+        MockIdentityClient.Verify(c => c.RemoveRoleFromClient(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RemoveClientFromRole_WithConfirm_CallsSdk()
+    {
+        var result = await ClientManagementTools.RemoveClientFromRole(
+            MockServer.Object, "c1", "DataAnalyst", confirm: true);
+        result.IsSuccess.Should().BeTrue();
+        MockIdentityClient.Verify(c => c.RemoveRoleFromClient("c1", "DataAnalyst"), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateClientRoles_HappyPath_CallsSdkReplaceAll()
+    {
+        var roleIds = new List<string> { "660000000000000000000002", "660000000000000000000009" };
+        var result = await ClientManagementTools.UpdateClientRoles(MockServer.Object, "c1", roleIds);
+
+        result.IsSuccess.Should().BeTrue();
+        MockIdentityClient.Verify(c => c.UpdateClientRoles("c1", roleIds), Times.Once);
+    }
+
+    [Fact]
+    public async Task AddClientToGroup_HappyPath_CallsSdk()
+    {
+        const string groupId = "507f1f77bcf86cd799439011";
+        var result = await ClientManagementTools.AddClientToGroup(MockServer.Object, groupId, "c1");
+
+        result.IsSuccess.Should().BeTrue();
+        MockIdentityClient.Verify(c => c.AddClientToGroup(It.IsAny<OctoObjectId>(), "c1"), Times.Once);
+    }
+
+    [Fact]
+    public async Task RemoveClientFromGroup_WithoutConfirm_Refuses()
+    {
+        const string groupId = "507f1f77bcf86cd799439011";
+        var result = await ClientManagementTools.RemoveClientFromGroup(MockServer.Object, groupId, "c1");
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("confirm=true");
+        MockIdentityClient.Verify(c => c.RemoveClientFromGroup(It.IsAny<OctoObjectId>(), It.IsAny<string>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task RemoveClientFromGroup_WithConfirm_CallsSdk()
+    {
+        const string groupId = "507f1f77bcf86cd799439011";
+        var result = await ClientManagementTools.RemoveClientFromGroup(
+            MockServer.Object, groupId, "c1", confirm: true);
+        result.IsSuccess.Should().BeTrue();
+        MockIdentityClient.Verify(c => c.RemoveClientFromGroup(It.IsAny<OctoObjectId>(), "c1"), Times.Once);
     }
 }

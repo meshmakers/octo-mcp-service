@@ -94,6 +94,16 @@ public class ClientResponse : IdentityResponse
     public ClientDto? Client { get; set; }
 }
 
+/// <summary>Response carrying a client's directly-assigned role IDs.</summary>
+public class ClientRolesResponse : IdentityResponse
+{
+    /// <summary>Client identifier that was operated on.</summary>
+    public string? ClientId { get; set; }
+
+    /// <summary>Directly-assigned role IDs (excluding group-inherited roles).</summary>
+    public List<string> RoleIds { get; set; } = [];
+}
+
 /// <summary>Response for ProvisionClientInExistingTenants.</summary>
 public class ClientMirrorBackfillResponse : IdentityResponse
 {

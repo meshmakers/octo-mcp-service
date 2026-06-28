@@ -5,6 +5,7 @@ using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.ConstructionKit.Contracts;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -591,6 +592,258 @@ public sealed class ClientManagementTools
                 TenantId = ctx.TenantId,
                 ClientId = clientId,
                 Message = $"Scope '{scopeName}' granted to client '{clientId}'."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ClientResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>List the role IDs directly assigned to a client (excluding group-inherited roles).</summary>
+    [McpServerTool(Name = "get_client_roles")]
+    [Description("List the role IDs directly assigned to a client (excluding group-inherited roles). " +
+                 "Equivalent to octo-cli GetClient roles. AB#4183.")]
+    public static async Task<ClientRolesResponse> GetClientRoles(
+        McpServer server,
+        [Description("Client ID.")] string clientId,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            return new ClientRolesResponse { IsSuccess = false, ErrorMessage = "clientId is required." };
+        }
+
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new ClientRolesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            var roleIds = (await ctx.Client!.GetClientDirectRoles(clientId)).ToList();
+            return new ClientRolesResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                ClientId = clientId,
+                RoleIds = roleIds
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ClientRolesResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>Assign a role to a client.</summary>
+    [McpServerTool(Name = "add_client_to_role")]
+    [McpRisk(McpRiskLevel.Medium)]
+    [Description("Assign a role (by name) to a client. The role then appears in the client_credentials " +
+                "access token. Equivalent to octo-cli AddClientToRole. AB#4183.")]
+    public static async Task<ClientResponse> AddClientToRole(
+        McpServer server,
+        [Description("Client ID.")] string clientId,
+        [Description("Existing role name.")] string roleName,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(roleName))
+        {
+            return new ClientResponse { IsSuccess = false, ErrorMessage = "clientId and roleName are required." };
+        }
+
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            await ctx.Client!.AddRoleToClient(clientId, roleName);
+            return new ClientResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                ClientId = clientId,
+                Message = $"Client '{clientId}' assigned to role '{roleName}'."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ClientResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>Remove a role from a client. Destructive: requires confirm=true.</summary>
+    [McpServerTool(Name = "remove_client_from_role")]
+    [McpRisk(McpRiskLevel.Medium)]
+    [Description("Remove a role from a client. DESTRUCTIVE — requires confirm=true. " +
+                "Equivalent to octo-cli RemoveClientFromRole. AB#4183.")]
+    public static async Task<ClientResponse> RemoveClientFromRole(
+        McpServer server,
+        [Description("Client ID.")] string clientId,
+        [Description("Role name to remove.")] string roleName,
+        [Description("Must be true to actually remove.")] bool confirm = false,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(roleName))
+        {
+            return new ClientResponse { IsSuccess = false, ErrorMessage = "clientId and roleName are required." };
+        }
+
+        if (!confirm)
+        {
+            return new ClientResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = $"Refusing to remove role '{roleName}' from client '{clientId}' without confirm=true."
+            };
+        }
+
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            await ctx.Client!.RemoveRoleFromClient(clientId, roleName);
+            return new ClientResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                ClientId = clientId,
+                Message = $"Client '{clientId}' removed from role '{roleName}'."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ClientResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>Replace the directly-assigned roles of a client (replace-all).</summary>
+    [McpServerTool(Name = "update_client_roles")]
+    [McpRisk(McpRiskLevel.Medium)]
+    [Description("Replace the directly-assigned roles of a client. Pass the full target list of role IDs — " +
+                "semantics are replace-all, not merge. Equivalent to octo-cli UpdateClientRoles. AB#4183.")]
+    public static async Task<ClientResponse> UpdateClientRoles(
+        McpServer server,
+        [Description("Client ID.")] string clientId,
+        [Description("Full target list of role IDs to assign (replace-all).")] List<string> roleIds,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            return new ClientResponse { IsSuccess = false, ErrorMessage = "clientId is required." };
+        }
+
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            await ctx.Client!.UpdateClientRoles(clientId, roleIds ?? []);
+            return new ClientResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                ClientId = clientId,
+                Message = $"Client '{clientId}' roles updated ({(roleIds ?? []).Count} role(s))."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ClientResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>Add a client as a member of a group.</summary>
+    [McpServerTool(Name = "add_client_to_group")]
+    [McpRisk(McpRiskLevel.Medium)]
+    [Description("Add a client as a member of a group. The client then inherits the group's roles. " +
+                "Equivalent to octo-cli AddClientToGroup. AB#4183.")]
+    public static async Task<ClientResponse> AddClientToGroup(
+        McpServer server,
+        [Description("Runtime ID of the group.")] string groupId,
+        [Description("Client ID to add.")] string clientId,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(groupId) || string.IsNullOrWhiteSpace(clientId))
+        {
+            return new ClientResponse { IsSuccess = false, ErrorMessage = "groupId and clientId are required." };
+        }
+
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            await ctx.Client!.AddClientToGroup(new OctoObjectId(groupId), clientId);
+            return new ClientResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                ClientId = clientId,
+                Message = $"Client '{clientId}' added to group '{groupId}'."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ClientResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>Remove a client from a group. Destructive: requires confirm=true.</summary>
+    [McpServerTool(Name = "remove_client_from_group")]
+    [McpRisk(McpRiskLevel.Medium)]
+    [Description("Remove a client from a group. DESTRUCTIVE — requires confirm=true. " +
+                "Equivalent to octo-cli RemoveClientFromGroup. AB#4183.")]
+    public static async Task<ClientResponse> RemoveClientFromGroup(
+        McpServer server,
+        [Description("Runtime ID of the group.")] string groupId,
+        [Description("Client ID to remove.")] string clientId,
+        [Description("Must be true to actually remove.")] bool confirm = false,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(groupId) || string.IsNullOrWhiteSpace(clientId))
+        {
+            return new ClientResponse { IsSuccess = false, ErrorMessage = "groupId and clientId are required." };
+        }
+
+        if (!confirm)
+        {
+            return new ClientResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = $"Refusing to remove client '{clientId}' from group '{groupId}' without confirm=true."
+            };
+        }
+
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            await ctx.Client!.RemoveClientFromGroup(new OctoObjectId(groupId), clientId);
+            return new ClientResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                ClientId = clientId,
+                Message = $"Client '{clientId}' removed from group '{groupId}'."
             };
         }
         catch (Exception ex)
