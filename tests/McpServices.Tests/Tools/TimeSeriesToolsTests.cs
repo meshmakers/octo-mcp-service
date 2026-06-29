@@ -132,7 +132,8 @@ public class TimeSeriesToolsTests : ToolTestBase
             .ReturnsAsync(new[]
             {
                 new RollupArchiveInfoDto(RollupRtId, "daily", "Activated",
-                    ArchiveRtId, 86400000, 60000, null, null, 3)
+                    ArchiveRtId, 86400000, 60000, null, null, 3,
+                    false, null, null, null, null, 0, 0)
             });
 
         var result = await TimeSeriesTools.ListRollupsForArchive(MockServer.Object, ArchiveRtId);
