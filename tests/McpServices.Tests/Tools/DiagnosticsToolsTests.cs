@@ -86,18 +86,6 @@ public class DiagnosticsToolsTests : ToolTestBase
     }
 
     [Fact]
-    public async Task ReconfigureLogLevel_AdminPanel_DispatchesToAdminPanelClient()
-    {
-        var result = await DiagnosticsTools.ReconfigureLogLevel(MockServer.Object,
-            "AdminPanel", "*", LogLevelDto.Info, LogLevelDto.Error);
-
-        result.IsSuccess.Should().BeTrue();
-        MockAdminPanelClient.Verify(c => c.ReconfigureLogLevelAsync(
-            "*", LogLevelDto.Info, LogLevelDto.Error), Times.Once);
-        MockClientFactory.Verify(f => f.CreateAdminPanelClient(It.IsAny<string>()), Times.Once);
-    }
-
-    [Fact]
     public async Task ReconfigureLogLevel_UnknownService_ReturnsValidationError()
     {
         var result = await DiagnosticsTools.ReconfigureLogLevel(MockServer.Object,

@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Three distinct tool families live here — be aware which one you're touching:
 
-1. **Platform-admin tools** — thin wrappers over the `Meshmakers.Octo.Sdk.ServiceClient` SDK. One tool per `octo-cli` command. These tools talk HTTP to the Identity / Asset / Communication / Reporting / StreamData / Bot / AdminPanel services.
+1. **Platform-admin tools** — thin wrappers over the `Meshmakers.Octo.Sdk.ServiceClient` SDK. One tool per `octo-cli` command. These tools talk HTTP to the Identity / Asset / Communication / Reporting / StreamData / Bot services.
 2. **Generic CK CRUD + schema tools** — predate the platform-admin tools and talk directly to the runtime engine (MongoDB) via `ITenantRepository`. These do not use the SDK service clients.
 3. **Aggregation + stream-data query tools** — newer; mirror the asset-repo GraphQL transient-query surface. They share family 2's path (talk to the engine directly via `ITenantRepository` / `ITenantContext.GetStreamDataRepository`), but use the lowercase `AggregationFunctionDto` enum and the `AggregationMapper` helper — *not* the platform-admin `*ClientContext` pattern.
 
@@ -75,7 +75,7 @@ Six context helpers exist in `src/McpServices/Services/`:
 | `ReportingClientContext` | `IReportingServicesClient` | per-tenant, falls back to system |
 | `BotClientContext` | `IBotServicesClient` | system-scoped |
 
-For `Bot` and `AdminPanel` system-scoped one-offs (e.g., `reconfigure_log_level` dispatch), grab them via `server.Services.GetRequiredService<IOctoServiceClientFactory>()` directly — there are no helpers because the call sites are too few.
+For `Bot` system-scoped one-offs (e.g., `reconfigure_log_level` dispatch), grab it via `server.Services.GetRequiredService<IOctoServiceClientFactory>()` directly — there is no helper because the call sites are too few.
 
 ### 3. Tool method signature pattern
 
@@ -373,7 +373,7 @@ Never store tenant state on the session. Stateless multi-tenancy is the design.
 `tests/McpServices.Tests/` uses xUnit + Moq + FluentAssertions.
 
 - `TestBase` — base mocks (`McpServer`, `TestServiceProvider`, `IOctoHttpContextAccessor`, `ITenantResolutionService`, `ICkCacheService`, `ITenantRepository`).
-- `ToolTestBase : TestBase` — adds `IMcpSessionTokenStore` + `IOctoServiceClientFactory` mocks plus 7 per-SDK-client mocks (`MockIdentityClient`, `MockAssetClient`, `MockCommunicationClient`, `MockStreamDataClient`, `MockReportingClient`, `MockBotClient`, `MockAdminPanelClient`) and the real `FileTransferStore`. Helpers: `GivenAuthenticated()`, `GivenUnauthenticated()`, `GivenTokenExpired()`.
+- `ToolTestBase : TestBase` — adds `IMcpSessionTokenStore` + `IOctoServiceClientFactory` mocks plus 6 per-SDK-client mocks (`MockIdentityClient`, `MockAssetClient`, `MockCommunicationClient`, `MockStreamDataClient`, `MockReportingClient`, `MockBotClient`) and the real `FileTransferStore`. Helpers: `GivenAuthenticated()`, `GivenUnauthenticated()`, `GivenTokenExpired()`.
 - `InternalsVisibleTo("McpServices.Tests")` is set on `McpServices.csproj` so tests can access `FileTransferStore` directly (the interface is `IFileTransferStore`).
 
 ### Adding a tests file
@@ -521,7 +521,7 @@ tests/McpServices.Tests/
 2. Decide which `*ClientContext` to use based on which SDK client the CLI uses.
 3. If a response payload is non-trivial, add a wrapper DTO in `src/McpServices/Models/<domain>Responses.cs`.
 4. Write the tool method following the signature pattern above.
-5. If you needed a new SDK client (Bot, AdminPanel), update `IOctoServiceClientFactory` + `OctoServiceClientFactory` + `OctoServiceUrlOptions` + `ToolTestBase`.
+5. If you needed a new SDK client (e.g. Bot), update `IOctoServiceClientFactory` + `OctoServiceClientFactory` + `OctoServiceUrlOptions` + `ToolTestBase`.
 6. Write tests: happy path + unauthenticated + missing args + (if destructive) confirm-required.
 7. `dotnet test Octo.McpServices.sln -c DebugL` — all green before commit.
 8. Update `README.md` Available Tools section if you added a new category.

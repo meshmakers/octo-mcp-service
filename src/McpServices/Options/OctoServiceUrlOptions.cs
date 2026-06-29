@@ -30,9 +30,4 @@ public class OctoServiceUrlOptions
     ///     Base URL of the Reporting service.
     /// </summary>
     public string? ReportingServiceUrl { get; set; }
-
-    /// <summary>
-    ///     Base URL of the Admin Panel service.
-    /// </summary>
-    public string? AdminPanelUrl { get; set; }
 }

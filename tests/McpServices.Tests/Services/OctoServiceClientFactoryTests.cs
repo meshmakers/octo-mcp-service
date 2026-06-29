@@ -14,8 +14,7 @@ public class OctoServiceClientFactoryTests
         string? identityUrl = "https://identity.test/",
         string? communicationUrl = "https://communication.test/",
         string? reportingUrl = "https://reporting.test/",
-        string? botUrl = "https://bot.test/",
-        string? adminPanelUrl = "https://adminpanel.test/")
+        string? botUrl = "https://bot.test/")
     {
         var opts = Options.Create(new OctoServiceUrlOptions
         {
@@ -23,8 +22,7 @@ public class OctoServiceClientFactoryTests
             IdentityServiceUrl = identityUrl,
             CommunicationServiceUrl = communicationUrl,
             ReportingServiceUrl = reportingUrl,
-            BotServiceUrl = botUrl,
-            AdminPanelUrl = adminPanelUrl
+            BotServiceUrl = botUrl
         });
         return new OctoServiceClientFactory(opts);
     }
@@ -175,28 +173,6 @@ public class OctoServiceClientFactoryTests
 
         act.Should().Throw<ServiceConfigurationMissingException>()
             .WithMessage("*BotServiceUrl*");
-    }
-
-    [Fact]
-    public void CreateAdminPanelClient_WithValidConfig_ReturnsClientWithTokenSet()
-    {
-        var factory = CreateFactory();
-
-        var client = factory.CreateAdminPanelClient("tok-admin");
-
-        client.Should().NotBeNull();
-        client.AccessToken.AccessToken.Should().Be("tok-admin");
-    }
-
-    [Fact]
-    public void CreateAdminPanelClient_WithMissingUrl_ThrowsConfigurationMissing()
-    {
-        var factory = CreateFactory(adminPanelUrl: null);
-
-        var act = () => factory.CreateAdminPanelClient("tok-admin");
-
-        act.Should().Throw<ServiceConfigurationMissingException>()
-            .WithMessage("*AdminPanelUrl*");
     }
 
     [Fact]

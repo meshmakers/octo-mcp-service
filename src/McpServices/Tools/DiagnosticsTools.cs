@@ -10,8 +10,8 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 
 /// <summary>
 ///     Runtime log-level reconfiguration. Mirrors the octo-cli ReconfigureLogLevel command which dispatches to
-///     the matching service client based on a name parameter. Supports all six backend services that the CLI
-///     supports: Identity, AssetRepository, Communication Controller, Reporting, Bot, AdminPanel.
+///     the matching service client based on a name parameter. Supports the five backend services that the CLI
+///     supports: Identity, AssetRepository, Communication Controller, Reporting, Bot.
 /// </summary>
 [McpServerToolType]
 public sealed class DiagnosticsTools
@@ -21,12 +21,12 @@ public sealed class DiagnosticsTools
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Reconfigure the log level of a backend service at runtime. The serviceName selects which service " +
-        "receives the request: 'Identity', 'AssetRepository', 'Communication', 'Reporting', 'Bot', or " +
-        "'AdminPanel'. loggerName is a logger pattern such as 'Microsoft.*' or '*'. logLevel values: Trace, " +
+        "receives the request: 'Identity', 'AssetRepository', 'Communication', 'Reporting', or 'Bot'. " +
+        "loggerName is a logger pattern such as 'Microsoft.*' or '*'. logLevel values: Trace, " +
         "Debug, Info, Warn, Error, Fatal, Off. Equivalent to octo-cli ReconfigureLogLevel.")]
     public static async Task<TimeSeriesResponse> ReconfigureLogLevel(
         McpServer server,
-        [Description("Service name: 'Identity', 'AssetRepository', 'Communication', 'Reporting', 'Bot', or 'AdminPanel'.")]
+        [Description("Service name: 'Identity', 'AssetRepository', 'Communication', 'Reporting', or 'Bot'.")]
         string serviceName,
         [Description("Logger pattern, e.g. 'Meshmakers.*', '*'.")] string loggerName,
         [Description("Minimum log level (Trace, Debug, Info, Warn, Error, Fatal, Off).")] LogLevelDto minLogLevel,
@@ -94,17 +94,10 @@ public sealed class DiagnosticsTools
                     await botClient.ReconfigureLogLevelAsync(loggerName, minLogLevel, maxLogLevel);
                     return Ok(tenantId: null, "Bot", loggerName, minLogLevel, maxLogLevel);
                 }
-                case "adminpanel":
-                {
-                    var factory = server.Services!.GetRequiredService<IOctoServiceClientFactory>();
-                    var adminPanelClient = factory.CreateAdminPanelClient(accessToken);
-                    await adminPanelClient.ReconfigureLogLevelAsync(loggerName, minLogLevel, maxLogLevel);
-                    return Ok(tenantId: null, "AdminPanel", loggerName, minLogLevel, maxLogLevel);
-                }
                 default:
                     return Error(
                         $"Unknown serviceName '{serviceName}'. Allowed: Identity, AssetRepository, " +
-                        "Communication, Reporting, Bot, AdminPanel.");
+                        "Communication, Reporting, Bot.");
             }
         }
         catch (Exception ex)

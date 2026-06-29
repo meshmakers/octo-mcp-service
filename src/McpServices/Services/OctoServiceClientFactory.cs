@@ -1,6 +1,5 @@
 using Meshmakers.Octo.Backend.McpServices.Options;
 using Meshmakers.Octo.Sdk.ServiceClient;
-using Meshmakers.Octo.Sdk.ServiceClient.AdminPanel.System;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.StreamData;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.System;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants;
@@ -97,15 +96,6 @@ internal sealed class OctoServiceClientFactory : IOctoServiceClientFactory
 
         var options = new BotServiceClientOptions { EndpointUri = endpoint };
         return new BotServicesClient(options, MakeToken(accessToken));
-    }
-
-    public IAdminPanelClient CreateAdminPanelClient(string accessToken)
-    {
-        var endpoint = RequireUrl(_urlOptions.Value.AdminPanelUrl,
-            nameof(OctoServiceUrlOptions.AdminPanelUrl));
-
-        var options = new AdminPanelClientOptions { EndpointUri = endpoint };
-        return new AdminPanelClient(options, MakeToken(accessToken));
     }
 
     private static ServiceClientAccessToken MakeToken(string accessToken) =>

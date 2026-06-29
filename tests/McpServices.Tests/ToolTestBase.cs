@@ -1,5 +1,4 @@
 using Meshmakers.Octo.Backend.McpServices.Services;
-using Meshmakers.Octo.Sdk.ServiceClient.AdminPanel.System;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.StreamData;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.System;
 using Meshmakers.Octo.Sdk.ServiceClient.BotServices;
@@ -44,9 +43,6 @@ public abstract class ToolTestBase : TestBase
     /// <summary>Mocked Bot SDK client returned by the factory for the current test.</summary>
     protected Mock<IBotServicesClient> MockBotClient { get; }
 
-    /// <summary>Mocked AdminPanel SDK client returned by the factory for the current test.</summary>
-    protected Mock<IAdminPanelClient> MockAdminPanelClient { get; }
-
     /// <summary>File-transfer store — real instance, in-memory. Internal because the store type is internal.</summary>
     internal FileTransferStore FileTransferStore { get; }
 
@@ -60,7 +56,6 @@ public abstract class ToolTestBase : TestBase
         MockStreamDataClient = new Mock<IStreamDataServicesClient>();
         MockReportingClient = new Mock<IReportingServicesClient>();
         MockBotClient = new Mock<IBotServicesClient>();
-        MockAdminPanelClient = new Mock<IAdminPanelClient>();
         FileTransferStore = new FileTransferStore();
 
         // Factory hands out the per-test mocks regardless of which tenant the tool requests.
@@ -82,9 +77,6 @@ public abstract class ToolTestBase : TestBase
         MockClientFactory
             .Setup(f => f.CreateBotClient(It.IsAny<string>()))
             .Returns(MockBotClient.Object);
-        MockClientFactory
-            .Setup(f => f.CreateAdminPanelClient(It.IsAny<string>()))
-            .Returns(MockAdminPanelClient.Object);
 
         TestServiceProvider.RegisterService(MockTokenStore.Object);
         TestServiceProvider.RegisterService(MockClientFactory.Object);

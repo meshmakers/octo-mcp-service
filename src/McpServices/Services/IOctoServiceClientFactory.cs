@@ -1,4 +1,3 @@
-using Meshmakers.Octo.Sdk.ServiceClient.AdminPanel.System;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.StreamData;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.System;
 using Meshmakers.Octo.Sdk.ServiceClient.BotServices;
@@ -62,11 +61,4 @@ public interface IOctoServiceClientFactory
     /// </summary>
     /// <param name="accessToken">OAuth access token for the bearer header.</param>
     IBotServicesClient CreateBotClient(string accessToken);
-
-    /// <summary>
-    ///     Builds a fresh <see cref="IAdminPanelClient" /> authenticated with the given access token. The Admin
-    ///     Panel client is system-scoped (no tenant routing).
-    /// </summary>
-    /// <param name="accessToken">OAuth access token for the bearer header.</param>
-    IAdminPanelClient CreateAdminPanelClient(string accessToken);
 }

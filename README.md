@@ -71,8 +71,7 @@ A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Ki
     "IdentityServiceUrl": "https://localhost:5003/",
     "CommunicationServiceUrl": "https://localhost:5005/",
     "BotServiceUrl": "https://localhost:5007/",
-    "ReportingServiceUrl": "https://localhost:5009/",
-    "AdminPanelUrl": "https://localhost:5011/"
+    "ReportingServiceUrl": "https://localhost:5009/"
   }
 }
 ```
@@ -184,7 +183,7 @@ dotnet run
 ### **Time Series + Reporting + Diagnostics** (14)
 - Stream Data + Archives (11): `enable_stream_data` · `disable_stream_data`<sup>‡</sup> · `activate_archive` · `disable_archive` · `enable_archive` · `retry_archive_activation` · `delete_archive`<sup>‡</sup> · `list_rollups_for_archive` · `freeze_rollup_archive` · `unfreeze_rollup_archive` · `rewind_rollup_watermark`<sup>‡</sup>
 - Reporting (2): `enable_reporting` · `disable_reporting`<sup>‡</sup>
-- Diagnostics (1): `reconfigure_log_level` (dispatches to Identity/AssetRepository/Communication/Reporting/Bot/AdminPanel)
+- Diagnostics (1): `reconfigure_log_level` (dispatches to Identity/AssetRepository/Communication/Reporting/Bot)
 
 ### **File I/O** (11 tools + 2 HTTP endpoints)
 - Foundation: `prepare_file_upload` · `cancel_file_transfer`
@@ -377,7 +376,7 @@ Reservations and downloads expire after **30 minutes**; a background sweeper pur
 ```
 
 ### **Tool Categories**
-- **Platform Admin Tools**: thin wrappers over the SDK service clients (Identity, Asset, Communication, Reporting, StreamData, Bot, AdminPanel) — equivalent surface to `octo-cli`
+- **Platform Admin Tools**: thin wrappers over the SDK service clients (Identity, Asset, Communication, Reporting, StreamData, Bot) — equivalent surface to `octo-cli`
 - **Generic CRUD Tools**: universal entity operations for any CK type, talking directly to the runtime engine
 - **Schema Tools**: discovery and exploration of data models
 - **File Transfer Tools**: out-of-band streaming endpoints for import/export/dump/restore
@@ -409,7 +408,6 @@ Reservations and downloads expire after **30 minutes**; a background sweeper pur
 | `CommunicationServiceUrl` | Communication Controller tools (adapters, pipelines, workloads, data flows, triggers, pools) |
 | `BotServiceUrl` | File-IO downloads, fixup scripts, tenant dump/restore, log-level dispatch |
 | `ReportingServiceUrl` | Reporting service tools |
-| `AdminPanelUrl` | Admin Panel log-level dispatch only |
 
 Each URL may be empty if you don't use the matching tools — the factory throws `ServiceConfigurationMissingException` on the first call into an unconfigured client.
 
