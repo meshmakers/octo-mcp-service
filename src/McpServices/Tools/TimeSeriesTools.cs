@@ -346,6 +346,61 @@ public sealed class TimeSeriesTools
         }
     }
 
+    /// <summary>Populate / reset a rollup over the entire history of its source archive (AB#4269).</summary>
+    [McpServerTool(Name = "backfill_rollup_archive")]
+    [McpRisk(McpRiskLevel.High)]
+    [Description(
+        "Populate or reset a rollup over the ENTIRE history of its source archive without supplying a timestamp " +
+        "(AB#4269). Resolves the source archive's earliest timestamp and recomputes [sourceMin, now) over the same " +
+        "reader-safe optimistic recompute path as recomputeArchive (atomic generation-swap, RecomputeJob " +
+        "observability). Re-running resets an already-populated rollup. Requires confirm=true. A no-op when the " +
+        "source archive holds no data. Equivalent to octo-cli BackfillRollup.")]
+    public static async Task<RollupBackfillResponse> BackfillRollupArchive(
+        McpServer server,
+        [Description("Rollup archive runtime ID to backfill from its source.")] string rollupRtId,
+        [Description("Must be true to actually run the backfill (it can reset a populated rollup).")] bool confirm = false,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(rollupRtId))
+        {
+            return new RollupBackfillResponse { IsSuccess = false, ErrorMessage = "rollupRtId is required." };
+        }
+
+        if (!confirm)
+        {
+            return new RollupBackfillResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = $"Refusing to backfill rollup '{rollupRtId}' without confirm=true."
+            };
+        }
+
+        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new RollupBackfillResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            var job = await ctx.Client!.BackfillRollupFromSourceAsync(ctx.TenantId!, rollupRtId);
+            return new RollupBackfillResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                RtId = rollupRtId,
+                Job = job,
+                Message = job is null
+                    ? $"Backfill of rollup '{rollupRtId}' was a no-op: the source archive holds no data."
+                    : $"Backfill of rollup '{rollupRtId}' started: job {job.RtId}, state {job.State}."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new RollupBackfillResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
     private static async Task<ArchiveActionResponse> ArchiveAction(
         McpServer server,
         string? tenantId,

@@ -25,6 +25,19 @@ public class ArchiveActionResponse : TimeSeriesResponse
     public string? RtId { get; set; }
 }
 
+/// <summary>Response for backfill_rollup_archive (AB#4269).</summary>
+public class RollupBackfillResponse : TimeSeriesResponse
+{
+    /// <summary>Runtime id of the rollup archive that was backfilled.</summary>
+    public string? RtId { get; set; }
+
+    /// <summary>
+    /// The recompute job started by the backfill, or null when the source archive held no data
+    /// (no-op).
+    /// </summary>
+    public RollupRecomputeJobInfoDto? Job { get; set; }
+}
+
 /// <summary>Response for list_rollups_for_archive.</summary>
 public class ListRollupsResponse : TimeSeriesResponse
 {

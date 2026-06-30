@@ -202,4 +202,68 @@ public class TimeSeriesToolsTests : ToolTestBase
         MockStreamDataClient.Verify(c => c.RewindRollupWatermarkAsync(DefaultTenantId, RollupRtId, ts),
             Times.Once);
     }
+
+    // ── backfill_rollup_archive (AB#4269) ───────────────────────────────────
+
+    [Fact]
+    public async Task BackfillRollupArchive_WithoutConfirm_Refuses()
+    {
+        var result = await TimeSeriesTools.BackfillRollupArchive(MockServer.Object, RollupRtId);
+
+        result.IsSuccess.Should().BeFalse();
+        MockStreamDataClient.Verify(c => c.BackfillRollupFromSourceAsync(
+            It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task BackfillRollupArchive_MissingRollupRtId_ReturnsError()
+    {
+        var result = await TimeSeriesTools.BackfillRollupArchive(MockServer.Object, string.Empty, confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        MockStreamDataClient.Verify(c => c.BackfillRollupFromSourceAsync(
+            It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task BackfillRollupArchive_Unauthenticated_ReturnsAuthError()
+    {
+        GivenUnauthenticated();
+        var result = await TimeSeriesTools.BackfillRollupArchive(MockServer.Object, RollupRtId, confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("Not authenticated");
+        MockStreamDataClient.Verify(c => c.BackfillRollupFromSourceAsync(
+            It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task BackfillRollupArchive_WithConfirm_CallsSdkAndReturnsJob()
+    {
+        var job = new RollupRecomputeJobInfoDto(
+            "69fda707d47638c68edc7fec", "Completed", 42, 3, DateTime.UtcNow, DateTime.UtcNow, 12, null);
+        MockStreamDataClient.Setup(c => c.BackfillRollupFromSourceAsync(DefaultTenantId, RollupRtId))
+            .ReturnsAsync(job);
+
+        var result = await TimeSeriesTools.BackfillRollupArchive(MockServer.Object, RollupRtId, confirm: true);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Job.Should().BeSameAs(job);
+        result.RtId.Should().Be(RollupRtId);
+        MockStreamDataClient.Verify(c => c.BackfillRollupFromSourceAsync(DefaultTenantId, RollupRtId), Times.Once);
+    }
+
+    [Fact]
+    public async Task BackfillRollupArchive_EmptySource_SucceedsWithNullJob()
+    {
+        MockStreamDataClient.Setup(c => c.BackfillRollupFromSourceAsync(DefaultTenantId, RollupRtId))
+            .ReturnsAsync((RollupRecomputeJobInfoDto?)null);
+
+        var result = await TimeSeriesTools.BackfillRollupArchive(MockServer.Object, RollupRtId, confirm: true);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Job.Should().BeNull();
+        result.Message.Should().Contain("no-op");
+        MockStreamDataClient.Verify(c => c.BackfillRollupFromSourceAsync(DefaultTenantId, RollupRtId), Times.Once);
+    }
 }
