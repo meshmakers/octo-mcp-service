@@ -2,7 +2,9 @@ using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models.Aggregation;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.Runtime.Contracts.StreamData;
 using Meshmakers.Octo.Runtime.Engine.CrateDb;
+using Meshmakers.Octo.Runtime.Engine.StreamData;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -183,6 +185,144 @@ public sealed class StreamDataMetadataTools
         catch (Exception ex)
         {
             return new RollupQueryMetadataResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>Resolution-aware series routing: pick the archive/rollup to query for a target point count.</summary>
+    [McpServerTool(Name = "resolve_series_query")]
+    [Description(
+        "Resolution-aware series routing (AB#4290): given a base archive family, a time window, a target " +
+        "point count and the required aggregation function, pick the archive/rollup to query at the best " +
+        "resolution — without knowing which physical archive holds the data at a usable grain. Then run " +
+        "query_stream_data_downsampling against the returned archiveRtId with limit = points and the " +
+        "returned reducingFunction. Signals: Ok (reduced or raw-fits), NoSuitableRollup (no matching SUM " +
+        "rollup — returns raw, does not mis-reduce), ResolutionLimited (coarser than requested — fewer " +
+        "points), UnknownBaseGrain, EmptyLadder. Equivalent to GraphQL StreamData.resolveSeriesQuery.")]
+    public static async Task<SeriesResolutionResponse> ResolveSeriesQuery(
+        McpServer server,
+        [Description("Base (raw / time-range) archive runtime id of the series' resolution family.")] string baseArchiveRtId,
+        [Description("Inclusive start of the query window (UTC, ISO-8601).")] DateTime from,
+        [Description("Exclusive end of the query window (UTC, ISO-8601).")] DateTime to,
+        [Description("Logical CK attribute path of the measured column, e.g. 'Amount.Value'.")] string sourcePath,
+        [Description("Required aggregation: sum (energy), max (demand), avg, min, count. Never guessed.")] string requiredAggregation,
+        [Description("Desired number of output points (pixel-driven; ~600 typical).")] int targetPoints = 600,
+        [Description("Optional source-entity rtId scope (e.g. the EnergyMeasurement entities of a MeteringPoint).")] List<string>? rtIds = null,
+        [Description("Optional OBIS-code filter narrowing the series.")] string? obisFilter = null,
+        [Description("Tenant id. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(baseArchiveRtId))
+        {
+            return new SeriesResolutionResponse { IsSuccess = false, ErrorMessage = "baseArchiveRtId is required." };
+        }
+
+        if (string.IsNullOrWhiteSpace(sourcePath))
+        {
+            return new SeriesResolutionResponse { IsSuccess = false, ErrorMessage = "sourcePath is required." };
+        }
+
+        if (from >= to)
+        {
+            return new SeriesResolutionResponse { IsSuccess = false, ErrorMessage = "from must be earlier than to." };
+        }
+
+        if (targetPoints <= 0)
+        {
+            return new SeriesResolutionResponse { IsSuccess = false, ErrorMessage = "targetPoints must be positive." };
+        }
+
+        if (!TryParseRollupFunction(requiredAggregation, out var function))
+        {
+            return new SeriesResolutionResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "requiredAggregation must be one of sum / avg / min / max / count."
+            };
+        }
+
+        try
+        {
+            var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+            var ctx = await tenantResolution.GetTenantContextAsync(tenantId);
+
+            var rollupStore = ctx.GetRollupArchiveRuntimeStore();
+            if (rollupStore == null)
+            {
+                return new SeriesResolutionResponse
+                {
+                    IsSuccess = true,
+                    TenantId = ctx.TenantId,
+                    Resolved = false,
+                    Message = "Stream data is not enabled for this tenant."
+                };
+            }
+
+            var archiveStore = ctx.GetArchiveRuntimeStore();
+            var service = new SeriesResolutionService(archiveStore, new RollupDependencyGraph(rollupStore));
+
+            var request = new SeriesResolutionRequest(
+                new OctoObjectId(baseArchiveRtId),
+                TargetCkTypeId: null,
+                from,
+                to,
+                targetPoints,
+                function,
+                sourcePath)
+            {
+                RtIds = rtIds?.Select(id => new OctoObjectId(id)).ToList(),
+                ObisFilter = obisFilter
+            };
+
+            var result = await service.ResolveAsync(request);
+
+            return new SeriesResolutionResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                Resolved = true,
+                ArchiveRtId = result.ArchiveRtId.ToString(),
+                EffectiveBucketMs = result.EffectiveBucketMs,
+                Points = result.Points,
+                ReducingFunction = result.ReducingFunction.ToString(),
+                Signal = result.Signal.ToString(),
+                ActualPoints = result.ActualPoints,
+                Diagnostic = result.Diagnostic,
+                Message = result.Diagnostic ?? $"Resolved to {result.ArchiveRtId} ({result.Signal})."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new SeriesResolutionResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>
+    /// Parses a lowercase aggregation name (family-3 convention) to a <see cref="CkRollupFunction"/>.
+    /// </summary>
+    private static bool TryParseRollupFunction(string? value, out CkRollupFunction function)
+    {
+        switch (value?.Trim().ToLowerInvariant())
+        {
+            case "sum":
+                function = CkRollupFunction.Sum;
+                return true;
+            case "avg":
+            case "average":
+                function = CkRollupFunction.Avg;
+                return true;
+            case "min":
+            case "minimum":
+                function = CkRollupFunction.Min;
+                return true;
+            case "max":
+            case "maximum":
+                function = CkRollupFunction.Max;
+                return true;
+            case "count":
+                function = CkRollupFunction.Count;
+                return true;
+            default:
+                function = CkRollupFunction.Sum;
+                return false;
         }
     }
 }

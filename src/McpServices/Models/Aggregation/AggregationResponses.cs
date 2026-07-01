@@ -184,3 +184,34 @@ public class RollupQueryMetadataResponse : AggregationResponse
     /// <summary>True when the rtId resolved to a rollup archive; false when not found / no stream data.</summary>
     public bool Resolved { get; set; }
 }
+
+/// <summary>
+/// Response of <c>resolve_series_query</c> (AB#4290): the archive-selection decision for a
+/// resolution-aware series query. Equivalent to GraphQL StreamData.resolveSeriesQuery.
+/// </summary>
+public class SeriesResolutionResponse : AggregationResponse
+{
+    /// <summary>The archive to query — a rollup, or the base archive on the refuse/raw paths.</summary>
+    public string? ArchiveRtId { get; set; }
+
+    /// <summary>Width in milliseconds of one output bucket; 0 when no bucketing applies / grain unknown.</summary>
+    public long EffectiveBucketMs { get; set; }
+
+    /// <summary>Number of points the caller can expect from the downsampling query.</summary>
+    public int Points { get; set; }
+
+    /// <summary>Aggregation function the downsampling query must use (Avg/Min/Max/Sum/Count).</summary>
+    public string? ReducingFunction { get; set; }
+
+    /// <summary>Outcome signal: Ok / NoSuitableRollup / ResolutionLimited / UnknownBaseGrain / EmptyLadder.</summary>
+    public string? Signal { get; set; }
+
+    /// <summary>Deliverable point count when below the requested target, or the native raw count on the refuse path. Null when the target was met.</summary>
+    public int? ActualPoints { get; set; }
+
+    /// <summary>Human-readable explanation of the chosen route / signal.</summary>
+    public string? Diagnostic { get; set; }
+
+    /// <summary>True when a routing decision was produced; false when stream data is not enabled.</summary>
+    public bool Resolved { get; set; }
+}

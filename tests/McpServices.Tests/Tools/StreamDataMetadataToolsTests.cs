@@ -263,4 +263,115 @@ public class StreamDataMetadataToolsTests : TestBase
         result.IsSuccess.Should().BeFalse();
         _rollupStore.Verify(s => s.GetAsync(It.IsAny<OctoObjectId>()), Times.Never);
     }
+
+    // ── resolve_series_query (AB#4290) ──────────────────────────────────────
+
+    private static readonly DateTime YearFrom = new(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime YearTo = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    private static async IAsyncEnumerable<RollupArchiveSnapshot> ToAsyncEnumerable(
+        IEnumerable<RollupArchiveSnapshot> items)
+    {
+        foreach (var i in items)
+        {
+            yield return i;
+            await Task.CompletedTask;
+        }
+    }
+
+    private ArchiveSnapshot GivenBaseArchive(TimeSpan? period)
+    {
+        var snapshot = new ArchiveSnapshot(
+            new OctoObjectId(SourceArchive), SensorCkType, CkArchiveStatus.Activated, "raw", Columns: [])
+        {
+            IsTimeRange = period is not null,
+            Period = period,
+        };
+        _archiveStore.Setup(s => s.GetAsync(new OctoObjectId(SourceArchive))).ReturnsAsync(snapshot);
+        return snapshot;
+    }
+
+    private void GivenRollups(params RollupArchiveSnapshot[] rollups) =>
+        _rollupStore.Setup(s => s.EnumerateAsync()).Returns(() => ToAsyncEnumerable(rollups));
+
+    private static RollupArchiveSnapshot SumRollup(string rtId, TimeSpan bucket, string path = "Amount.Value") =>
+        new(new OctoObjectId(rtId), SensorCkType, CkArchiveStatus.Activated, "rollup",
+            new OctoObjectId(SourceArchive), bucket, TimeSpan.FromMinutes(5), null,
+            [new CkRollupAggregationSpec(path, CkRollupFunction.Sum, null)], null);
+
+    [Fact]
+    public async Task ResolveSeries_HappyPath_PicksSumRollup()
+    {
+        GivenBaseArchive(TimeSpan.FromMinutes(15));
+        var hourly = SumRollup(RollupId, TimeSpan.FromHours(1));
+        GivenRollups(hourly);
+
+        var result = await StreamDataMetadataTools.ResolveSeriesQuery(
+            MockServer.Object, SourceArchive, YearFrom, YearTo, "Amount.Value", "sum", 600);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Resolved.Should().BeTrue();
+        result.Signal.Should().Be("Ok");
+        result.ArchiveRtId.Should().Be(RollupId);
+        result.Points.Should().Be(600);
+        result.ReducingFunction.Should().Be("Sum");
+    }
+
+    [Fact]
+    public async Task ResolveSeries_NoCompatibleRollup_RefusesWithSignal()
+    {
+        GivenBaseArchive(TimeSpan.FromMinutes(15));
+        GivenRollups(); // none
+
+        var result = await StreamDataMetadataTools.ResolveSeriesQuery(
+            MockServer.Object, SourceArchive, YearFrom, YearTo, "Amount.Value", "sum", 600);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Resolved.Should().BeTrue();
+        result.Signal.Should().Be("NoSuitableRollup");
+        result.ArchiveRtId.Should().Be(SourceArchive);
+    }
+
+    [Fact]
+    public async Task ResolveSeries_StreamDataNotEnabled_ReturnsResolvedFalse()
+    {
+        _tenantCtx.Setup(c => c.GetRollupArchiveRuntimeStore()).Returns((IRollupArchiveRuntimeStore?)null);
+
+        var result = await StreamDataMetadataTools.ResolveSeriesQuery(
+            MockServer.Object, SourceArchive, YearFrom, YearTo, "Amount.Value", "sum", 600);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Resolved.Should().BeFalse();
+        result.Message.Should().Contain("not enabled");
+    }
+
+    [Fact]
+    public async Task ResolveSeries_MissingBaseArchiveRtId_ReturnsValidationError()
+    {
+        var result = await StreamDataMetadataTools.ResolveSeriesQuery(
+            MockServer.Object, "", YearFrom, YearTo, "Amount.Value", "sum", 600);
+
+        result.IsSuccess.Should().BeFalse();
+        _archiveStore.Verify(s => s.GetAsync(It.IsAny<OctoObjectId>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ResolveSeries_InvalidFunction_ReturnsValidationError()
+    {
+        var result = await StreamDataMetadataTools.ResolveSeriesQuery(
+            MockServer.Object, SourceArchive, YearFrom, YearTo, "Amount.Value", "bogus", 600);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("requiredAggregation");
+    }
+
+    [Fact]
+    public async Task ResolveSeries_InvalidTimeWindow_ReturnsValidationError()
+    {
+        var result = await StreamDataMetadataTools.ResolveSeriesQuery(
+            MockServer.Object, SourceArchive, YearTo, YearFrom, "Amount.Value", "sum", 600);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("from must be earlier");
+    }
 }
