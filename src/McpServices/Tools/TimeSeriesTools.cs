@@ -350,11 +350,13 @@ public sealed class TimeSeriesTools
     [McpServerTool(Name = "backfill_rollup_archive")]
     [McpRisk(McpRiskLevel.High)]
     [Description(
-        "Populate or reset a rollup over the ENTIRE history of its source archive without supplying a timestamp " +
-        "(AB#4269). Resolves the source archive's earliest timestamp and recomputes [sourceMin, now) over the same " +
-        "reader-safe optimistic recompute path as recomputeArchive (atomic generation-swap, RecomputeJob " +
-        "observability). Re-running resets an already-populated rollup. Requires confirm=true. A no-op when the " +
-        "source archive holds no data. Equivalent to octo-cli BackfillRollup.")]
+        "Queue a durable, background backfill that populates or resets a rollup over the ENTIRE history of its " +
+        "source archive without supplying a timestamp (AB#4269 / AB#4286). Resolves the source archive's earliest " +
+        "timestamp and enqueues a recompute of [sourceMin, now); the heavy work runs in the background (never bound " +
+        "to this request, so a client timeout cannot cancel it) and the queued work survives an asset-repo restart. " +
+        "Returns the Pending RecomputeJob id immediately — poll list_recompute_jobs to watch Pending -> Running -> " +
+        "Completed. Re-running resets an already-populated rollup. Requires confirm=true. A no-op when the source " +
+        "archive holds no data. Equivalent to octo-cli BackfillRollup.")]
     public static async Task<RollupBackfillResponse> BackfillRollupArchive(
         McpServer server,
         [Description("Rollup archive runtime ID to backfill from its source.")] string rollupRtId,
@@ -392,7 +394,8 @@ public sealed class TimeSeriesTools
                 Job = job,
                 Message = job is null
                     ? $"Backfill of rollup '{rollupRtId}' was a no-op: the source archive holds no data."
-                    : $"Backfill of rollup '{rollupRtId}' started: job {job.RtId}, state {job.State}."
+                    : $"Backfill of rollup '{rollupRtId}' queued (durable background): job {job.RtId}, state {job.State}. "
+                      + $"Poll list_recompute_jobs for archive '{rollupRtId}' to watch it run to completion."
             };
         }
         catch (Exception ex)
