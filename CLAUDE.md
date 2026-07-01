@@ -70,9 +70,9 @@ Six context helpers exist in `src/McpServices/Services/`:
 |---|---|---|
 | `IdentityClientContext` | `IIdentityServicesClient` | per-tenant (`{tenantId}/v1`) |
 | `AssetClientContext` | `IAssetServicesClient` | per-tenant |
-| `CommunicationClientContext` | `ICommunicationServicesClient` | per-tenant, falls back to system |
-| `StreamDataClientContext` | `IStreamDataServicesClient` | system (`api/v1`), tenant passed per call |
-| `ReportingClientContext` | `IReportingServicesClient` | per-tenant, falls back to system |
+| `CommunicationClientContext` | `ICommunicationServicesClient` | per-tenant (`{tenantId}/v1`) — AB#4287, no system fallback |
+| `StreamDataClientContext` | `IStreamDataServicesClient` | per-tenant (`{tenantId}/v1`) — AB#4287, was `api/v1` |
+| `ReportingClientContext` | `IReportingServicesClient` | per-tenant (`{tenantId}/v1`) — AB#4287, no system fallback |
 | `BotClientContext` | `IBotServicesClient` | system-scoped |
 
 For `Bot` system-scoped one-offs (e.g., `reconfigure_log_level` dispatch), grab it via `server.Services.GetRequiredService<IOctoServiceClientFactory>()` directly — there is no helper because the call sites are too few.

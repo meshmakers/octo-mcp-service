@@ -86,13 +86,17 @@ public class OctoServiceClientFactoryTests
     }
 
     [Fact]
-    public void CreateCommunicationClient_WithNullTenant_FallsBackToSystemScope()
+    public void CreateCommunicationClient_WithNullTenant_ThrowsWhenServiceUriBuilt()
     {
+        // AB#4287: the communication lifecycle endpoints are tenant-scoped only; the "system"
+        // fallback was removed, so a client without a tenant can no longer build a service URI.
         var factory = CreateFactory();
 
         var client = factory.CreateCommunicationClient(tenantId: null, "bearer-comm");
 
-        client.ServiceUri.ToString().Should().Contain("system");
+        var act = () => client.ServiceUri;
+        act.Should().Throw<ServiceConfigurationMissingException>()
+            .WithMessage("*tenant ID*");
     }
 
     [Fact]
