@@ -153,8 +153,9 @@ dotnet run
 - Roles (4): `get_roles` · `create_role` · `update_role` · `delete_role`<sup>‡</sup>
 - Groups (10): `get_groups` · `get_group` · `create_group` · `update_group` · `delete_group`<sup>‡</sup> · `update_group_roles` · `add_user_to_group` · `remove_user_from_group`<sup>‡</sup> · `add_group_to_group` · `remove_group_from_group`<sup>‡</sup>
 
-### **Identity — OAuth Clients + Identity Providers** (20)
+### **Identity — OAuth Clients + Identity Providers** (22)
 - Clients (13): `get_clients` · `get_client` · `add_client_credentials_client` · `add_device_code_client` · `add_authorization_code_client` · `delete_client`<sup>‡</sup> · `add_scope_to_client` · `get_client_mirrors` · `provision_client_in_existing_tenants` · `provision_client_in_tenant` · `unprovision_client_from_tenant`<sup>‡</sup> · `set_client_auto_provision`
+- Client Overlays (2, AB#4209): `apply_client_overlay` · `clean_client_overlays`<sup>‡</sup>
 - Identity Providers (7): `get_identity_providers` · `delete_identity_provider`<sup>‡</sup> · `update_identity_provider` · `add_oauth_identity_provider` · `add_azure_entra_id_identity_provider` · `add_open_ldap_identity_provider` · `add_active_directory_identity_provider` · `add_octo_tenant_identity_provider`
 
 ### **Identity — API Resources / Scopes / Secrets** (16)

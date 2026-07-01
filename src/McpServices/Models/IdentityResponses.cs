@@ -156,3 +156,26 @@ public class IdentityProviderResponse : IdentityResponse
     /// <summary>Provider RtId that was operated on.</summary>
     public string? ProviderId { get; set; }
 }
+
+/// <summary>Response for apply_client_overlay (AB#4209 Step 4).</summary>
+public class ApplyClientOverlayResponse : IdentityResponse
+{
+    /// <summary>Client the overlay was applied to.</summary>
+    public string? ClientId { get; set; }
+
+    /// <summary>Overlay name that became the <c>Source = "overlay:&lt;name&gt;"</c> suffix.</summary>
+    public string? OverlayName { get; set; }
+
+    /// <summary>Per-list added / skipped-duplicate counts from the identity service.</summary>
+    public ApplyOverlayUrisResultDto? Result { get; set; }
+}
+
+/// <summary>Response for clean_client_overlays (AB#4209 Step 5 / deliverable 7).</summary>
+public class CleanClientOverlaysResponse : IdentityResponse
+{
+    /// <summary>Overlay name filter that was applied, or null when every <c>overlay:*</c> source was targeted.</summary>
+    public string? OverlayName { get; set; }
+
+    /// <summary>Per-client breakdown plus the aggregate removal counts from the identity service.</summary>
+    public CleanOverlayEntriesResultDto? Result { get; set; }
+}
