@@ -374,4 +374,60 @@ public class StreamDataMetadataToolsTests : TestBase
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("from must be earlier");
     }
+
+    // ---------- AB#4190: timezone-aware resolution ----------
+
+    private static RollupArchiveSnapshot CalendarSumRollup(string rtId, string? tz, string path = "Amount.Value") =>
+        new(new OctoObjectId(rtId), SensorCkType, CkArchiveStatus.Activated, "rollup",
+            new OctoObjectId(SourceArchive), TimeSpan.FromDays(1), TimeSpan.FromMinutes(5), null,
+            [new CkRollupAggregationSpec(path, CkRollupFunction.Sum, null)], null)
+        {
+            BucketAlignment = BucketAlignment.CalendarDay,
+            ReferenceTimeZone = tz,
+        };
+
+    [Fact]
+    public async Task ResolveSeries_InvalidComparisonPolicy_ReturnsValidationError()
+    {
+        var result = await StreamDataMetadataTools.ResolveSeriesQuery(
+            MockServer.Object, SourceArchive, YearFrom, YearTo, "Amount.Value", "sum", 600,
+            comparisonPolicy: "bogus");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("comparisonPolicy");
+    }
+
+    [Fact]
+    public async Task ResolveSeries_PerQuery_CalendarZoneMismatch_ExcludesRollup()
+    {
+        // 365 days, target 200 → 1-day calendar rung is fine enough, but its stored Vienna civil
+        // buckets can't answer a New York civil-day query → excluded → base (15 min) refuses.
+        GivenBaseArchive(TimeSpan.FromMinutes(15));
+        GivenRollups(CalendarSumRollup(RollupId, "Europe/Vienna"));
+
+        var result = await StreamDataMetadataTools.ResolveSeriesQuery(
+            MockServer.Object, SourceArchive, YearFrom, YearTo, "Amount.Value", "sum", 200,
+            timeZone: "America/New_York");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Signal.Should().Be("NoSuitableRollup");
+        result.ArchiveRtId.Should().Be(SourceArchive);
+    }
+
+    [Fact]
+    public async Task ResolveSeries_PerSeries_CalendarRollup_UsesOwnZone_Selected()
+    {
+        // Under per_series the query zone is ignored; the calendar rung aligns to its own stored zone
+        // and is selected even when the query zone differs.
+        GivenBaseArchive(TimeSpan.FromMinutes(15));
+        GivenRollups(CalendarSumRollup(RollupId, "Europe/Vienna"));
+
+        var result = await StreamDataMetadataTools.ResolveSeriesQuery(
+            MockServer.Object, SourceArchive, YearFrom, YearTo, "Amount.Value", "sum", 200,
+            timeZone: "America/New_York", comparisonPolicy: "per_series");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Signal.Should().Be("Ok");
+        result.ArchiveRtId.Should().Be(RollupId);
+    }
 }

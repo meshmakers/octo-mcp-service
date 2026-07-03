@@ -208,6 +208,8 @@ public sealed class StreamDataMetadataTools
         [Description("Desired number of output points (pixel-driven; ~600 typical).")] int targetPoints = 600,
         [Description("Optional source-entity rtId scope (e.g. the EnergyMeasurement entities of a MeteringPoint).")] List<string>? rtIds = null,
         [Description("Optional OBIS-code filter narrowing the series.")] string? obisFilter = null,
+        [Description("Optional IANA time zone (e.g. 'Europe/Vienna') the query is resolved in (AB#4190). Aligns calendar (day/week/month/year) rollups to that zone's DST-correct civil boundaries; null/empty ⇒ UTC. Sub-day rollups are unaffected.")] string? timeZone = null,
+        [Description("Civil-boundary policy across mixed-timezone series (AB#4190): 'per_query' (default) applies timeZone uniformly; 'per_series' aligns each series to its own archive reference time zone.")] string? comparisonPolicy = null,
         [Description("Tenant id. Falls back to URL route.")] string? tenantId = null)
     {
         if (string.IsNullOrWhiteSpace(baseArchiveRtId))
@@ -236,6 +238,15 @@ public sealed class StreamDataMetadataTools
             {
                 IsSuccess = false,
                 ErrorMessage = "requiredAggregation must be one of sum / avg / min / max / count."
+            };
+        }
+
+        if (!TryParseComparisonPolicy(comparisonPolicy, out var policy))
+        {
+            return new SeriesResolutionResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "comparisonPolicy must be one of per_query / per_series."
             };
         }
 
@@ -269,7 +280,9 @@ public sealed class StreamDataMetadataTools
                 sourcePath)
             {
                 RtIds = rtIds?.Select(id => new OctoObjectId(id)).ToList(),
-                ObisFilter = obisFilter
+                ObisFilter = obisFilter,
+                QueryTimeZone = string.IsNullOrWhiteSpace(timeZone) ? null : timeZone.Trim(),
+                ComparisonPolicy = policy
             };
 
             var result = await service.ResolveAsync(request);
@@ -322,6 +335,28 @@ public sealed class StreamDataMetadataTools
                 return true;
             default:
                 function = CkRollupFunction.Sum;
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Parses a comparison-policy name (family-3 lowercase convention, AB#4190) to a
+    /// <see cref="SeriesComparisonPolicy"/>. Null / empty defaults to
+    /// <see cref="SeriesComparisonPolicy.PerQuery"/>; also tolerates the PascalCase enum names.
+    /// </summary>
+    private static bool TryParseComparisonPolicy(string? value, out SeriesComparisonPolicy policy)
+    {
+        switch (value?.Trim().ToLowerInvariant())
+        {
+            case null or "":
+            case "per_query" or "perquery" or "query":
+                policy = SeriesComparisonPolicy.PerQuery;
+                return true;
+            case "per_series" or "perseries" or "series":
+                policy = SeriesComparisonPolicy.PerSeries;
+                return true;
+            default:
+                policy = SeriesComparisonPolicy.PerQuery;
                 return false;
         }
     }
