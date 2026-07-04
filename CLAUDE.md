@@ -356,7 +356,32 @@ The response envelope `PersistedRuntimeQueryResponse` / `PersistedStreamDataQuer
 
 ## Authentication & Tenant Resolution
 
-Two-layer flow:
+### Transport authentication (AB#4315)
+
+**Both MCP endpoints require a valid OAuth2 bearer token on the HTTP request.** `Program.cs`
+registers the JWT bearer handler (`AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+.AddJwtBearer()`, configured by `ConfigureJwtBearerOptions` → Authority + ValidIssuer,
+`ValidateAudience = false`) and runs `UseAuthentication()` / `UseAuthorization()` /
+`UseOctoTenantAuthorization()` before mapping the transport; both `app.MapMcp(...)` calls carry
+`.RequireAuthorization()`.
+
+Before this, the endpoints were anonymous — the `ConfigureJwtBearerOptions` configurator existed
+but no scheme/middleware was ever wired, so **direct-engine (family-2/3) tools served tenant data
+from MongoDB with no token at all**. `MapObservability` (health/metrics) and the file-transfer
+endpoints are intentionally left anonymous — only the MCP transport is gated.
+
+`UseOctoTenantAuthorization` (shared `TenantAuthorizationMiddleware` from octo-common-services)
+validates the route `{tenantId}` against the token's `tenant_id` claim. **Client-credentials
+service tokens (no user `sub` claim) are skipped by design** — that is how the AiWorker (token via
+`IMcpTokenIssuer`) and the mesh-adapter `AnthropicAiQueryNode` (token via `ServiceAccountConfiguration`,
+sent as `Authorization: Bearer`) reach any tenant. The tenantless `/mcp` endpoint still requires a
+valid token; per-tool-param cross-tenant access on a user token scoped to a different tenant is a
+secondary hardening not covered here.
+
+### In-band session token (outbound calls)
+
+Separate from the inbound gate, family-1 tools use a per-session token for their **outbound** calls
+to the backend services:
 
 1. **OAuth Device Authorization** — `authenticate` tool issues a device code; user logs in via browser; `check_auth_status` polls until tokens are issued; tokens go into `IMcpSessionTokenStore` keyed by the MCP session id from the `Mcp-Session-Id` HTTP header.
 2. **Per-request token injection** — `McpSessionContext.TryGetAccessToken(server)` pulls the current session's access token; the `*ClientContext` helpers feed it to `OctoServiceClientFactory.Create*Client(tenantId, accessToken)`.
@@ -367,6 +392,13 @@ Tenant comes from (in order):
 3. Error from `ITenantResolutionService.ResolveTenantId(...)`
 
 Never store tenant state on the session. Stateless multi-tenancy is the design.
+
+> **Interactive-client note:** because the transport now requires an inbound bearer, a purely
+> interactive client that previously relied only on the in-band device flow must present a bearer
+> token to connect. The production clients (AiWorker, mesh-adapter) already do. The
+> `ConfigureJwtBearerOptions` contract is pinned by `Configuration/ConfigureJwtBearerOptionsTests`;
+> the endpoint-gating itself has no in-process HTTP test (the host needs MongoDB/RabbitMQ) — verify
+> against a running identity service.
 
 ## Test Infrastructure
 

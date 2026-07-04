@@ -17,9 +17,11 @@ using Meshmakers.Octo.Communication.Contracts.MessageObjects;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
 using Meshmakers.Octo.Services.Infrastructure;
+using Meshmakers.Octo.Services.Infrastructure.Configuration;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using Meshmakers.Octo.Services.Observability;
 using Meshmakers.Octo.Services.Swagger.Configuration;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
 using NLog;
 using NLog.Web;
@@ -116,6 +118,15 @@ try
     builder.Services.ConfigureOptions<ConfigureJwtBearerOptions>();
     builder.Services.ConfigureOptions<ConfigureOpenIdConnectOptions>();
     builder.Services.ConfigureOptions<ConfigureOctoOpenApiOptions>();
+
+    // AB#4315: actually register the JWT bearer handler + authorization services. The
+    // ConfigureJwtBearerOptions above only configures the "Bearer" scheme's options — without
+    // AddAuthentication().AddJwtBearer() the scheme was never added, so the MCP transport served
+    // tenant data with no authentication at all. The token's Authority + ValidIssuer come from
+    // ConfigureJwtBearerOptions.
+    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer();
+    builder.Services.AddAuthorization();
 
     builder.Services.Configure<RouteOptions>(options =>
         options.ConstraintMap.Add("tenantId", typeof(TenantIdRouteConstraint)));
@@ -217,11 +228,22 @@ try
 
     app.MapObservability();
 
+    // AB#4315: authenticate every MCP request. Health/metrics (MapObservability) and the
+    // file-transfer endpoints stay anonymous — only the MCP transport below is gated.
+    app.UseAuthentication();
+    app.UseAuthorization();
+    // Validate the route {tenantId} against the token's tenant claim. Client-credentials service
+    // tokens without a user 'sub' (AiWorker via IMcpTokenIssuer, mesh-adapter via
+    // ServiceAccountConfiguration) are skipped by design — service-to-service access.
+    app.UseOctoTenantAuthorization();
+
     // Map MCP endpoint with tenant routing (existing, backwards compatible)
-    app.MapMcp("/{tenantId:tenantId}/mcp");
+    app.MapMcp("/{tenantId:tenantId}/mcp")
+        .RequireAuthorization();
 
     // Map tenantless MCP endpoint (tenant resolved via tool parameter)
-    app.MapMcp("/mcp");
+    app.MapMcp("/mcp")
+        .RequireAuthorization();
 
     // Log startup information
     var dynamicToolOptions = app.Services.GetRequiredService<IOptions<DynamicToolOptions>>().Value;
