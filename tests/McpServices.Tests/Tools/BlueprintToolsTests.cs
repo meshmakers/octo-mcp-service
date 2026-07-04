@@ -148,50 +148,13 @@ public class BlueprintToolsTests : ToolTestBase
     public async Task UpdateBlueprint_WithConfirm_CallsSdk()
     {
         var result = await BlueprintTools.UpdateBlueprint(MockServer.Object,
-            "B-2.0.0", updateMode: "Full", createBackup: false, confirm: true);
+            "B-2.0.0", updateMode: "Full", confirm: true);
 
         result.IsSuccess.Should().BeTrue();
         MockAssetClient.Verify(c => c.ApplyBlueprintUpdateAsync(DefaultTenantId,
             It.Is<BlueprintUpdateRequestDto>(r =>
                 r.TargetVersion == "B-2.0.0" && r.UpdateMode == "Full" &&
-                r.CreateBackup == false && r.DryRun == false)), Times.Once);
-    }
-
-    [Fact]
-    public async Task ListBlueprintBackups_HappyPath_ReturnsList()
-    {
-        MockAssetClient.Setup(c => c.ListBlueprintBackupsAsync(DefaultTenantId))
-            .ReturnsAsync(new List<BlueprintBackupDto>
-            {
-                new() { BackupId = "bid-1", BlueprintId = "B-1.0.0", Reason = "pre-update" }
-            });
-
-        var result = await BlueprintTools.ListBlueprintBackups(MockServer.Object);
-
-        result.IsSuccess.Should().BeTrue();
-        result.Backups.Should().HaveCount(1);
-    }
-
-    [Fact]
-    public async Task RollbackBlueprint_WithoutConfirm_Refuses()
-    {
-        var result = await BlueprintTools.RollbackBlueprint(MockServer.Object, "bid-1");
-
-        result.IsSuccess.Should().BeFalse();
-        MockAssetClient.Verify(c => c.RestoreBlueprintBackupAsync(It.IsAny<string>(), It.IsAny<string>()),
-            Times.Never);
-    }
-
-    [Fact]
-    public async Task RollbackBlueprint_WithConfirm_CallsSdk()
-    {
-        MockAssetClient.Setup(c => c.RestoreBlueprintBackupAsync(DefaultTenantId, "bid-1"))
-            .ReturnsAsync(new BlueprintRestoreResultDto { Success = true, EntitiesRestored = 42 });
-
-        var result = await BlueprintTools.RollbackBlueprint(MockServer.Object, "bid-1", confirm: true);
-
-        result.IsSuccess.Should().BeTrue();
-        result.Result!.EntitiesRestored.Should().Be(42);
+                r.DryRun == false)), Times.Once);
     }
 
     [Fact]

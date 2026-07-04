@@ -67,23 +67,6 @@ public class UpdateBlueprintResponse : AssetResponse
     public bool DryRun { get; set; }
 }
 
-/// <summary>Response of list_blueprint_backups.</summary>
-public class ListBlueprintBackupsResponse : AssetResponse
-{
-    /// <summary>Backups available for the tenant.</summary>
-    public List<BlueprintBackupDto> Backups { get; set; } = [];
-
-    /// <summary>Total number of backups.</summary>
-    public int TotalCount { get; set; }
-}
-
-/// <summary>Response of rollback_blueprint.</summary>
-public class RollbackBlueprintResponse : AssetResponse
-{
-    /// <summary>Restore result returned by the asset service.</summary>
-    public BlueprintRestoreResultDto? Result { get; set; }
-}
-
 /// <summary>Response of list_blueprint_installations.</summary>
 public class ListBlueprintInstallationsResponse : AssetResponse
 {

@@ -218,7 +218,6 @@ public sealed class BlueprintTools
         McpServer server,
         [Description("Target blueprint version.")] string targetVersion,
         [Description("Update mode: 'Merge' (default), 'Safe' or 'Full'.")] string updateMode = "Merge",
-        [Description("Whether to create a backup before updating (default true).")] bool createBackup = true,
         [Description("Dry run: no persistent changes. Useful for validation.")] bool dryRun = false,
         [Description("Required to actually apply changes (no-op for dryRun=true).")] bool confirm = false,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
@@ -249,7 +248,6 @@ public sealed class BlueprintTools
             {
                 TargetVersion = targetVersion,
                 UpdateMode = updateMode,
-                CreateBackup = createBackup,
                 DryRun = dryRun
             });
 
@@ -261,94 +259,12 @@ public sealed class BlueprintTools
                 DryRun = dryRun,
                 Message = dryRun
                     ? $"Dry run completed for target '{targetVersion}' (mode '{updateMode}')."
-                    : $"Blueprint updated to '{targetVersion}' (mode '{updateMode}', backup={createBackup})."
+                    : $"Blueprint updated to '{targetVersion}' (mode '{updateMode}')."
             };
         }
         catch (Exception ex)
         {
             return new UpdateBlueprintResponse { IsSuccess = false, ErrorMessage = ex.Message };
-        }
-    }
-
-    /// <summary>List tenant backups created before blueprint updates.</summary>
-    [McpServerTool(Name = "list_blueprint_backups")]
-    [Description("List tenant backups created before blueprint updates. Equivalent to octo-cli ListBlueprintBackups.")]
-    public static async Task<ListBlueprintBackupsResponse> ListBlueprintBackups(
-        McpServer server,
-        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
-    {
-        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
-        if (ctx.Error != null)
-        {
-            return new ListBlueprintBackupsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
-        }
-
-        try
-        {
-            var backups = (await ctx.Client!.ListBlueprintBackupsAsync(ctx.TenantId!)).ToList();
-            return new ListBlueprintBackupsResponse
-            {
-                IsSuccess = true,
-                TenantId = ctx.TenantId,
-                Backups = backups,
-                TotalCount = backups.Count,
-                Message = backups.Count == 0 ? "No backups." : $"{backups.Count} backup(s)."
-            };
-        }
-        catch (Exception ex)
-        {
-            return new ListBlueprintBackupsResponse { IsSuccess = false, ErrorMessage = ex.Message };
-        }
-    }
-
-    /// <summary>Roll the tenant back to a previously-created blueprint backup. Destructive: requires confirm.</summary>
-    [McpServerTool(Name = "rollback_blueprint")]
-    [McpRisk(McpRiskLevel.High)]
-    [Description(
-        "Roll the tenant back to a previously-created blueprint backup. DESTRUCTIVE — current tenant data will " +
-        "be replaced. Requires confirm=true. Equivalent to octo-cli RollbackBlueprint.")]
-    public static async Task<RollbackBlueprintResponse> RollbackBlueprint(
-        McpServer server,
-        [Description("Backup ID to restore (from list_blueprint_backups).")] string backupId,
-        [Description("Must be true to actually roll back.")] bool confirm = false,
-        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
-    {
-        if (string.IsNullOrWhiteSpace(backupId))
-        {
-            return new RollbackBlueprintResponse { IsSuccess = false, ErrorMessage = "backupId is required." };
-        }
-
-        if (!confirm)
-        {
-            return new RollbackBlueprintResponse
-            {
-                IsSuccess = false,
-                ErrorMessage = $"Refusing to roll back to backup '{backupId}' without confirm=true."
-            };
-        }
-
-        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
-        if (ctx.Error != null)
-        {
-            return new RollbackBlueprintResponse { IsSuccess = false, ErrorMessage = ctx.Error };
-        }
-
-        try
-        {
-            var result = await ctx.Client!.RestoreBlueprintBackupAsync(ctx.TenantId!, backupId);
-            return new RollbackBlueprintResponse
-            {
-                IsSuccess = true,
-                TenantId = ctx.TenantId,
-                Result = result,
-                Message = result.Success
-                    ? $"Tenant restored from backup '{backupId}' ({result.EntitiesRestored} entities)."
-                    : $"Rollback to '{backupId}' reported Success=false."
-            };
-        }
-        catch (Exception ex)
-        {
-            return new RollbackBlueprintResponse { IsSuccess = false, ErrorMessage = ex.Message };
         }
     }
 

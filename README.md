@@ -1,6 +1,6 @@
 # OctoMesh MCP Service
 
-A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, exposing **~177 tools** that mirror the full surface of `octo-cli`, the asset-repo GraphQL transient + persisted query APIs (including the `availableArchivePaths` studio introspection), plus generic CK-type CRUD. AI assistants get direct access to tenant administration, identity management, communication-controller, blueprints, time-series queries + aggregations, reporting, and large-file transfers — without ever invoking the CLI or sending GraphQL.
+A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, exposing **~175 tools** that mirror the full surface of `octo-cli`, the asset-repo GraphQL transient + persisted query APIs (including the `availableArchivePaths` studio introspection), plus generic CK-type CRUD. AI assistants get direct access to tenant administration, identity management, communication-controller, blueprints, time-series queries + aggregations, reporting, and large-file transfers — without ever invoking the CLI or sending GraphQL.
 
 ## 🚀 Features
 
@@ -10,8 +10,8 @@ A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Ki
 - **API access control**: API resources, API scopes, API secrets (client and resource variants)
 - **OAuth client mirroring**: auto-provision flagged ClientCredentials clients into sub-tenants
 
-### **Asset Repository (~28 tools)**
-- **Blueprints**: install, history, preview/apply update, backups + rollback, uninstall with cascade
+### **Asset Repository (~26 tools)**
+- **Blueprints**: install, history, preview/apply update, uninstall with cascade
 - **CK model libraries**: catalog browse, dependency resolution, fix-all
 - **Runtime CK model + entity import/export** (file-based, via streaming upload/download endpoints)
 
@@ -140,7 +140,7 @@ dotnet run
 
 ## 🛠️ Available Tools
 
-> **177 tools total.** Most tools mirror the corresponding `octo-cli` command (snake_case naming); the aggregation + persisted-query + archive-path-introspection tools mirror the asset-repo GraphQL transient + persisted query surface. All platform-admin tools accept an optional `tenantId` parameter that falls back to the URL route. Destructive operations require an explicit `confirm: true` parameter (no silent state changes).
+> **175 tools total.** Most tools mirror the corresponding `octo-cli` command (snake_case naming); the aggregation + persisted-query + archive-path-introspection tools mirror the asset-repo GraphQL transient + persisted query surface. All platform-admin tools accept an optional `tenantId` parameter that falls back to the URL route. Destructive operations require an explicit `confirm: true` parameter (no silent state changes).
 
 ### **Authentication & Identity Bootstrap** (4)
 `authenticate` · `check_auth_status` · `whoami` · `list_tenants`
@@ -168,8 +168,8 @@ dotnet run
 - External-Tenant User Mappings (5): `get_external_tenant_user_mappings` · `get_external_tenant_user_mapping` · `create_external_tenant_user_mapping` · `update_external_tenant_user_mapping` · `delete_external_tenant_user_mapping`<sup>‡</sup>
 - Admin Provisioning (4): `get_admin_provisioning_mappings` · `create_admin_provisioning_mapping` · `provision_current_user_as_admin` · `delete_admin_provisioning_mapping`<sup>‡</sup>
 
-### **Asset Repository — Blueprints** (10)
-`list_blueprints` · `install_blueprint` · `get_blueprint_history` · `get_blueprint_update_info` · `preview_blueprint_update` · `update_blueprint`<sup>‡</sup> · `list_blueprint_backups` · `rollback_blueprint`<sup>‡</sup> · `list_blueprint_installations` · `uninstall_blueprint`<sup>‡</sup>
+### **Asset Repository — Blueprints** (8)
+`list_blueprints` · `install_blueprint` · `get_blueprint_history` · `get_blueprint_update_info` · `preview_blueprint_update` · `update_blueprint`<sup>‡</sup> · `list_blueprint_installations` · `uninstall_blueprint`<sup>‡</sup>
 
 ### **Asset Repository — CK Model Libraries** (8)
 `list_ck_catalogs` · `list_ck_catalog_models` · `refresh_ck_catalogs` · `get_ck_library_status` · `check_ck_dependencies` · `check_ck_upgrade` · `import_ck_from_catalog` · `fix_all_ck_models`<sup>‡</sup>
