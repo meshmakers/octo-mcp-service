@@ -17,27 +17,29 @@ public sealed class IdentityTools
     /// </summary>
     [McpServerTool(Name = "whoami")]
     [Description("Get information about the currently authenticated user, including name, email, roles, and available tenants.")]
-    public static Task<WhoAmIResponse> WhoAmI(McpServer server)
+    public static async Task<WhoAmIResponse> WhoAmI(McpServer server)
     {
         try
         {
-            var tokenStore = server.Services!.GetRequiredService<IMcpSessionTokenStore>();
-            var sessionId = GetSessionId(server);
-
-            var tokens = tokenStore.GetTokens(sessionId);
-            if (tokens == null || tokens.IsExpired)
+            // McpSessionContext resolves the token from the device-flow session store first and
+            // falls back to the inbound Authorization: Bearer header — the path interactive MCP
+            // OAuth clients (Claude Code) and the AI worker take. Reading the store directly here
+            // predated that fallback and wrongly reported "Not authenticated" for callers whose
+            // bearer already passed the transport gate.
+            var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
+            if (accessToken == null)
             {
-                return Task.FromResult(new WhoAmIResponse
+                return new WhoAmIResponse
                 {
                     IsSuccess = false,
                     IsAuthenticated = false,
                     ErrorMessage = "Not authenticated. Call 'authenticate' first."
-                });
+                };
             }
 
-            var claims = ParseAccessToken(tokens.AccessToken);
+            var claims = ParseAccessToken(accessToken);
 
-            return Task.FromResult(new WhoAmIResponse
+            return new WhoAmIResponse
             {
                 IsSuccess = true,
                 IsAuthenticated = true,
@@ -48,17 +50,17 @@ public sealed class IdentityTools
                 AllowedTenants = GetListClaim(claims, "allowed_tenants"),
                 Roles = GetListClaim(claims, "role"),
                 Scopes = GetListClaim(claims, "scope"),
-                TokenExpiresAtUtc = tokens.ExpiresAtUtc
-            });
+                TokenExpiresAtUtc = GetTokenExpiry(server, accessToken)
+            };
         }
         catch (Exception ex)
         {
-            return Task.FromResult(new WhoAmIResponse
+            return new WhoAmIResponse
             {
                 IsSuccess = false,
                 IsAuthenticated = false,
                 ErrorMessage = ex.Message
-            });
+            };
         }
     }
 
@@ -67,28 +69,26 @@ public sealed class IdentityTools
     /// </summary>
     [McpServerTool(Name = "list_tenants")]
     [Description("List all tenants the authenticated user has access to. Use the returned tenant IDs as the 'tenantId' parameter in other tools.")]
-    public static Task<ListTenantsResponse> ListTenants(McpServer server)
+    public static async Task<ListTenantsResponse> ListTenants(McpServer server)
     {
         try
         {
-            var tokenStore = server.Services!.GetRequiredService<IMcpSessionTokenStore>();
-            var sessionId = GetSessionId(server);
-
-            var tokens = tokenStore.GetTokens(sessionId);
-            if (tokens == null || tokens.IsExpired)
+            // Same session-store-then-bearer-header resolution as WhoAmI — see the comment there.
+            var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
+            if (accessToken == null)
             {
-                return Task.FromResult(new ListTenantsResponse
+                return new ListTenantsResponse
                 {
                     IsSuccess = false,
                     ErrorMessage = "Not authenticated. Call 'authenticate' first."
-                });
+                };
             }
 
-            var claims = ParseAccessToken(tokens.AccessToken);
+            var claims = ParseAccessToken(accessToken);
             var allowedTenants = GetListClaim(claims, "allowed_tenants");
             var currentTenantId = claims.GetValueOrDefault("tenant_id");
 
-            return Task.FromResult(new ListTenantsResponse
+            return new ListTenantsResponse
             {
                 IsSuccess = true,
                 CurrentTenantId = currentTenantId,
@@ -97,15 +97,15 @@ public sealed class IdentityTools
                 Message = allowedTenants.Count > 0
                     ? $"You have access to {allowedTenants.Count} tenant(s). Pass the tenant ID as 'tenantId' parameter to other tools."
                     : "No tenants found in your token. You may need to request the 'allowed_tenants' scope."
-            });
+            };
         }
         catch (Exception ex)
         {
-            return Task.FromResult(new ListTenantsResponse
+            return new ListTenantsResponse
             {
                 IsSuccess = false,
                 ErrorMessage = ex.Message
-            });
+            };
         }
     }
 
@@ -114,6 +114,23 @@ public sealed class IdentityTools
         var httpContextAccessor = server.Services?.GetService<IHttpContextAccessor>();
         var sessionId = httpContextAccessor?.HttpContext?.Request.Headers["Mcp-Session-Id"].FirstOrDefault();
         return sessionId ?? server.ServerOptions?.ServerInfo?.Name ?? "default-session";
+    }
+
+    /// <summary>
+    ///     Expiry for the response: the session store's value when the token came from the
+    ///     device-flow store, otherwise the JWT's own <c>exp</c> (bearer-header path).
+    /// </summary>
+    private static DateTime? GetTokenExpiry(McpServer server, string accessToken)
+    {
+        var tokenStore = server.Services!.GetRequiredService<IMcpSessionTokenStore>();
+        var stored = tokenStore.GetTokens(GetSessionId(server));
+        if (stored != null && stored.AccessToken == accessToken)
+        {
+            return stored.ExpiresAtUtc;
+        }
+
+        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(accessToken);
+        return jwt.ValidTo == DateTime.MinValue ? null : jwt.ValidTo;
     }
 
     private static Dictionary<string, string> ParseAccessToken(string accessToken)

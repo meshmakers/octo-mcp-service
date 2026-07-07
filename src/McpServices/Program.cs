@@ -23,6 +23,7 @@ using Meshmakers.Octo.Services.Observability;
 using Meshmakers.Octo.Services.Swagger.Configuration;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
+using ModelContextProtocol.AspNetCore.Authentication;
 using NLog;
 using NLog.Web;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -116,6 +117,7 @@ try
 
     builder.Services.ConfigureOptions<ConfigureDistributionEventHubOptions>();
     builder.Services.ConfigureOptions<ConfigureJwtBearerOptions>();
+    builder.Services.ConfigureOptions<ConfigureMcpAuthenticationOptions>();
     builder.Services.ConfigureOptions<ConfigureOpenIdConnectOptions>();
     builder.Services.ConfigureOptions<ConfigureOctoOpenApiOptions>();
 
@@ -124,8 +126,20 @@ try
     // AddAuthentication().AddJwtBearer() the scheme was never added, so the MCP transport served
     // tenant data with no authentication at all. The token's Authority + ValidIssuer come from
     // ConfigureJwtBearerOptions.
-    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-        .AddJwtBearer();
+    //
+    // The MCP scheme (.AddMcp) is the default *challenge* scheme: an unauthenticated request to a
+    // gated /mcp endpoint answers 401 with a WWW-Authenticate header pointing at the Protected
+    // Resource Metadata (RFC 9728), and the handler serves that metadata at
+    // /.well-known/oauth-protected-resource. This lets an interactive client (Claude Code) discover
+    // the authorization server and log in. Token *validation* stays with the JWT bearer scheme.
+    // Metadata content comes from ConfigureMcpAuthenticationOptions.
+    builder.Services.AddAuthentication(options =>
+        {
+            options.DefaultChallengeScheme = McpAuthenticationDefaults.AuthenticationScheme;
+            options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        })
+        .AddJwtBearer()
+        .AddMcp(_ => { });
     builder.Services.AddAuthorization();
 
     builder.Services.Configure<RouteOptions>(options =>
