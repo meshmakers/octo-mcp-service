@@ -33,7 +33,7 @@ public sealed class IdentityTools
                 {
                     IsSuccess = false,
                     IsAuthenticated = false,
-                    ErrorMessage = "Not authenticated. Call 'authenticate' first."
+                    ErrorMessage = Constants.NotAuthenticatedError
                 };
             }
 
@@ -80,7 +80,7 @@ public sealed class IdentityTools
                 return new ListTenantsResponse
                 {
                     IsSuccess = false,
-                    ErrorMessage = "Not authenticated. Call 'authenticate' first."
+                    ErrorMessage = Constants.NotAuthenticatedError
                 };
             }
 
@@ -109,13 +109,6 @@ public sealed class IdentityTools
         }
     }
 
-    private static string GetSessionId(McpServer server)
-    {
-        var httpContextAccessor = server.Services?.GetService<IHttpContextAccessor>();
-        var sessionId = httpContextAccessor?.HttpContext?.Request.Headers["Mcp-Session-Id"].FirstOrDefault();
-        return sessionId ?? server.ServerOptions?.ServerInfo?.Name ?? "default-session";
-    }
-
     /// <summary>
     ///     Expiry for the response: the session store's value when the token came from the
     ///     device-flow store, otherwise the JWT's own <c>exp</c> (bearer-header path).
@@ -123,7 +116,7 @@ public sealed class IdentityTools
     private static DateTime? GetTokenExpiry(McpServer server, string accessToken)
     {
         var tokenStore = server.Services!.GetRequiredService<IMcpSessionTokenStore>();
-        var stored = tokenStore.GetTokens(GetSessionId(server));
+        var stored = tokenStore.GetTokens(McpSessionContext.GetSessionId(server));
         if (stored != null && stored.AccessToken == accessToken)
         {
             return stored.ExpiresAtUtc;

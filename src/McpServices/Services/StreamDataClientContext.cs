@@ -21,7 +21,7 @@ internal sealed record StreamDataClientContext(
         var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
         if (accessToken == null)
         {
-            return new StreamDataClientContext(null, null, "Not authenticated. Call 'authenticate' first.");
+            return new StreamDataClientContext(null, null, Constants.NotAuthenticatedError);
         }
 
         try

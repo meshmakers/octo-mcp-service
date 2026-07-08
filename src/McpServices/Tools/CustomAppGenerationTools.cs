@@ -456,7 +456,7 @@ public sealed class CustomAppGenerationTools
             return new ExportRuntimeGraphqlSdlResponse
             {
                 IsSuccess = false,
-                ErrorMessage = "Not authenticated. Call 'authenticate' first.",
+                ErrorMessage = Constants.NotAuthenticatedError,
             };
         }
 

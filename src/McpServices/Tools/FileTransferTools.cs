@@ -32,7 +32,7 @@ public sealed class FileTransferTools
             return new PrepareFileUploadResponse
             {
                 IsSuccess = false,
-                ErrorMessage = "Not authenticated. Call 'authenticate' first."
+                ErrorMessage = Constants.NotAuthenticatedError
             };
         }
 

@@ -52,7 +52,7 @@ internal static class McpSessionContext
     ///               <c>.mcp.json</c> carries an adapter-minted Bearer token in the <c>headers</c>
     ///               block, the worker never calls <c>authenticate</c>, and without this fallback
     ///               every <see cref="AssetClientContext.TryBuildAsync" />-based tool would refuse
-    ///               with "Not authenticated. Call 'authenticate' first." even though the caller
+    ///               with <see cref="Constants.NotAuthenticatedError"/> even though the caller
     ///               IS authenticated.</item>
     ///     </list>
     ///     A per-session <see cref="SemaphoreSlim" /> serialises refresh attempts so concurrent

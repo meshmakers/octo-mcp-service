@@ -20,7 +20,7 @@ internal sealed record BotClientContext(
         var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
         if (accessToken == null)
         {
-            return new BotClientContext(null, null, "Not authenticated. Call 'authenticate' first.");
+            return new BotClientContext(null, null, Constants.NotAuthenticatedError);
         }
 
         try
