@@ -18,6 +18,15 @@ internal static class Constants
     public const string McpServicesDeviceClientId = "octo-mcpServices-device";
 
     /// <summary>
+    ///     Uniform error for tools whose token resolution (McpSessionContext.TryGetAccessTokenAsync)
+    ///     found neither a device-flow session token nor an inbound Authorization: Bearer header.
+    ///     Names both login paths — interactive MCP clients authenticate via their own OAuth flow
+    ///     and never call the 'authenticate' tool. Tests pin the "Not authenticated" prefix.
+    /// </summary>
+    public const string NotAuthenticatedError =
+        "Not authenticated. Log in via your MCP client's OAuth flow (e.g. /mcp in Claude Code), or call the 'authenticate' tool for the device-code flow.";
+
+    /// <summary>
     ///     Policy for system api authorization
     /// </summary>
     public const string SystemApiPolicy = "SystemApiPolicy";

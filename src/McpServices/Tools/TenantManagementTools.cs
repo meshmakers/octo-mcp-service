@@ -30,7 +30,7 @@ public sealed class TenantManagementTools
             return new GetTenantsResponse
             {
                 IsSuccess = false,
-                ErrorMessage = "Not authenticated. Call 'authenticate' first."
+                ErrorMessage = Constants.NotAuthenticatedError
             };
         }
 
@@ -90,7 +90,7 @@ public sealed class TenantManagementTools
             return new CreateTenantResponse
             {
                 IsSuccess = false,
-                ErrorMessage = "Not authenticated. Call 'authenticate' first."
+                ErrorMessage = Constants.NotAuthenticatedError
             };
         }
 
@@ -165,7 +165,7 @@ public sealed class TenantManagementTools
             return new DeleteTenantResponse
             {
                 IsSuccess = false,
-                ErrorMessage = "Not authenticated. Call 'authenticate' first."
+                ErrorMessage = Constants.NotAuthenticatedError
             };
         }
 
@@ -338,7 +338,7 @@ public sealed class TenantManagementTools
         if (accessToken == null)
         {
             return new AssetClientContext(null, null,
-                "Not authenticated. Call 'authenticate' first.");
+                Constants.NotAuthenticatedError);
         }
 
         try

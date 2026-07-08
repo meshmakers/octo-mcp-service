@@ -20,7 +20,7 @@ internal sealed record ReportingClientContext(
         var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
         if (accessToken == null)
         {
-            return new ReportingClientContext(null, null, "Not authenticated. Call 'authenticate' first.");
+            return new ReportingClientContext(null, null, Constants.NotAuthenticatedError);
         }
 
         try

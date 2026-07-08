@@ -49,7 +49,7 @@ public sealed class DiagnosticsTools
             return new TimeSeriesResponse
             {
                 IsSuccess = false,
-                ErrorMessage = "Not authenticated. Call 'authenticate' first."
+                ErrorMessage = Constants.NotAuthenticatedError
             };
         }
 

@@ -23,7 +23,7 @@ internal sealed record IdentityClientContext(
         var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
         if (accessToken == null)
         {
-            return new IdentityClientContext(null, null, "Not authenticated. Call 'authenticate' first.");
+            return new IdentityClientContext(null, null, Constants.NotAuthenticatedError);
         }
 
         try

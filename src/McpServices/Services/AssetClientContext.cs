@@ -21,7 +21,7 @@ internal sealed record AssetClientContext(
         var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
         if (accessToken == null)
         {
-            return new AssetClientContext(null, null, "Not authenticated. Call 'authenticate' first.");
+            return new AssetClientContext(null, null, Constants.NotAuthenticatedError);
         }
 
         try
