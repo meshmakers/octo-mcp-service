@@ -25,6 +25,9 @@ public abstract class ToolTestBase : TestBase
     /// <summary>Service-client factory mock — by default returns the per-tenant mocks below.</summary>
     protected Mock<IOctoServiceClientFactory> MockClientFactory { get; }
 
+    /// <summary>Cross-tenant token exchanger mock (AB#4338) — by default returns null (exchange fails).</summary>
+    protected Mock<ITenantTokenExchanger> MockTokenExchanger { get; }
+
     /// <summary>Mocked Identity SDK client returned by the factory for the current test.</summary>
     protected Mock<IIdentityServicesClient> MockIdentityClient { get; }
 
@@ -50,6 +53,7 @@ public abstract class ToolTestBase : TestBase
     {
         MockTokenStore = new Mock<IMcpSessionTokenStore>();
         MockClientFactory = new Mock<IOctoServiceClientFactory>();
+        MockTokenExchanger = new Mock<ITenantTokenExchanger>();
         MockIdentityClient = new Mock<IIdentityServicesClient>();
         MockAssetClient = new Mock<IAssetServicesClient>();
         MockCommunicationClient = new Mock<ICommunicationServicesClient>();
@@ -80,6 +84,7 @@ public abstract class ToolTestBase : TestBase
 
         TestServiceProvider.RegisterService(MockTokenStore.Object);
         TestServiceProvider.RegisterService(MockClientFactory.Object);
+        TestServiceProvider.RegisterService(MockTokenExchanger.Object);
         TestServiceProvider.RegisterService<IFileTransferStore>(FileTransferStore);
     }
 

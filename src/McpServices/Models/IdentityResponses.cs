@@ -179,3 +179,14 @@ public class CleanClientOverlaysResponse : IdentityResponse
     /// <summary>Per-client breakdown plus the aggregate removal counts from the identity service.</summary>
     public CleanOverlayEntriesResultDto? Result { get; set; }
 }
+
+/// <summary>
+///     Response for the <c>switch_tenant</c> tool (AB#4338). On success carries the target tenant and
+///     the roles resolved in that tenant (read off the exchanged B token's JWT). On failure the
+///     <see cref="IdentityResponse.ErrorMessage"/> recommends falling back to the <c>authenticate</c> tool.
+/// </summary>
+public class SwitchTenantResponse : IdentityResponse
+{
+    /// <summary>Roles the authenticated user holds in the target tenant, resolved in that tenant.</summary>
+    public List<string> Roles { get; set; } = [];
+}

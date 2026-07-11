@@ -17,16 +17,23 @@ internal sealed record BotClientContext(
     /// </summary>
     public static async Task<BotClientContext> TryBuildAsync(McpServer server, string? tenantIdParam)
     {
-        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
-        if (accessToken == null)
-        {
-            return new BotClientContext(null, null, Constants.NotAuthenticatedError);
-        }
-
         try
         {
             var tenantResolver = server.Services!.GetRequiredService<ITenantResolutionService>();
             var tenantId = tenantResolver.ResolveTenantId(tenantIdParam);
+
+            // Bot is NOT tenant-routed (CreateBotClient takes no tenantId), so TenantAuthorizationMiddleware
+            // has no route tenant to check — the token's tenant_id does not gate it. Use the home/session
+            // token; the resolved tenantId travels as an SDK call parameter. Deliberately do NOT do a
+            // cross-tenant exchange here (AB#4338): unlike the five tenant-routed clients, an exchange could
+            // fail for a tenant the user isn't cross-tenant-authorised for and would break bot operations
+            // that the home token already serves against the not-tenant-routed bot service.
+            var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
+            if (accessToken == null)
+            {
+                return new BotClientContext(null, null, Constants.NotAuthenticatedError);
+            }
+
             var factory = server.Services!.GetRequiredService<IOctoServiceClientFactory>();
             return new BotClientContext(factory.CreateBotClient(accessToken), tenantId, null);
         }

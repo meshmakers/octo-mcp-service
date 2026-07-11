@@ -96,6 +96,25 @@ public interface IMcpSessionTokenStore
     void RemoveTokens(string sessionId);
 
     /// <summary>
+    ///     Stores the cross-tenant (B) access token exchanged for the given session + target tenant
+    ///     (AB#4338). The single-entry <see cref="SetTokens" /> slot stays as the home / root (A) token;
+    ///     this cache is keyed by <c>(sessionId, tenantId)</c> so a session can hold a distinct token per
+    ///     tenant it has switched into.
+    /// </summary>
+    void SetTenantTokens(string sessionId, string tenantId, McpSessionTokens tokens);
+
+    /// <summary>
+    ///     Gets the cross-tenant (B) access token cached for the given session + target tenant, or null
+    ///     if none has been exchanged yet.
+    /// </summary>
+    McpSessionTokens? GetTenantTokens(string sessionId, string tenantId);
+
+    /// <summary>
+    ///     Removes the cross-tenant (B) access token cached for the given session + target tenant.
+    /// </summary>
+    void RemoveTenantTokens(string sessionId, string tenantId);
+
+    /// <summary>
     ///     Stores a pending device authorization for the given session.
     /// </summary>
     void SetDeviceAuthorization(string sessionId, DeviceAuthorizationState state);
@@ -119,6 +138,10 @@ internal class McpSessionTokenStore : IMcpSessionTokenStore
     private readonly ConcurrentDictionary<string, DeviceAuthorizationState> _deviceAuthorizations = new();
     private readonly ConcurrentDictionary<string, McpSessionTokens> _tokens = new();
 
+    // Per-tenant (cross-tenant exchange) token cache keyed by (sessionId, tenantId). AB#4338.
+    private readonly ConcurrentDictionary<(string SessionId, string TenantId), McpSessionTokens> _tenantTokens =
+        new();
+
     public void SetTokens(string sessionId, McpSessionTokens tokens)
     {
         _tokens[sessionId] = tokens;
@@ -132,6 +155,21 @@ internal class McpSessionTokenStore : IMcpSessionTokenStore
     public void RemoveTokens(string sessionId)
     {
         _tokens.TryRemove(sessionId, out _);
+    }
+
+    public void SetTenantTokens(string sessionId, string tenantId, McpSessionTokens tokens)
+    {
+        _tenantTokens[(sessionId, tenantId)] = tokens;
+    }
+
+    public McpSessionTokens? GetTenantTokens(string sessionId, string tenantId)
+    {
+        return _tenantTokens.GetValueOrDefault((sessionId, tenantId));
+    }
+
+    public void RemoveTenantTokens(string sessionId, string tenantId)
+    {
+        _tenantTokens.TryRemove((sessionId, tenantId), out _);
     }
 
     public void SetDeviceAuthorization(string sessionId, DeviceAuthorizationState state)

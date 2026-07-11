@@ -393,6 +393,25 @@ Tenant comes from (in order):
 
 Never store tenant state on the session. Stateless multi-tenancy is the design.
 
+### Cross-tenant token exchange (AB#4338)
+
+The backend `TenantAuthorizationMiddleware` authorizes the route tenant strictly against the token's
+`tenant_id` claim (NOT `allowed_tenants`), so one access token acts on exactly one tenant. To operate
+on a different tenant B without a device re-auth, the five **tenant-routed** `*ClientContext` helpers
+call `McpSessionContext.TryGetAccessTokenAsync(server, tenantId)`, which transparently exchanges the
+home token for a B-scoped token (RFC 8693 token-exchange grant → `POST /connect/token`
+`grant_type=urn:ietf:params:oauth:grant-type:token-exchange`, `subject_token`=home token,
+`acr_values=tenant:B`, `client_id=octo-mcpServices-device`) via `ITenantTokenExchanger`, cached
+per-`(sessionId, tenantId)` in `McpSessionTokenStore`. The identity side re-resolves roles in B (issues
+the token for the B-shadow user) so there is no role leak. The `switch_tenant` tool is the explicit
+affordance; on failure it recommends the `authenticate` device-flow fallback.
+
+**Opaque-token safety:** the overload exchanges ONLY when the home token's `tenant_id` is readable AND
+differs from the target. Opaque/service tokens (adapter/worker, no readable `tenant_id`) keep using the
+home token — service tokens are skipped by `TenantAuthorizationMiddleware` anyway. **Bot stays on the
+home token** — its client is NOT tenant-routed (`CreateBotClient` takes no `tenantId`), so an exchange
+there is unnecessary and could break bot ops the home token already serves.
+
 > **Interactive-client note:** because the transport now requires an inbound bearer, a purely
 > interactive client that previously relied only on the in-band device flow must present a bearer
 > token to connect. The production clients (AiWorker, mesh-adapter) already do. The

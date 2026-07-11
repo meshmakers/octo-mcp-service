@@ -15,6 +15,12 @@ internal static class McpSessionContext
     // id; entry stays alive for the lifetime of the session (cleared when tokens are removed).
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> RefreshLocks = new();
 
+    // Per-(session, tenant) exchange lock — guards against N concurrent tool calls firing N
+    // cross-tenant token-exchange requests at the identity server when the B token is absent/expired.
+    // Mirrors RefreshLocks. Keyed by (sessionId, tenantId). AB#4338.
+    private static readonly ConcurrentDictionary<(string SessionId, string TenantId), SemaphoreSlim>
+        ExchangeLocks = new();
+
     /// <summary>
     ///     Returns the MCP session id from the <c>Mcp-Session-Id</c> request header, with a
     ///     deterministic fallback so out-of-band tool calls (tests, headless scripts) still
@@ -83,6 +89,106 @@ internal static class McpSessionContext
         }
 
         return TryGetBearerHeader(server);
+    }
+
+    /// <summary>
+    ///     Tenant-aware token resolution (AB#4338). Returns the access token to use for a call scoped to
+    ///     <paramref name="tenantId" />:
+    ///     <list type="bullet">
+    ///         <item>When <paramref name="tenantId" /> is null/empty, equals the home token's own
+    ///               <c>tenant_id</c> claim, or the home <c>tenant_id</c> cannot be read (opaque bearer)
+    ///               → the home token from
+    ///               <see cref="TryGetAccessTokenAsync(McpServer, CancellationToken)" /> (existing path).</item>
+    ///         <item>Otherwise → the per-<c>(session, tenant)</c> cached cross-tenant (B) token if present
+    ///               and not expired; else a fresh RFC 8693 exchange from the home token via
+    ///               <see cref="ITenantTokenExchanger" />, cached and returned (transparent acquisition —
+    ///               tools work against tenant B even without an explicit <c>switch_tenant</c>).</item>
+    ///     </list>
+    ///     Returns null when the caller is not authenticated (no home token) or when the exchange fails
+    ///     (target tenant not accessible, identity unreachable) — the caller surfaces an actionable error.
+    ///     A per-<c>(session, tenant)</c> <see cref="SemaphoreSlim" /> serialises concurrent exchanges for
+    ///     the same key, re-reading the cache after acquiring the lock (double-checked-locking, same
+    ///     pattern as the refresh path).
+    /// </summary>
+    public static async ValueTask<string?> TryGetAccessTokenAsync(
+        McpServer server,
+        string? tenantId,
+        CancellationToken cancellationToken = default)
+    {
+        // Home token first — it is the proof-of-identity for any exchange, and the source of the
+        // home tenant_id we compare against.
+        var homeToken = await TryGetAccessTokenAsync(server, cancellationToken);
+        if (homeToken == null)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(tenantId))
+        {
+            return homeToken;
+        }
+
+        // Only exchange when we can positively determine the home token belongs to a DIFFERENT tenant.
+        // If the home tenant matches, or cannot be read (opaque / non-JWT bearer, e.g. an
+        // adapter-minted token), the home token is the correct, safe default — blindly exchanging on
+        // an unreadable tenant would break every existing single-token flow.
+        var homeTenantId = JwtClaimReader.TryReadTenantId(homeToken);
+        if (homeTenantId == null || string.Equals(homeTenantId, tenantId, StringComparison.OrdinalIgnoreCase))
+        {
+            return homeToken;
+        }
+
+        var sessionId = GetSessionId(server);
+        var tokenStore = server.Services!.GetRequiredService<IMcpSessionTokenStore>();
+
+        var cached = tokenStore.GetTenantTokens(sessionId, tenantId);
+        if (cached != null && !cached.IsExpired)
+        {
+            return cached.AccessToken;
+        }
+
+        return await TryExchangeAsync(server, sessionId, tenantId, homeToken, cancellationToken);
+    }
+
+    private static async Task<string?> TryExchangeAsync(
+        McpServer server,
+        string sessionId,
+        string tenantId,
+        string homeToken,
+        CancellationToken cancellationToken)
+    {
+        var semaphore = ExchangeLocks.GetOrAdd((sessionId, tenantId), _ => new SemaphoreSlim(1, 1));
+        await semaphore.WaitAsync(cancellationToken);
+        try
+        {
+            var tokenStore = server.Services!.GetRequiredService<IMcpSessionTokenStore>();
+
+            // Re-read after acquiring the lock — a concurrent caller may have already exchanged
+            // while we were waiting. Standard double-checked-locking pattern.
+            var current = tokenStore.GetTenantTokens(sessionId, tenantId);
+            if (current != null && !current.IsExpired)
+            {
+                return current.AccessToken;
+            }
+
+            var exchanger = server.Services!.GetRequiredService<ITenantTokenExchanger>();
+            var exchanged = await exchanger.ExchangeForTenantAsync(homeToken, tenantId, cancellationToken);
+            if (exchanged == null)
+            {
+                // Exchange failed (e.g. user may not access the target tenant). Drop any stale entry
+                // and let the caller surface an actionable error.
+                tokenStore.RemoveTenantTokens(sessionId, tenantId);
+                ExchangeLocks.TryRemove((sessionId, tenantId), out _);
+                return null;
+            }
+
+            tokenStore.SetTenantTokens(sessionId, tenantId, exchanged);
+            return exchanged.AccessToken;
+        }
+        finally
+        {
+            semaphore.Release();
+        }
     }
 
     private static async Task<string?> TryRefreshAsync(

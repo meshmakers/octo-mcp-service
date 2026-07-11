@@ -106,6 +106,60 @@ public class McpSessionTokenStoreTests
     }
 
     [Fact]
+    public void TenantTokens_SetAndGet_KeyedBySessionAndTenant()
+    {
+        var tokens = new McpSessionTokens
+        {
+            AccessToken = "b-token",
+            ExpiresAtUtc = DateTime.UtcNow.AddHours(1)
+        };
+
+        _store.SetTenantTokens("session-1", "tenant-b", tokens);
+
+        _store.GetTenantTokens("session-1", "tenant-b")!.AccessToken.Should().Be("b-token");
+        _store.GetTenantTokens("session-1", "tenant-c").Should().BeNull("different tenant → different cache entry");
+        _store.GetTenantTokens("session-2", "tenant-b").Should().BeNull("different session → different cache entry");
+    }
+
+    [Fact]
+    public void TenantTokens_DoNotCollideWithHomeToken()
+    {
+        _store.SetTokens("session-1", new McpSessionTokens
+        {
+            AccessToken = "home-token",
+            ExpiresAtUtc = DateTime.UtcNow.AddHours(1)
+        });
+        _store.SetTenantTokens("session-1", "tenant-b", new McpSessionTokens
+        {
+            AccessToken = "b-token",
+            ExpiresAtUtc = DateTime.UtcNow.AddHours(1)
+        });
+
+        _store.GetTokens("session-1")!.AccessToken.Should().Be("home-token");
+        _store.GetTenantTokens("session-1", "tenant-b")!.AccessToken.Should().Be("b-token");
+    }
+
+    [Fact]
+    public void RemoveTenantTokens_RemovesOnlyThatEntry()
+    {
+        _store.SetTenantTokens("session-1", "tenant-b", new McpSessionTokens
+        {
+            AccessToken = "b-token",
+            ExpiresAtUtc = DateTime.UtcNow.AddHours(1)
+        });
+        _store.SetTenantTokens("session-1", "tenant-c", new McpSessionTokens
+        {
+            AccessToken = "c-token",
+            ExpiresAtUtc = DateTime.UtcNow.AddHours(1)
+        });
+
+        _store.RemoveTenantTokens("session-1", "tenant-b");
+
+        _store.GetTenantTokens("session-1", "tenant-b").Should().BeNull();
+        _store.GetTenantTokens("session-1", "tenant-c").Should().NotBeNull();
+    }
+
+    [Fact]
     public void DeviceAuthorization_SetAndGet_Works()
     {
         // Arrange
