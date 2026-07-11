@@ -1,0 +1,2 @@
+# Keeps the ASP.NET WebRootPath ("wwwroot") directory present so the StaticWebAssetsLoader
+# does not throw DirectoryNotFoundException on startup in the Development environment. AB#4338.
