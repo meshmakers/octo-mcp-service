@@ -22,6 +22,7 @@ using Meshmakers.Octo.Services.Infrastructure.Services;
 using Meshmakers.Octo.Services.Observability;
 using Meshmakers.Octo.Services.Swagger.Configuration;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.AspNetCore.Authentication;
 using NLog;
@@ -50,6 +51,25 @@ try
         builder.Configuration.GetSection("System").Bind(options));
     builder.Services.Configure<McpServiceOptions>(options =>
         builder.Configuration.GetSection("Mcp").Bind(options));
+    // Fail startup fast on a missing/relative PublicUrl — it is the RFC 9728 resource identifier the
+    // MCP challenge scheme advertises and the RFC 8707 resource indicator interactive clients send;
+    // the identity blueprint seeds a matching ApiResource from the same value. A bad value silently
+    // breaks interactive login with invalid_target, so refuse to start instead.
+    builder.Services.AddSingleton<IValidateOptions<McpServiceOptions>, ValidateMcpServiceOptions>();
+    builder.Services.AddOptions<McpServiceOptions>().ValidateOnStart();
+
+    // Honor X-Forwarded-Proto/-For from the cluster ingress. The MCP challenge handler (.AddMcp)
+    // builds the WWW-Authenticate `resource_metadata` URL from the request scheme; behind the
+    // TLS-terminating ingress the forwarded request arrives as http, so without this the 401 would
+    // advertise `http://…/.well-known/oauth-protected-resource` even though the service is https —
+    // breaking spec-strict interactive clients. The pod is only reachable via the ingress, so trust
+    // the forwarded headers from any peer (clear the loopback-only default proxy/network allow-list).
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Clear();
+    });
 
     // Configure new dynamic tool options
     builder.Services.Configure<DynamicToolOptions>(options =>
@@ -238,6 +258,10 @@ try
     //     .UseOtlpExporter();
 
     var app = builder.Build();
+
+    // Must run before anything that reads Request.Scheme/Host (auth challenge, URL building) so the
+    // cluster ingress's X-Forwarded-Proto=https is applied. See ForwardedHeadersOptions above.
+    app.UseForwardedHeaders();
 
     app.UseOctoApiVersioningAndDocumentation();
 
