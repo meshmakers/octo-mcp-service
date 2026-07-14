@@ -333,6 +333,12 @@ public sealed class StreamDataMetadataTools
             case "count":
                 function = CkRollupFunction.Count;
                 return true;
+            case "first":
+                function = CkRollupFunction.First;
+                return true;
+            case "last":
+                function = CkRollupFunction.Last;
+                return true;
             default:
                 function = CkRollupFunction.Sum;
                 return false;
