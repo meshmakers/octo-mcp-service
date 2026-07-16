@@ -116,7 +116,7 @@ public sealed class RuntimeEntityCrudTools
             return new QueryEntitiesResponse
             {
                 IsSuccess = false,
-                ErrorMessage = ex.Message,
+                ErrorMessage = DescribeQueryException(ex),
                 CkTypeId = ckTypeId
             };
         }
@@ -194,10 +194,32 @@ public sealed class RuntimeEntityCrudTools
             return new QueryEntitiesResponse
             {
                 IsSuccess = false,
-                ErrorMessage = ex.Message,
+                ErrorMessage = DescribeQueryException(ex),
                 CkTypeId = ckTypeId
             };
         }
+    }
+
+    /// <summary>
+    ///     Translates a low-level engine query exception into an actionable message for the AI client.
+    ///     A field filter that targets a Record-typed attribute directly (e.g. <c>Vendor</c>) throws an
+    ///     <see cref="InvalidCastException" /> deep in the query engine (it tries to cast the scalar
+    ///     comparison value to <c>RtRecord</c>). Record sub-path filtering with dot notation IS supported,
+    ///     so rewrite that failure into a hint to filter a record sub-field instead. Every other exception
+    ///     message passes through unchanged.
+    /// </summary>
+    /// <param name="ex">The exception thrown while building or executing the query.</param>
+    /// <returns>An actionable error message for the tool response.</returns>
+    internal static string DescribeQueryException(Exception ex)
+    {
+        if (ex.Message.Contains("RtRecord", StringComparison.Ordinal))
+        {
+            return "Cannot filter on a Record attribute directly — a Record attribute holds a composite " +
+                   "object, not a scalar value. Filter on a record sub-field using dot notation instead, " +
+                   "e.g. 'Vendor.CompanyName' or 'Vendor.LastName'. (engine: " + ex.Message + ")";
+        }
+
+        return ex.Message;
     }
 
     /// <summary>

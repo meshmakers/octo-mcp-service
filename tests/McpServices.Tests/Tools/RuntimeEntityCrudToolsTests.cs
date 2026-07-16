@@ -719,6 +719,30 @@ public class RuntimeEntityCrudToolsTests : TestBase
             It.Is<RtEntity>(e => e.RtVersion == ulong.MaxValue)), Times.Once);
     }
 
+    [Fact]
+    public void DescribeQueryException_RecordCast_ReturnsSubFieldHint()
+    {
+        var ex = new InvalidCastException(
+            "Unable to cast object of type 'System.String' to type " +
+            "'Meshmakers.Octo.Runtime.Contracts.RepositoryEntities.RtRecord'.");
+
+        var message = RuntimeEntityCrudTools.DescribeQueryException(ex);
+
+        message.Should().Contain("sub-field");
+        message.Should().Contain("Vendor.CompanyName");
+        message.Should().Contain(ex.Message); // original engine detail preserved
+    }
+
+    [Fact]
+    public void DescribeQueryException_UnrelatedError_PassesThrough()
+    {
+        var ex = new InvalidOperationException("Some other failure");
+
+        var message = RuntimeEntityCrudTools.DescribeQueryException(ex);
+
+        message.Should().Be("Some other failure");
+    }
+
     #region Helper Methods
 
     private static IResultSet<RtEntity> CreateMockQueryResults(int count = 3)
