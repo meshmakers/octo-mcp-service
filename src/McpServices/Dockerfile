@@ -36,4 +36,8 @@ RUN dotnet publish "./McpServices.csproj" -o /app/publish /p:UseAppHost=false -c
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
-ENTRYPOINT ["dotnet", "Meshmakers.Octo.Backend.McpServices.dll"]
+# Launch dotnet through a shell so LD_PRELOAD-based injectors (Dash0 OpenTelemetry
+# auto-instrumentation) can intercept the execve and activate the CLR profiler.
+# With dotnet as PID 1 there is no child exec to intercept and the service emits
+# no traces (AB#4347). `exec` keeps dotnet as the signal-receiving process.
+ENTRYPOINT ["/bin/sh", "-c", "exec dotnet Meshmakers.Octo.Backend.McpServices.dll"]
