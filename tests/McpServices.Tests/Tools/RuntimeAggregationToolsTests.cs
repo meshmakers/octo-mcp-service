@@ -71,6 +71,26 @@ public class RuntimeAggregationToolsTests : TestBase
     }
 
     [Fact]
+    public async Task QueryEntitiesAggregation_PassesNullPagingToEngine()
+    {
+        // AB#4562: take: 0 built a MongoDB $limit(0) stage, which the driver rejects with
+        // "Value is not greater than 0: 0. (Parameter 'limit')" — every aggregation call failed.
+        // The engine computes aggregations over the returned (unpaged) entity set, so the tool
+        // must pass skip/take = null, matching the GraphQL transient-query resolvers.
+        SetupRepoReturning(scalar: MakeScalarResult(count: 42));
+
+        var result = await RuntimeAggregationTools.QueryEntitiesAggregation(
+            MockServer.Object,
+            CkTypeId,
+            aggregations: [new() { Function = AggregationFunctionDto.count }]);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        MockTenantRepository.Verify(r => r.GetRtEntitiesByTypeAsync(
+            It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(),
+            It.IsAny<RtEntityQueryOptions>(), null, null), Times.Once);
+    }
+
+    [Fact]
     public async Task QueryEntitiesAggregation_NoEngineResult_ReturnsEmpty()
     {
         SetupRepoReturning(scalar: null);
@@ -170,6 +190,24 @@ public class RuntimeAggregationToolsTests : TestBase
         result.Rows[1]["FacilityId"].Should().Be("F2");
         result.Rows[1]["count"].Should().Be(15L);
         result.Rows[1]["avg_Power"].Should().Be(7.0);
+    }
+
+    [Fact]
+    public async Task QueryEntitiesGrouping_PassesNullPagingToEngine()
+    {
+        // AB#4562 — see QueryEntitiesAggregation_PassesNullPagingToEngine.
+        SetupRepoReturning(scalar: null, grouped: []);
+
+        var result = await RuntimeAggregationTools.QueryEntitiesGrouping(
+            MockServer.Object,
+            CkTypeId,
+            groupByAttributePaths: ["FacilityId"],
+            aggregations: [new() { Function = AggregationFunctionDto.count }]);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        MockTenantRepository.Verify(r => r.GetRtEntitiesByTypeAsync(
+            It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(),
+            It.IsAny<RtEntityQueryOptions>(), null, null), Times.Once);
     }
 
     [Fact]

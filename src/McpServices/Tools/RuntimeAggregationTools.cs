@@ -187,14 +187,19 @@ public sealed class RuntimeAggregationTools
 
             AggregationMapper.ApplyToAggregationInput(aggregationInput, aggregations!);
 
-            // Engine call. Limit=0 because we don't want entity rows; the aggregation result is on the
-            // result set even when no items are returned.
+            // Engine call. skip/take MUST be null (no paging), matching the GraphQL resolvers
+            // (RuntimeModelQuery passes offset/first, both null for aggregation queries):
+            // - take: 0 builds a MongoDB $limit(0) stage, which the driver rejects with
+            //   "Value is not greater than 0: 0. (Parameter 'limit')" (AB#4562).
+            // - The engine computes the aggregation result in memory over the returned entity
+            //   page (SingleOriginRtQuery.CalculateAggregations), so any page smaller than the
+            //   full filtered set would silently produce wrong aggregates.
             var results = await tenantRepository.GetRtEntitiesByTypeAsync(
                 session,
                 new RtCkId<CkTypeId>(ckTypeId),
                 queryOperation,
-                skip: 0,
-                take: 0);
+                skip: null,
+                take: null);
 
             var rows = groupByAttributePaths != null
                 ? ProjectGroupedResults(results.FieldAggregationResult, aggregations!)
@@ -367,8 +372,9 @@ public sealed class RuntimeAggregationTools
         var aggregationInput = queryOptions.AggregateResult();
         AggregationMapper.ApplyToAggregationInput(aggregationInput, columns);
 
+        // skip/take must be null — see the AB#4562 note in RunQuery.
         var results = await tenantRepository.GetRtEntitiesByTypeAsync(
-            session, ckTypeId, queryOptions, skip: 0, take: 0);
+            session, ckTypeId, queryOptions, skip: null, take: null);
 
         var rows = ProjectScalarResult(results.AggregationResult, columns);
 
@@ -419,8 +425,9 @@ public sealed class RuntimeAggregationTools
         var aggregationInput = queryOptions.AggregateFieldGroupBy(groupBy);
         AggregationMapper.ApplyToAggregationInput(aggregationInput, columns);
 
+        // skip/take must be null — see the AB#4562 note in RunQuery.
         var results = await tenantRepository.GetRtEntitiesByTypeAsync(
-            session, ckTypeId, queryOptions, skip: 0, take: 0);
+            session, ckTypeId, queryOptions, skip: null, take: null);
 
         var rows = ProjectGroupedResults(results.FieldAggregationResult, columns);
 

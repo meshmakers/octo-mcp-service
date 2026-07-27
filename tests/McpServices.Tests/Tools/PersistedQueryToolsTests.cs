@@ -131,6 +131,80 @@ public class PersistedQueryToolsTests : TestBase
     }
 
     [Fact]
+    public async Task ExecuteRuntimeQuery_AggregationSubtype_PassesNullPagingToEngine()
+    {
+        // AB#4562: the aggregation executors passed skip/take = 0, which the MongoDB driver rejects
+        // ($limit(0) → "Value is not greater than 0: 0. (Parameter 'limit')"). Aggregations must run
+        // unpaged (skip/take = null) because the engine aggregates over the returned entity set.
+        var aggregation = new RtAggregationRtQuery { QueryCkTypeId = SensorCkType.ToString() };
+        aggregation.Columns.Add(new RtAggregationQueryColumnRecord
+        {
+            AttributePath = "Power",
+            AggregationType = RtAggregationTypesEnum.Sum
+        });
+
+        MockTenantRepository
+            .Setup(r => r.GetRtEntityByRtIdAsync<RtPersistentQuery>(
+                It.IsAny<IOctoSession>(), It.IsAny<OctoObjectId>()))
+            .ReturnsAsync(aggregation);
+
+        MockTenantRepository
+            .Setup(r => r.GetRtEntitiesByTypeAsync(
+                It.IsAny<IOctoSession>(),
+                It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(),
+                It.IsAny<int?>(),
+                It.IsAny<int?>()))
+            .ReturnsAsync(new ResultSet<RtEntity>([], 0, null, null));
+
+        var result = await RuntimeAggregationTools.ExecuteRuntimeQuery(
+            MockServer.Object, QueryRtId);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        MockTenantRepository.Verify(r => r.GetRtEntitiesByTypeAsync(
+            It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(),
+            It.IsAny<RtEntityQueryOptions>(), null, null), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExecuteRuntimeQuery_GroupingSubtype_PassesNullPagingToEngine()
+    {
+        // AB#4562 — see ExecuteRuntimeQuery_AggregationSubtype_PassesNullPagingToEngine.
+        var grouping = new RtGroupingAggregationRtQuery
+        {
+            QueryCkTypeId = SensorCkType.ToString(),
+            GroupingColumns = new AttributeStringValueList(["FacilityId"])
+        };
+        grouping.Columns.Add(new RtAggregationQueryColumnRecord
+        {
+            AttributePath = "Power",
+            AggregationType = RtAggregationTypesEnum.Sum
+        });
+
+        MockTenantRepository
+            .Setup(r => r.GetRtEntityByRtIdAsync<RtPersistentQuery>(
+                It.IsAny<IOctoSession>(), It.IsAny<OctoObjectId>()))
+            .ReturnsAsync(grouping);
+
+        MockTenantRepository
+            .Setup(r => r.GetRtEntitiesByTypeAsync(
+                It.IsAny<IOctoSession>(),
+                It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(),
+                It.IsAny<int?>(),
+                It.IsAny<int?>()))
+            .ReturnsAsync(new ResultSet<RtEntity>([], 0, null, null));
+
+        var result = await RuntimeAggregationTools.ExecuteRuntimeQuery(
+            MockServer.Object, QueryRtId);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        MockTenantRepository.Verify(r => r.GetRtEntitiesByTypeAsync(
+            It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(),
+            It.IsAny<RtEntityQueryOptions>(), null, null), Times.Once);
+    }
+
+    [Fact]
     public async Task ExecuteRuntimeQuery_GroupingSubtype_RejectsEmptyGroupingColumns()
     {
         var grouping = new RtGroupingAggregationRtQuery { QueryCkTypeId = SensorCkType.ToString() };
