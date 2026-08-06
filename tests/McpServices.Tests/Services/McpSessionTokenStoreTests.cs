@@ -81,6 +81,20 @@ public class McpSessionTokenStoreTests
     }
 
     [Fact]
+    public void IsExpired_WhenWithinRefreshMargin_ReturnsTrue()
+    {
+        // Expires in 10s — inside the 30s refresh margin, so it must be treated as expired and
+        // refreshed/exchanged before it is handed to a downstream call (AB#4755).
+        var tokens = new McpSessionTokens
+        {
+            AccessToken = "about-to-expire-token",
+            ExpiresAtUtc = DateTime.UtcNow.AddSeconds(10)
+        };
+
+        tokens.IsExpired.Should().BeTrue();
+    }
+
+    [Fact]
     public void SessionIsolation_DifferentSessions_DoNotInterfere()
     {
         // Arrange

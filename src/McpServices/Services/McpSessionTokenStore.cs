@@ -33,9 +33,17 @@ public record McpSessionTokens
     public int? PollIntervalSeconds { get; init; }
 
     /// <summary>
-    ///     Whether the access token has expired.
+    ///     Refresh margin: a token is treated as expired this long before its real expiry, so a
+    ///     nearly-expired token is refreshed (or cross-tenant re-exchanged) before it is handed to a
+    ///     downstream Octo API call rather than 401-ing 1-2s later. Mirrors octo-cli's
+    ///     <c>EnsureAuthenticated</c> margin (AB#4755).
     /// </summary>
-    public bool IsExpired => DateTime.UtcNow >= ExpiresAtUtc;
+    private static readonly TimeSpan ExpiryMargin = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    ///     Whether the access token has expired or is within the refresh margin.
+    /// </summary>
+    public bool IsExpired => DateTime.UtcNow >= ExpiresAtUtc - ExpiryMargin;
 }
 
 /// <summary>

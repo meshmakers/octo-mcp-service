@@ -36,9 +36,9 @@ internal static class McpSessionContext
     /// <summary>
     ///     Returns the access token for the current session, or null if the caller is not
     ///     authenticated. Transparently performs an OAuth2 <c>refresh_token</c> grant when the
-    ///     stored access token is expired but a refresh token is available — the same pattern
-    ///     octo-cli's <c>AuthenticationService.EnsureAuthenticatedAsync</c> uses before every
-    ///     service call.
+    ///     stored access token is expired (or within the refresh margin) but a refresh token is
+    ///     available — an expiry-driven decision, like octo-cli's <c>AuthenticationService</c>
+    ///     (both refresh on the stored expiry timestamp, not on a live <c>/userinfo</c> probe).
     /// </summary>
     /// <remarks>
     ///     Three sources, in this order:
