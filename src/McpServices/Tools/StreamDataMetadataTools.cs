@@ -206,8 +206,7 @@ public sealed class StreamDataMetadataTools
         [Description("Logical CK attribute path of the measured column, e.g. 'Amount.Value'.")] string sourcePath,
         [Description("Required aggregation: sum (energy), max (demand), avg, min, count. Never guessed.")] string requiredAggregation,
         [Description("Desired number of output points (pixel-driven; ~600 typical).")] int targetPoints = 600,
-        [Description("Optional source-entity rtId scope (e.g. the EnergyMeasurement entities of a MeteringPoint).")] List<string>? rtIds = null,
-        [Description("Optional OBIS-code filter narrowing the series.")] string? obisFilter = null,
+        [Description("Optional source-entity rtId scope narrowing the series to a subset of source entities.")] List<string>? rtIds = null,
         [Description("Optional IANA time zone (e.g. 'Europe/Vienna') the query is resolved in (AB#4190). Aligns calendar (day/week/month/year) rollups to that zone's DST-correct civil boundaries; null/empty ⇒ UTC. Sub-day rollups are unaffected.")] string? timeZone = null,
         [Description("Civil-boundary policy across mixed-timezone series (AB#4190): 'per_query' (default) applies timeZone uniformly; 'per_series' aligns each series to its own archive reference time zone.")] string? comparisonPolicy = null,
         [Description("Tenant id. Falls back to URL route.")] string? tenantId = null)
@@ -280,7 +279,6 @@ public sealed class StreamDataMetadataTools
                 sourcePath)
             {
                 RtIds = rtIds?.Select(id => new OctoObjectId(id)).ToList(),
-                ObisFilter = obisFilter,
                 QueryTimeZone = string.IsNullOrWhiteSpace(timeZone) ? null : timeZone.Trim(),
                 ComparisonPolicy = policy
             };
