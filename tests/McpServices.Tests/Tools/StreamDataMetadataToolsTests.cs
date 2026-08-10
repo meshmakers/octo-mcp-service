@@ -313,7 +313,10 @@ public class StreamDataMetadataToolsTests : TestBase
         result.Resolved.Should().BeTrue();
         result.Signal.Should().Be("Ok");
         result.ArchiveRtId.Should().Be(RollupId);
-        result.Points.Should().Be(600);
+        // AB#4714: the effective bucket is rounded up to a whole multiple of the rollup
+        // grain (8760 h / 600 → 15 h), so a year yields 584 points, not the 600 target.
+        result.EffectiveBucketMs.Should().Be((long)TimeSpan.FromHours(15).TotalMilliseconds);
+        result.Points.Should().Be(584);
         result.ReducingFunction.Should().Be("Sum");
     }
 
