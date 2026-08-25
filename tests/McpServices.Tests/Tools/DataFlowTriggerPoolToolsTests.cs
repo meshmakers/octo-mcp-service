@@ -16,6 +16,8 @@ public class DataFlowTriggerPoolToolsTests : ToolTestBase
         GivenAuthenticated();
     }
 
+    private const string PoolId = "cc0000000000000000000009";
+
     // ── Data Flows ──────────────────────────────────────────────────────────
 
     [Fact]
@@ -144,5 +146,39 @@ public class DataFlowTriggerPoolToolsTests : ToolTestBase
         GivenUnauthenticated();
         var result = await DataFlowTriggerPoolTools.GetPools(MockServer.Object);
         result.IsSuccess.Should().BeFalse();
+    }
+
+    // ── Pools ───────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task UndeployPool_WithoutConfirm_Refuses()
+    {
+        var result = await DataFlowTriggerPoolTools.UndeployPool(MockServer.Object, PoolId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("confirm=true");
+        MockCommunicationClient.Verify(c => c.UndeployPoolAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UndeployPool_WithConfirm_CallsSdk()
+    {
+        var result = await DataFlowTriggerPoolTools.UndeployPool(MockServer.Object, PoolId, confirm: true);
+
+        result.IsSuccess.Should().BeTrue();
+        result.ResourceId.Should().Be(PoolId);
+        MockCommunicationClient.Verify(c => c.UndeployPoolAsync(PoolId), Times.Once);
+    }
+
+    [Fact]
+    public async Task UndeployPool_WhenSdkThrows_ReturnsErrorMessage()
+    {
+        MockCommunicationClient.Setup(c => c.UndeployPoolAsync(PoolId))
+            .ThrowsAsync(new InvalidOperationException("BadRequest: pool is already undeployed"));
+
+        var result = await DataFlowTriggerPoolTools.UndeployPool(MockServer.Object, PoolId, confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be("BadRequest: pool is already undeployed");
     }
 }

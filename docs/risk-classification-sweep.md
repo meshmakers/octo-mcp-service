@@ -163,7 +163,7 @@ _High=2_  ·  **Owner reviewed:** ☐
 | `enable_communication` | **H** | |
 | `disable_communication` | **H** | |
 
-### DataFlowTriggerPoolTools (6 tools)
+### DataFlowTriggerPoolTools (7 tools)
 
 _High=4 · Low=2_  ·  **Owner reviewed:** ☐
 
@@ -175,6 +175,7 @@ _High=4 · Low=2_  ·  **Owner reviewed:** ☐
 | `deploy_triggers` | **H** | |
 | `undeploy_triggers` | **H** | |
 | `get_pools` | **L** | |
+| `undeploy_pool` | **H** | Removes the pool's operator resources; remediation for the `disable_communication` refusal (AB#4255) |
 
 ### DiagnosticsTools (1 tool)
 

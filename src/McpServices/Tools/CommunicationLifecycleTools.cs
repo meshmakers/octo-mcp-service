@@ -51,9 +51,11 @@ public sealed class CommunicationLifecycleTools
     [McpServerTool(Name = "disable_communication")]
     [McpRisk(McpRiskLevel.High)]
     [Description(
-        "Disable the communication controller for the resolved tenant. DESTRUCTIVE — stops all pipeline / data " +
-        "flow execution for the tenant until re-enabled. Requires confirm=true. Equivalent to octo-cli " +
-        "DisableCommunication.")]
+        "Disable the communication controller for the resolved tenant. Refused with a Conflict error while pools " +
+        "or workloads (Adapters/Applications) of the tenant are still deployed - the error names them; undeploy " +
+        "them first with undeploy_workload / undeploy_pool (confirm=true). Stops scheduled triggers and flushes " +
+        "adapter configuration until re-enabled with enable_communication. Required before delete_tenant / " +
+        "detach_tenant (AB#4255). Requires confirm=true. Equivalent to octo-cli DisableCommunication.")]
     public static async Task<CommunicationLifecycleResponse> DisableCommunication(
         McpServer server,
         [Description("Must be true to actually disable.")] bool confirm = false,

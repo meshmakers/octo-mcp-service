@@ -64,4 +64,20 @@ public class CommunicationLifecycleToolsTests : ToolTestBase
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Be("comm down");
     }
+
+    [Fact]
+    public async Task DisableCommunication_WhenSdkThrows_ReturnsErrorMessage()
+    {
+        // The AB#4255 refusal reaches the caller as the SDK's "Conflict: <body>" message - verbatim,
+        // so the assistant can read which pools/workloads are still deployed.
+        const string refusal = "Conflict: Communication cannot be disabled for tenant 'test-tenant' while the " +
+                               "following resources are still deployed: Pool 'edge-a' (Deployed).";
+        MockCommunicationClient.Setup(c => c.DisableAsync(DefaultTenantId))
+            .ThrowsAsync(new InvalidOperationException(refusal));
+
+        var result = await CommunicationLifecycleTools.DisableCommunication(MockServer.Object, confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be(refusal);
+    }
 }
