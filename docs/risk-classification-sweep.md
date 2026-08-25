@@ -282,7 +282,7 @@ _High=2_  ·  **Owner reviewed:** ☐
 | Tool | Current | Notes for review |
 |------|---------|------------------|
 | `enable_reporting` | **H** | |
-| `disable_reporting` | **H** | |
+| `disable_reporting` | **H** | Reversible flag flip, report data is kept; precondition for `delete_tenant` / `detach_tenant` (AB#4255) |
 
 ### RiskMetadataTools (1 tool)
 
