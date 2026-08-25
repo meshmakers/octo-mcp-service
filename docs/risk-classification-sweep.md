@@ -392,7 +392,7 @@ _High=9 · Low=1 · Medium=1_  ·  **Owner reviewed:** ☐
 | Tool | Current | Notes for review |
 |------|---------|------------------|
 | `enable_stream_data` | **H** | |
-| `disable_stream_data` | **H** | |
+| `disable_stream_data` | **H** | Reversible flag flip; refused (Conflict) while archives are activated; precondition for delete_tenant / detach_tenant (AB#4255) |
 | `activate_archive` | **H** — owner: confirm | |
 | `disable_archive` | **H** | |
 | `enable_archive` | **H** | |
