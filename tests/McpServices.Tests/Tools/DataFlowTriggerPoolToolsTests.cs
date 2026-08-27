@@ -171,6 +171,26 @@ public class DataFlowTriggerPoolToolsTests : ToolTestBase
     }
 
     [Fact]
+    public async Task UndeployPool_Unauthenticated_ReturnsAuthError()
+    {
+        GivenUnauthenticated();
+
+        var result = await DataFlowTriggerPoolTools.UndeployPool(MockServer.Object, PoolId, confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        MockCommunicationClient.Verify(c => c.UndeployPoolAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UndeployPool_MissingId_ReturnsValidationError()
+    {
+        var result = await DataFlowTriggerPoolTools.UndeployPool(MockServer.Object, "", confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        MockCommunicationClient.Verify(c => c.UndeployPoolAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
     public async Task UndeployPool_WhenSdkThrows_ReturnsErrorMessage()
     {
         MockCommunicationClient.Setup(c => c.UndeployPoolAsync(PoolId))

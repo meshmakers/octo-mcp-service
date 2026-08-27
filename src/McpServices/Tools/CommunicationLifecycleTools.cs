@@ -47,7 +47,10 @@ public sealed class CommunicationLifecycleTools
         }
     }
 
-    /// <summary>Disable the communication controller for the tenant. Destructive: requires confirm.</summary>
+    /// <summary>
+    ///     Disable the communication controller for the tenant. A guarded, reversible flag flip (refused while
+    ///     pools or workloads are still deployed); requires confirm.
+    /// </summary>
     [McpServerTool(Name = "disable_communication")]
     [McpRisk(McpRiskLevel.High)]
     [Description(

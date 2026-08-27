@@ -165,7 +165,7 @@ _High=2_  ·  **Owner reviewed:** ☐
 
 ### DataFlowTriggerPoolTools (7 tools)
 
-_High=4 · Low=2_  ·  **Owner reviewed:** ☐
+_High=5 · Low=2_  ·  **Owner reviewed:** ☐
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
