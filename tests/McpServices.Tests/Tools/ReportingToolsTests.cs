@@ -49,4 +49,19 @@ public class ReportingToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue();
         MockReportingClient.Verify(c => c.DisableAsync(DefaultTenantId), Times.Once);
     }
+
+    [Fact]
+    public async Task DisableReporting_WhenSdkThrows_ReturnsErrorMessage()
+    {
+        // A refused disable reaches the caller as the SDK's "Conflict: <body>" message - verbatim (AB#4255 contract
+        // shared by every capability disable, even though Reporting has no blocker of its own today).
+        const string refusal = "Conflict: Reporting cannot be disabled for tenant 'test-tenant' right now.";
+        MockReportingClient.Setup(c => c.DisableAsync(DefaultTenantId))
+            .ThrowsAsync(new InvalidOperationException(refusal));
+
+        var result = await ReportingTools.DisableReporting(MockServer.Object, confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be(refusal);
+    }
 }

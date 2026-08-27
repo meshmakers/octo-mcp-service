@@ -46,12 +46,16 @@ public sealed class TimeSeriesTools
         }
     }
 
-    /// <summary>Disable Stream Data ingestion for the tenant. Destructive: requires confirm.</summary>
+    /// <summary>Disable Stream Data for the tenant: a guarded, reversible flag flip. Requires confirm.</summary>
     [McpServerTool(Name = "disable_stream_data")]
     [McpRisk(McpRiskLevel.High)]
     [Description(
-        "Disable Stream Data ingestion for the resolved tenant. DESTRUCTIVE — ingestion stops until re-enabled. " +
-        "Requires confirm=true. Equivalent to octo-cli DisableStreamData.")]
+        "Disable Stream Data for the resolved tenant. Refused with a Conflict error while archives are still " +
+        "activated - the error names them; disable them first with disable_archive (data kept) or remove them " +
+        "with delete_archive (confirm=true, rollups before their source). Switches the tenant flag off; the " +
+        "System.StreamData model, archive definitions and stored data are kept. Required before delete_tenant / " +
+        "detach_tenant (AB#4255). Reversible with enable_stream_data. Requires confirm=true. Equivalent to " +
+        "octo-cli DisableStreamData.")]
     public static async Task<TimeSeriesResponse> DisableStreamData(
         McpServer server,
         [Description("Must be true to actually disable.")] bool confirm = false,

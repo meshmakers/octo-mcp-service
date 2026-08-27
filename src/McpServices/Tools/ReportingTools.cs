@@ -41,12 +41,14 @@ public sealed class ReportingTools
         }
     }
 
-    /// <summary>Disable reporting for the tenant. Destructive: requires confirm.</summary>
+    /// <summary>Disable reporting for the tenant. Reversible flag flip; requires confirm.</summary>
     [McpServerTool(Name = "disable_reporting")]
     [McpRisk(McpRiskLevel.High)]
     [Description(
-        "Disable the reporting service for the resolved tenant. DESTRUCTIVE — reports stop being generated " +
-        "until re-enabled. Requires confirm=true. Equivalent to octo-cli DisableReporting.")]
+        "Disable the reporting service for the resolved tenant. Reporting endpoints, report designer and viewer " +
+        "stop answering for the tenant until re-enabled; report definitions and stored reports are kept. " +
+        "Required before delete_tenant / detach_tenant (AB#4255); no precondition of its own. Reversible with " +
+        "enable_reporting. Requires confirm=true. Equivalent to octo-cli DisableReporting.")]
     public static async Task<TimeSeriesResponse> DisableReporting(
         McpServer server,
         [Description("Must be true to actually disable.")] bool confirm = false,

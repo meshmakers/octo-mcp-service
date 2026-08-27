@@ -149,7 +149,12 @@ public sealed class TenantManagementTools
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Delete a child tenant. DESTRUCTIVE — requires confirm=true. Equivalent to the octo-cli DeleteTenant " +
-        "command without the interactive confirmation prompt.")]
+        "command without the interactive confirmation prompt. Refused with a Conflict error while Stream Data, " +
+        "Communication, Reporting or AI Services is still enabled for the child tenant; the error names them. " +
+        "Disable them first via disable_stream_data / disable_communication / disable_reporting " +
+        "(tenantId=<child>, confirm=true); AI Services has no MCP tool - run octo-cli DisableAi in a context of " +
+        "the child tenant (UseContext or --context <name>). Run dump_tenant beforehand if the data is still " +
+        "needed. Answers a reason-free not-found error when the tenant is not a child of the parent.")]
     public static async Task<DeleteTenantResponse> DeleteTenant(
         McpServer server,
         [Description("Identifier of the child tenant to delete.")]
@@ -283,7 +288,12 @@ public sealed class TenantManagementTools
     [McpRisk(McpRiskLevel.High)]
     [Description(
         "Detach a child tenant: removes the metadata binding but leaves the database intact. Non-destructive at " +
-        "the data level; the tenant becomes invisible until re-attached.")]
+        "the data level; the tenant becomes invisible until re-attached. Refused with a Conflict error while " +
+        "Stream Data, Communication, Reporting or AI Services is still enabled for the child tenant; the error " +
+        "names them. Disable them first via disable_stream_data / disable_communication / disable_reporting " +
+        "(tenantId=<child>, confirm=true); AI Services has no MCP tool - run octo-cli DisableAi in a context of " +
+        "the child tenant (UseContext or --context <name>). Run dump_tenant beforehand if the data is still " +
+        "needed. Answers a reason-free not-found error when the tenant is not a child of the parent.")]
     public static Task<TenantOperationResponse> DetachTenant(
         McpServer server,
         [Description("Identifier of the child tenant to detach.")] string childTenantId,

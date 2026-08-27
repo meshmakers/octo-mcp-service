@@ -163,9 +163,9 @@ _High=2_  ·  **Owner reviewed:** ☐
 | `enable_communication` | **H** | |
 | `disable_communication` | **H** | |
 
-### DataFlowTriggerPoolTools (6 tools)
+### DataFlowTriggerPoolTools (7 tools)
 
-_High=4 · Low=2_  ·  **Owner reviewed:** ☐
+_High=5 · Low=2_  ·  **Owner reviewed:** ☐
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
@@ -175,6 +175,7 @@ _High=4 · Low=2_  ·  **Owner reviewed:** ☐
 | `deploy_triggers` | **H** | |
 | `undeploy_triggers` | **H** | |
 | `get_pools` | **L** | |
+| `undeploy_pool` | **H** | Removes the pool's operator resources; remediation for the `disable_communication` refusal (AB#4255) |
 
 ### DiagnosticsTools (1 tool)
 
@@ -281,7 +282,7 @@ _High=2_  ·  **Owner reviewed:** ☐
 | Tool | Current | Notes for review |
 |------|---------|------------------|
 | `enable_reporting` | **H** | |
-| `disable_reporting` | **H** | |
+| `disable_reporting` | **H** | Reversible flag flip, report data is kept; precondition for `delete_tenant` / `detach_tenant` (AB#4255) |
 
 ### RiskMetadataTools (1 tool)
 
@@ -391,7 +392,7 @@ _High=9 · Low=1 · Medium=1_  ·  **Owner reviewed:** ☐
 | Tool | Current | Notes for review |
 |------|---------|------------------|
 | `enable_stream_data` | **H** | |
-| `disable_stream_data` | **H** | |
+| `disable_stream_data` | **H** | Reversible flag flip; refused (Conflict) while archives are activated; precondition for delete_tenant / detach_tenant (AB#4255) |
 | `activate_archive` | **H** — owner: confirm | |
 | `disable_archive` | **H** | |
 | `enable_archive` | **H** | |

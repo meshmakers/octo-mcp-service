@@ -188,6 +188,24 @@ public sealed class DataFlowTriggerPoolTools
         }
     }
 
+    /// <summary>Undeploy a pool. Destructive: requires confirm.</summary>
+    [McpServerTool(Name = "undeploy_pool")]
+    [McpRisk(McpRiskLevel.High)]
+    [Description(
+        "Undeploy a pool. DESTRUCTIVE - the Communication Operator removes the pool's cluster resources; " +
+        "undeploy its workloads first (undeploy_workload). Requires confirm=true. Needed before " +
+        "disable_communication, which is refused while pools or workloads are deployed. Equivalent to " +
+        "octo-cli UndeployPool.")]
+    public static async Task<CommunicationActionResponse> UndeployPool(
+        McpServer server,
+        [Description("Pool runtime ID.")] string poolId,
+        [Description("Must be true to actually undeploy.")] bool confirm = false,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+        => await SingleResourceAction(server, tenantId, poolId,
+            requiredConfirm: true, confirm,
+            (client, id) => client.UndeployPoolAsync(id),
+            successMessage: id => $"Pool '{id}' undeploy triggered.");
+
     private static async Task<CommunicationActionResponse> SingleResourceAction(
         McpServer server,
         string? tenantId,

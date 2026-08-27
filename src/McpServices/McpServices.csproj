@@ -36,6 +36,11 @@
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.11" />
         <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.11" />
 
+        <!-- Referenced directly, not only transitively through Services.Contracts: the tools call the
+             SDK service clients themselves, and a transitive reference resolves to the LOWEST version
+             the intermediate package was built against, so a new client member (e.g. UndeployPoolAsync)
+             is invisible until every intermediate package has been rebuilt. -->
+        <PackageReference Include="Meshmakers.Octo.Sdk.ServiceClient" Version="$(OctoCoreLibVersion)"/>
         <PackageReference Include="Meshmakers.Octo.Services.Infrastructure" Version="$(OctoCoreLibVersion)"/>
         <PackageReference Include="Meshmakers.Octo.Services.Observability" Version="$(OctoCoreLibVersion)"/>
         <PackageReference Include="Meshmakers.Octo.Runtime.Engine.MongoDb" Version="$(OctoCoreLibVersion)"/>

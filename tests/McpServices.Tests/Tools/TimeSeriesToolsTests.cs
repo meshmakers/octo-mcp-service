@@ -56,6 +56,22 @@ public class TimeSeriesToolsTests : ToolTestBase
         MockStreamDataClient.Verify(c => c.DisableAsync(DefaultTenantId), Times.Once);
     }
 
+    [Fact]
+    public async Task DisableStreamData_WhenSdkThrows_ReturnsErrorMessage()
+    {
+        // A refused disable reaches the caller as the SDK's "Conflict: <body>" message - verbatim (AB#4255 contract
+        // shared by every capability disable; here the body names the archives that are still activated).
+        const string refusal = "Conflict: Stream data cannot be disabled for tenant 'test-tenant' while the following " +
+                               "archives are still activated: RawArchive 'temps' (Activated).";
+        MockStreamDataClient.Setup(c => c.DisableAsync(DefaultTenantId))
+            .ThrowsAsync(new InvalidOperationException(refusal));
+
+        var result = await TimeSeriesTools.DisableStreamData(MockServer.Object, confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be(refusal);
+    }
+
     // ── Archive lifecycle ───────────────────────────────────────────────────
 
     [Fact]
