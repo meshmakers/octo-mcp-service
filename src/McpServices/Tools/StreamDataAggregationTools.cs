@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models.Aggregation;
 using Meshmakers.Octo.Backend.McpServices.Models.Filters;
@@ -721,7 +722,7 @@ public sealed class StreamDataAggregationTools
         var mapped = persistedFilters?
             .Select(f => new FieldFilter(
                 f.AttributePath,
-                (FieldFilterOperator)(int)f.Operator,
+                FieldFilterOperatorDtoExtensions.FromCkModelEnum(f.Operator),
                 f.ComparisonValue,
                 null))
             .ToList();

@@ -478,7 +478,8 @@ public sealed class RuntimeAggregationTools
 
         foreach (var f in persistedFilter)
         {
-            queryOptions.FieldFilter(f.AttributePath, (FieldFilterOperator)(int)f.Operator, f.ComparisonValue);
+            queryOptions.FieldFilter(f.AttributePath, FieldFilterOperatorDtoExtensions.FromCkModelEnum(f.Operator),
+                f.ComparisonValue);
         }
     }
 
