@@ -18,6 +18,11 @@ public class IdentityToolsTests : TestBase
     {
         _mockTokenStore = new Mock<IMcpSessionTokenStore>();
         TestServiceProvider.RegisterService(_mockTokenStore.Object);
+
+        // The session token these tests seed is issued for `user-123` in `test-tenant`; since AB#5036 a
+        // stored token is only handed out to the principal it belongs to, so the request principal has to
+        // be that same user.
+        GivenAuthenticatedCaller(DefaultTestTenantId, "user-123", "Admin");
     }
 
     private readonly Mock<IMcpSessionTokenStore> _mockTokenStore;

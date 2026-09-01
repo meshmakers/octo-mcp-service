@@ -23,7 +23,7 @@ dotnet build src/McpServices/McpServices.csproj -c DebugL
 # Build the entire solution (server + tests + resources)
 dotnet build Octo.McpServices.sln -c DebugL
 
-# Run all tests (currently 755, ~700 ms)
+# Run all tests (currently 777, ~700 ms)
 dotnet test Octo.McpServices.sln -c DebugL
 
 # Filter tests by class
@@ -48,7 +48,7 @@ Minimum coverage per tool:
 - **Missing required args** — pass empty / null, assert validation error, no SDK call.
 - **Destructive without confirm** — for any tool with a `confirm` parameter, assert refusing without it.
 
-The current ratio is ~3.8 tests per tool (755 tests for 199 tools). Don't lower it.
+The current ratio is ~3.9 tests per tool (777 tests for 199 tools). Don't lower it.
 
 ### 2. Use the `*ClientContext` helpers — never call the factory directly from a tool
 
@@ -406,14 +406,15 @@ using var session = await tenantRepository.GetSessionAsync(security.SecurityCont
 #### Identity comes from the request principal, never from the session store
 
 The caller identity is read off `IHttpContextAccessor.HttpContext.User` — the principal the JWT
-bearer handler produced *after* it verified signature, issuer and lifetime.
+bearer handler produced *after* it verified signature, issuer and lifetime. `Services/McpCallerPrincipal.cs`
+is the one reader of those claims (AB#5036 extracted it here so the tenant gate and the session-token
+binding cannot disagree on what a "service token" is).
 
-**It must not come from `McpSessionContext.TryGetAccessTokenAsync`.** That store is keyed by the
-**client-supplied `Mcp-Session-Id` request header**, with a shared `"default-session"` fallback slot
-when the header is absent (`McpSessionContext.GetSessionId`). A caller can therefore name any
-session id they like, so the store is not a trustworthy identity source. It is consulted **only** on
-the cross-tenant path, and there the token it hands out is bound back to the request principal
-before it is used (below).
+**It must not come from `McpSessionContext.TryGetAccessTokenAsync`.** The store is a *cache of
+tokens*, not a statement about who is calling; since AB#5036 its key is derived from this very
+principal, so reading an identity back out of it would be circular. It is consulted **only** on the
+cross-tenant path, and there the token it hands out is bound back to the request principal before it
+is used (below).
 
 Claim reading mirrors `AssetRepositoryServices/GraphQL/Helpers.GetSecurityContext` one-for-one, so
 the same user sees the same data through MCP and through GraphQL:
@@ -457,8 +458,9 @@ things happen in order, and each one can deny:
 1. **Bind the store token to the request.** The home token is fetched from the session store and
    only accepted when its `sub` **and** `tenant_id` match the request principal's. An unparseable
    (opaque) home token fails this too. Otherwise: `…denied: the stored session token does not belong
-   to the authenticated caller.` Without this check a caller could borrow whatever token another
-   caller left in the shared fallback slot.
+   to the authenticated caller.` Since AB#5036 this check lives in `McpSessionContext` (constant
+   `Constants.SessionTokenNotBoundError`) and applies to **all three tool families**, so the resolver
+   just propagates the message; client-credentials principals are exempt (see below).
 2. **Exchange.** `McpSessionContext.TryGetAccessTokenAsync(server, tenantId)` performs / caches the
    exchange. A `null` result gets its **own** message — `…denied: the cross-tenant token exchange
    failed. The caller is homed in tenant 'A' and has no permission for 'B'…` — deliberately **not**
@@ -524,13 +526,64 @@ session-opening sites (8 CRUD tools, 3 aggregation tools over 2 sites, `execute_
 `KnowledgeResources`); `update_entity`'s second post-commit `readSession` needs its own arrangement
 and has a dedicated test.
 
-### In-band session token (outbound calls)
+### In-band session token (outbound calls) — bound to the caller (AB#5036)
 
 Separate from the inbound gate, family-1 tools use a per-session token for their **outbound** calls
 to the backend services:
 
-1. **OAuth Device Authorization** — `authenticate` tool issues a device code; user logs in via browser; `check_auth_status` polls until tokens are issued; tokens go into `IMcpSessionTokenStore` keyed by the MCP session id from the `Mcp-Session-Id` HTTP header.
-2. **Per-request token injection** — `McpSessionContext.TryGetAccessToken(server)` pulls the current session's access token; the `*ClientContext` helpers feed it to `OctoServiceClientFactory.Create*Client(tenantId, accessToken)`.
+1. **OAuth Device Authorization** — `authenticate` issues a device code; user logs in via browser;
+   `check_auth_status` polls until tokens are issued; tokens go into `IMcpSessionTokenStore`.
+2. **Per-request token injection** — `McpSessionContext.ResolveAccessTokenAsync(server[, tenantId])`
+   picks the token; the `*ClientContext` helpers feed it to
+   `OctoServiceClientFactory.Create*Client(tenantId, accessToken)`.
+
+This store decides **which identity Identity / Asset-Repo / Communication / Reporting / StreamData /
+Bot see**, so it is bound to the authenticated caller in two independent ways. Both live in
+`Services/McpSessionContext.cs`.
+
+**1. The key is derived from the request principal, not from the client.**
+`McpSessionContext.TryGetSessionKey` returns `u:{tenant_id}:{sub}` for a user principal, `c:{client_id}`
+for a client-credentials one, optionally suffixed `|{Mcp-Session-Id}` when the client sent that header.
+Consequences:
+
+- **No shared slot.** The old key was the `Mcp-Session-Id` header alone with a constant
+  `"default-session"` fallback. Since `WithHttpTransport()` runs at its default
+  `HttpServerSessionMode.Stateless`, the server never mints that header and no client sends one — so in
+  practice *every* caller on the pod shared one process-wide slot, and whoever ran `authenticate` last
+  donated their identity (cross-tenant included) to everyone else.
+- **The header is no longer an identity.** A caller may still send any value; it only partitions
+  *within* their own namespace, so it can never address someone else's entry.
+- **No principal ⇒ no store.** `TryGetSessionKey` returns null and the call falls back to the request's
+  own `Authorization: Bearer` — which is exactly the right identity. `authenticate` /
+  `check_auth_status` refuse outright in that case (there is no slot to park a device code in that
+  isn't shared). Since AB#4315 both endpoints require a validated bearer, so a principal is always
+  present in production. `McpSessionContext.GetCallerLabel` is the deliberately non-null variant, used
+  **only** for the file-transfer ownership tag (transfers authorise on the opaque 128-bit transfer id,
+  not on the session).
+
+**2. A stored token is verified before it is used.** `VerifyBinding` requires the token's `sub` **and**
+`tenant_id` to equal the request principal's; an opaque token fails because it cannot be bound at all.
+The failure is a hard refusal with `Constants.SessionTokenNotBoundError` (`…does not belong to the
+authenticated caller…`), *not* a silent downgrade to the header bearer and *not* `Not authenticated` —
+the caller is authenticated, their stored session simply carries a different identity. The check is
+re-applied to a refreshed token, so an expired foreign token cannot be laundered into a fresh one.
+
+> **Client-credentials principals are exempt from check 2.** A service token has no `sub`, so the
+> subject match is not a question that can be asked of it. The AI Adapter worker (`IMcpTokenIssuer`)
+> and the mesh-adapter `AnthropicAiQueryNode` (`ServiceAccountConfiguration`) present their token in
+> the `Authorization` header and never populate the store; requiring a subject would lock both out of
+> every tenant. Their store namespace is their `client_id`. Same exemption, same reason as the tenant
+> gate — tightening it is AB#5032.
+
+**Device flow under the binding.** `authenticate` and `check_auth_status` land on the same key because
+the principal is the same across the two calls. But a device login against a **different** tenant
+produces a token for that tenant's shadow user, which check 2 then refuses — `check_auth_status` says
+so in its success message instead of letting the next tool call fail with an unrelated-looking error.
+The sanctioned way to reach another tenant is `switch_tenant` / the transparent RFC 8693 exchange.
+
+**Not changed:** `WithHttpTransport()` still runs in the default stateless mode. Switching it to
+`Stateful` would make the transport mint and bind `Mcp-Session-Id` itself, which is a behaviour change
+for every client (session affinity required, GET/DELETE endpoints appear) — evaluate separately.
 
 Tenant comes from (in order):
 1. Explicit `tenantId` tool parameter
@@ -548,7 +601,9 @@ call `McpSessionContext.TryGetAccessTokenAsync(server, tenantId)`, which transpa
 home token for a B-scoped token (RFC 8693 token-exchange grant → `POST /connect/token`
 `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`, `subject_token`=home token,
 `acr_values=tenant:B`, `client_id=octo-mcpServices-device`) via `ITenantTokenExchanger`, cached
-per-`(sessionId, tenantId)` in `McpSessionTokenStore`. The identity side re-resolves roles in B (issues
+per-`(sessionKey, tenantId)` in `McpSessionTokenStore` — the same caller-bound `sessionKey` as the home
+token (AB#5036), so a cached B token is reachable only by the principal that obtained it, and the home
+token used as `subject_token` has already passed the binding check. The identity side re-resolves roles in B (issues
 the token for the B-shadow user) so there is no role leak. The `switch_tenant` tool is the explicit
 affordance; on failure it recommends the `authenticate` device-flow fallback.
 
@@ -571,6 +626,8 @@ there is unnecessary and could break bot ops the home token already serves.
 
 - `TestBase` — base mocks (`McpServer`, `TestServiceProvider`, `IOctoHttpContextAccessor`, `ITenantResolutionService`, `ICkCacheService`, `ITenantRepository` + its `ISecureSessionFactory` face) plus a `DefaultHttpContext` carrying the authenticated request principal the direct-engine tools derive their caller identity from, and an `IMcpSessionTokenStore` holding the matching home token for the cross-tenant exchange path (AB#5030 — see *Caller identity + tenant gate* above). The parameterless `GetSessionAsync()` throws on purpose.
 - `ToolTestBase : TestBase` — adds `IMcpSessionTokenStore` + `IOctoServiceClientFactory` mocks plus 6 per-SDK-client mocks (`MockIdentityClient`, `MockAssetClient`, `MockCommunicationClient`, `MockStreamDataClient`, `MockReportingClient`, `MockBotClient`) and the real `FileTransferStore`. Helpers: `GivenAuthenticated()`, `GivenUnauthenticated()`, `GivenTokenExpired()`.
+  - **`GivenAuthenticated()` returns the token it stored** and defaults to a JWT bound to the request principal `TestBase` installs (`sub=test-subject`, `tenant_id=test-tenant`). Since AB#5036 an opaque placeholder would be refused by the binding check, so assert against the returned value instead of a literal. Passing an explicit token is still allowed — for a token belonging to another identity (a denial test) or when the caller is a service principal.
+  - `MockTokenExchanger` defaults to an **identity-preserving** exchange (returns the `subject_token` back) because the default session token now carries a readable `tenant_id`: a test that points a tool at another tenant takes the AB#4338 exchange path and still sees the token it arranged. Tests about the exchange itself override this setup.
 - `InternalsVisibleTo("McpServices.Tests")` is set on `McpServices.csproj` so tests can access `FileTransferStore` directly (the interface is `IFileTransferStore`).
 
 ### Adding a tests file
@@ -637,7 +694,7 @@ Notes:
 - **Code coverage** is collected via `coverlet.collector` (already referenced in `McpServices.Tests.csproj`) and surfaced in the Code Coverage tab of the build. Cobertura XML lands in `$(Agent.TempDirectory)`.
 - **Test glob excludes `*SystemTests.csproj`** so a future `McpServices.SystemTests` project (real-service integration suite) can be added later without breaking the main build — those would need their own pipeline + Testcontainers env, matching the pattern in `octo-identity-services`.
 
-The current suite is ~755 mock-based unit tests + a handful of in-process integration tests (`McpServerIntegrationTests`). If you add real-service-dependent tests, put them in a separate `*SystemTests` project so they're skipped here.
+The current suite is ~777 mock-based unit tests + a handful of in-process integration tests (`McpServerIntegrationTests`). If you add real-service-dependent tests, put them in a separate `*SystemTests` project so they're skipped here.
 
 ## Project Layout
 
@@ -651,8 +708,9 @@ src/McpServices/
 ├── Services/
 │   ├── IOctoServiceClientFactory.cs    # SDK client factory interface
 │   ├── OctoServiceClientFactory.cs     # Builds per-tenant SDK clients
-│   ├── McpSessionContext.cs            # Session id + access token helpers
-│   ├── McpSessionTokenStore.cs         # OAuth tokens keyed by session id
+│   ├── McpCallerPrincipal.cs           # The validated request principal (single claim reader)
+│   ├── McpSessionContext.cs            # Caller-bound store key + access token resolution (AB#5036)
+│   ├── McpSessionTokenStore.cs         # OAuth tokens keyed by the caller-bound session key
 │   ├── TenantResolutionService.cs      # tool param / route param resolution
 │   ├── {Identity,Asset,Communication,StreamData,Reporting,Bot}ClientContext.cs
 │   ├── IFileTransferStore.cs           # File transfer abstraction

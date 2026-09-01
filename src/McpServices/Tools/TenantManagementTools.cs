@@ -24,13 +24,16 @@ public sealed class TenantManagementTools
         [Description("Parent tenant whose child tenants should be listed. If omitted, the tenant is resolved from the URL route.")]
         string? tenantId = null)
     {
-        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
+        // AB#5036: session.Error names the real reason (a stored token that is not the
+        // caller's) instead of collapsing it into "Not authenticated".
+        var session = await McpSessionContext.ResolveAccessTokenAsync(server);
+        var accessToken = session.AccessToken;
         if (accessToken == null)
         {
             return new GetTenantsResponse
             {
                 IsSuccess = false,
-                ErrorMessage = Constants.NotAuthenticatedError
+                ErrorMessage = session.Error ?? Constants.NotAuthenticatedError
             };
         }
 
@@ -84,13 +87,16 @@ public sealed class TenantManagementTools
         [Description("Parent tenant under which the child is created. If omitted, the tenant is resolved from the URL route.")]
         string? tenantId = null)
     {
-        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
+        // AB#5036: session.Error names the real reason (a stored token that is not the
+        // caller's) instead of collapsing it into "Not authenticated".
+        var session = await McpSessionContext.ResolveAccessTokenAsync(server);
+        var accessToken = session.AccessToken;
         if (accessToken == null)
         {
             return new CreateTenantResponse
             {
                 IsSuccess = false,
-                ErrorMessage = Constants.NotAuthenticatedError
+                ErrorMessage = session.Error ?? Constants.NotAuthenticatedError
             };
         }
 
@@ -164,13 +170,16 @@ public sealed class TenantManagementTools
         [Description("Parent tenant under which the child lives. If omitted, the tenant is resolved from the URL route.")]
         string? tenantId = null)
     {
-        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
+        // AB#5036: session.Error names the real reason (a stored token that is not the
+        // caller's) instead of collapsing it into "Not authenticated".
+        var session = await McpSessionContext.ResolveAccessTokenAsync(server);
+        var accessToken = session.AccessToken;
         if (accessToken == null)
         {
             return new DeleteTenantResponse
             {
                 IsSuccess = false,
-                ErrorMessage = Constants.NotAuthenticatedError
+                ErrorMessage = session.Error ?? Constants.NotAuthenticatedError
             };
         }
 
@@ -344,7 +353,10 @@ public sealed class TenantManagementTools
 
     private static async Task<AssetClientContext> TryBuildContext(McpServer server, string? tenantId)
     {
-        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
+        // AB#5036: session.Error names the real reason (a stored token that is not the
+        // caller's) instead of collapsing it into "Not authenticated".
+        var session = await McpSessionContext.ResolveAccessTokenAsync(server);
+        var accessToken = session.AccessToken;
         if (accessToken == null)
         {
             return new AssetClientContext(null, null,

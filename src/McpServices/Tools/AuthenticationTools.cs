@@ -34,7 +34,15 @@ public sealed class AuthenticationTools
             var httpClientFactory = server.Services!.GetRequiredService<IHttpClientFactory>();
             var mcpOptions = server.Services!.GetRequiredService<IOptions<McpServiceOptions>>().Value;
 
-            var sessionId = GetSessionId(server);
+            var sessionId = McpSessionContext.TryGetSessionKey(server);
+            if (sessionId == null)
+            {
+                return new AuthenticateResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = NoCallerError
+                };
+            }
 
             // Check if already authenticated
             var existingTokens = tokenStore.GetTokens(sessionId);
@@ -133,7 +141,16 @@ public sealed class AuthenticationTools
             var httpClientFactory = server.Services!.GetRequiredService<IHttpClientFactory>();
             var mcpOptions = server.Services!.GetRequiredService<IOptions<McpServiceOptions>>().Value;
 
-            var sessionId = GetSessionId(server);
+            var sessionId = McpSessionContext.TryGetSessionKey(server);
+            if (sessionId == null)
+            {
+                return new CheckAuthStatusResponse
+                {
+                    IsSuccess = false,
+                    IsAuthenticated = false,
+                    ErrorMessage = NoCallerError
+                };
+            }
 
             // Check if already authenticated
             var existingTokens = tokenStore.GetTokens(sessionId);
@@ -250,11 +267,27 @@ public sealed class AuthenticationTools
             // Clean up device authorization
             tokenStore.RemoveDeviceAuthorization(sessionId);
 
+            // The stored token is only usable when it belongs to the principal that presented the
+            // transport bearer (AB#5036) — a device login against a DIFFERENT tenant produces a token for
+            // that tenant's shadow user, which the tools will refuse. Say so here rather than letting the
+            // next tool call fail with a message that looks unrelated. The sanctioned way to reach another
+            // tenant is 'switch_tenant' / the transparent RFC 8693 exchange (AB#4338).
+            var caller = McpCallerPrincipal.FromServer(server);
+            var boundToCaller = caller is not { IsUserPrincipal: true }
+                                || (string.Equals(JwtClaimReader.TryReadSubjectId(tokenResponse.AccessToken),
+                                        caller.UserSubjectId, StringComparison.OrdinalIgnoreCase)
+                                    && string.Equals(JwtClaimReader.TryReadTenantId(tokenResponse.AccessToken),
+                                        caller.TenantId, StringComparison.OrdinalIgnoreCase));
+
             return new CheckAuthStatusResponse
             {
                 IsSuccess = true,
                 IsAuthenticated = true,
-                Message = "Authentication successful! You can now use all tools. Use 'whoami' to see your identity and 'list_tenants' to see available tenants."
+                Message = boundToCaller
+                    ? "Authentication successful! You can now use all tools. Use 'whoami' to see your identity and 'list_tenants' to see available tenants."
+                    : "Authentication completed, but the resulting token belongs to a different identity than "
+                      + "the bearer this MCP connection was opened with, so tools will not use it. Re-run "
+                      + "'authenticate' for your own tenant, or use 'switch_tenant' to reach another tenant."
             };
         }
         catch (Exception ex)
@@ -283,13 +316,24 @@ public sealed class AuthenticationTools
     {
         try
         {
-            var sessionId = GetSessionId(server);
+            var sessionId = McpSessionContext.TryGetSessionKey(server);
             var tokenStore = server.Services!.GetRequiredService<IMcpSessionTokenStore>();
 
-            var before = tokenStore.GetTokens(sessionId);
+            var before = sessionId == null ? null : tokenStore.GetTokens(sessionId);
             var wasExpired = before != null && before.IsExpired;
 
-            var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
+            var resolved = await McpSessionContext.ResolveAccessTokenAsync(server);
+            if (resolved.Error != null)
+            {
+                return new AuthStatusResponse
+                {
+                    IsSuccess = false,
+                    IsAuthenticated = false,
+                    ErrorMessage = resolved.Error
+                };
+            }
+
+            var accessToken = resolved.AccessToken;
             if (accessToken == null)
             {
                 return new AuthStatusResponse
@@ -300,7 +344,7 @@ public sealed class AuthenticationTools
                 };
             }
 
-            var after = tokenStore.GetTokens(sessionId);
+            var after = sessionId == null ? null : tokenStore.GetTokens(sessionId);
             var wasRefreshed = wasExpired && after != null && !after.IsExpired;
 
             string? sub = null;
@@ -357,16 +401,16 @@ public sealed class AuthenticationTools
         }
     }
 
-    private static string GetSessionId(McpServer server)
-    {
-        // Use the McpServer's session/connection identifier.
-        // The MCP HTTP transport uses a session ID header (Mcp-Session-Id).
-        // Fall back to a server-instance identifier if not available.
-        // Use the MCP session ID from HTTP context, or fall back to server options name
-        var httpContextAccessor = server.Services?.GetService<IHttpContextAccessor>();
-        var sessionId = httpContextAccessor?.HttpContext?.Request.Headers["Mcp-Session-Id"].FirstOrDefault();
-        return sessionId ?? server.ServerOptions?.ServerInfo?.Name ?? "default-session";
-    }
+    /// <summary>
+    ///     Error for a device-flow call that cannot be attributed to a caller. Since AB#4315 both MCP
+    ///     endpoints require a validated bearer, so a request always carries a principal in production —
+    ///     and since AB#5036 that principal, not the client-supplied <c>Mcp-Session-Id</c> header, is what
+    ///     the token store is keyed by. Without one there is no slot to put the device code in that would
+    ///     not be shared with every other caller on the pod.
+    /// </summary>
+    private const string NoCallerError =
+        "Cannot start a device-flow session: this request carries no authenticated principal. Connect your "
+        + "MCP client with a bearer token first.";
 
     #region Response Models
 

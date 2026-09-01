@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Microsoft.AspNetCore.Http;
@@ -15,6 +16,8 @@ namespace McpServices.Tests.Services;
 /// </summary>
 public class McpSessionContextTenantTests
 {
+    private const string HomeTenant = "tenant-a";
+    private const string CallerSubject = "user-1";
     private const string TargetTenant = "tenant-b";
 
     private readonly Mock<IMcpSessionTokenStore> _mockTokenStore = new();
@@ -22,6 +25,7 @@ public class McpSessionContextTenantTests
     private readonly Mock<ISessionTokenRefresher> _mockRefresher = new();
     private readonly Mock<ITenantTokenExchanger> _mockExchanger = new();
     private readonly Mock<McpServer> _mockServer = new();
+    private readonly DefaultHttpContext _httpContext = new();
     private readonly ServiceProvider _services;
 
     public McpSessionContextTenantTests()
@@ -33,16 +37,25 @@ public class McpSessionContextTenantTests
         services.AddSingleton(_mockExchanger.Object);
         _services = services.BuildServiceProvider();
         _mockServer.Setup(s => s.Services).Returns(_services);
+        _mockHttpContextAccessor.Setup(h => h.HttpContext).Returns(() => _httpContext);
+
+        // Since AB#5036 the store is keyed by — and verified against — the validated request principal,
+        // so every one of these tests needs a caller the home token can bind to.
+        _httpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.NameIdentifier, CallerSubject),
+            new Claim("tenant_id", HomeTenant)
+        ], "Bearer"));
     }
 
     [Fact]
     public async Task TryGetAccessTokenAsync_WhenTenantMatchesHome_ReturnsHomeTokenWithoutExchange()
     {
-        var homeToken = TestJwt.Create("tenant-a");
+        var homeToken = TestJwt.CreateFull(HomeTenant, CallerSubject, clientId: null);
         GivenHomeToken(homeToken);
 
         var token = await McpSessionContext.TryGetAccessTokenAsync(
-            _mockServer.Object, "tenant-a", CancellationToken.None);
+            _mockServer.Object, HomeTenant, CancellationToken.None);
 
         token.Should().Be(homeToken, "the requested tenant equals the home token's tenant_id → no exchange");
         _mockExchanger.Verify(
@@ -53,7 +66,7 @@ public class McpSessionContextTenantTests
     [Fact]
     public async Task TryGetAccessTokenAsync_WhenTenantNull_ReturnsHomeTokenWithoutExchange()
     {
-        var homeToken = TestJwt.Create("tenant-a");
+        var homeToken = TestJwt.CreateFull(HomeTenant, CallerSubject, clientId: null);
         GivenHomeToken(homeToken);
 
         var token = await McpSessionContext.TryGetAccessTokenAsync(
@@ -68,7 +81,7 @@ public class McpSessionContextTenantTests
     [Fact]
     public async Task TryGetAccessTokenAsync_WhenTargetTenantAbsent_ExchangesOnceAndCaches()
     {
-        var homeToken = TestJwt.Create("tenant-a");
+        var homeToken = TestJwt.CreateFull(HomeTenant, CallerSubject, clientId: null);
         GivenHomeToken(homeToken);
         _mockTokenStore.Setup(s => s.GetTenantTokens(It.IsAny<string>(), TargetTenant))
             .Returns((McpSessionTokens?)null);
@@ -96,7 +109,7 @@ public class McpSessionContextTenantTests
     [Fact]
     public async Task TryGetAccessTokenAsync_WhenTargetTokenCachedAndFresh_ReturnsCacheHitWithoutExchange()
     {
-        var homeToken = TestJwt.Create("tenant-a");
+        var homeToken = TestJwt.CreateFull(HomeTenant, CallerSubject, clientId: null);
         GivenHomeToken(homeToken);
         _mockTokenStore.Setup(s => s.GetTenantTokens(It.IsAny<string>(), TargetTenant))
             .Returns(new McpSessionTokens
@@ -117,7 +130,7 @@ public class McpSessionContextTenantTests
     [Fact]
     public async Task TryGetAccessTokenAsync_WhenExchangeFails_ReturnsNull()
     {
-        var homeToken = TestJwt.Create("tenant-a");
+        var homeToken = TestJwt.CreateFull(HomeTenant, CallerSubject, clientId: null);
         GivenHomeToken(homeToken);
         _mockTokenStore.Setup(s => s.GetTenantTokens(It.IsAny<string>(), TargetTenant))
             .Returns((McpSessionTokens?)null);
@@ -134,7 +147,6 @@ public class McpSessionContextTenantTests
     public async Task TryGetAccessTokenAsync_WhenNoHomeToken_ReturnsNullWithoutExchange()
     {
         _mockTokenStore.Setup(s => s.GetTokens(It.IsAny<string>())).Returns((McpSessionTokens?)null);
-        _mockHttpContextAccessor.Setup(h => h.HttpContext).Returns(new DefaultHttpContext());
 
         var token = await McpSessionContext.TryGetAccessTokenAsync(
             _mockServer.Object, TargetTenant, CancellationToken.None);

@@ -18,10 +18,11 @@ public class TenantSwitchToolsTests : ToolTestBase
     [Fact]
     public async Task SwitchTenant_HappyPath_ExchangesCachesAndReturnsRoles()
     {
-        GivenAuthenticated("home-token");
+        // The home token must bind to the request principal (AB#5036) or the tools refuse to use it.
+        var homeToken = GivenAuthenticated();
         var bToken = TestJwt.Create(TargetTenant, "Reader", "Writer");
         MockTokenExchanger
-            .Setup(e => e.ExchangeForTenantAsync("home-token", TargetTenant, It.IsAny<CancellationToken>()))
+            .Setup(e => e.ExchangeForTenantAsync(homeToken, TargetTenant, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new McpSessionTokens
             {
                 AccessToken = bToken,
@@ -69,9 +70,9 @@ public class TenantSwitchToolsTests : ToolTestBase
     [Fact]
     public async Task SwitchTenant_WhenExchangeFails_RecommendsAuthenticate()
     {
-        GivenAuthenticated("home-token");
+        var homeToken = GivenAuthenticated();
         MockTokenExchanger
-            .Setup(e => e.ExchangeForTenantAsync("home-token", TargetTenant, It.IsAny<CancellationToken>()))
+            .Setup(e => e.ExchangeForTenantAsync(homeToken, TargetTenant, It.IsAny<CancellationToken>()))
             .ReturnsAsync((McpSessionTokens?)null);
 
         var result = await TenantSwitchTools.SwitchTenant(MockServer.Object, TargetTenant);
@@ -88,7 +89,10 @@ public class TenantSwitchToolsTests : ToolTestBase
     [Fact]
     public async Task SwitchTenant_WhenAlreadyOnTargetTenant_ReturnsRolesWithoutExchange()
     {
-        GivenAuthenticated(TestJwt.Create(TargetTenant, "Admin"));
+        // Caller and stored token are both homed in the target tenant — the shape the "already there"
+        // shortcut exists for. Both have to agree since AB#5036.
+        GivenAuthenticatedCaller(TargetTenant, DefaultCallerSubjectId, "Admin");
+        GivenAuthenticated(TestJwt.CreateFull(TargetTenant, DefaultCallerSubjectId, clientId: null, "Admin"));
 
         var result = await TenantSwitchTools.SwitchTenant(MockServer.Object, TargetTenant);
 

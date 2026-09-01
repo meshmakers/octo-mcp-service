@@ -24,11 +24,15 @@ internal sealed record StreamDataClientContext(
             var tenantId = tenantResolver.ResolveTenantId(tenantIdParam);
 
             // Tenant-aware token (AB#4338): home tenant → session token; other tenant → exchanged B token.
-            var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server, tenantId);
-            if (accessToken == null)
+            // AB#5036: a stored session token that does not belong to the request principal is refused
+            // with its own message instead of being silently swapped for the request's bearer.
+            var token = await McpSessionContext.ResolveAccessTokenAsync(server, tenantId);
+            if (token.Error != null || token.AccessToken == null)
             {
-                return new StreamDataClientContext(null, null, Constants.NotAuthenticatedError);
+                return new StreamDataClientContext(null, null, token.Error ?? Constants.NotAuthenticatedError);
             }
+
+            var accessToken = token.AccessToken;
 
             var factory = server.Services!.GetRequiredService<IOctoServiceClientFactory>();
             return new StreamDataClientContext(factory.CreateStreamDataClient(tenantId, accessToken), tenantId, null);

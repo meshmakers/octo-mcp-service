@@ -1,6 +1,4 @@
-using System.Security.Claims;
 using Meshmakers.Octo.Runtime.Contracts;
-using Microsoft.AspNetCore.Http;
 using ModelContextProtocol.Server;
 
 namespace Meshmakers.Octo.Backend.McpServices.Services;
@@ -29,12 +27,12 @@ internal sealed record RuntimeSecurityContextResult(
 ///     </para>
 ///     <para>
 ///     <b>Identity source.</b> The caller identity comes from <c>HttpContext.User</c> — the principal the
-///     JWT bearer handler produced after it verified the token's signature, issuer and lifetime. It does
-///     NOT come from the per-session token store: that store is keyed by the client-supplied
-///     <c>Mcp-Session-Id</c> header (with a shared <c>"default-session"</c> fallback), so a caller could
-///     otherwise inherit another caller's identity simply by naming their session id. The store is
-///     consulted only on the cross-tenant path, and there the token it hands out is verified to belong to
-///     the request principal before it is used.
+///     JWT bearer handler produced after it verified the token's signature, issuer and lifetime, read via
+///     <see cref="McpCallerPrincipal" />. It does NOT come from the per-session token store: the store is
+///     a cache of tokens, not a statement about who is calling. The store is consulted only on the
+///     cross-tenant path, and there the token it hands out is verified to belong to the request principal
+///     before it is used (that check lives in <see cref="McpSessionContext" /> since AB#5036, so families
+///     1, 2 and 3 all enforce it identically).
 ///     </para>
 ///     <para>
 ///     The claim reading mirrors <c>AssetRepositoryServices/GraphQL/Helpers.GetSecurityContext</c>
@@ -77,40 +75,22 @@ internal static class RuntimeSecurityContextResolver
         }
 
         // ── Validated request principal ────────────────────────────────────────────────────────
-        // IHttpContextAccessor is registered by AddOctoServiceInfrastructure. GetService (not
-        // GetRequiredService) so a host that never wired it degrades into a denial rather than an
-        // exception thrown out of a tool.
-        var httpContextAccessor = server.Services?.GetService<IHttpContextAccessor>();
-        var user = httpContextAccessor?.HttpContext?.User;
-        if (user?.Identity?.IsAuthenticated != true)
+        // McpCallerPrincipal reads the claims off HttpContext.User (IHttpContextAccessor is resolved with
+        // GetService, so a host that never wired it degrades into a denial rather than an exception thrown
+        // out of a tool) and is the SAME reader the session-token binding uses (AB#5036) — the two must
+        // agree on what a "service token" is or the client-credentials exemption would apply on one path
+        // and not the other.
+        var caller = McpCallerPrincipal.FromServer(server);
+        if (caller == null)
         {
             return new RuntimeSecurityContextResult(null, resolvedTenantId, Constants.NotAuthenticatedError);
         }
 
-        // ConfigureJwtBearerOptions leaves MapInboundClaims at its ASP.NET default of true, so the
-        // JWT's `sub` arrives on the principal as ClaimTypes.NameIdentifier. Both names must be
-        // probed or nothing matches. `client_id` is the client-credentials fallback.
-        var userSubjectId = user.FindFirst("sub")?.Value
-                            ?? user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var clientId = user.FindFirst("client_id")?.Value;
-        var subjectId = userSubjectId ?? clientId;
+        var subjectId = caller.SubjectId;
+        var roles = caller.Roles;
+        var principalTenantId = caller.TenantId;
 
-        // A client-credentials (service) token carries no subject at all — only a client id. That is
-        // the marker the tenant-gate exemption below keys off.
-        var isUserPrincipal = userSubjectId != null;
-
-        // Role claims may arrive under the identity's RoleClaimType (inbound mapping on) or under the
-        // JWT short name "role" (mapping off) — read both, like the subject above.
-        var roles = user.Identities
-            .SelectMany(i => i.FindAll(i.RoleClaimType).Concat(i.FindAll("role")))
-            .Select(c => c.Value)
-            .Distinct()
-            .ToArray();
-
-        // `tenant_id` is not part of the inbound claim map, so it keeps its JWT name on the principal.
-        var principalTenantId = user.FindFirst("tenant_id")?.Value;
-
-        if (!isUserPrincipal)
+        if (!caller.IsUserPrincipal)
         {
             // Client-credentials SERVICE tokens are deliberately exempt from the tenant match, mirroring
             // the backend TenantAuthorizationMiddleware which skips the same class of token. That is how
@@ -146,7 +126,7 @@ internal static class RuntimeSecurityContextResolver
         }
 
         return await ResolveCrossTenantAsync(
-            server, resolvedTenantId, userSubjectId!, principalTenantId, cancellationToken);
+            server, resolvedTenantId, principalTenantId, cancellationToken);
     }
 
     /// <summary>
@@ -157,15 +137,18 @@ internal static class RuntimeSecurityContextResolver
     private static async ValueTask<RuntimeSecurityContextResult> ResolveCrossTenantAsync(
         McpServer server,
         string resolvedTenantId,
-        string principalSubjectId,
         string principalTenantId,
         CancellationToken cancellationToken)
     {
         // The exchange needs the caller's home token as the subject_token; only the session store has it.
-        string? homeToken;
+        // Binding that store entry to THIS request principal — its `sub` and `tenant_id` must match, and an
+        // opaque token cannot be bound at all — happens inside McpSessionContext since AB#5036, so both
+        // tool families enforce the same rule with the same message. Without it a caller could borrow
+        // whatever token another caller happened to leave in the store.
+        SessionAccessToken home;
         try
         {
-            homeToken = await McpSessionContext.TryGetAccessTokenAsync(server, cancellationToken);
+            home = await McpSessionContext.ResolveAccessTokenAsync(server, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -175,25 +158,14 @@ internal static class RuntimeSecurityContextResolver
                 $"Could not resolve the caller's session token: {ex.Message}");
         }
 
-        if (homeToken == null)
+        if (home.Error != null)
         {
-            return new RuntimeSecurityContextResult(null, resolvedTenantId, Constants.NotAuthenticatedError);
+            return new RuntimeSecurityContextResult(null, resolvedTenantId, home.Error);
         }
 
-        // Bind the store entry to THIS request. The store key derives from the client-supplied
-        // Mcp-Session-Id header and falls back to a shared slot, so without this check a caller could
-        // borrow whatever token another caller happened to leave in that slot.
-        var homeSubjectId = JwtClaimReader.TryReadSubjectId(homeToken);
-        var homeTenantId = JwtClaimReader.TryReadTenantId(homeToken);
-        if (homeSubjectId == null
-            || homeTenantId == null
-            || !string.Equals(homeSubjectId, principalSubjectId, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(homeTenantId, principalTenantId, StringComparison.OrdinalIgnoreCase))
+        if (home.AccessToken == null)
         {
-            return new RuntimeSecurityContextResult(null, resolvedTenantId,
-                $"Access to tenant '{resolvedTenantId}' denied: the stored session token does not belong to the "
-                + "authenticated caller. Re-run the 'authenticate' tool for this MCP session before making "
-                + "cross-tenant calls.");
+            return new RuntimeSecurityContextResult(null, resolvedTenantId, Constants.NotAuthenticatedError);
         }
 
         string? exchangedToken;

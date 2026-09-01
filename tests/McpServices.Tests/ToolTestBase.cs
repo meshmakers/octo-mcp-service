@@ -82,22 +82,52 @@ public abstract class ToolTestBase : TestBase
             .Setup(f => f.CreateBotClient(It.IsAny<string>()))
             .Returns(MockBotClient.Object);
 
+        // Default cross-tenant exchange (AB#4338): hands back the SAME token for any target tenant. The
+        // default session token is a JWT homed in DefaultTenantId (see GivenAuthenticated), so any test
+        // that points a tool at another tenant now takes the exchange path — an identity-preserving
+        // exchange keeps those tests asserting the token they arranged. Tests that care about the
+        // exchange itself override this setup.
+        MockTokenExchanger
+            .Setup(e => e.ExchangeForTenantAsync(It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string subjectToken, string _, CancellationToken _) => new McpSessionTokens
+            {
+                AccessToken = subjectToken,
+                ExpiresAtUtc = DateTime.UtcNow.AddHours(1)
+            });
+
         TestServiceProvider.RegisterService(MockTokenStore.Object);
         TestServiceProvider.RegisterService(MockClientFactory.Object);
         TestServiceProvider.RegisterService(MockTokenExchanger.Object);
         TestServiceProvider.RegisterService<IFileTransferStore>(FileTransferStore);
     }
 
-    /// <summary>Mark the current MCP session as authenticated with the given access token.</summary>
-    protected void GivenAuthenticated(string accessToken = "test-access-token")
+    /// <summary>
+    ///     Mark the current MCP session as authenticated and return the access token the store hands out.
+    ///     <para>
+    ///     The default token is a JWT bound to the request principal <see cref="TestBase" /> installs
+    ///     (<c>sub</c> = <see cref="TestBase.DefaultCallerSubjectId" />, <c>tenant_id</c> =
+    ///     <see cref="DefaultTenantId" />). Since AB#5036 the session store is only read for the caller it
+    ///     belongs to and a stored token must bind back to that principal, so an opaque placeholder string
+    ///     would be refused — pin the returned value instead of a literal when a test asserts which token
+    ///     reached the SDK factory.
+    ///     </para>
+    /// </summary>
+    /// <param name="accessToken">Explicit token to store; null uses the principal-bound default.</param>
+    protected string GivenAuthenticated(string? accessToken = null)
     {
+        var effectiveToken = accessToken ?? TestJwt.CreateFull(
+            DefaultTenantId, DefaultCallerSubjectId, clientId: null, DefaultCallerRole);
+
         MockTokenStore
             .Setup(s => s.GetTokens(It.IsAny<string>()))
             .Returns(new McpSessionTokens
             {
-                AccessToken = accessToken,
+                AccessToken = effectiveToken,
                 ExpiresAtUtc = DateTime.UtcNow.AddHours(1)
             });
+
+        return effectiveToken;
     }
 
     /// <summary>Mark the current MCP session as unauthenticated (default state).</summary>

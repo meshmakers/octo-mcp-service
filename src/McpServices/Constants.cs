@@ -27,6 +27,20 @@ internal static class Constants
         "Not authenticated. Log in via your MCP client's OAuth flow (e.g. /mcp in Claude Code), or call the 'authenticate' tool for the device-code flow.";
 
     /// <summary>
+    ///     Uniform error for a session-store token that does not belong to the authenticated caller
+    ///     (AB#5036). Deliberately NOT <see cref="NotAuthenticatedError" />: the caller IS authenticated —
+    ///     the stored session simply carries a different identity, and reporting "not authenticated" would
+    ///     send AI clients into a pointless device-flow re-login. Both
+    ///     <c>McpSessionContext.VerifyBinding</c> (family 1) and <c>RuntimeSecurityContextResolver</c>
+    ///     (families 2/3) surface this same text so the two paths cannot drift; tests pin the
+    ///     "does not belong to the authenticated caller" phrase.
+    /// </summary>
+    public const string SessionTokenNotBoundError =
+        "Access denied: the stored session token does not belong to the authenticated caller. Re-run the "
+        + "'authenticate' tool for this MCP session, or remove the 'Mcp-Session-Id' request header so the "
+        + "request's own bearer token is used.";
+
+    /// <summary>
     ///     Policy for system api authorization
     /// </summary>
     public const string SystemApiPolicy = "SystemApiPolicy";

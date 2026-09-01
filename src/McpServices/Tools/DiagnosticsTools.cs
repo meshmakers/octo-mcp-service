@@ -43,13 +43,16 @@ public sealed class DiagnosticsTools
             };
         }
 
-        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
+        // AB#5036: session.Error names the real reason (a stored token that is not the
+        // caller's) instead of collapsing it into "Not authenticated".
+        var session = await McpSessionContext.ResolveAccessTokenAsync(server);
+        var accessToken = session.AccessToken;
         if (accessToken == null)
         {
             return new TimeSeriesResponse
             {
                 IsSuccess = false,
-                ErrorMessage = Constants.NotAuthenticatedError
+                ErrorMessage = session.Error ?? Constants.NotAuthenticatedError
             };
         }
 

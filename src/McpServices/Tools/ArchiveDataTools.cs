@@ -83,7 +83,7 @@ public sealed class ArchiveDataTools
 
             await bot.Client.DownloadDumpToFileAsync(bot.TenantId!, startResponse.JobId, tempPath);
 
-            var sessionId = McpSessionContext.GetSessionId(server);
+            var sessionId = McpSessionContext.GetCallerLabel(server);
             var downloadId = store.RegisterDownload(sessionId, tempPath, effectiveFileName);
             var size = new FileInfo(tempPath).Length;
 

@@ -28,11 +28,15 @@ internal sealed record IdentityClientContext(
 
             // Tenant-aware token (AB#4338): for the home tenant this returns the session token;
             // for a different tenant it transparently exchanges a B-scoped token.
-            var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server, tenantId);
-            if (accessToken == null)
+            // AB#5036: a stored session token that does not belong to the request principal is refused
+            // with its own message instead of being silently swapped for the request's bearer.
+            var token = await McpSessionContext.ResolveAccessTokenAsync(server, tenantId);
+            if (token.Error != null || token.AccessToken == null)
             {
-                return new IdentityClientContext(null, null, Constants.NotAuthenticatedError);
+                return new IdentityClientContext(null, null, token.Error ?? Constants.NotAuthenticatedError);
             }
+
+            var accessToken = token.AccessToken;
 
             var factory = server.Services!.GetRequiredService<IOctoServiceClientFactory>();
             return new IdentityClientContext(factory.CreateIdentityClient(tenantId, accessToken), tenantId, null);

@@ -28,11 +28,15 @@ internal sealed record BotClientContext(
             // cross-tenant exchange here (AB#4338): unlike the five tenant-routed clients, an exchange could
             // fail for a tenant the user isn't cross-tenant-authorised for and would break bot operations
             // that the home token already serves against the not-tenant-routed bot service.
-            var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
-            if (accessToken == null)
+            // AB#5036: a stored session token that does not belong to the request principal is refused
+            // with its own message instead of being silently swapped for the request's bearer.
+            var token = await McpSessionContext.ResolveAccessTokenAsync(server);
+            if (token.Error != null || token.AccessToken == null)
             {
-                return new BotClientContext(null, null, Constants.NotAuthenticatedError);
+                return new BotClientContext(null, null, token.Error ?? Constants.NotAuthenticatedError);
             }
+
+            var accessToken = token.AccessToken;
 
             var factory = server.Services!.GetRequiredService<IOctoServiceClientFactory>();
             return new BotClientContext(factory.CreateBotClient(accessToken), tenantId, null);

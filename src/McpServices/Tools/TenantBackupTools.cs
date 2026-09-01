@@ -65,7 +65,7 @@ public sealed class TenantBackupTools
 
             await bot.Client.DownloadDumpToFileAsync(targetTenantId, startResponse.JobId, tempPath);
 
-            var sessionId = McpSessionContext.GetSessionId(server);
+            var sessionId = McpSessionContext.GetCallerLabel(server);
             var downloadId = store.RegisterDownload(sessionId, tempPath, effectiveFileName);
             var size = new FileInfo(tempPath).Length;
 

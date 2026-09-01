@@ -26,14 +26,17 @@ public sealed class IdentityTools
             // OAuth clients (Claude Code) and the AI worker take. Reading the store directly here
             // predated that fallback and wrongly reported "Not authenticated" for callers whose
             // bearer already passed the transport gate.
-            var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
+            // AB#5036: session.Error names the real reason (a stored token that is not the
+            // caller's) instead of collapsing it into "Not authenticated".
+            var session = await McpSessionContext.ResolveAccessTokenAsync(server);
+            var accessToken = session.AccessToken;
             if (accessToken == null)
             {
                 return new WhoAmIResponse
                 {
                     IsSuccess = false,
                     IsAuthenticated = false,
-                    ErrorMessage = Constants.NotAuthenticatedError
+                    ErrorMessage = session.Error ?? Constants.NotAuthenticatedError
                 };
             }
 
@@ -74,13 +77,16 @@ public sealed class IdentityTools
         try
         {
             // Same session-store-then-bearer-header resolution as WhoAmI — see the comment there.
-            var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
+            // AB#5036: session.Error names the real reason (a stored token that is not the
+            // caller's) instead of collapsing it into "Not authenticated".
+            var session = await McpSessionContext.ResolveAccessTokenAsync(server);
+            var accessToken = session.AccessToken;
             if (accessToken == null)
             {
                 return new ListTenantsResponse
                 {
                     IsSuccess = false,
-                    ErrorMessage = Constants.NotAuthenticatedError
+                    ErrorMessage = session.Error ?? Constants.NotAuthenticatedError
                 };
             }
 
@@ -115,8 +121,9 @@ public sealed class IdentityTools
     /// </summary>
     private static DateTime? GetTokenExpiry(McpServer server, string accessToken)
     {
+        var sessionKey = McpSessionContext.TryGetSessionKey(server);
         var tokenStore = server.Services!.GetRequiredService<IMcpSessionTokenStore>();
-        var stored = tokenStore.GetTokens(McpSessionContext.GetSessionId(server));
+        var stored = sessionKey == null ? null : tokenStore.GetTokens(sessionKey);
         if (stored != null && stored.AccessToken == accessToken)
         {
             return stored.ExpiresAtUtc;

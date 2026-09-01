@@ -225,7 +225,7 @@ public sealed class CkModelFileTools
         var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}_{fileName}");
         await bot.DownloadDumpToFileAsync(tenantId, jobId, tempPath);
 
-        var sessionId = McpSessionContext.GetSessionId(server);
+        var sessionId = McpSessionContext.GetCallerLabel(server);
         var downloadId = store.RegisterDownload(sessionId, tempPath, fileName);
         var size = new FileInfo(tempPath).Length;
 

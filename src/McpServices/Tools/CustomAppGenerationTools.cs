@@ -450,13 +450,16 @@ public sealed class CustomAppGenerationTools
         string? tenantId = null,
         CancellationToken cancellationToken = default)
     {
-        var accessToken = await McpSessionContext.TryGetAccessTokenAsync(server);
+        // AB#5036: session.Error names the real reason (a stored token that is not the
+        // caller's) instead of collapsing it into "Not authenticated".
+        var session = await McpSessionContext.ResolveAccessTokenAsync(server);
+        var accessToken = session.AccessToken;
         if (accessToken == null)
         {
             return new ExportRuntimeGraphqlSdlResponse
             {
                 IsSuccess = false,
-                ErrorMessage = Constants.NotAuthenticatedError,
+                ErrorMessage = session.Error ?? Constants.NotAuthenticatedError,
             };
         }
 
@@ -511,7 +514,7 @@ public sealed class CustomAppGenerationTools
             };
         }
 
-        var sessionId = McpSessionContext.GetSessionId(server);
+        var sessionId = McpSessionContext.GetCallerLabel(server);
         var transferId = store.RegisterDownload(sessionId, tempPath, fileName);
         var size = outcome.ByteCount ?? new FileInfo(tempPath).Length;
 

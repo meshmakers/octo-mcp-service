@@ -41,15 +41,17 @@ public sealed class TenantSwitchTools
                 };
             }
 
-            // Resolve the home token — proof of identity for the exchange.
-            var homeToken = await McpSessionContext.TryGetAccessTokenAsync(server);
+            // Resolve the home token — proof of identity for the exchange. AB#5036: a stored token that
+            // does not belong to the request principal is never handed out, and says so.
+            var session = await McpSessionContext.ResolveAccessTokenAsync(server);
+            var homeToken = session.AccessToken;
             if (homeToken == null)
             {
                 return new SwitchTenantResponse
                 {
                     IsSuccess = false,
                     TenantId = tenantId,
-                    ErrorMessage = Constants.NotAuthenticatedError
+                    ErrorMessage = session.Error ?? Constants.NotAuthenticatedError
                 };
             }
 
@@ -81,10 +83,16 @@ public sealed class TenantSwitchTools
                 };
             }
 
-            // Cache the B token so subsequent tenant-scoped tool calls reuse it.
-            var sessionId = McpSessionContext.GetSessionId(server);
-            var tokenStore = server.Services!.GetRequiredService<IMcpSessionTokenStore>();
-            tokenStore.SetTenantTokens(sessionId, tenantId, exchanged);
+            // Cache the B token so subsequent tenant-scoped tool calls reuse it. The key is bound to the
+            // authenticated caller (AB#5036), so the cached token is reachable only by the principal that
+            // obtained it. Without an identifiable caller there is no slot to write into — the exchange
+            // still succeeded, the next call simply pays for it again.
+            var sessionKey = McpSessionContext.TryGetSessionKey(server);
+            if (sessionKey != null)
+            {
+                var tokenStore = server.Services!.GetRequiredService<IMcpSessionTokenStore>();
+                tokenStore.SetTenantTokens(sessionKey, tenantId, exchanged);
+            }
 
             return new SwitchTenantResponse
             {
