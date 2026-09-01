@@ -189,6 +189,75 @@ public class TenantManagementToolsTests : ToolTestBase
         MockAssetClient.Verify(c => c.UpdateSystemCkModelOfTenant("t1"), Times.Once);
     }
 
+    // ----- get_tenant_features -----
+
+    [Fact]
+    public async Task GetTenantFeatures_HappyPath_ReturnsAllFourCapabilityStates()
+    {
+        MockAssetClient
+            .Setup(c => c.GetTenantFeaturesStatusAsync())
+            .ReturnsAsync(new TenantFeaturesStatusDto
+            {
+                StreamData = new StreamDataFeatureStatusDto { InstanceEnabled = true, TenantEnabled = false },
+                Communication = new TenantFeatureStatusDto { TenantEnabled = true },
+                Reporting = new TenantFeatureStatusDto { TenantEnabled = false },
+                AiServices = new TenantFeatureStatusDto { TenantEnabled = true }
+            });
+
+        var result = await TenantManagementTools.GetTenantFeatures(MockServer.Object);
+
+        result.IsSuccess.Should().BeTrue();
+        result.TenantId.Should().Be(DefaultTenantId);
+        result.Features.Should().NotBeNull();
+        result.Features!.StreamData!.InstanceEnabled.Should().BeTrue();
+        result.Features.StreamData.TenantEnabled.Should().BeFalse();
+        result.Features.Communication!.TenantEnabled.Should().BeTrue();
+        result.Features.Reporting!.TenantEnabled.Should().BeFalse();
+        result.Features.AiServices!.TenantEnabled.Should().BeTrue();
+        MockAssetClient.Verify(c => c.GetTenantFeaturesStatusAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetTenantFeatures_ExplicitTenant_EchoesThatTenant()
+    {
+        // The real resolver passes an explicit tenantId through; the flat TestBase default does not.
+        MockTenantResolution.Setup(t => t.ResolveTenantId("other-tenant")).Returns("other-tenant");
+        MockAssetClient
+            .Setup(c => c.GetTenantFeaturesStatusAsync())
+            .ReturnsAsync(new TenantFeaturesStatusDto());
+
+        var result = await TenantManagementTools.GetTenantFeatures(MockServer.Object, "other-tenant");
+
+        result.IsSuccess.Should().BeTrue();
+        result.TenantId.Should().Be("other-tenant");
+        MockClientFactory.Verify(f => f.CreateAssetClient("other-tenant", It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetTenantFeatures_Unauthenticated_ReturnsAuthError()
+    {
+        GivenUnauthenticated();
+
+        var result = await TenantManagementTools.GetTenantFeatures(MockServer.Object);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("Not authenticated");
+        MockAssetClient.Verify(c => c.GetTenantFeaturesStatusAsync(), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetTenantFeatures_WhenSdkThrows_ReturnsErrorMessage()
+    {
+        MockAssetClient
+            .Setup(c => c.GetTenantFeaturesStatusAsync())
+            .ThrowsAsync(new InvalidOperationException("features endpoint unavailable"));
+
+        var result = await TenantManagementTools.GetTenantFeatures(MockServer.Object);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be("features endpoint unavailable");
+    }
+
     // ----- SDK-exception propagation -----
 
     [Fact]
