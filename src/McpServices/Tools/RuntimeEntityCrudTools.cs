@@ -55,11 +55,22 @@ public sealed class RuntimeEntityCrudTools
         string? tenantId = null)
     {
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+        var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
+        if (security.Error != null)
+        {
+            return new QueryEntitiesResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = security.Error,
+                CkTypeId = ckTypeId
+            };
+        }
+
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var resolvedTenantId = tenantRepository.TenantId;
 
-        using var session = await tenantRepository.GetSessionAsync();
+        using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
         try
@@ -146,11 +157,22 @@ public sealed class RuntimeEntityCrudTools
         string? tenantId = null)
     {
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+        var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
+        if (security.Error != null)
+        {
+            return new QueryEntitiesResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = security.Error,
+                CkTypeId = ckTypeId
+            };
+        }
+
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var resolvedTenantId = tenantRepository.TenantId;
 
-        using var session = await tenantRepository.GetSessionAsync();
+        using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
         try
@@ -239,10 +261,21 @@ public sealed class RuntimeEntityCrudTools
         string? tenantId = null)
     {
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+        var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
+        if (security.Error != null)
+        {
+            return new GetEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = security.Error,
+                TypeId = ckTypeId
+            };
+        }
+
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
-        using var session = await tenantRepository.GetSessionAsync();
+        using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
         try
@@ -297,11 +330,22 @@ public sealed class RuntimeEntityCrudTools
         string? tenantId = null)
     {
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+        var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
+        if (security.Error != null)
+        {
+            return new CreateEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = security.Error,
+                CkTypeId = ckTypeId
+            };
+        }
+
         var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
-        using var session = await tenantRepository.GetSessionAsync();
+        using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
         try
@@ -368,11 +412,23 @@ public sealed class RuntimeEntityCrudTools
         string? tenantId = null)
     {
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+        var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
+        if (security.Error != null)
+        {
+            return new UpdateEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = security.Error,
+                TypeId = ckTypeId,
+                RtId = rtId
+            };
+        }
+
         var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
-        using var session = await tenantRepository.GetSessionAsync();
+        using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
         try
         {
@@ -422,7 +478,7 @@ public sealed class RuntimeEntityCrudTools
 
             // Get updated entity
 
-            var readSession = await tenantRepository.GetSessionAsync();
+            using var readSession = await tenantRepository.GetSessionAsync(security.SecurityContext!);
             readSession.StartTransaction();
 
             var updatedEntity = await tenantRepository.GetRtEntityByRtIdAsync(readSession, rtEntityId);
@@ -486,10 +542,22 @@ public sealed class RuntimeEntityCrudTools
         string? tenantId = null)
     {
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+        var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
+        if (security.Error != null)
+        {
+            return new DeleteEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = security.Error,
+                CkTypeId = ckTypeId,
+                RtId = rtId
+            };
+        }
+
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
-        using var session = await tenantRepository.GetSessionAsync();
+        using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
         try
@@ -575,11 +643,25 @@ public sealed class RuntimeEntityCrudTools
         string? tenantId = null)
     {
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+        var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
+        if (security.Error != null)
+        {
+            return new NavigateAssociationsResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = security.Error,
+                OriginCkTypeId = ckTypeId,
+                OriginRtId = rtId,
+                CkRoleId = ckRoleId,
+                TargetTypeId = targetTypeId
+            };
+        }
+
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var resolvedTenantId = tenantRepository.TenantId;
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
-        using var session = await tenantRepository.GetSessionAsync();
+        using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
         try
@@ -680,11 +762,24 @@ public sealed class RuntimeEntityCrudTools
         string? tenantId = null)
     {
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+        var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
+        if (security.Error != null)
+        {
+            return new AssociationTreeResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = security.Error,
+                CkRoleId = ckRoleId,
+                Direction = direction.ToString(),
+                MaxDepth = maxDepth
+            };
+        }
+
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var resolvedTenantId = tenantRepository.TenantId;
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
-        using var session = await tenantRepository.GetSessionAsync();
+        using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
         try

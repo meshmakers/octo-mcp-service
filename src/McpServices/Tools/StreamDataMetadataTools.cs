@@ -43,6 +43,13 @@ public sealed class StreamDataMetadataTools
         try
         {
             var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+            var access = await RuntimeSecurityContextResolver.ResolveTenantAccessAsync(
+                server, tenantResolution, tenantId);
+            if (access.Error != null)
+            {
+                return new ArchiveStorageStatsResponse { IsSuccess = false, ErrorMessage = access.Error };
+            }
+
             var ctx = await tenantResolution.GetTenantContextAsync(tenantId);
 
             var repo = ctx.GetStreamDataRepository();
@@ -131,6 +138,13 @@ public sealed class StreamDataMetadataTools
         try
         {
             var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+            var access = await RuntimeSecurityContextResolver.ResolveTenantAccessAsync(
+                server, tenantResolution, tenantId);
+            if (access.Error != null)
+            {
+                return new RollupQueryMetadataResponse { IsSuccess = false, ErrorMessage = access.Error };
+            }
+
             var ctx = await tenantResolution.GetTenantContextAsync(tenantId);
 
             var rollupStore = ctx.GetRollupArchiveRuntimeStore();
@@ -252,6 +266,13 @@ public sealed class StreamDataMetadataTools
         try
         {
             var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+            var access = await RuntimeSecurityContextResolver.ResolveTenantAccessAsync(
+                server, tenantResolution, tenantId);
+            if (access.Error != null)
+            {
+                return new SeriesResolutionResponse { IsSuccess = false, ErrorMessage = access.Error };
+            }
+
             var ctx = await tenantResolution.GetTenantContextAsync(tenantId);
 
             var rollupStore = ctx.GetRollupArchiveRuntimeStore();

@@ -7,6 +7,7 @@ using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Runtime.Contracts;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
@@ -64,6 +65,17 @@ public sealed class KnowledgeResources
         try
         {
             var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+
+            // Caller identity + tenant-claim gate (AB#5030). The knowledge entity is read with the
+            // caller's own session so data permissions apply, and the tenant in the resource URI is
+            // checked against the session token exactly like a tool's tenantId parameter.
+            var security = await RuntimeSecurityContextResolver.ResolveAsync(
+                server, tenantResolution, tenantId, cancellationToken);
+            if (security.Error != null)
+            {
+                return RenderError(security.Error);
+            }
+
             var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
             var dtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
             var httpClientFactory = server.Services!.GetRequiredService<IHttpClientFactory>();
@@ -79,7 +91,7 @@ public sealed class KnowledgeResources
 
             var entityKey = new RtEntityId(new RtCkId<CkTypeId>(AiKnowledgeSourceCkTypeId), objectId);
 
-            using var session = await tenantRepository.GetSessionAsync();
+            using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
             var entity = await tenantRepository.GetRtEntityByRtIdAsync(session, entityKey);
             if (entity == null)
             {

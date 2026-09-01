@@ -55,6 +55,17 @@ public sealed class StreamDataAggregationTools
         }
 
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+        var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
+        if (security.Error != null)
+        {
+            return new PersistedStreamDataQueryResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = security.Error,
+                QueryRtId = queryRtId
+            };
+        }
+
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var tenantContext = await tenantResolution.GetTenantContextAsync(tenantId);
         var resolvedTenantId = tenantRepository.TenantId;
@@ -71,7 +82,7 @@ public sealed class StreamDataAggregationTools
             };
         }
 
-        using var session = await tenantRepository.GetSessionAsync();
+        using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
         try
@@ -824,6 +835,19 @@ internal sealed record StreamDataContext(
         try
         {
             var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+
+            // Tenant-claim gate (AB#5030). The engine-side archive stores this context hands out
+            // (GetStreamDataRepository / GetArchiveRuntimeStore) open their OWN system sessions
+            // internally, so data-permission enforcement does not reach the archive rows — a known,
+            // documented gap. The gate below is therefore the only thing standing between a caller
+            // and another tenant's time-series data on this path.
+            var access = await RuntimeSecurityContextResolver.ResolveTenantAccessAsync(
+                server, tenantResolution, tenantIdParam);
+            if (access.Error != null)
+            {
+                return new StreamDataContext(null, null, access.ResolvedTenantId, access.Error);
+            }
+
             var ctx = await tenantResolution.GetTenantContextAsync(tenantIdParam);
 
             var streamRepo = ctx.GetStreamDataRepository();

@@ -49,11 +49,22 @@ public sealed class RuntimeAggregationTools
         }
 
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+        var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
+        if (security.Error != null)
+        {
+            return new PersistedRuntimeQueryResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = security.Error,
+                QueryRtId = queryRtId
+            };
+        }
+
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var resolvedTenantId = tenantRepository.TenantId;
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
-        using var session = await tenantRepository.GetSessionAsync();
+        using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
         try
@@ -163,10 +174,16 @@ public sealed class RuntimeAggregationTools
         }
 
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+        var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
+        if (security.Error != null)
+        {
+            return new AggregationResultResponse { IsSuccess = false, ErrorMessage = security.Error };
+        }
+
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var resolvedTenantId = tenantRepository.TenantId;
 
-        using var session = await tenantRepository.GetSessionAsync();
+        using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
         try

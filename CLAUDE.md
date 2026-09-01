@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes ~170 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
+`octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes ~199 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
 
 Three distinct tool families live here — be aware which one you're touching:
 
@@ -23,7 +23,7 @@ dotnet build src/McpServices/McpServices.csproj -c DebugL
 # Build the entire solution (server + tests + resources)
 dotnet build Octo.McpServices.sln -c DebugL
 
-# Run all tests (currently 400, ~250 ms)
+# Run all tests (currently 755, ~700 ms)
 dotnet test Octo.McpServices.sln -c DebugL
 
 # Filter tests by class
@@ -48,7 +48,7 @@ Minimum coverage per tool:
 - **Missing required args** — pass empty / null, assert validation error, no SDK call.
 - **Destructive without confirm** — for any tool with a `confirm` parameter, assert refusing without it.
 
-The current ratio is ~2.4 tests per tool (400 tests for 166 tools). Don't lower it.
+The current ratio is ~3.8 tests per tool (755 tests for 199 tools). Don't lower it.
 
 ### 2. Use the `*ClientContext` helpers — never call the factory directly from a tool
 
@@ -375,8 +375,154 @@ validates the route `{tenantId}` against the token's `tenant_id` claim. **Client
 service tokens (no user `sub` claim) are skipped by design** — that is how the AiWorker (token via
 `IMcpTokenIssuer`) and the mesh-adapter `AnthropicAiQueryNode` (token via `ServiceAccountConfiguration`,
 sent as `Authorization: Bearer`) reach any tenant. The tenantless `/mcp` endpoint still requires a
-valid token; per-tool-param cross-tenant access on a user token scoped to a different tenant is a
-secondary hardening not covered here.
+valid token.
+
+> **The CC exemption is broader than those two components.** `ValidateAudience = false` means *any*
+> client-credentials client of this authority passes the transport check and is then skipped here —
+> see *Blast radius of the CC-token exemption (AB#5032)* below.
+
+The transport gate only sees the **route** tenant. The per-tool-param cross-tenant hole it leaves
+open is closed by `RuntimeSecurityContextResolver` (AB#5030, next section).
+
+### Caller identity + tenant gate for direct-engine tools (AB#5030)
+
+Every family-2/3 tool used to open a **system session** (`tenantRepository.GetSessionAsync()`
+parameterless), which bypassed data-permission enforcement (AB#4969) completely and let any
+authenticated caller name any tenant in the `tenantId` tool parameter. `Services/RuntimeSecurityContextResolver.cs`
+is the single choke point that fixes both:
+
+```csharp
+var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
+if (security.Error != null)
+{
+    return new MyResponse { IsSuccess = false, ErrorMessage = security.Error };
+}
+
+var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
+using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
+```
+
+#### Identity comes from the request principal, never from the session store
+
+The caller identity is read off `IHttpContextAccessor.HttpContext.User` — the principal the JWT
+bearer handler produced *after* it verified signature, issuer and lifetime.
+
+**It must not come from `McpSessionContext.TryGetAccessTokenAsync`.** That store is keyed by the
+**client-supplied `Mcp-Session-Id` request header**, with a shared `"default-session"` fallback slot
+when the header is absent (`McpSessionContext.GetSessionId`). A caller can therefore name any
+session id they like, so the store is not a trustworthy identity source. It is consulted **only** on
+the cross-tenant path, and there the token it hands out is bound back to the request principal
+before it is used (below).
+
+Claim reading mirrors `AssetRepositoryServices/GraphQL/Helpers.GetSecurityContext` one-for-one, so
+the same user sees the same data through MCP and through GraphQL:
+
+- **Subject** — `sub` → `ClaimTypes.NameIdentifier` → `client_id`. `ConfigureJwtBearerOptions`
+  leaves `MapInboundClaims` at its ASP.NET default of `true`, so a JWT `sub` reaches the principal
+  as `ClaimTypes.NameIdentifier`; probing only `"sub"` would misclassify every user token as a
+  service token and hand it the CC exemption below.
+- **Roles** — the union of each identity's `RoleClaimType` and the JWT short name `"role"`,
+  de-duplicated. Same reason: inbound mapping may or may not have renamed them.
+- **Tenant** — `tenant_id` is not in the inbound claim map, so it keeps its JWT name.
+
+An **unauthenticated principal is a denial**, not a claimless context: `Not authenticated`, no
+session opened. Same for a host that never registered `IHttpContextAccessor` (resolved with
+`GetService`, so it degrades into a denial rather than an exception out of a tool).
+
+#### The three outcomes
+
+1. **Service (client-credentials) principal** — no subject at all, only `client_id`. Exempt from the
+   tenant match, context is `ForUser(client_id, roles)`. See the blast-radius note below.
+2. **User principal, `tenant_id` == resolved tenant** (the normal case) — context is
+   `ForUser(sub, roles)` straight from the validated principal. **The token store is not read at
+   all** on this path (pinned by `ResolveAsync_SameTenant_DoesNotConsultTheSessionTokenStore`).
+3. **User principal, `tenant_id` != resolved tenant** — the cross-tenant path, below.
+
+A user principal whose token carries **no `tenant_id` claim** is refused outright
+(`…denied: the caller's token carries no 'tenant_id' claim.`). `TenantAuthorizationMiddleware`
+answers 403 for exactly that shape on the route gate, and the per-tool tenant parameter must not be
+more permissive than the route.
+
+**Never `RtSecurityContext.System`** — the whole point of AB#5030 is that these tools act as the
+caller. **Never throws** — every failure (unresolvable tenant, missing token, unreachable identity,
+failed exchange) comes back as `RuntimeSecurityContextResult.Error` so the "never throw out of a
+tool" rule holds.
+
+#### Cross-tenant path (AB#4338)
+
+A user homed in tenant A legitimately reaching tenant B goes through the RFC 8693 exchange. Three
+things happen in order, and each one can deny:
+
+1. **Bind the store token to the request.** The home token is fetched from the session store and
+   only accepted when its `sub` **and** `tenant_id` match the request principal's. An unparseable
+   (opaque) home token fails this too. Otherwise: `…denied: the stored session token does not belong
+   to the authenticated caller.` Without this check a caller could borrow whatever token another
+   caller left in the shared fallback slot.
+2. **Exchange.** `McpSessionContext.TryGetAccessTokenAsync(server, tenantId)` performs / caches the
+   exchange. A `null` result gets its **own** message — `…denied: the cross-tenant token exchange
+   failed. The caller is homed in tenant 'A' and has no permission for 'B'…` — deliberately **not**
+   `Not authenticated`, which would send AI clients into a pointless device-flow re-login.
+3. **Verify the exchanged token.** Its `tenant_id` must read back as the target tenant, else
+   `…denied: the session token is issued for tenant 'Y'.` (`<unreadable>` when opaque). Reading
+   these claims without signature validation is sound: the token came straight from the identity
+   server over TLS as the answer to our own exchange request and never passed through the caller.
+
+On success the context is built from the **exchanged** token — `ForUser(shadow sub ?? client_id,
+shadow roles)`. The identity in B is the B-shadow user, so reusing the A principal here would leak
+A's roles into B.
+
+#### Blast radius of the CC-token exemption (AB#5032)
+
+The exemption is **not** limited to the AI Adapter worker (`IMcpTokenIssuer`) and the mesh-adapter
+`AnthropicAiQueryNode` (`ServiceAccountConfiguration`), even though those are the components that
+need it. Because `ConfigureJwtBearerOptions` sets `ValidateAudience = false`, **any**
+client-credentials client of this authority passes the transport gate, and is then exempt from the
+tenant gate here — it reaches every tenant as `ForUser(its client_id, its roles)`. Tightening this
+(audience validation, or an allow-list of service client ids) is tracked as **AB#5032**. Until it
+lands the exemption must not be removed or the AI worker loses access to every tenant it serves.
+
+#### Call sites
+
+`ResolveTenantAccessAsync` is the same call for sites that never open a session — `SchemaDiscovery
+Tools`, `StreamDataMetadataTools`, `CkSchemaResources`, `StreamDataContext.TryResolveAsync`,
+`EchoTool` — those only read `.Error`. It deliberately delegates to `ResolveAsync` rather than
+reimplementing a cheaper gate-only variant, so the two can never drift apart.
+
+`EchoTool` **is** gated (it used to be exempt). Ungated it was a tenant-existence oracle: any
+authenticated caller could probe arbitrary tenant ids and tell "exists" from "does not exist" by the
+shape of the answer. Its tenant lookup is now also wrapped in a `try/catch` — it previously threw
+out of the tool on an unknown tenant.
+
+**Known gap — family-3 archive stores.** `StreamDataContext.TryResolveAsync` applies the tenant
+gate, but the engine-side stores it hands out (`ITenantContext.GetStreamDataRepository()`,
+`GetArchiveRuntimeStore()`, `GetRollupArchiveRuntimeStore()`) open their **own system sessions**
+internally, so data-permission enforcement does not reach the archive rows themselves. The gate is
+the only barrier on that path today.
+
+#### Testing
+
+`TestBase` installs a `DefaultHttpContext` (exposed as `TestHttpContext`) behind a registered
+`IHttpContextAccessor`, and seeds it with an authenticated user principal —
+`tenant_id=test-tenant`, `sub=test-subject`, `role=TestRole` — so family-2/3 tests have a caller by
+default. Helpers: `GivenAuthenticatedCaller`, `GivenUnauthenticatedCaller`,
+`GivenServicePrincipalCaller`, `GivenCallerWithoutTenantClaim`, `GivenForeignTenantCall`,
+`GivenSuccessfulTenantExchange`, `GivenFailingTenantExchange`, `GivenTokenExchange`, plus
+`GivenRuntimeCallerToken` / `GivenNoRuntimeCallerToken` for the store on the cross-tenant path.
+`BuildPrincipal` emits claims in the shape the bearer handler really produces (`sub` as
+`ClaimTypes.NameIdentifier`, `role` as `ClaimTypes.Role`, `tenant_id`/`client_id` unmapped);
+`TestJwt.CreateFull(tenantId, subjectId, clientId, roles)` builds the matching JWTs.
+
+**`MockTenantRepository` is cast `.As<ISecureSessionFactory>()`** (`MockSecureSessionFactory`) and
+its **parameterless `GetSessionAsync()` throws**. Both matter:
+`TenantRepositorySecurityExtensions.GetSessionAsync(ctx)` falls back to the parameterless system
+session **silently** for a repository that does not implement `ISecureSessionFactory` — so a mock
+without that face makes every call site look correct while enforcing nothing. Verify against
+`MockSecureSessionFactory` to assert which `RtSecurityContext` a tool actually opened its session
+with. `RuntimeTenantGateTests.SessionOpeningCallSites` is the parametrised proof for all 13
+session-opening sites (8 CRUD tools, 3 aggregation tools over 2 sites, `execute_stream_data_query`,
+`KnowledgeResources`); `update_entity`'s second post-commit `readSession` needs its own arrangement
+and has a dedicated test.
 
 ### In-band session token (outbound calls)
 
@@ -423,7 +569,7 @@ there is unnecessary and could break bot ops the home token already serves.
 
 `tests/McpServices.Tests/` uses xUnit + Moq + FluentAssertions.
 
-- `TestBase` — base mocks (`McpServer`, `TestServiceProvider`, `IOctoHttpContextAccessor`, `ITenantResolutionService`, `ICkCacheService`, `ITenantRepository`).
+- `TestBase` — base mocks (`McpServer`, `TestServiceProvider`, `IOctoHttpContextAccessor`, `ITenantResolutionService`, `ICkCacheService`, `ITenantRepository` + its `ISecureSessionFactory` face) plus a `DefaultHttpContext` carrying the authenticated request principal the direct-engine tools derive their caller identity from, and an `IMcpSessionTokenStore` holding the matching home token for the cross-tenant exchange path (AB#5030 — see *Caller identity + tenant gate* above). The parameterless `GetSessionAsync()` throws on purpose.
 - `ToolTestBase : TestBase` — adds `IMcpSessionTokenStore` + `IOctoServiceClientFactory` mocks plus 6 per-SDK-client mocks (`MockIdentityClient`, `MockAssetClient`, `MockCommunicationClient`, `MockStreamDataClient`, `MockReportingClient`, `MockBotClient`) and the real `FileTransferStore`. Helpers: `GivenAuthenticated()`, `GivenUnauthenticated()`, `GivenTokenExpired()`.
 - `InternalsVisibleTo("McpServices.Tests")` is set on `McpServices.csproj` so tests can access `FileTransferStore` directly (the interface is `IFileTransferStore`).
 
@@ -491,7 +637,7 @@ Notes:
 - **Code coverage** is collected via `coverlet.collector` (already referenced in `McpServices.Tests.csproj`) and surfaced in the Code Coverage tab of the build. Cobertura XML lands in `$(Agent.TempDirectory)`.
 - **Test glob excludes `*SystemTests.csproj`** so a future `McpServices.SystemTests` project (real-service integration suite) can be added later without breaking the main build — those would need their own pipeline + Testcontainers env, matching the pattern in `octo-identity-services`.
 
-The current suite is ~400 mock-based unit tests + a handful of in-process integration tests (`McpServerIntegrationTests`). If you add real-service-dependent tests, put them in a separate `*SystemTests` project so they're skipped here.
+The current suite is ~755 mock-based unit tests + a handful of in-process integration tests (`McpServerIntegrationTests`). If you add real-service-dependent tests, put them in a separate `*SystemTests` project so they're skipped here.
 
 ## Project Layout
 

@@ -74,6 +74,16 @@ public sealed class CkSchemaResources
         try
         {
             var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+
+            // Tenant-claim gate (AB#5030) — a resource URI carries the tenant just like a tool
+            // parameter does, so it needs the same check before any tenant data is rendered.
+            var access = await RuntimeSecurityContextResolver.ResolveTenantAccessAsync(
+                server, tenantResolution, tenantId);
+            if (access.Error != null)
+            {
+                return $"# CK Schema\n\n_Error: {access.Error}_\n";
+            }
+
             var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
 
             var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);

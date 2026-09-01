@@ -48,6 +48,18 @@ public sealed class SchemaDiscoveryTools
         try
         {
             var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+            var access = await RuntimeSecurityContextResolver.ResolveTenantAccessAsync(
+                server, tenantResolution, tenantId);
+            if (access.Error != null)
+            {
+                return new AvailableArchivePathsResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = access.Error,
+                    CkTypeId = ckTypeId
+                };
+            }
+
             var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
 
             var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
@@ -93,6 +105,13 @@ public sealed class SchemaDiscoveryTools
         try
         {
             var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+            var access = await RuntimeSecurityContextResolver.ResolveTenantAccessAsync(
+                server, tenantResolution, tenantId);
+            if (access.Error != null)
+            {
+                return new AvailableModelsResponse { IsSuccess = false, ErrorMessage = access.Error };
+            }
+
             var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
 
             var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
@@ -137,6 +156,13 @@ public sealed class SchemaDiscoveryTools
         try
         {
             var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+            var access = await RuntimeSecurityContextResolver.ResolveTenantAccessAsync(
+                server, tenantResolution, tenantId);
+            if (access.Error != null)
+            {
+                return new AvailableTypesResponse { IsSuccess = false, ErrorMessage = access.Error };
+            }
+
             var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
 
             var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
@@ -210,6 +236,18 @@ public sealed class SchemaDiscoveryTools
         try
         {
             var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+            var access = await RuntimeSecurityContextResolver.ResolveTenantAccessAsync(
+                server, tenantResolution, tenantId);
+            if (access.Error != null)
+            {
+                return new TypeSchemaResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = access.Error,
+                    CkTypeId = ckTypeId
+                };
+            }
+
             var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
 
             var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);

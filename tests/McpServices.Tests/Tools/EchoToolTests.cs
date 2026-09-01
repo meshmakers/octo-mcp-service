@@ -136,10 +136,49 @@ public class EchoToolTests : TestBase
         // Assert
         result.Should().NotBeNull();
 
-        // Verify that the correct services were accessed
-        MockServer.Verify(s => s.Services, Times.Once);
+        // Verify that the correct services were accessed. Services is now read more than once — the
+        // AB#5030 tenant gate resolves the request principal from the same provider.
+        MockServer.Verify(s => s.Services, Times.AtLeastOnce);
         MockTenantResolution.Verify(t => t.GetTenantRepositoryAsync(It.IsAny<string?>()), Times.Once);
         MockTenantRepository.Verify(tr => tr.TenantId, Times.Once);
+    }
+
+    // ── AB#5030 tenant gate (M4) ────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Echo_Unauthenticated_ReturnsErrorAndResolvesNoTenant()
+    {
+        GivenUnauthenticatedCaller();
+
+        var result = await EchoTool.Echo(MockServer.Object, "ping");
+
+        result.Should().Contain("Not authenticated");
+        MockTenantResolution.Verify(t => t.GetTenantRepositoryAsync(It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Echo_ForeignTenant_IsDeniedWithoutProbingTheTenant()
+    {
+        // Ungated, Echo was a tenant-existence oracle: the caller could tell "exists" from
+        // "does not exist" for any tenant id they named.
+        GivenForeignTenantCall();
+
+        var result = await EchoTool.Echo(MockServer.Object, "ping", ForeignTenantId);
+
+        result.Should().Contain("denied");
+        MockTenantResolution.Verify(t => t.GetTenantRepositoryAsync(It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Echo_WhenTenantLookupThrows_ReturnsMessageInsteadOfThrowing()
+    {
+        MockTenantResolution
+            .Setup(t => t.GetTenantRepositoryAsync(It.IsAny<string?>()))
+            .ThrowsAsync(new InvalidOperationException("Tenant 'test-tenant' does not exist."));
+
+        var result = await EchoTool.Echo(MockServer.Object, "ping");
+
+        result.Should().StartWith("Echo failed:").And.Contain("does not exist");
     }
     
     [Theory]
