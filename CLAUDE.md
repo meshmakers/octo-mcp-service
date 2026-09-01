@@ -430,6 +430,36 @@ A per-tool read/write distinction is still possible **in band**, at tool dispatc
 is known; that is a separate change from the endpoint policy. `WithHttpTransport()`'s session mode is
 untouched.
 
+### The REST controllers are not the MCP transport (AB#5059)
+
+`app.MapControllerRoute("default", …)` also serves the attribute-routed controllers under
+`SystemApi/`, and **nothing in `Program.cs` gates them** — `RequireAuthorization(McpTransportPolicy)`
+sits on the two `MapMcp` endpoints only. Whatever protects a controller here has to be on the
+controller.
+
+`SystemApi/v1/Controllers/DiagnosticsController` shipped with both of its `[Authorize]` attributes
+**commented out**, so `POST system/v1/diagnostics/reconfigureLogLevel` was anonymous: anyone who could
+reach the pod could reconfigure NLog for the whole process — every logger to Trace (disk and
+log-pipeline denial of service, plus disclosure on a server that brokers tenant data), or all of them
+silenced. Every sibling service gates the identical endpoint.
+
+It now carries `[Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]` on the
+class and `[Authorize(McpAuthorizationPolicy.PolicyName)]` on the action:
+
+- **The policy is the transport policy**, not one invented for this controller. It is
+  `RequireAuthenticatedUser` plus one of `Mcp:RequiredApiScopes` (default `octo_api`) — the same
+  platform write scope the sibling services' system diagnostics endpoints require. A caller that can
+  already invoke `delete_tenant` over the transport gains nothing new; a token without the platform
+  scope reaches neither surface.
+- 🔴 **Do not uncomment `[Authorize(Constants.SystemApiPolicy)]` verbatim.** That constant is
+  registered *nowhere* — `AddAuthorization` only registers `McpTransportPolicy` — so it would throw
+  `InvalidOperationException: The AuthorizationPolicy named: 'SystemApiPolicy' was not found` on every
+  request instead of authorizing one. The constant is still in `Constants.cs` and is dead.
+- **The scheme is pinned** because this host's default *challenge* scheme is the MCP one, which
+  answers an unauthenticated request with RFC 9728 protected-resource metadata — the wrong answer for
+  a plain REST endpoint.
+- Tests: `tests/McpServices.Tests/Configuration/DiagnosticsControllerAuthorizationTests.cs`.
+
 ### Caller identity + tenant gate for direct-engine tools (AB#5030)
 
 Every family-2/3 tool used to open a **system session** (`tenantRepository.GetSessionAsync()`
