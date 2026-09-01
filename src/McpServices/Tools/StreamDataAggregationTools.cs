@@ -114,6 +114,24 @@ public sealed class StreamDataAggregationTools
 
             var archiveRtId = new OctoObjectId(loaded.ArchiveRtId);
             var ckTypeId = loaded.QueryCkTypeId;
+
+            // CK-type permission gate (AB#5038). Mirrors asset-repo's StreamDataQuery persisted-query
+            // resolver, which guards on the persisted QueryCkTypeId — not on an archive snapshot.
+            var denied = await DataPermissionStreamGuard.EnsureStreamReadAllowedAsync(
+                server, tenantRepository, resolvedTenantId, ckTypeId, security.SecurityContext);
+            if (denied != null)
+            {
+                return new PersistedStreamDataQueryResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = denied,
+                    QueryRtId = queryRtId,
+                    QuerySubtype = loaded.GetType().Name,
+                    ArchiveRtId = loaded.ArchiveRtId,
+                    TenantId = resolvedTenantId
+                };
+            }
+
             var extraMappedFilters = MapFieldFilters(extraFilters);
             var sourceRtIdOverrideList = MapRtIds(sourceRtIdsOverride);
 
@@ -836,12 +854,12 @@ internal sealed record StreamDataContext(
         {
             var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
 
-            // Tenant-claim gate (AB#5030). The engine-side archive stores this context hands out
-            // (GetStreamDataRepository / GetArchiveRuntimeStore) open their OWN system sessions
-            // internally, so data-permission enforcement does not reach the archive rows — a known,
-            // documented gap. The gate below is therefore the only thing standing between a caller
-            // and another tenant's time-series data on this path.
-            var access = await RuntimeSecurityContextResolver.ResolveTenantAccessAsync(
+            // Tenant-claim gate (AB#5030) + caller identity. The engine-side archive stores this context
+            // hands out (GetStreamDataRepository / GetArchiveRuntimeStore) open their OWN system sessions
+            // internally, so row-level data-permission enforcement does not reach the archive rows — a
+            // known, documented gap. The tenant gate here and the CK-type gate below (AB#5038) are
+            // therefore the whole barrier on this path.
+            var access = await RuntimeSecurityContextResolver.ResolveAsync(
                 server, tenantResolution, tenantIdParam);
             if (access.Error != null)
             {
@@ -863,6 +881,17 @@ internal sealed record StreamDataContext(
             {
                 return new StreamDataContext(null, null, null,
                     $"Archive '{archiveRtId}' not found.");
+            }
+
+            // CK-type permission gate (AB#5038) — same decision and same wording as the asset-repo
+            // GraphQL DataPermissionStreamGuard, so a caller gets the identical answer on both surfaces.
+            var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantIdParam);
+            var denied = await DataPermissionStreamGuard.EnsureStreamReadAllowedAsync(
+                server, tenantRepository, tenantRepository.TenantId, snapshot.TargetCkTypeId,
+                access.SecurityContext);
+            if (denied != null)
+            {
+                return new StreamDataContext(null, null, ctx.TenantId, denied);
             }
 
             return new StreamDataContext(streamRepo, snapshot.TargetCkTypeId, ctx.TenantId, null);

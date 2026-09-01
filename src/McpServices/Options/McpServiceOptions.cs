@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Communication.Contracts;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 
 namespace Meshmakers.Octo.Backend.McpServices.Options;
@@ -90,4 +91,18 @@ public class McpServiceOptions
     ///     <c>streamDataPassword</c> backend secret in cluster deployments.
     /// </summary>
     public string? StreamDataPassword { get; set; }
+
+    /// <summary>
+    ///     OAuth scopes a token must carry to reach the MCP transport endpoints (AB#5032). A token
+    ///     needs <b>one</b> of them; empty means "authenticated is enough", i.e. the pre-AB#5032
+    ///     behaviour.
+    ///     <para>
+    ///     Default is the platform's write scope <c>octo_api</c> only — see
+    ///     <c>Configuration/McpAuthorizationPolicy</c> for why the endpoint cannot split read from
+    ///     write. Configurable so an operator can widen it for a service account provisioned with a
+    ///     different scope without a code change; narrowing below one scope is not meaningful.
+    ///     </para>
+    /// </summary>
+    public IList<string> RequiredApiScopes { get; set; } =
+        new List<string> { CommonConstants.OctoApiFullAccess };
 }

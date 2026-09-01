@@ -79,6 +79,12 @@ try
     builder.Services.Configure<OctoServiceUrlOptions>(options =>
         builder.Configuration.GetSection("OctoServiceUrls").Bind(options));
 
+    // AB#5037: SSRF policy for Url-kind AiKnowledgeSource fetches. Defaults are restrictive
+    // (http/https only, no private/link-local/metadata targets, 1 MiB, 10 s, 3 re-validated
+    // redirects); an operator opts specific internal hosts back in via KnowledgeFetch:AllowedHosts.
+    builder.Services.Configure<KnowledgeFetchOptions>(options =>
+        builder.Configuration.GetSection("KnowledgeFetch").Bind(options));
+
     // NLog: Setup NLog for Dependency injection
     builder.Logging.ClearProviders();
     builder.Logging.SetMinimumLevel(LogLevel.Trace);
@@ -120,6 +126,16 @@ try
     {
         c.Timeout = TimeSpan.FromSeconds(20);
     });
+    // AB#5037 — knowledge-source fetches. AllowAutoRedirect is OFF on purpose: KnowledgeUrlFetcher
+    // follows redirects by hand so every hop is re-validated against the SSRF policy; letting the
+    // handler follow them would connect to the target before anything could inspect it. The client
+    // timeout is left infinite because the fetcher owns one wall-clock budget for the whole redirect
+    // chain (a per-request timeout would multiply with the hop count).
+    builder.Services.AddHttpClient("knowledge-fetch", c => c.Timeout = Timeout.InfiniteTimeSpan)
+        .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+    builder.Services.AddSingleton<IHostAddressResolver, SystemDnsResolver>();
+    builder.Services.AddSingleton<KnowledgeUrlPolicy>();
+    builder.Services.AddSingleton<IKnowledgeUrlFetcher, KnowledgeUrlFetcher>();
     builder.Services.AddSingleton<IGitHubRepoApiClient, GitHubRepoApiClient>();
     // M3 B-2c-schema-availability — runtime GraphQL introspection client. Uses the
     // existing "identity" named HttpClient (already configured for the self-signed
@@ -161,7 +177,16 @@ try
         })
         .AddJwtBearer()
         .AddMcp(_ => { });
-    builder.Services.AddAuthorization();
+
+    // AB#5032: gate the MCP transport on the platform API scope instead of "any valid token".
+    // See McpAuthorizationPolicy for why the requirement is uniform (one JSON-RPC endpoint carries
+    // read and write tools alike, and authorization runs before the body naming the tool is read).
+    var mcpRequiredScopes = builder.Configuration.GetSection("Mcp")
+        .Get<McpServiceOptions>()?.RequiredApiScopes?.Where(s => !string.IsNullOrWhiteSpace(s))
+        .Select(s => s.Trim()).ToArray()
+        ?? [CommonConstants.OctoApiFullAccess];
+    builder.Services.AddAuthorization(options =>
+        McpAuthorizationPolicy.AddMcpTransportPolicy(options, mcpRequiredScopes));
 
     builder.Services.Configure<RouteOptions>(options =>
         options.ConstraintMap.Add("tenantId", typeof(TenantIdRouteConstraint)));
@@ -277,12 +302,14 @@ try
     app.UseOctoTenantAuthorization();
 
     // Map MCP endpoint with tenant routing (existing, backwards compatible)
+    // AB#5032: the policy adds the scope requirement on top of "authenticated" — a token without the
+    // platform API scope no longer reaches any tool.
     app.MapMcp("/{tenantId:tenantId}/mcp")
-        .RequireAuthorization();
+        .RequireAuthorization(McpAuthorizationPolicy.PolicyName);
 
     // Map tenantless MCP endpoint (tenant resolved via tool parameter)
     app.MapMcp("/mcp")
-        .RequireAuthorization();
+        .RequireAuthorization(McpAuthorizationPolicy.PolicyName);
 
     // Log startup information
     var dynamicToolOptions = app.Services.GetRequiredService<IOptions<DynamicToolOptions>>().Value;

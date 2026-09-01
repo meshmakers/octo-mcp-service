@@ -23,7 +23,7 @@ dotnet build src/McpServices/McpServices.csproj -c DebugL
 # Build the entire solution (server + tests + resources)
 dotnet build Octo.McpServices.sln -c DebugL
 
-# Run all tests (currently 777, ~700 ms)
+# Run all tests (currently 839, ~1 s)
 dotnet test Octo.McpServices.sln -c DebugL
 
 # Filter tests by class
@@ -48,7 +48,7 @@ Minimum coverage per tool:
 - **Missing required args** — pass empty / null, assert validation error, no SDK call.
 - **Destructive without confirm** — for any tool with a `confirm` parameter, assert refusing without it.
 
-The current ratio is ~3.9 tests per tool (777 tests for 199 tools). Don't lower it.
+The current ratio is ~4.2 tests per tool (839 tests for 199 tools). Don't lower it.
 
 ### 2. Use the `*ClientContext` helpers — never call the factory directly from a tool
 
@@ -363,7 +363,7 @@ registers the JWT bearer handler (`AddAuthentication(JwtBearerDefaults.Authentic
 .AddJwtBearer()`, configured by `ConfigureJwtBearerOptions` → Authority + ValidIssuer,
 `ValidateAudience = false`) and runs `UseAuthentication()` / `UseAuthorization()` /
 `UseOctoTenantAuthorization()` before mapping the transport; both `app.MapMcp(...)` calls carry
-`.RequireAuthorization()`.
+`.RequireAuthorization(McpAuthorizationPolicy.PolicyName)` — the scope policy of the next section.
 
 Before this, the endpoints were anonymous — the `ConfigureJwtBearerOptions` configurator existed
 but no scheme/middleware was ever wired, so **direct-engine (family-2/3) tools served tenant data
@@ -383,6 +383,34 @@ valid token.
 
 The transport gate only sees the **route** tenant. The per-tool-param cross-tenant hole it leaves
 open is closed by `RuntimeSecurityContextResolver` (AB#5030, next section).
+
+### Endpoint scope policy (AB#5032)
+
+`Configuration/McpAuthorizationPolicy` registers `McpTransportPolicy`: `RequireAuthenticatedUser()`
+**plus** at least one of the scopes in `McpServiceOptions.RequiredApiScopes` on the `scope` claim.
+Both `MapMcp` endpoints require it. Before this they carried a bare `RequireAuthorization()`, so a
+token with no Octo API scope at all (a front-end `openid profile` token, say) reached every tool —
+while every backend service gates on `scope`.
+
+**The requirement is uniform, and it is the write scope `octo_api`.** MCP multiplexes all ~199 tools
+over one JSON-RPC `POST`; the tool name lives in the request *body* and ASP.NET authorization runs on
+the endpoint before the body is read, so there is no second endpoint to hang a stricter policy on and
+no way to split read from write there. Accepting `octo_api.read_only` would therefore hand a
+read-only token the whole write surface (`delete_tenant`, `uninstall_blueprint`, …) — strictly worse
+than refusing it. Nothing breaks: the two seeded MCP clients (660…33 / 660…34) allow `octo_api` and
+*not* `octo_api.read_only`, `AuthenticationTools`' device flow and `TenantTokenExchanger` both request
+`octo_api`, and the mesh-adapter service account requests `ApiScopes.OctoApiFullAccess`.
+
+`RequiredApiScopes` is configurable (`Mcp:RequiredApiScopes`) so an operator can admit a service
+account provisioned with a different scope without a code change; an empty list restores the
+pre-AB#5032 authenticated-only behaviour. The check accepts both wire encodings of `scope` — one
+claim per scope (what the backend services' `RequireClaim` policies rely on) and a single
+space-delimited value — which is never more permissive than the backend rule, it just avoids
+refusing a correctly-scoped token over claim splitting.
+
+A per-tool read/write distinction is still possible **in band**, at tool dispatch where the tool name
+is known; that is a separate change from the endpoint policy. `WithHttpTransport()`'s session mode is
+untouched.
 
 ### Caller identity + tenant gate for direct-engine tools (AB#5030)
 
@@ -484,6 +512,11 @@ tenant gate here — it reaches every tenant as `ForUser(its client_id, its role
 (audience validation, or an allow-list of service client ids) is tracked as **AB#5032**. Until it
 lands the exemption must not be removed or the AI worker loses access to every tenant it serves.
 
+> The **endpoint** half of AB#5032 has landed (see *Endpoint scope policy* above): a client-credentials
+> client now needs the `octo_api` scope to reach the transport at all, which narrows "any client of
+> this authority" to "any client provisioned with the platform write scope". The tenant-gate exemption
+> itself is unchanged and is being tightened separately, outside this repo.
+
 #### Call sites
 
 `ResolveTenantAccessAsync` is the same call for sites that never open a session — `SchemaDiscovery
@@ -496,11 +529,59 @@ authenticated caller could probe arbitrary tenant ids and tell "exists" from "do
 shape of the answer. Its tenant lookup is now also wrapped in a `try/catch` — it previously threw
 out of the tool on an unknown tenant.
 
-**Known gap — family-3 archive stores.** `StreamDataContext.TryResolveAsync` applies the tenant
-gate, but the engine-side stores it hands out (`ITenantContext.GetStreamDataRepository()`,
-`GetArchiveRuntimeStore()`, `GetRollupArchiveRuntimeStore()`) open their **own system sessions**
-internally, so data-permission enforcement does not reach the archive rows themselves. The gate is
-the only barrier on that path today.
+### Stream-data CK-type permission gate (AB#5038)
+
+`Services/DataPermissionStreamGuard` is the MCP mirror of the asset-repo GraphQL
+`GraphQL/Utils/DataPermissionStreamGuard` (AB#4973, decision F4). Same three short-circuits in the
+same order (system context → services not wired → `!policyTable.HasRules`), same
+`RtDataAccessEvaluator.Classify(..., RtDataAction.Read, ..., includeAuditOnlyPolicies: false)`, same
+rejection condition **`Denied or OwnedOnly`**, and the same message text verbatim:
+
+```
+Access denied: missing data permission 'Read' on '<SemanticVersionedFullName>' for stream data.
+```
+
+Keeping the wording identical is the point — a caller must get the same answer through MCP and
+through GraphQL, and `StreamDataPermissionGateTests` pins the literal string. The one deliberate
+difference is the shape: the GraphQL guard throws `ExecutionError`; MCP tools never throw, so the
+guard **returns** the message and the call site puts it into `ErrorMessage`.
+
+An **owner-scoped grant denies** stream reads. Time-series rows carry no creator, so row-level
+filtering is impossible for them — the conservative accepted limitation F4 of AB#4969. AuditOnly
+policies never block.
+
+Call sites:
+
+- `StreamDataContext.TryResolveAsync` — the shared archive-resolution path, so all four transient
+  query tools are covered at once. It now calls `ResolveAsync` (not `ResolveTenantAccessAsync`)
+  because it needs the caller's `RtSecurityContext`, not just the deny decision.
+- `execute_stream_data_query` — guards on the persisted `QueryCkTypeId`, mirroring asset-repo's
+  `StreamDataQuery` resolver (which likewise does *not* read it off an archive snapshot).
+- `StreamDataMetadataTools` — `get_archive_storage_stats` (row counts and table sizes describe the
+  rows), `get_rollup_query_metadata` (the logical source paths describe the CK attributes) and
+  `resolve_series_query` (which archive holds the series at which grain).
+
+Two shape notes on the metadata tools. `get_archive_storage_stats` is **fail-closed on the batch**: a
+single protected archive refuses the whole call rather than blanking one row, because the response is
+index-aligned with the caller's input list and a blanked row is indistinguishable from "table does not
+exist yet". And it only resolves archive snapshots when `DataPermissionStreamGuard.IsEnforcingAsync`
+says the tenant has policies — on the (overwhelmingly common) unprotected tenant it stays the single
+`GetArchiveStatsAsync` round-trip it has always been. `IsEnforcingAsync` is cheap to pair with the
+follow-up check because `IDataPermissionResolver` TTL-caches the policy table per tenant (60 s).
+
+The guard loads the tenant CK cache (`LoadCacheForTenantAsync`) before classifying, but **only on the
+protected path**: `RtDataPermissionCkTypeHelper.GetSelfAndBaseFullNames` can only walk the base-type
+chain from a hydrated cache, and a cold cache would silently under-block a policy that targets a base
+type. The GraphQL side never needs this because its schema was built from the same cache.
+
+**Known gap — family-3 archive stores.** The engine-side stores
+(`ITenantContext.GetStreamDataRepository()`, `GetArchiveRuntimeStore()`,
+`GetRollupArchiveRuntimeStore()`) open their **own system sessions** internally, so the caller's
+`RtSecurityContext` never reaches the archive read and *row-level* data-permission enforcement does
+not happen on this path. Threading the security context into those stores is the larger fix and is
+deliberately not part of AB#5038. Until it lands, the AB#5030 tenant gate plus this CK-type gate are
+the whole barrier — which is exactly the position the GraphQL surface is in, so the two remain
+equivalent.
 
 #### Testing
 
@@ -620,6 +701,48 @@ there is unnecessary and could break bot ops the home token already serves.
 > the endpoint-gating itself has no in-process HTTP test (the host needs MongoDB/RabbitMQ) — verify
 > against a running identity service.
 
+## Outbound fetches: the knowledge-source URL policy (AB#5037)
+
+`KnowledgeResources` materialises `AiKnowledgeSource` entities. The `Url` kind used to be fetched with
+a plain `httpClientFactory.CreateClient("knowledge-fetch").GetAsync(storedUrl)` — no scheme check, no
+host check, unbounded body, auto-following redirects. The URL is **tenant-writable** data and the
+request leaves from **inside the cluster**, with the response body handed back to the caller: that is
+a full SSRF primitive (cloud metadata endpoints, cluster-internal services, exotic schemes).
+
+The fetch now goes through `Services/KnowledgeUrlFetcher` (`IKnowledgeUrlFetcher`) and
+`Services/KnowledgeUrlPolicy`, configured by `Options/KnowledgeFetchOptions` (section
+`KnowledgeFetch`, env `OCTO_KNOWLEDGEFETCH__…`):
+
+- **Scheme allow-list** — `http` / `https` only. (Note: on Unix an absolute *path* like `/etc/passwd`
+  parses as an absolute `file://` URI, so it is caught here rather than by the absolute-URL check.)
+- **Address ranges blocked after DNS resolution**, not before. Checking the literal host is useless:
+  any name — including one the tenant controls — can point at `169.254.169.254`. `IHostAddressResolver`
+  (prod: `SystemDnsResolver`) resolves the host and **every** returned address must be publicly
+  routable; one blocked record in a multi-record answer refuses the whole fetch, because which record
+  the connection would pick is not ours to decide. Blocked: loopback, `0/8`, RFC 1918, RFC 6598 CGNAT,
+  link-local incl. the IPv4/IPv6 metadata endpoints, multicast/broadcast, IPv6 loopback / link-local /
+  unique-local, and the IPv4-mapped + IPv4-compatible IPv6 forms of all of them. An IP literal skips
+  DNS but not the range check. An unresolvable host is a refusal (fail closed).
+- **Size limit** — `MaxResponseBytes` (default 1 MiB). A declared `Content-Length` over budget is
+  refused before streaming; an undeclared oversized body is read to the budget and reported as
+  `Truncated` (a partial CLAUDE.md fragment is still useful, so truncation is not an error).
+- **Time limit** — `TimeoutSeconds` (default 10) as **one** budget for the whole exchange including
+  redirects. The named `knowledge-fetch` client is registered with `Timeout.InfiniteTimeSpan` on
+  purpose: a per-request timeout would multiply with the hop count.
+- **Redirects are followed by hand**, up to `MaxRedirects` (default 3), with the primary handler at
+  `AllowAutoRedirect = false`. Auto-redirect would connect to the target before anything could inspect
+  it — exactly the hole the policy exists to close. Every `Location` is re-validated against the full
+  policy, so a public host cannot bounce the request into the cluster.
+- **Operator escape hatches** — `AllowedHosts` (exact, or a leading-dot suffix entry like
+  `.internal.example.com`) waives **only** the address-range check for named internal sources; scheme,
+  size, time and the per-hop redirect re-check still apply, and a redirect target must be allow-listed
+  in its own right. `AllowPrivateNetworks` disables the address check wholesale for operators who
+  terminate egress in a proxy. Both default to off/empty.
+
+**There is no unguarded fallback.** `KnowledgeResources` resolves `IKnowledgeUrlFetcher` with
+`GetService`; when it is not registered the source renders as "fetcher is not configured", it is never
+fetched raw. Don't reintroduce a direct `HttpClient` call on this path.
+
 ## Test Infrastructure
 
 `tests/McpServices.Tests/` uses xUnit + Moq + FluentAssertions.
@@ -694,7 +817,7 @@ Notes:
 - **Code coverage** is collected via `coverlet.collector` (already referenced in `McpServices.Tests.csproj`) and surfaced in the Code Coverage tab of the build. Cobertura XML lands in `$(Agent.TempDirectory)`.
 - **Test glob excludes `*SystemTests.csproj`** so a future `McpServices.SystemTests` project (real-service integration suite) can be added later without breaking the main build — those would need their own pipeline + Testcontainers env, matching the pattern in `octo-identity-services`.
 
-The current suite is ~777 mock-based unit tests + a handful of in-process integration tests (`McpServerIntegrationTests`). If you add real-service-dependent tests, put them in a separate `*SystemTests` project so they're skipped here.
+The current suite is ~839 mock-based unit tests + a handful of in-process integration tests (`McpServerIntegrationTests`). If you add real-service-dependent tests, put them in a separate `*SystemTests` project so they're skipped here.
 
 ## Project Layout
 
@@ -703,12 +826,18 @@ src/McpServices/
 ├── Program.cs                          # Composition root + endpoint mapping
 ├── appsettings.json                    # Includes OctoServiceUrls section
 ├── Options/
-│   ├── McpServiceOptions.cs            # MCP-server-specific options
+│   ├── McpServiceOptions.cs            # MCP-server-specific options (incl. RequiredApiScopes, AB#5032)
+│   ├── KnowledgeFetchOptions.cs        # Knowledge-source fetch policy (AB#5037)
 │   └── OctoServiceUrlOptions.cs        # Backend service URLs
+├── Configuration/
+│   └── McpAuthorizationPolicy.cs       # McpTransportPolicy scope requirement (AB#5032)
 ├── Services/
 │   ├── IOctoServiceClientFactory.cs    # SDK client factory interface
 │   ├── OctoServiceClientFactory.cs     # Builds per-tenant SDK clients
 │   ├── McpCallerPrincipal.cs           # The validated request principal (single claim reader)
+│   ├── DataPermissionStreamGuard.cs    # Stream-data CK-type Read gate (AB#5038, mirrors asset-repo)
+│   ├── KnowledgeUrlPolicy.cs           # SSRF policy + IHostAddressResolver (AB#5037)
+│   ├── KnowledgeUrlFetcher.cs          # Guarded knowledge-source fetch (AB#5037)
 │   ├── McpSessionContext.cs            # Caller-bound store key + access token resolution (AB#5036)
 │   ├── McpSessionTokenStore.cs         # OAuth tokens keyed by the caller-bound session key
 │   ├── TenantResolutionService.cs      # tool param / route param resolution

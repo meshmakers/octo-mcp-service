@@ -78,7 +78,11 @@ public sealed class KnowledgeResources
 
             var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
             var dtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
-            var httpClientFactory = server.Services!.GetRequiredService<IHttpClientFactory>();
+            // AB#5037: the Url kind is fetched through the guarded fetcher, never through a raw
+            // HttpClient. Resolved with GetService so a host that did not register it degrades into a
+            // "not configured" message instead of throwing out of the resource — and, crucially, never
+            // falls back to an unguarded fetch.
+            var urlFetcher = server.Services!.GetService<IKnowledgeUrlFetcher>();
             var logger = server.Services!.GetRequiredService<ILoggerFactory>().CreateLogger<KnowledgeResources>();
 
             var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
@@ -108,7 +112,7 @@ public sealed class KnowledgeResources
 
             return await RenderKnowledgeAsync(
                 tenantRepository.TenantId, rtId, title, kindRaw, path, appliesToScopes,
-                httpClientFactory, logger, cancellationToken);
+                urlFetcher, logger, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -119,7 +123,7 @@ public sealed class KnowledgeResources
     private static async Task<string> RenderKnowledgeAsync(
         string tenantId, string rtId,
         string? title, string? kindRaw, string? path, string? appliesToScopes,
-        IHttpClientFactory httpClientFactory, ILogger logger, CancellationToken ct)
+        IKnowledgeUrlFetcher? urlFetcher, ILogger logger, CancellationToken ct)
     {
         var builder = new StringBuilder();
         builder.Append("# ").Append(string.IsNullOrWhiteSpace(title) ? "AI Knowledge Source" : title).Append("\n\n");
@@ -154,7 +158,7 @@ public sealed class KnowledgeResources
                 else
                 {
                     builder.Append("Source: <").Append(path).Append(">\n\n");
-                    await AppendFetchedBodyAsync(builder, path, httpClientFactory, logger, ct);
+                    await AppendFetchedBodyAsync(builder, path, urlFetcher, logger, ct);
                 }
                 break;
 
@@ -185,33 +189,35 @@ public sealed class KnowledgeResources
         return builder.ToString();
     }
 
+    /// <summary>
+    ///     Appends the fetched body of a Url-kind source. The fetch goes through
+    ///     <see cref="IKnowledgeUrlFetcher" />, which owns the AB#5037 SSRF policy (scheme allow-list,
+    ///     post-DNS address-range block, size + time limits, re-validated redirects). There is
+    ///     deliberately no unguarded fallback: when the fetcher is not registered the source is reported
+    ///     as not materialisable rather than fetched raw.
+    /// </summary>
     private static async Task AppendFetchedBodyAsync(
         StringBuilder builder, string url,
-        IHttpClientFactory httpClientFactory, ILogger logger, CancellationToken ct)
+        IKnowledgeUrlFetcher? urlFetcher, ILogger logger, CancellationToken ct)
     {
-        // Named client "knowledge-fetch" lets ops set timeout / proxy / header policy in
-        // appsettings.json without recompiling. Falls back to the default client if not configured.
-        var http = httpClientFactory.CreateClient("knowledge-fetch");
-        try
+        if (urlFetcher == null)
         {
-            using var response = await http.GetAsync(url, ct);
-            if (!response.IsSuccessStatusCode)
-            {
-                builder.Append("_Fetch failed: HTTP ")
-                    .Append((int)response.StatusCode)
-                    .Append(' ')
-                    .Append(response.ReasonPhrase)
-                    .Append("._\n");
-                return;
-            }
-
-            var body = await response.Content.ReadAsStringAsync(ct);
-            builder.Append("```\n").Append(body.TrimEnd()).Append("\n```\n");
+            builder.Append("_Fetch failed: the knowledge URL fetcher is not configured on this host._\n");
+            return;
         }
-        catch (Exception ex)
+
+        var result = await urlFetcher.FetchAsync(url, ct);
+        if (result.Error != null)
         {
-            logger.LogWarning(ex, "Knowledge fetch failed for {Url}", url);
-            builder.Append("_Fetch failed: ").Append(ex.Message).Append("._\n");
+            logger.LogWarning("Knowledge fetch refused or failed for {Url}: {Reason}", url, result.Error);
+            builder.Append("_Fetch failed: ").Append(result.Error).Append("._\n");
+            return;
+        }
+
+        builder.Append("```\n").Append((result.Body ?? string.Empty).TrimEnd()).Append("\n```\n");
+        if (result.Truncated)
+        {
+            builder.Append("\n_Truncated at the configured knowledge-fetch size limit._\n");
         }
     }
 

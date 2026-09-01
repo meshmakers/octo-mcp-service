@@ -2,6 +2,9 @@ using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models.Aggregation;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.Runtime.Contracts;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 using Meshmakers.Octo.Runtime.Contracts.StreamData;
 using Meshmakers.Octo.Runtime.Engine.CrateDb;
 using Meshmakers.Octo.Runtime.Engine.StreamData;
@@ -71,6 +74,26 @@ public sealed class StreamDataMetadataTools
                     }).ToList(),
                     Message = "Stream data is not enabled for this tenant; stats returned as placeholders."
                 };
+            }
+
+            // CK-type permission gate (AB#5038). Row counts and table sizes describe the archive's rows,
+            // so they follow the same full-Read-grant rule as the rows themselves. The archive snapshots
+            // are only fetched when the tenant actually has policies — on an unprotected tenant this
+            // stays the single GetArchiveStatsAsync round-trip it has always been.
+            var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
+            if (await DataPermissionStreamGuard.IsEnforcingAsync(server, tenantRepository, access.SecurityContext))
+            {
+                var denied = await EnsureArchivesReadableAsync(
+                    server, ctx, tenantRepository, archiveRtIds, access.SecurityContext);
+                if (denied != null)
+                {
+                    return new ArchiveStorageStatsResponse
+                    {
+                        IsSuccess = false,
+                        ErrorMessage = denied,
+                        TenantId = ctx.TenantId
+                    };
+                }
             }
 
             var rtIds = archiveRtIds.Select(s => new OctoObjectId(s)).ToList();
@@ -179,6 +202,22 @@ public sealed class StreamDataMetadataTools
             // rollup), the spec's SourcePath is a physical _sum/_count column on the parent — the
             // resolver reverse-maps it through the parent's aggregation specs until it hits a raw /
             // time-range archive. Specs whose chain is broken are silently dropped (see resolver docs).
+            // CK-type permission gate (AB#5038): the logical source paths describe which CK attributes
+            // the rollup aggregates, so they are gated on the same full Read grant as the rows.
+            var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
+            var rollupDenied = await DataPermissionStreamGuard.EnsureStreamReadAllowedAsync(
+                server, tenantRepository, ctx.TenantId, rollup.TargetCkTypeId, access.SecurityContext);
+            if (rollupDenied != null)
+            {
+                return new RollupQueryMetadataResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = rollupDenied,
+                    TenantId = ctx.TenantId,
+                    RollupRtId = rollupRtId
+                };
+            }
+
             var archiveStore = ctx.GetArchiveRuntimeStore();
             var paths = await RollupLogicalPathResolver.ResolveAsync(
                 rollup,
@@ -288,6 +327,32 @@ public sealed class StreamDataMetadataTools
             }
 
             var archiveStore = ctx.GetArchiveRuntimeStore();
+
+            // CK-type permission gate (AB#5038). Series routing answers "which archive holds this
+            // series at which grain" — a caller who may not read the rows must not be able to map the
+            // family either. Guarded on the base archive's target type; the ladder above it belongs to
+            // the same resolution family and therefore to the same CK type.
+            var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
+            if (await DataPermissionStreamGuard.IsEnforcingAsync(server, tenantRepository, access.SecurityContext))
+            {
+                var baseSnapshot = await archiveStore.GetAsync(new OctoObjectId(baseArchiveRtId));
+                if (baseSnapshot != null)
+                {
+                    var denied = await DataPermissionStreamGuard.EnsureStreamReadAllowedAsync(
+                        server, tenantRepository, ctx.TenantId, baseSnapshot.TargetCkTypeId,
+                        access.SecurityContext);
+                    if (denied != null)
+                    {
+                        return new SeriesResolutionResponse
+                        {
+                            IsSuccess = false,
+                            ErrorMessage = denied,
+                            TenantId = ctx.TenantId
+                        };
+                    }
+                }
+            }
+
             var service = new SeriesResolutionService(archiveStore, new RollupDependencyGraph(rollupStore));
 
             var request = new SeriesResolutionRequest(
@@ -325,6 +390,52 @@ public sealed class StreamDataMetadataTools
         {
             return new SeriesResolutionResponse { IsSuccess = false, ErrorMessage = ex.Message };
         }
+    }
+
+    /// <summary>
+    ///     Runs the AB#5038 CK-type gate over every requested archive id and returns the first refusal,
+    ///     or null when all of them are readable.
+    ///     <para>
+    ///     Fail-closed on the batch: a single protected archive refuses the whole call rather than
+    ///     silently dropping rows, because the response is index-aligned with the caller's input list —
+    ///     a blanked row would be indistinguishable from "table does not exist yet". An id that resolves
+    ///     to neither an archive nor a rollup has no CK type to protect and is left to the placeholder
+    ///     path.
+    ///     </para>
+    /// </summary>
+    private static async Task<string?> EnsureArchivesReadableAsync(
+        McpServer server,
+        ITenantContext ctx,
+        ITenantRepository tenantRepository,
+        IEnumerable<string> archiveRtIds,
+        RtSecurityContext? securityContext)
+    {
+        var archiveStore = ctx.GetArchiveRuntimeStore();
+        var rollupStore = ctx.GetRollupArchiveRuntimeStore();
+
+        foreach (var id in archiveRtIds)
+        {
+            var rtId = new OctoObjectId(id);
+            var ckTypeId = (await archiveStore.GetAsync(rtId))?.TargetCkTypeId;
+            if (ckTypeId == null && rollupStore != null)
+            {
+                ckTypeId = (await rollupStore.GetAsync(rtId))?.TargetCkTypeId;
+            }
+
+            if (ckTypeId == null)
+            {
+                continue;
+            }
+
+            var denied = await DataPermissionStreamGuard.EnsureStreamReadAllowedAsync(
+                server, tenantRepository, ctx.TenantId, ckTypeId, securityContext);
+            if (denied != null)
+            {
+                return denied;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

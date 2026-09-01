@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Http;
 using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.Resources;
 using Microsoft.Extensions.Logging;
@@ -21,11 +19,9 @@ public class KnowledgeResourcesTests : TestBase
 {
     public KnowledgeResourcesTests()
     {
-        // The fixture base does not register IHttpClientFactory or ILoggerFactory by default —
-        // the knowledge fetch path needs both. Register no-op implementations sufficient for
-        // the URL-kind branch (which isn't exercised in these surface tests but the DI
-        // resolution must still succeed for any Url-kind future test).
-        TestServiceProvider.RegisterService<IHttpClientFactory>(new StubHttpClientFactory());
+        // The fixture base does not register ILoggerFactory by default — the knowledge path needs it.
+        // The Url-kind branch resolves IKnowledgeUrlFetcher with GetService (AB#5037: no unguarded
+        // fallback), so leaving it unregistered here is a valid host shape, not a broken fixture.
         TestServiceProvider.RegisterService<ILoggerFactory>(NullLoggerFactory.Instance);
     }
 
@@ -53,15 +49,4 @@ public class KnowledgeResourcesTests : TestBase
         markdown.Should().Contain("not-a-valid-object-id");
     }
 
-    private sealed class StubHttpClientFactory : IHttpClientFactory
-    {
-        public HttpClient CreateClient(string name) => new(new StubHandler());
-
-        private sealed class StubHandler : HttpMessageHandler
-        {
-            protected override Task<HttpResponseMessage> SendAsync(
-                HttpRequestMessage request, CancellationToken cancellationToken) =>
-                Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
-        }
-    }
 }
