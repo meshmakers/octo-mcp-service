@@ -68,6 +68,60 @@ public sealed class TenantManagementTools
         }
     }
 
+    /// <summary>Read the aggregate feature-toggle status of the resolved tenant (AB#4884).</summary>
+    [McpServerTool(Name = "get_tenant_features")]
+    [Description(
+        "Read the aggregate enabled-state of the four per-tenant capabilities: Stream Data (tenant flag plus the " +
+        "instance-level kill switch), Communication, Reporting and AI Services. These are the same flags the " +
+        "tenant delete/detach guard evaluates (AB#4255) - delete_tenant / detach_tenant are refused while any of " +
+        "them is still enabled. Whether a capability's service is installed at all is NOT answered here (except " +
+        "for Stream Data's instanceEnabled) - clients read that from the _configuration discovery document, where " +
+        "an empty service URL means 'not installed'. Equivalent to GET {tenantId}/v1/features/status on the " +
+        "asset repository.")]
+    public static async Task<TenantFeaturesResponse> GetTenantFeatures(
+        McpServer server,
+        [Description("Tenant whose feature status should be read. Falls back to URL route.")]
+        string? tenantId = null)
+    {
+        // The shared Services helper (not this class's private parent-scoped context): it exchanges the
+        // session token for a tenant-scoped one (AB#4338), so a child tenant's flags are readable too.
+        var ctx = await Services.AssetClientContext.TryBuildAsync(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new TenantFeaturesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            // The tenant travels in the client's base URI; the SDK call itself takes no tenant argument.
+            var features = await ctx.Client!.GetTenantFeaturesStatusAsync();
+
+            static string State(bool? enabled) => enabled switch
+            {
+                true => "enabled",
+                false => "disabled",
+                null => "unreported"
+            };
+
+            return new TenantFeaturesResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                Features = features,
+                Message = $"Tenant '{ctx.TenantId}' features: " +
+                          $"streamData tenant={State(features.StreamData?.TenantEnabled)} " +
+                          $"(instance={State(features.StreamData?.InstanceEnabled)}), " +
+                          $"communication={State(features.Communication?.TenantEnabled)}, " +
+                          $"reporting={State(features.Reporting?.TenantEnabled)}, " +
+                          $"aiServices={State(features.AiServices?.TenantEnabled)}."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new TenantFeaturesResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
     /// <summary>Create a new child tenant under the resolved parent tenant.</summary>
     [McpServerTool(Name = "create_tenant")]
     [McpRisk(McpRiskLevel.High)]
@@ -151,6 +205,7 @@ public sealed class TenantManagementTools
         "Delete a child tenant. DESTRUCTIVE — requires confirm=true. Equivalent to the octo-cli DeleteTenant " +
         "command without the interactive confirmation prompt. Refused with a Conflict error while Stream Data, " +
         "Communication, Reporting or AI Services is still enabled for the child tenant; the error names them. " +
+        "Check the current flags with get_tenant_features (tenantId=<child>). " +
         "Disable them first via disable_stream_data / disable_communication / disable_reporting " +
         "(tenantId=<child>, confirm=true); AI Services has no MCP tool - run octo-cli DisableAi in a context of " +
         "the child tenant (UseContext or --context <name>). Run dump_tenant beforehand if the data is still " +
@@ -290,7 +345,8 @@ public sealed class TenantManagementTools
         "Detach a child tenant: removes the metadata binding but leaves the database intact. Non-destructive at " +
         "the data level; the tenant becomes invisible until re-attached. Refused with a Conflict error while " +
         "Stream Data, Communication, Reporting or AI Services is still enabled for the child tenant; the error " +
-        "names them. Disable them first via disable_stream_data / disable_communication / disable_reporting " +
+        "names them. Check the current flags with get_tenant_features (tenantId=<child>). " +
+        "Disable them first via disable_stream_data / disable_communication / disable_reporting " +
         "(tenantId=<child>, confirm=true); AI Services has no MCP tool - run octo-cli DisableAi in a context of " +
         "the child tenant (UseContext or --context <name>). Run dump_tenant beforehand if the data is still " +
         "needed. Answers a reason-free not-found error when the tenant is not a child of the parent.")]

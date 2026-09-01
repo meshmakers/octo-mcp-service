@@ -1,3 +1,5 @@
+using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+
 namespace Meshmakers.Octo.Backend.McpServices.Models;
 
 /// <summary>
@@ -79,4 +81,16 @@ public class TenantOperationResponse : TenantManagementResponse
 
     /// <summary>Parent tenant context.</summary>
     public string? ParentTenantId { get; set; }
+}
+
+/// <summary>
+///     Response of the <c>get_tenant_features</c> tool (AB#4884).
+/// </summary>
+public class TenantFeaturesResponse : TenantManagementResponse
+{
+    /// <summary>Tenant whose feature status was read.</summary>
+    public string? TenantId { get; set; }
+
+    /// <summary>Aggregate enabled-state of the four capabilities the delete/detach guard evaluates.</summary>
+    public TenantFeaturesStatusDto? Features { get; set; }
 }

@@ -85,6 +85,18 @@ public class ToolRiskRegistryTests
     }
 
     [Fact]
+    public void RealAssembly_RegistersGetTenantFeaturesAsLow()
+    {
+        // Read-only feature-status tool (AB#4884) — unannotated, so it must resolve as Low.
+        var registry = new ToolRiskRegistry(typeof(IToolRiskRegistry).Assembly);
+
+        var all = registry.GetAll();
+
+        all.Should().ContainKey("get_tenant_features");
+        all["get_tenant_features"].Should().Be(McpRiskLevel.Low);
+    }
+
+    [Fact]
     public void RealAssembly_RegistersDeleteEntityAsMedium()
     {
         // Sanity check: the only annotated CRUD tool in the initial sweep.
