@@ -145,7 +145,7 @@ dotnet run
 ### **Authentication & Identity Bootstrap** (4)
 `authenticate` · `check_auth_status` · `whoami` · `list_tenants`
 
-### **Tenant Lifecycle** (10)
+### **Tenant Lifecycle** (11)
 `get_tenants` · `get_tenant_features` · `create_tenant` · `delete_tenant`<sup>‡</sup> · `clean_tenant`<sup>‡</sup> · `attach_tenant` · `detach_tenant` · `clear_tenant_cache`<sup>‡</sup> · `update_system_ck_model` · `dump_tenant`<sup>📁</sup> · `restore_tenant`<sup>‡📁</sup>
 
 ### **Identity — Users / Roles / Groups** (21)
