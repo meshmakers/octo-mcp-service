@@ -381,6 +381,24 @@ valid token.
 > client-credentials client of this authority passes the transport check and is then skipped here —
 > see *Blast radius of the CC-token exemption (AB#5032)* below.
 
+**The skip is staged and operator-settable — and this service now reads that setting (AB#5047).**
+Since AB#5032 the middleware no longer hard-codes the exemption: identity stamps a `tenant_id` claim
+on client-credentials tokens and the middleware compares it against the route tenant, governed by
+`TenantAuthorizationOptions.ServiceTokenEnforcement` = `Disabled` | `LogOnly` (default) | `Enforce`.
+`Program.cs` binds it with `builder.Services.AddOctoTenantAuthorization(builder.Configuration)`
+(section `TenantAuthorization`), so the knob is
+**`OCTO_TENANTAUTHORIZATION__SERVICETOKENENFORCEMENT`**, plus
+`OCTO_TENANTAUTHORIZATION__CROSSTENANTSERVICECLIENTIDS__0…` for the cross-tenant allow-list — the
+identical section and variable names Identity, Communication Controller, Asset-Repo and Bot use, so
+one fleet-wide value reaches all five. Calling `UseOctoTenantAuthorization()` **without** the
+`Add…` call (the state this service was in until AB#5047) leaves it on the built-in defaults, where
+the environment variable is inert — the service keeps `LogOnly` while the rest of the estate moves
+to `Enforce`. Semantics and rollout rules: `octo-common-services/CLAUDE.md`.
+
+Both platform consumers that need cross-tenant reach already mint **tenant-bound** tokens
+(`IMcpTokenIssuer` with `acr_values=tenant:{tenantId}`, the mesh adapter with its own
+`ServiceAccountConfiguration`), so they pass the match on their own and need no allow-list entry.
+
 The transport gate only sees the **route** tenant. The per-tool-param cross-tenant hole it leaves
 open is closed by `RuntimeSecurityContextResolver` (AB#5030, next section).
 
@@ -516,6 +534,14 @@ lands the exemption must not be removed or the AI worker loses access to every t
 > client now needs the `octo_api` scope to reach the transport at all, which narrows "any client of
 > this authority" to "any client provisioned with the platform write scope". The tenant-gate exemption
 > itself is unchanged and is being tightened separately, outside this repo.
+>
+> Careful with "tenant gate" — there are two. The **HTTP** one (`TenantAuthorizationMiddleware`,
+> route `{tenantId}` vs. `tenant_id` claim) is the one AB#5032 staged behind
+> `ServiceTokenEnforcement`, and since AB#5047 this service binds that setting, so
+> `OCTO_TENANTAUTHORIZATION__SERVICETOKENENFORCEMENT=Enforce` does narrow it here. The **in-tool**
+> one described in this section (`RuntimeSecurityContextResolver.ResolveTenantAccessAsync`, which
+> guards the tenant named in a *tool parameter*) still exempts CC tokens unconditionally and is
+> unaffected by that variable.
 
 #### Call sites
 

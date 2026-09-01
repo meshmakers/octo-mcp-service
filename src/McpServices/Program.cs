@@ -143,6 +143,12 @@ try
     builder.Services.AddSingleton<IRuntimeGraphqlIntrospectionClient, RuntimeGraphqlIntrospectionClient>();
 
     builder.Services.AddCors();
+
+    // AB#5032 (wired here with AB#5047): lets an operator narrow the client-credentials
+    // exemption of UseOctoTenantAuthorization() per environment (OCTO_TENANTAUTHORIZATION__…).
+    // The defaults reproduce the previous behaviour and only add the audit log.
+    builder.Services.AddOctoTenantAuthorization(builder.Configuration);
+
     builder.Services.AddControllers()
         .AddJsonOptions(options =>
         {
