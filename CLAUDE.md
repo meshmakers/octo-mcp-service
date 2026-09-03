@@ -384,7 +384,8 @@ valid token.
 **The skip is staged and operator-settable — and this service now reads that setting (AB#5047).**
 Since AB#5032 the middleware no longer hard-codes the exemption: identity stamps a `tenant_id` claim
 on client-credentials tokens and the middleware compares it against the route tenant, governed by
-`TenantAuthorizationOptions.ServiceTokenEnforcement` = `Disabled` | `LogOnly` (default) | `Enforce`.
+`TenantAuthorizationOptions.ServiceTokenEnforcement` = `Disabled` | `LogOnly` | `Enforce`
+(**default since AB#5077**).
 `Program.cs` binds it with `builder.Services.AddOctoTenantAuthorization(builder.Configuration)`
 (section `TenantAuthorization`), so the knob is
 **`OCTO_TENANTAUTHORIZATION__SERVICETOKENENFORCEMENT`**, plus
@@ -567,8 +568,8 @@ lands the exemption must not be removed or the AI worker loses access to every t
 >
 > Careful with "tenant gate" — there are two. The **HTTP** one (`TenantAuthorizationMiddleware`,
 > route `{tenantId}` vs. `tenant_id` claim) is the one AB#5032 staged behind
-> `ServiceTokenEnforcement`, and since AB#5047 this service binds that setting, so
-> `OCTO_TENANTAUTHORIZATION__SERVICETOKENENFORCEMENT=Enforce` does narrow it here. The **in-tool**
+> `ServiceTokenEnforcement`, and since AB#5047 this service binds that setting — which since
+> AB#5077 defaults to `Enforce`, so it is narrowed here by default. The **in-tool**
 > one described in this section (`RuntimeSecurityContextResolver.ResolveTenantAccessAsync`, which
 > guards the tenant named in a *tool parameter*) still exempts CC tokens unconditionally and is
 > unaffected by that variable.
