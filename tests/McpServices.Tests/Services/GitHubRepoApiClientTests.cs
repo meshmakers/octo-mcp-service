@@ -35,7 +35,7 @@ public class GitHubRepoApiClientTests
 
         var result = await client.CreateAsync(
             "ghp_fake", name: "customer-list",
-            description: null, isPrivate: true, org: null);
+            description: null, isPrivate: true, org: null, cancellationToken: TestContext.Current.CancellationToken);
 
         result.Outcome.Should().Be(GitHubRepoCreateOutcome.Created);
         result.Repo.Should().NotBeNull();
@@ -71,7 +71,7 @@ public class GitHubRepoApiClientTests
                 """));
         var client = MakeClient(handler);
 
-        await client.CreateAsync("ghp_fake", "app", null, true, "meshmakers");
+        await client.CreateAsync("ghp_fake", "app", null, true, "meshmakers", TestContext.Current.CancellationToken);
 
         handler.Requests[0].RequestUri!.PathAndQuery.Should().Be("/orgs/meshmakers/repos");
     }
@@ -97,7 +97,7 @@ public class GitHubRepoApiClientTests
         var client = MakeClient(handler);
 
         var result = await client.CreateAsync(
-            "ghp_fake", "customer-list", null, true, org: null);
+            "ghp_fake", "customer-list", null, true, org: null, cancellationToken: TestContext.Current.CancellationToken);
 
         result.Outcome.Should().Be(GitHubRepoCreateOutcome.Conflict);
         result.Repo.Should().NotBeNull();
@@ -120,7 +120,7 @@ public class GitHubRepoApiClientTests
             new Canned(HttpStatusCode.NotFound, """{"message": "Not Found"}"""));
         var client = MakeClient(handler);
 
-        var result = await client.CreateAsync("ghp_fake", "weird-name", null, true, null);
+        var result = await client.CreateAsync("ghp_fake", "weird-name", null, true, null, TestContext.Current.CancellationToken);
 
         result.Outcome.Should().Be(GitHubRepoCreateOutcome.UnexpectedError);
         result.ErrorMessage.Should().Contain("422");
@@ -133,7 +133,7 @@ public class GitHubRepoApiClientTests
             new Canned(HttpStatusCode.Unauthorized, """{"message": "Bad credentials"}"""));
         var client = MakeClient(handler);
 
-        var result = await client.CreateAsync("ghp_expired", "app", null, true, null);
+        var result = await client.CreateAsync("ghp_expired", "app", null, true, null, TestContext.Current.CancellationToken);
 
         result.Outcome.Should().Be(GitHubRepoCreateOutcome.Unauthorised);
         result.ErrorMessage.Should().Contain("Rotate");
@@ -146,7 +146,7 @@ public class GitHubRepoApiClientTests
             new Canned(HttpStatusCode.Forbidden, """{"message": "Resource not accessible by integration"}"""));
         var client = MakeClient(handler);
 
-        var result = await client.CreateAsync("ghp_fake", "app", null, true, "meshmakers");
+        var result = await client.CreateAsync("ghp_fake", "app", null, true, "meshmakers", TestContext.Current.CancellationToken);
 
         result.Outcome.Should().Be(GitHubRepoCreateOutcome.Unauthorised);
         result.ErrorMessage.Should().Contain("scope");
@@ -158,7 +158,7 @@ public class GitHubRepoApiClientTests
         var handler = new ThrowingHandler();
         var client = MakeClient(handler);
 
-        var result = await client.CreateAsync("ghp_fake", "app", null, true, null);
+        var result = await client.CreateAsync("ghp_fake", "app", null, true, null, TestContext.Current.CancellationToken);
 
         result.Outcome.Should().Be(GitHubRepoCreateOutcome.UnexpectedError);
         result.ErrorMessage.Should().Contain("unreachable");

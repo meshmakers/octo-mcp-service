@@ -1,5 +1,5 @@
 using System.ComponentModel;
-using IdentityModel;
+using Duende.IdentityModel;
 using Meshmakers.Common.Shared;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;

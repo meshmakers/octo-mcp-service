@@ -33,7 +33,7 @@ public class KnowledgeResourcesTests : TestBase
     public async Task GetKnowledgeSourceAsync_BlankRtId_RendersError()
     {
         var markdown = await KnowledgeResources.GetKnowledgeSourceAsync(
-            MockServer.Object, "test-tenant", "   ");
+            MockServer.Object, "test-tenant", "   ", TestContext.Current.CancellationToken);
 
         markdown.Should().Contain("_Error: rtId is required._");
         // No tenant resolution should happen — short-circuit before any DI lookup.
@@ -47,7 +47,7 @@ public class KnowledgeResourcesTests : TestBase
         // ObjectId invariant the runtime engine enforces. Anything else must not reach the
         // repository — render a clean validation error instead.
         var markdown = await KnowledgeResources.GetKnowledgeSourceAsync(
-            MockServer.Object, "test-tenant", "not-a-valid-object-id");
+            MockServer.Object, "test-tenant", "not-a-valid-object-id", TestContext.Current.CancellationToken);
 
         markdown.Should().Contain("Invalid rtId");
         markdown.Should().Contain("not-a-valid-object-id");

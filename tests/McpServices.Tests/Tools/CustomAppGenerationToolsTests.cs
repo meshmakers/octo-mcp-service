@@ -190,7 +190,8 @@ public class CustomAppGenerationToolsTests : ToolTestBase
             accessToken: "ghp_fake",
             description: "A list view",
             isPrivate: true,
-            org: "meshmakers");
+            org: "meshmakers",
+            cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeTrue();
         result.IsConflict.Should().BeFalse();
@@ -219,7 +220,8 @@ public class CustomAppGenerationToolsTests : ToolTestBase
         var result = await CustomAppGenerationTools.CreateTenantAppRepo(
             MockServer.Object,
             name: "customer-list",
-            accessToken: "");
+            accessToken: "",
+            cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("accessToken");
@@ -236,7 +238,8 @@ public class CustomAppGenerationToolsTests : ToolTestBase
         var result = await CustomAppGenerationTools.CreateTenantAppRepo(
             MockServer.Object,
             name: " ",
-            accessToken: "ghp_fake");
+            accessToken: "ghp_fake",
+            cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("name");
@@ -254,7 +257,8 @@ public class CustomAppGenerationToolsTests : ToolTestBase
         var result = await CustomAppGenerationTools.CreateTenantAppRepo(
             MockServer.Object,
             name: badName,
-            accessToken: "ghp_fake");
+            accessToken: "ghp_fake",
+            cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("Invalid repo name");
@@ -287,7 +291,8 @@ public class CustomAppGenerationToolsTests : ToolTestBase
             MockServer.Object,
             name: "customer-list",
             accessToken: "ghp_fake",
-            org: "meshmakers");
+            org: "meshmakers",
+            cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeFalse();
         result.IsConflict.Should().BeTrue("the conflict shape lets the agent reuse without a second round-trip");
@@ -313,7 +318,8 @@ public class CustomAppGenerationToolsTests : ToolTestBase
         var result = await CustomAppGenerationTools.CreateTenantAppRepo(
             MockServer.Object,
             name: "customer-list",
-            accessToken: "ghp_expired");
+            accessToken: "ghp_expired",
+            cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeFalse();
         result.IsConflict.Should().BeFalse("a 401 is not a name collision; mixing them would hide the rotation signal");
@@ -344,7 +350,8 @@ public class CustomAppGenerationToolsTests : ToolTestBase
         await CustomAppGenerationTools.CreateTenantAppRepo(
             MockServer.Object,
             name: "personal-app",
-            accessToken: "ghp_fake");
+            accessToken: "ghp_fake",
+            cancellationToken: TestContext.Current.CancellationToken);
 
         stub.LastCall!.Org.Should().BeNull("omitting org routes to POST /user/repos under the PAT-owner's account");
         stub.LastCall.IsPrivate.Should().BeTrue("private is the default — tenant code is sensitive by default");
@@ -574,7 +581,8 @@ public class CustomAppGenerationToolsTests : ToolTestBase
         TestServiceProvider.RegisterService<IRuntimeGraphqlIntrospectionClient>(stub);
 
         var result = await CustomAppGenerationTools.ExportRuntimeGraphqlSdl(
-            MockServer.Object, tenantId: "ai-sandbox" /* mock resolver always returns "test-tenant" */);
+            MockServer.Object, tenantId: "ai-sandbox" /* mock resolver always returns "test-tenant" */,
+            cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeTrue();
         result.TenantId.Should().Be("test-tenant");
@@ -607,7 +615,8 @@ public class CustomAppGenerationToolsTests : ToolTestBase
         TestServiceProvider.RegisterService<IRuntimeGraphqlIntrospectionClient>(stub);
 
         var result = await CustomAppGenerationTools.ExportRuntimeGraphqlSdl(
-            MockServer.Object, tenantId: "ai-sandbox" /* mock resolver always returns "test-tenant" */);
+            MockServer.Object, tenantId: "ai-sandbox" /* mock resolver always returns "test-tenant" */,
+            cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("Not authenticated");
@@ -629,7 +638,8 @@ public class CustomAppGenerationToolsTests : ToolTestBase
         TestServiceProvider.RegisterService<IRuntimeGraphqlIntrospectionClient>(stub);
 
         var result = await CustomAppGenerationTools.ExportRuntimeGraphqlSdl(
-            MockServer.Object, tenantId: "ai-sandbox" /* mock resolver always returns "test-tenant" */);
+            MockServer.Object, tenantId: "ai-sandbox" /* mock resolver always returns "test-tenant" */,
+            cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeFalse();
         result.TenantId.Should().Be("test-tenant", "the tenant id must be in the response so the agent's trace links the error to the call");
@@ -652,7 +662,8 @@ public class CustomAppGenerationToolsTests : ToolTestBase
         TestServiceProvider.RegisterService<IRuntimeGraphqlIntrospectionClient>(stub);
 
         var result = await CustomAppGenerationTools.ExportRuntimeGraphqlSdl(
-            MockServer.Object, tenantId: "ai-sandbox" /* mock resolver always returns "test-tenant" */);
+            MockServer.Object, tenantId: "ai-sandbox" /* mock resolver always returns "test-tenant" */,
+            cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("unreachable");
@@ -674,7 +685,8 @@ public class CustomAppGenerationToolsTests : ToolTestBase
         TestServiceProvider.RegisterService<IRuntimeGraphqlIntrospectionClient>(stub);
 
         var result = await CustomAppGenerationTools.ExportRuntimeGraphqlSdl(
-            MockServer.Object, tenantId: "ai-sandbox" /* mock resolver always returns "test-tenant" */);
+            MockServer.Object, tenantId: "ai-sandbox" /* mock resolver always returns "test-tenant" */,
+            cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("GraphQL errors");

@@ -35,6 +35,9 @@
 
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.11" />
         <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.11" />
+        <!-- Direct reference: OidcConstants is used by the client management tools. The released Octo SDK still ships
+             the legacy IdentityModel package until the next libs train; Duende.IdentityModel is its successor. -->
+        <PackageReference Include="Duende.IdentityModel" Version="8.1.0" />
 
         <!-- Referenced directly, not only transitively through Services.Contracts: the tools call the
              SDK service clients themselves, and a transitive reference resolves to the LOWEST version
