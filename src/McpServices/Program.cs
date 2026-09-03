@@ -5,7 +5,6 @@ using Meshmakers.Octo.Backend.McpServices;
 using Meshmakers.Octo.Backend.McpServices.Configuration;
 using Meshmakers.Octo.Backend.McpServices.Consumers;
 using Meshmakers.Octo.Backend.McpServices.Options;
-using Meshmakers.Octo.Backend.McpServices.Routing;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
@@ -194,8 +193,7 @@ try
     builder.Services.AddAuthorization(options =>
         McpAuthorizationPolicy.AddMcpTransportPolicy(options, mcpRequiredScopes));
 
-    builder.Services.Configure<RouteOptions>(options =>
-        options.ConstraintMap.Add("tenantId", typeof(TenantIdRouteConstraint)));
+    builder.Services.AddOctoTenantIdRouteConstraint();
 
     builder.Services.AddOctoServiceInfrastructure("McpServices",
         c =>

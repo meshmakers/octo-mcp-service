@@ -906,8 +906,10 @@ src/McpServices/
 │   ├── DynamicToolService.cs           # Generic CK CRUD discovery (legacy family 2)
 │   └── ToolExecutionService.cs         # Tool stats (legacy family 2)
 ├── Routing/
-│   ├── TenantIdRouteConstraint.cs      # MCP /{tenantId}/mcp routing
 │   └── FileTransferController.cs       # PUT/GET /file-transfer/{upload,download}/{id}
+│                                       # (the {tenantId} route constraint is shared — it lives in
+│                                       #  octo-common-services and is registered via
+│                                       #  AddOctoTenantIdRouteConstraint(); AB#5060)
 ├── Models/                             # Response envelope DTOs grouped by domain
 │   ├── TenantManagementResponses.cs
 │   ├── IdentityResponses.cs
