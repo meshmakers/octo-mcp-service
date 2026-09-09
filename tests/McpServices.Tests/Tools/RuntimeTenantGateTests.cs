@@ -343,7 +343,7 @@ public class RuntimeTenantGateTests : TestBase
         GivenForeignTenantCall();
 
         var markdown = await KnowledgeResources.GetKnowledgeSourceAsync(
-            MockServer.Object, ForeignTenantId, TestRtId);
+            MockServer.Object, ForeignTenantId, TestRtId, TestContext.Current.CancellationToken);
 
         markdown.Should().Contain("denied");
         MockTenantRepository.Verify(r => r.GetSessionAsync(), Times.Never);
@@ -355,7 +355,7 @@ public class RuntimeTenantGateTests : TestBase
         GivenUnauthenticatedCaller();
 
         var markdown = await KnowledgeResources.GetKnowledgeSourceAsync(
-            MockServer.Object, DefaultTestTenantId, TestRtId);
+            MockServer.Object, DefaultTestTenantId, TestRtId, TestContext.Current.CancellationToken);
 
         markdown.Should().Contain("Not authenticated");
     }

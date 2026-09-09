@@ -217,7 +217,7 @@ public class McpSessionContextTests
         GivenStoredToken(TestJwt.CreateFull(HomeTenant, "somebody-else", clientId: null, "Admin"));
         _httpContext.Request.Headers.Authorization = "Bearer the-callers-own-bearer";
 
-        var result = await McpSessionContext.ResolveAccessTokenAsync(_mockServer.Object);
+        var result = await McpSessionContext.ResolveAccessTokenAsync(_mockServer.Object, TestContext.Current.CancellationToken);
 
         result.AccessToken.Should().BeNull();
         result.Error.Should().Be(Constants.SessionTokenNotBoundError);
@@ -231,7 +231,7 @@ public class McpSessionContextTests
         // this shape, and using it would make the tool act in a tenant the request was not gated for.
         GivenStoredToken(TestJwt.CreateFull("tenant-b", CallerSubject, clientId: null, "Admin"));
 
-        var result = await McpSessionContext.ResolveAccessTokenAsync(_mockServer.Object);
+        var result = await McpSessionContext.ResolveAccessTokenAsync(_mockServer.Object, TestContext.Current.CancellationToken);
 
         result.AccessToken.Should().BeNull();
         result.Error.Should().Be(Constants.SessionTokenNotBoundError);
@@ -243,7 +243,7 @@ public class McpSessionContextTests
         // An opaque token carries no claims, so it cannot be bound to the caller at all.
         GivenStoredToken("an-opaque-non-jwt-bearer");
 
-        var result = await McpSessionContext.ResolveAccessTokenAsync(_mockServer.Object);
+        var result = await McpSessionContext.ResolveAccessTokenAsync(_mockServer.Object, TestContext.Current.CancellationToken);
 
         result.AccessToken.Should().BeNull();
         result.Error.Should().Be(Constants.SessionTokenNotBoundError);
@@ -268,7 +268,7 @@ public class McpSessionContextTests
                 ExpiresAtUtc = DateTime.UtcNow.AddHours(1)
             });
 
-        var result = await McpSessionContext.ResolveAccessTokenAsync(_mockServer.Object);
+        var result = await McpSessionContext.ResolveAccessTokenAsync(_mockServer.Object, TestContext.Current.CancellationToken);
 
         result.AccessToken.Should().BeNull();
         result.Error.Should().Be(Constants.SessionTokenNotBoundError);
@@ -283,7 +283,7 @@ public class McpSessionContextTests
         GivenServicePrincipal("octo-ai-worker");
         GivenStoredToken("an-opaque-service-token");
 
-        var result = await McpSessionContext.ResolveAccessTokenAsync(_mockServer.Object);
+        var result = await McpSessionContext.ResolveAccessTokenAsync(_mockServer.Object, TestContext.Current.CancellationToken);
 
         result.Error.Should().BeNull();
         result.AccessToken.Should().Be("an-opaque-service-token");
@@ -298,7 +298,7 @@ public class McpSessionContextTests
         _mockTokenStore.Setup(s => s.GetTokens(It.IsAny<string>())).Returns((McpSessionTokens?)null);
         _httpContext.Request.Headers.Authorization = "Bearer adapter-minted-bearer-xyz";
 
-        var result = await McpSessionContext.ResolveAccessTokenAsync(_mockServer.Object);
+        var result = await McpSessionContext.ResolveAccessTokenAsync(_mockServer.Object, TestContext.Current.CancellationToken);
 
         result.Error.Should().BeNull();
         result.AccessToken.Should().Be("adapter-minted-bearer-xyz");
@@ -311,7 +311,7 @@ public class McpSessionContextTests
         _httpContext.User = new ClaimsPrincipal(new ClaimsIdentity());
         _httpContext.Request.Headers.Authorization = "Bearer some-bearer";
 
-        var result = await McpSessionContext.ResolveAccessTokenAsync(_mockServer.Object);
+        var result = await McpSessionContext.ResolveAccessTokenAsync(_mockServer.Object, TestContext.Current.CancellationToken);
 
         result.AccessToken.Should().Be("some-bearer");
         _mockTokenStore.Verify(s => s.GetTokens(It.IsAny<string>()), Times.Never);

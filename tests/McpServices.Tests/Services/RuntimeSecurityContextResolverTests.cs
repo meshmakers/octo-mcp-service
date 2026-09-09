@@ -26,7 +26,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
         GivenAuthenticatedCaller(DefaultTestTenantId, "user-42", "Reader", "Writer");
 
         var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, DefaultTestTenantId);
+            MockServer.Object, MockTenantResolution.Object, DefaultTestTenantId, TestContext.Current.CancellationToken);
 
         result.Error.Should().BeNull();
         result.ResolvedTenantId.Should().Be(DefaultTestTenantId);
@@ -45,7 +45,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
             "someone-elses-tenant", "someone-else", clientId: null, "Admin"));
 
         var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, DefaultTestTenantId);
+            MockServer.Object, MockTenantResolution.Object, DefaultTestTenantId, TestContext.Current.CancellationToken);
 
         result.Error.Should().BeNull();
         result.SecurityContext!.SubjectId.Should().Be(DefaultCallerSubjectId,
@@ -69,9 +69,9 @@ public class RuntimeSecurityContextResolverTests : TestBase
         GivenTokenExchange(_ => null);
 
         var sameTenant = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, DefaultTestTenantId);
+            MockServer.Object, MockTenantResolution.Object, DefaultTestTenantId, TestContext.Current.CancellationToken);
         var foreignTenant = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, ForeignTenantId);
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
 
         sameTenant.SecurityContext!.SubjectId.Should().Be("mapped-user");
         foreignTenant.Error.Should().Contain("denied",
@@ -91,7 +91,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
         ], "Bearer")));
 
         var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, DefaultTestTenantId);
+            MockServer.Object, MockTenantResolution.Object, DefaultTestTenantId, TestContext.Current.CancellationToken);
 
         result.SecurityContext!.Roles.Should().BeEquivalentTo("MappedRole", "ShortRole");
     }
@@ -106,7 +106,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
         GivenCallerWithoutTenantClaim();
 
         var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, DefaultTestTenantId);
+            MockServer.Object, MockTenantResolution.Object, DefaultTestTenantId, TestContext.Current.CancellationToken);
 
         result.SecurityContext.Should().BeNull();
         result.Error.Should().Contain("denied").And.Contain("tenant_id");
@@ -118,7 +118,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
         GivenForeignTenantCall();
 
         var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, ForeignTenantId);
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
 
         result.SecurityContext.Should().BeNull();
         result.ResolvedTenantId.Should().Be(ForeignTenantId);
@@ -136,7 +136,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
         GivenServicePrincipalCaller("octo-ai-worker", DefaultTestTenantId, "ServiceRole");
 
         var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, ForeignTenantId);
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
 
         result.Error.Should().BeNull("client-credentials principals are exempt from the tenant match");
         result.SecurityContext.Should().NotBeNull();
@@ -152,7 +152,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
         GivenUnauthenticatedCaller();
 
         var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, DefaultTestTenantId);
+            MockServer.Object, MockTenantResolution.Object, DefaultTestTenantId, TestContext.Current.CancellationToken);
 
         result.SecurityContext.Should().BeNull();
         result.Error.Should().StartWith("Not authenticated");
@@ -168,7 +168,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
         server.Setup(s => s.Services).Returns(provider);
 
         var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            server.Object, MockTenantResolution.Object, DefaultTestTenantId);
+            server.Object, MockTenantResolution.Object, DefaultTestTenantId, TestContext.Current.CancellationToken);
 
         result.SecurityContext.Should().BeNull();
         result.Error.Should().StartWith("Not authenticated");
@@ -182,7 +182,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
             .Throws(new InvalidOperationException("No tenant ID specified."));
 
         var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, null);
+            MockServer.Object, MockTenantResolution.Object, null, TestContext.Current.CancellationToken);
 
         result.SecurityContext.Should().BeNull();
         result.ResolvedTenantId.Should().BeNull();
@@ -199,7 +199,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
             .Throws(new FormatException("Tenant id is malformed."));
 
         var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, "!!!");
+            MockServer.Object, MockTenantResolution.Object, "!!!", TestContext.Current.CancellationToken);
 
         result.SecurityContext.Should().BeNull();
         result.Error.Should().Be("Tenant id is malformed.");
@@ -215,7 +215,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
         GivenSuccessfulTenantExchange(ForeignTenantId, "shadow-user-in-b", "BReader");
 
         var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, ForeignTenantId);
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
 
         result.Error.Should().BeNull();
         result.SecurityContext.Should().NotBeNull();
@@ -237,7 +237,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
             DefaultTestTenantId, "a-completely-different-user", clientId: null, "Admin"));
 
         var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, ForeignTenantId);
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
 
         result.SecurityContext.Should().BeNull();
         result.Error.Should().Contain("denied").And.Contain("does not belong to the authenticated caller");
@@ -251,7 +251,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
             "yet-another-tenant", DefaultCallerSubjectId, clientId: null, DefaultCallerRole));
 
         var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, ForeignTenantId);
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
 
         result.SecurityContext.Should().BeNull();
         result.Error.Should().Contain("does not belong to the authenticated caller");
@@ -265,7 +265,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
         GivenRuntimeCallerToken("an-opaque-non-jwt-bearer");
 
         var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, ForeignTenantId);
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
 
         result.SecurityContext.Should().BeNull();
         result.Error.Should().Contain("does not belong to the authenticated caller");
@@ -281,7 +281,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
         GivenTokenExchange(_ => "an-opaque-non-jwt-bearer");
 
         var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, ForeignTenantId);
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
 
         result.SecurityContext.Should().BeNull();
         result.Error.Should().Contain("denied").And.Contain("unreadable");
@@ -295,7 +295,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
         GivenNoRuntimeCallerToken();
 
         var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, ForeignTenantId);
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
 
         result.SecurityContext.Should().BeNull();
         result.Error.Should().StartWith("Not authenticated");
@@ -309,7 +309,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
         GivenFailingTenantExchange();
 
         var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, ForeignTenantId);
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
 
         result.SecurityContext.Should().BeNull();
         result.Error.Should().NotStartWith("Not authenticated");
@@ -324,7 +324,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
         GivenForeignTenantCall();
 
         var result = await RuntimeSecurityContextResolver.ResolveTenantAccessAsync(
-            MockServer.Object, MockTenantResolution.Object, ForeignTenantId);
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
 
         result.Error.Should().Contain("denied");
     }
