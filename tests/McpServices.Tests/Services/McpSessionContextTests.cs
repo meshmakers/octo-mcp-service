@@ -57,7 +57,7 @@ public class McpSessionContextTests
         var stored = BoundToken();
         GivenStoredToken(stored);
 
-        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object);
+        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object, TestContext.Current.CancellationToken);
 
         token.Should().Be(stored,
             "the session store is the primary source — device-flow login path");
@@ -71,7 +71,7 @@ public class McpSessionContextTests
         _mockTokenStore.Setup(s => s.GetTokens(It.IsAny<string>())).Returns((McpSessionTokens?)null);
         _httpContext.Request.Headers.Authorization = "Bearer adapter-minted-bearer-xyz";
 
-        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object);
+        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object, TestContext.Current.CancellationToken);
 
         token.Should().Be("adapter-minted-bearer-xyz",
             "the HTTP-layer Bearer is the fallback the AI worker pod relies on");
@@ -93,7 +93,7 @@ public class McpSessionContextTests
             });
         _httpContext.Request.Headers.Authorization = "Bearer adapter-minted-bearer-xyz";
 
-        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object);
+        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object, TestContext.Current.CancellationToken);
 
         token.Should().Be("adapter-minted-bearer-xyz");
         _mockRefresher.Verify(r => r.RefreshAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
@@ -122,7 +122,7 @@ public class McpSessionContextTests
         _mockRefresher.Setup(r => r.RefreshAsync("valid-refresh", It.IsAny<CancellationToken>()))
             .ReturnsAsync(refreshed);
 
-        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object);
+        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object, TestContext.Current.CancellationToken);
 
         token.Should().Be(freshAccessToken,
             "an expired session token with a refresh token must trigger a refresh");
@@ -147,7 +147,7 @@ public class McpSessionContextTests
 
         _httpContext.Request.Headers.Authorization = "Bearer adapter-minted-bearer-xyz";
 
-        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object);
+        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object, TestContext.Current.CancellationToken);
 
         token.Should().Be("adapter-minted-bearer-xyz",
             "refresh failure must drop the session token and fall through to the HTTP bearer");
@@ -168,7 +168,7 @@ public class McpSessionContextTests
         _mockRefresher.Setup(r => r.RefreshAsync("revoked-refresh", It.IsAny<CancellationToken>()))
             .ReturnsAsync((McpSessionTokens?)null);
 
-        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object);
+        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object, TestContext.Current.CancellationToken);
 
         token.Should().BeNull("refresh failed, no header bearer → caller is no longer authenticated");
     }
@@ -178,7 +178,7 @@ public class McpSessionContextTests
     {
         _mockTokenStore.Setup(s => s.GetTokens(It.IsAny<string>())).Returns((McpSessionTokens?)null);
 
-        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object);
+        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object, TestContext.Current.CancellationToken);
 
         token.Should().BeNull("no session-store token, no HTTP bearer → unauthenticated");
     }
@@ -189,7 +189,7 @@ public class McpSessionContextTests
         _mockTokenStore.Setup(s => s.GetTokens(It.IsAny<string>())).Returns((McpSessionTokens?)null);
         _httpContext.Request.Headers.Authorization = "Basic dXNlcjpwYXNz";
 
-        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object);
+        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object, TestContext.Current.CancellationToken);
 
         token.Should().BeNull("only Bearer scheme is forwarded to downstream Octo API clients");
     }
@@ -200,7 +200,7 @@ public class McpSessionContextTests
         _mockTokenStore.Setup(s => s.GetTokens(It.IsAny<string>())).Returns((McpSessionTokens?)null);
         _httpContext.Request.Headers.Authorization = "bearer mixed-case-scheme";
 
-        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object);
+        var token = await McpSessionContext.TryGetAccessTokenAsync(_mockServer.Object, TestContext.Current.CancellationToken);
 
         token.Should().Be("mixed-case-scheme",
             "RFC 6750 §2.1 — the scheme is case-insensitive; misreading lowercase 'bearer' would mute a valid request");

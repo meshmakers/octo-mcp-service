@@ -1,5 +1,5 @@
 using FluentAssertions;
-using IdentityModel;
+using Duende.IdentityModel;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
