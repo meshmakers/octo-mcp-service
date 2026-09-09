@@ -30,10 +30,10 @@ A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Ki
 - Tenant dump → downloadId, tenant restore via TUS-resumable upload
 - CK model + runtime model import (with job polling) and export (with download URL)
 
-### **Runtime + Stream Data Aggregations (8 tools)**
+### **Runtime + Stream Data Aggregations (12 tools)**
 - **Runtime aggregations**: scalar + grouped (`avg(Power) group by Region`, `count(*)` …)
 - **Stream-data queries**: raw rows, scalar aggregation, grouped aggregation, time-bucket downsampling
-- **Archive metadata**: bulk storage stats (row count / on-disk size / health) + rollup query metadata
+- **Archive metadata**: bulk storage stats (row count / on-disk size / health), rollup query metadata incl. sources, resolution-aware series query and measured archive coverage per ladder rung
 - Mirrors the asset-repo GraphQL transient-query surface so AI clients don't need GraphQL at all
 
 ### **Generic CK CRUD + Schema Discovery (15 tools)**
@@ -195,11 +195,11 @@ dotnet run
 - Fixup Scripts: `run_fixup_scripts`<sup>‡</sup> (create via generic `create_entity` with `RtFixup` CK type)
 - HTTP: `PUT /file-transfer/upload/{id}` · `GET /file-transfer/download/{id}` (range-enabled, 5 GiB cap)
 
-### **Runtime + Stream Data Aggregations** (10)
+### **Runtime + Stream Data Aggregations** (12)
 - Runtime aggregation (2): `query_entities_aggregation` · `query_entities_grouping`
 - Stream data (4): `query_stream_data_simple` · `query_stream_data_aggregation` · `query_stream_data_grouping` · `query_stream_data_downsampling`
 - Persisted queries (2): `execute_runtime_query` · `execute_stream_data_query`
-- Archive metadata (2): `get_archive_storage_stats` · `get_rollup_query_metadata`
+- Archive metadata (4): `get_archive_storage_stats` · `get_rollup_query_metadata` · `resolve_series_query` · `get_archive_coverage`
 
 ### **Generic Runtime CRUD + Schema Discovery** (16)
 - CRUD (6): `query_entities` · `query_entities_simple` · `get_entity_by_id` · `create_entity` · `update_entity` · `delete_entity`<sup>‡</sup>

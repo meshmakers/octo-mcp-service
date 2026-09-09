@@ -139,15 +139,89 @@ public sealed class StreamDataMetadataTools
         }
     }
 
+    /// <summary>Measured availability per rung of one archive family (AB#5157).</summary>
+    [McpServerTool(Name = "get_archive_coverage")]
+    [Description(
+        "Return the measured coverage of a whole archive family (AB#5157): the archive addressed by " +
+        "archiveRtId first, then every rollup transitively derived from it, each with its bucket size, " +
+        "alignment, declared aggregation functions and its measured availableFrom/availableTo. Use it to " +
+        "answer 'which resolution is available for which time range?' before picking an archive to query. " +
+        "Coverage is ARCHIVE-WIDE: exactly one available-from/available-to pair per rung, covering every " +
+        "source entity together — internal gaps are NOT represented, so a rung reporting a span may still " +
+        "have holes inside it. null availableFrom/availableTo means the rung holds no data at all; it is " +
+        "never a sentinel timestamp. An unknown archive, or a tenant with stream data disabled, yields an " +
+        "empty items list with isSuccess=true. Equivalent to GraphQL StreamData.coverageFor.")]
+    public static async Task<ArchiveCoverageResponse> GetArchiveCoverage(
+        McpServer server,
+        [Description("Runtime id of any archive of the family — base archive or rollup.")] string archiveRtId,
+        [Description("Tenant id. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(archiveRtId))
+        {
+            return new ArchiveCoverageResponse { IsSuccess = false, ErrorMessage = "archiveRtId is required." };
+        }
+
+        try
+        {
+            var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+            var ctx = await tenantResolution.GetTenantContextAsync(tenantId);
+
+            var coverageService = ctx.GetArchiveFamilyCoverageService();
+            if (coverageService == null)
+            {
+                return new ArchiveCoverageResponse
+                {
+                    IsSuccess = true,
+                    TenantId = ctx.TenantId,
+                    Resolved = false,
+                    Items = [],
+                    Message = "Stream data is not enabled for this tenant."
+                };
+            }
+
+            var rungs = await coverageService.GetFamilyCoverageAsync(new OctoObjectId(archiveRtId));
+
+            var items = rungs.Select(r => new ArchiveCoverageItem
+            {
+                ArchiveRtId = r.ArchiveRtId.ToString(),
+                RtWellKnownName = r.RtWellKnownName,
+                IsBase = r.IsBase,
+                Status = r.Status.ToString(),
+                BucketSizeMs = r.BucketSizeMs,
+                BucketAlignment = r.Alignment.ToString(),
+                StoredFunctions = r.StoredFunctions.Select(f => f.ToString()).ToList(),
+                AvailableFrom = r.AvailableFrom,
+                AvailableTo = r.AvailableTo
+            }).ToList();
+
+            return new ArchiveCoverageResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                Resolved = true,
+                Items = items,
+                Message = items.Count == 0
+                    ? $"No archive family found for rtId '{archiveRtId}'."
+                    : $"{items.Count} rung(s) in the family of archive '{archiveRtId}'."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ArchiveCoverageResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
     /// <summary>Get bucket size + logical CK-attribute paths for a rollup archive.</summary>
     [McpServerTool(Name = "get_rollup_query_metadata")]
     [Description(
         "Return the query-construction metadata for a rollup archive: its bucket size + the logical " +
         "CK-attribute paths the rollup ultimately aggregates over. For cascade rollups (rollup over rollup) " +
         "the physical _sum/_count storage columns on the intermediate rollup are walked back to the " +
-        "original CK attribute paths via RollupLogicalPathResolver. Returns Resolved=false if the rtId " +
-        "doesn't resolve to a rollup archive or stream data is not enabled. Equivalent to GraphQL " +
-        "StreamData.rollupQueryMetadata.")]
+        "original CK attribute paths via RollupLogicalPathResolver. Also returns the rollup's source " +
+        "archives with their validity spans (AB#5157) — a rollup can be fed by several sources, each " +
+        "authoritative for a half-open [validFrom, validTo) span; a single-source rollup reports one " +
+        "unbounded entry. Returns Resolved=false if the rtId doesn't resolve to a rollup archive or " +
+        "stream data is not enabled. Equivalent to GraphQL StreamData.rollupQueryMetadata.")]
     public static async Task<RollupQueryMetadataResponse> GetRollupQueryMetadata(
         McpServer server,
         [Description("Rollup archive runtime id.")] string rollupRtId,
@@ -231,6 +305,15 @@ public sealed class StreamDataMetadataTools
                 RollupRtId = rollupRtId,
                 BucketSizeMs = (long)rollup.BucketSize.TotalMilliseconds,
                 LogicalSourcePaths = paths.ToList(),
+                // AB#5157: a rollup can be fed by several sources, each authoritative for a half-open
+                // span. A rollup still on the deprecated single-source form normalises to exactly one
+                // unbounded reference, so this list is never empty for a resolved rollup.
+                Sources = rollup.Sources.Select(src => new RollupSourceItem
+                {
+                    SourceArchiveRtId = src.SourceArchiveRtId.ToString(),
+                    ValidFrom = src.ValidFrom,
+                    ValidTo = src.ValidTo
+                }).ToList(),
                 Resolved = true,
                 Message = $"Rollup '{rollupRtId}' resolved: {paths.Count} logical path(s), {rollup.BucketSize}."
             };
@@ -250,7 +333,10 @@ public sealed class StreamDataMetadataTools
         "query_stream_data_downsampling against the returned archiveRtId with limit = points and the " +
         "returned reducingFunction. Signals: Ok (reduced or raw-fits), NoSuitableRollup (no matching SUM " +
         "rollup — returns raw, does not mis-reduce), ResolutionLimited (coarser than requested — fewer " +
-        "points), UnknownBaseGrain, EmptyLadder. Equivalent to GraphQL StreamData.resolveSeriesQuery.")]
+        "points), UnknownBaseGrain, EmptyLadder, CoverageLimited (AB#5157: a finer rung exists but its " +
+        "measured data starts after the requested window start, so a coarser covering rung was chosen — " +
+        "finerRungAvailableFrom carries that rung's available-from). Equivalent to GraphQL " +
+        "StreamData.resolveSeriesQuery.")]
     public static async Task<SeriesResolutionResponse> ResolveSeriesQuery(
         McpServer server,
         [Description("Base (raw / time-range) archive runtime id of the series' resolution family.")] string baseArchiveRtId,
@@ -353,7 +439,12 @@ public sealed class StreamDataMetadataTools
                 }
             }
 
-            var service = new SeriesResolutionService(archiveStore, new RollupDependencyGraph(rollupStore));
+            // AB#5157: the measured-coverage filter is only active when the tenant's coverage provider
+            // is passed; a null provider keeps it inert and CoverageLimited would never be reported.
+            var service = new SeriesResolutionService(
+                archiveStore,
+                new RollupDependencyGraph(rollupStore),
+                ctx.GetArchiveCoverageProvider());
 
             var request = new SeriesResolutionRequest(
                 new OctoObjectId(baseArchiveRtId),
@@ -383,6 +474,7 @@ public sealed class StreamDataMetadataTools
                 Signal = result.Signal.ToString(),
                 ActualPoints = result.ActualPoints,
                 Diagnostic = result.Diagnostic,
+                FinerRungAvailableFrom = result.FinerRungAvailableFrom,
                 Message = result.Diagnostic ?? $"Resolved to {result.ArchiveRtId} ({result.Signal})."
             };
         }

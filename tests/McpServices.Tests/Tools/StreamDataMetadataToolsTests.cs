@@ -14,6 +14,8 @@ public class StreamDataMetadataToolsTests : TestBase
     private const string Archive2 = "507f1f77bcf86cd799439012";
     private const string RollupId = "507f1f77bcf86cd799439013";
     private const string SourceArchive = "507f1f77bcf86cd799439014";
+    private const string DailyRollupId = "507f1f77bcf86cd799439015";
+    private const string LegacySourceArchive = "507f1f77bcf86cd799439016";
 
     private static readonly RtCkId<CkTypeId> SensorCkType = new("EnergyCommunity-1/Sensor-1");
 
@@ -21,6 +23,8 @@ public class StreamDataMetadataToolsTests : TestBase
     private readonly Mock<IStreamDataRepository> _streamRepo = new();
     private readonly Mock<IRollupArchiveRuntimeStore> _rollupStore = new();
     private readonly Mock<IArchiveRuntimeStore> _archiveStore = new();
+    private readonly Mock<IArchiveCoverageProvider> _coverageProvider = new();
+    private readonly Mock<IArchiveFamilyCoverageService> _familyCoverage = new();
 
     public StreamDataMetadataToolsTests()
     {
@@ -31,6 +35,10 @@ public class StreamDataMetadataToolsTests : TestBase
         _tenantCtx.Setup(c => c.GetStreamDataRepository()).Returns(_streamRepo.Object);
         _tenantCtx.Setup(c => c.GetRollupArchiveRuntimeStore()).Returns(_rollupStore.Object);
         _tenantCtx.Setup(c => c.GetArchiveRuntimeStore()).Returns(_archiveStore.Object);
+        _tenantCtx.Setup(c => c.GetArchiveFamilyCoverageService()).Returns(_familyCoverage.Object);
+        // AB#5157: the coverage filter only bites when the tool actually passes the provider. Loose
+        // mocks answer "no coverage" for every rung by default, which keeps the filter inert.
+        _tenantCtx.Setup(c => c.GetArchiveCoverageProvider()).Returns(_coverageProvider.Object);
     }
 
     // ── get_archive_storage_stats ───────────────────────────────────────────
@@ -125,7 +133,7 @@ public class StreamDataMetadataToolsTests : TestBase
             TargetCkTypeId: SensorCkType,
             Status: CkArchiveStatus.Activated,
             RtWellKnownName: "hourly",
-            SourceArchiveRtId: new OctoObjectId(SourceArchive),
+            Sources: [new RollupSourceReference(new OctoObjectId(SourceArchive))],
             BucketSize: TimeSpan.FromHours(1),
             WatermarkLag: TimeSpan.FromMinutes(1),
             LastAggregatedBucketEnd: null,
@@ -159,6 +167,55 @@ public class StreamDataMetadataToolsTests : TestBase
         result.Resolved.Should().BeTrue();
         result.BucketSizeMs.Should().Be(3_600_000);
         result.LogicalSourcePaths.Should().BeEquivalentTo(["Power", "Temperature"]);
+        // AB#5157: a rollup migrated from the deprecated scalar normalises to exactly one unbounded
+        // source — the list is never empty for a resolved rollup.
+        result.Sources.Should().ContainSingle();
+        result.Sources[0].SourceArchiveRtId.Should().Be(SourceArchive);
+        result.Sources[0].ValidFrom.Should().BeNull();
+        result.Sources[0].ValidTo.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetRollupMetadata_TwoSources_ProjectsBothSpans()
+    {
+        // AB#5157: a rollup fed by a legacy archive up to the cutover and by the native raw archive
+        // from the cutover on. Both references must survive onto the response, in declaration order.
+        var cutover = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var snapshot = new RollupArchiveSnapshot(
+            RtId: new OctoObjectId(RollupId),
+            TargetCkTypeId: SensorCkType,
+            Status: CkArchiveStatus.Activated,
+            RtWellKnownName: "hourly",
+            Sources:
+            [
+                new RollupSourceReference(new OctoObjectId(LegacySourceArchive), ValidTo: cutover),
+                new RollupSourceReference(new OctoObjectId(SourceArchive), ValidFrom: cutover)
+            ],
+            BucketSize: TimeSpan.FromHours(1),
+            WatermarkLag: TimeSpan.FromMinutes(1),
+            LastAggregatedBucketEnd: null,
+            Aggregations: [new CkRollupAggregationSpec("Power", CkRollupFunction.Avg, null)],
+            FrozenUntil: null);
+
+        _rollupStore.Setup(s => s.GetAsync(It.IsAny<OctoObjectId>())).ReturnsAsync(snapshot);
+        var rawSource = new ArchiveSnapshot(
+            new OctoObjectId(SourceArchive), SensorCkType, CkArchiveStatus.Activated,
+            RtWellKnownName: null, Columns: []);
+        _archiveStore.Setup(s => s.GetAsync(It.IsAny<OctoObjectId>())).ReturnsAsync(rawSource);
+
+        var result = await StreamDataMetadataTools.GetRollupQueryMetadata(
+            MockServer.Object, RollupId);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Resolved.Should().BeTrue();
+        result.LogicalSourcePaths.Should().BeEquivalentTo(["Power"]);
+        result.Sources.Should().HaveCount(2);
+        result.Sources[0].SourceArchiveRtId.Should().Be(LegacySourceArchive);
+        result.Sources[0].ValidFrom.Should().BeNull();
+        result.Sources[0].ValidTo.Should().Be(cutover);
+        result.Sources[1].SourceArchiveRtId.Should().Be(SourceArchive);
+        result.Sources[1].ValidFrom.Should().Be(cutover);
+        result.Sources[1].ValidTo.Should().BeNull();
     }
 
     [Fact]
@@ -176,7 +233,7 @@ public class StreamDataMetadataToolsTests : TestBase
             TargetCkTypeId: SensorCkType,
             Status: CkArchiveStatus.Activated,
             RtWellKnownName: "monthly",
-            SourceArchiveRtId: dailyRtId,
+            Sources: [new RollupSourceReference(dailyRtId)],
             BucketSize: TimeSpan.FromDays(30),
             WatermarkLag: TimeSpan.FromMinutes(15),
             LastAggregatedBucketEnd: null,
@@ -192,7 +249,7 @@ public class StreamDataMetadataToolsTests : TestBase
             TargetCkTypeId: SensorCkType,
             Status: CkArchiveStatus.Activated,
             RtWellKnownName: "daily",
-            SourceArchiveRtId: rawRtId,
+            Sources: [new RollupSourceReference(rawRtId)],
             BucketSize: TimeSpan.FromDays(1),
             WatermarkLag: TimeSpan.FromMinutes(5),
             LastAggregatedBucketEnd: null,
@@ -225,6 +282,8 @@ public class StreamDataMetadataToolsTests : TestBase
         result.Resolved.Should().BeTrue();
         // Two physical columns (_sum + _count) collapse to one logical CK attribute path.
         result.LogicalSourcePaths.Should().BeEquivalentTo(["amountValue"]);
+        result.Sources.Should().ContainSingle();
+        result.Sources[0].SourceArchiveRtId.Should().Be(dailyRtId.ToString());
     }
 
     [Fact]
@@ -296,7 +355,8 @@ public class StreamDataMetadataToolsTests : TestBase
 
     private static RollupArchiveSnapshot SumRollup(string rtId, TimeSpan bucket, string path = "Amount.Value") =>
         new(new OctoObjectId(rtId), SensorCkType, CkArchiveStatus.Activated, "rollup",
-            new OctoObjectId(SourceArchive), bucket, TimeSpan.FromMinutes(5), null,
+            [new RollupSourceReference(new OctoObjectId(SourceArchive))],
+            bucket, TimeSpan.FromMinutes(5), null,
             [new CkRollupAggregationSpec(path, CkRollupFunction.Sum, null)], null);
 
     [Fact]
@@ -382,7 +442,8 @@ public class StreamDataMetadataToolsTests : TestBase
 
     private static RollupArchiveSnapshot CalendarSumRollup(string rtId, string? tz, string path = "Amount.Value") =>
         new(new OctoObjectId(rtId), SensorCkType, CkArchiveStatus.Activated, "rollup",
-            new OctoObjectId(SourceArchive), TimeSpan.FromDays(1), TimeSpan.FromMinutes(5), null,
+            [new RollupSourceReference(new OctoObjectId(SourceArchive))],
+            TimeSpan.FromDays(1), TimeSpan.FromMinutes(5), null,
             [new CkRollupAggregationSpec(path, CkRollupFunction.Sum, null)], null)
         {
             BucketAlignment = BucketAlignment.CalendarDay,
@@ -432,5 +493,158 @@ public class StreamDataMetadataToolsTests : TestBase
         result.IsSuccess.Should().BeTrue();
         result.Signal.Should().Be("Ok");
         result.ArchiveRtId.Should().Be(RollupId);
+    }
+
+    // ---------- AB#5157: measured-coverage routing ----------
+
+    private void GivenCoverage(string archiveRtId, DateTime? from, DateTime? to)
+    {
+        _coverageProvider
+            .Setup(p => p.GetCoverageAsync(new OctoObjectId(archiveRtId), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(from is null || to is null ? null : new ArchiveCoverage(from.Value, to.Value));
+    }
+
+    [Fact]
+    public async Task ResolveSeries_FinerRungStartsLate_ReportsCoverageLimited()
+    {
+        // The hourly rung would win on resolution alone, but its measured data only starts mid-window;
+        // the daily rung covers the requested start, so the resolver falls back to it and says why.
+        var hourlyFrom = new DateTime(2025, 7, 1, 0, 0, 0, DateTimeKind.Utc);
+        GivenBaseArchive(TimeSpan.FromMinutes(15));
+        GivenRollups(
+            SumRollup(RollupId, TimeSpan.FromHours(1)),
+            SumRollup(DailyRollupId, TimeSpan.FromDays(1)));
+        GivenCoverage(SourceArchive, YearFrom.AddYears(-1), YearTo);
+        GivenCoverage(RollupId, hourlyFrom, YearTo);
+        GivenCoverage(DailyRollupId, YearFrom.AddYears(-1), YearTo);
+
+        var result = await StreamDataMetadataTools.ResolveSeriesQuery(
+            MockServer.Object, SourceArchive, YearFrom, YearTo, "Amount.Value", "sum", 600);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Resolved.Should().BeTrue();
+        result.Signal.Should().Be("CoverageLimited");
+        result.ArchiveRtId.Should().Be(DailyRollupId);
+        result.FinerRungAvailableFrom.Should().Be(hourlyFrom);
+        result.Diagnostic.Should().Contain(RollupId);
+    }
+
+    [Fact]
+    public async Task ResolveSeries_NoCoverageAnywhere_FilterStaysInert()
+    {
+        // Every rung answers "no coverage" — the pre-AB#5157 route must survive unchanged.
+        GivenBaseArchive(TimeSpan.FromMinutes(15));
+        GivenRollups(SumRollup(RollupId, TimeSpan.FromHours(1)));
+
+        var result = await StreamDataMetadataTools.ResolveSeriesQuery(
+            MockServer.Object, SourceArchive, YearFrom, YearTo, "Amount.Value", "sum", 600);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Signal.Should().Be("Ok");
+        result.ArchiveRtId.Should().Be(RollupId);
+        result.FinerRungAvailableFrom.Should().BeNull();
+    }
+
+    // ── get_archive_coverage (AB#5157) ──────────────────────────────────────
+
+    private static ArchiveCoverageRung Rung(
+        string rtId, string? name, bool isBase, long? bucketMs, DateTime? from, DateTime? to,
+        params CkRollupFunction[] functions) =>
+        new(new OctoObjectId(rtId), name, isBase, CkArchiveStatus.Activated, bucketMs,
+            isBase ? BucketAlignment.FixedSize : BucketAlignment.CalendarDay, functions, from, to);
+
+    [Fact]
+    public async Task GetArchiveCoverage_HappyPath_ProjectsOneItemPerRung()
+    {
+        var baseFrom = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var baseTo = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var rollupTo = new DateTime(2025, 12, 31, 0, 0, 0, DateTimeKind.Utc);
+        _familyCoverage
+            .Setup(s => s.GetFamilyCoverageAsync(new OctoObjectId(Archive1), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[]
+            {
+                Rung(Archive1, "raw", true, null, baseFrom, baseTo),
+                Rung(RollupId, "daily", false, 86_400_000, baseFrom, rollupTo,
+                    CkRollupFunction.Sum, CkRollupFunction.Count)
+            });
+
+        var result = await StreamDataMetadataTools.GetArchiveCoverage(MockServer.Object, Archive1);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Resolved.Should().BeTrue();
+        result.Items.Should().HaveCount(2);
+
+        result.Items[0].ArchiveRtId.Should().Be(Archive1);
+        result.Items[0].RtWellKnownName.Should().Be("raw");
+        result.Items[0].IsBase.Should().BeTrue();
+        result.Items[0].Status.Should().Be("Activated");
+        result.Items[0].BucketSizeMs.Should().BeNull();
+        result.Items[0].BucketAlignment.Should().Be("FixedSize");
+        result.Items[0].StoredFunctions.Should().BeEmpty();
+        result.Items[0].AvailableFrom.Should().Be(baseFrom);
+        result.Items[0].AvailableTo.Should().Be(baseTo);
+
+        result.Items[1].ArchiveRtId.Should().Be(RollupId);
+        result.Items[1].IsBase.Should().BeFalse();
+        result.Items[1].BucketSizeMs.Should().Be(86_400_000);
+        result.Items[1].BucketAlignment.Should().Be("CalendarDay");
+        result.Items[1].StoredFunctions.Should().BeEquivalentTo(["Sum", "Count"]);
+        result.Items[1].AvailableTo.Should().Be(rollupTo);
+    }
+
+    [Fact]
+    public async Task GetArchiveCoverage_RungWithoutData_ReportsNulls()
+    {
+        _familyCoverage
+            .Setup(s => s.GetFamilyCoverageAsync(It.IsAny<OctoObjectId>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { Rung(Archive1, "raw", true, null, null, null) });
+
+        var result = await StreamDataMetadataTools.GetArchiveCoverage(MockServer.Object, Archive1);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Resolved.Should().BeTrue();
+        result.Items.Should().ContainSingle();
+        result.Items[0].AvailableFrom.Should().BeNull();
+        result.Items[0].AvailableTo.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetArchiveCoverage_UnknownArchive_ReturnsEmptyItems()
+    {
+        _familyCoverage
+            .Setup(s => s.GetFamilyCoverageAsync(It.IsAny<OctoObjectId>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<ArchiveCoverageRung>());
+
+        var result = await StreamDataMetadataTools.GetArchiveCoverage(MockServer.Object, Archive2);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Resolved.Should().BeTrue();
+        result.Items.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetArchiveCoverage_StreamDataNotEnabled_ReturnsResolvedFalse()
+    {
+        _tenantCtx.Setup(c => c.GetArchiveFamilyCoverageService())
+            .Returns((IArchiveFamilyCoverageService?)null);
+
+        var result = await StreamDataMetadataTools.GetArchiveCoverage(MockServer.Object, Archive1);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Resolved.Should().BeFalse();
+        result.Items.Should().BeEmpty();
+        result.Message.Should().Contain("not enabled");
+    }
+
+    [Fact]
+    public async Task GetArchiveCoverage_MissingRtId_ReturnsValidationError()
+    {
+        var result = await StreamDataMetadataTools.GetArchiveCoverage(MockServer.Object, archiveRtId: "");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("archiveRtId");
+        _familyCoverage.Verify(
+            s => s.GetFamilyCoverageAsync(It.IsAny<OctoObjectId>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 }

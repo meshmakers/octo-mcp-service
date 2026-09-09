@@ -181,8 +181,31 @@ public class RollupQueryMetadataResponse : AggregationResponse
     /// <summary>Logical CK-attribute paths the rollup aggregates over.</summary>
     public List<string> LogicalSourcePaths { get; set; } = [];
 
+    /// <summary>
+    ///     The rollup's source archives with their validity spans (AB#5157). A rollup can be fed by
+    ///     several sources, each authoritative for a half-open span; a rollup migrated from the
+    ///     deprecated single-source form reports exactly one unbounded entry.
+    /// </summary>
+    public List<RollupSourceItem> Sources { get; set; } = [];
+
     /// <summary>True when the rtId resolved to a rollup archive; false when not found / no stream data.</summary>
     public bool Resolved { get; set; }
+}
+
+/// <summary>
+///     One source archive of a rollup with its validity span (AB#5157). Mirrors
+///     <see cref="RollupSourceReference" />.
+/// </summary>
+public class RollupSourceItem
+{
+    /// <summary>Runtime id of the source archive (raw, time-range or another rollup).</summary>
+    public string? SourceArchiveRtId { get; set; }
+
+    /// <summary>Inclusive start of the span this source is authoritative for; null = open start.</summary>
+    public DateTime? ValidFrom { get; set; }
+
+    /// <summary>Exclusive end of the span this source is authoritative for; null = open end.</summary>
+    public DateTime? ValidTo { get; set; }
 }
 
 /// <summary>
@@ -203,7 +226,10 @@ public class SeriesResolutionResponse : AggregationResponse
     /// <summary>Aggregation function the downsampling query must use (Avg/Min/Max/Sum/Count).</summary>
     public string? ReducingFunction { get; set; }
 
-    /// <summary>Outcome signal: Ok / NoSuitableRollup / ResolutionLimited / UnknownBaseGrain / EmptyLadder.</summary>
+    /// <summary>
+    ///     Outcome signal: Ok / NoSuitableRollup / ResolutionLimited / UnknownBaseGrain / EmptyLadder /
+    ///     CoverageLimited.
+    /// </summary>
     public string? Signal { get; set; }
 
     /// <summary>Deliverable point count when below the requested target, or the native raw count on the refuse path. Null when the target was met.</summary>
@@ -212,6 +238,68 @@ public class SeriesResolutionResponse : AggregationResponse
     /// <summary>Human-readable explanation of the chosen route / signal.</summary>
     public string? Diagnostic { get; set; }
 
+    /// <summary>
+    ///     Available-from of the finer rung the measured coverage filter excluded (AB#5157) — the
+    ///     timestamp from which the request could have been served at that finer resolution. Non-null
+    ///     only together with Signal <c>CoverageLimited</c>, and null even then when the excluded rung
+    ///     reports no coverage at all.
+    /// </summary>
+    public DateTime? FinerRungAvailableFrom { get; set; }
+
     /// <summary>True when a routing decision was produced; false when stream data is not enabled.</summary>
     public bool Resolved { get; set; }
+}
+
+/// <summary>
+///     Response of <c>get_archive_coverage</c> (AB#5157): the measured availability of every rung of
+///     one archive family — the queried archive plus every rollup transitively derived from it.
+///     Equivalent to GraphQL StreamData.coverageFor.
+/// </summary>
+public class ArchiveCoverageResponse : AggregationResponse
+{
+    /// <summary>
+    ///     True when a family walk was performed; false when stream data is not enabled for the tenant.
+    ///     <see cref="Items" /> is empty in both the disabled and the unknown-archive case.
+    /// </summary>
+    public bool Resolved { get; set; }
+
+    /// <summary>
+    ///     One entry per rung, the queried archive first, then its dependent rollups in breadth-first
+    ///     order. Empty when the archive is unknown or stream data is not enabled.
+    /// </summary>
+    public List<ArchiveCoverageItem> Items { get; set; } = [];
+}
+
+/// <summary>One rung of an archive family with its measured coverage. Mirrors <see cref="ArchiveCoverageRung" />.</summary>
+public class ArchiveCoverageItem
+{
+    /// <summary>Runtime id of the archive this rung describes.</summary>
+    public string? ArchiveRtId { get; set; }
+
+    /// <summary>Human-readable name of the rung; null falls back to the rtId.</summary>
+    public string? RtWellKnownName { get; set; }
+
+    /// <summary>True when the rung is the family's base (raw / time-range) archive, i.e. not a rollup.</summary>
+    public bool IsBase { get; set; }
+
+    /// <summary>Archive lifecycle status (e.g. Activated, Disabled) — tells a disabled rung from an empty one.</summary>
+    public string? Status { get; set; }
+
+    /// <summary>
+    ///     Native bucket width in milliseconds — a rollup's bucket size, a time-range base archive's
+    ///     period, and null for a raw base archive (no declared grain).
+    /// </summary>
+    public long? BucketSizeMs { get; set; }
+
+    /// <summary>Bucket-boundary alignment (FixedSize / CalendarDay / IsoWeek / CalendarMonth / CalendarQuarter / CalendarYear).</summary>
+    public string? BucketAlignment { get; set; }
+
+    /// <summary>Aggregation functions this rung declares, as PascalCase names. Empty for a base archive.</summary>
+    public List<string> StoredFunctions { get; set; } = [];
+
+    /// <summary>Measured earliest timestamp with data; null when the rung holds no data.</summary>
+    public DateTime? AvailableFrom { get; set; }
+
+    /// <summary>Measured latest timestamp with data; null when the rung holds no data.</summary>
+    public DateTime? AvailableTo { get; set; }
 }
