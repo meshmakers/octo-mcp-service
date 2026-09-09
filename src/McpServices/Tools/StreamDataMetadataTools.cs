@@ -164,6 +164,13 @@ public sealed class StreamDataMetadataTools
         try
         {
             var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
+            var access = await RuntimeSecurityContextResolver.ResolveTenantAccessAsync(
+                server, tenantResolution, tenantId);
+            if (access.Error != null)
+            {
+                return new ArchiveCoverageResponse { IsSuccess = false, ErrorMessage = access.Error };
+            }
+
             var ctx = await tenantResolution.GetTenantContextAsync(tenantId);
 
             var coverageService = ctx.GetArchiveFamilyCoverageService();
@@ -179,7 +186,33 @@ public sealed class StreamDataMetadataTools
                 };
             }
 
-            var rungs = await coverageService.GetFamilyCoverageAsync(new OctoObjectId(archiveRtId));
+            var rtId = new OctoObjectId(archiveRtId);
+
+            // CK-type permission gate (AB#5038). Coverage answers "which archive holds data for which
+            // time range" — a caller who may not read the rows must not learn the family's shape either.
+            // Guarded on the addressed archive's target type; every rung of the family shares it.
+            var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
+            if (await DataPermissionStreamGuard.IsEnforcingAsync(server, tenantRepository, access.SecurityContext))
+            {
+                var snapshot = await ctx.GetArchiveRuntimeStore().GetAsync(rtId);
+                if (snapshot != null)
+                {
+                    var denied = await DataPermissionStreamGuard.EnsureStreamReadAllowedAsync(
+                        server, tenantRepository, ctx.TenantId, snapshot.TargetCkTypeId,
+                        access.SecurityContext);
+                    if (denied != null)
+                    {
+                        return new ArchiveCoverageResponse
+                        {
+                            IsSuccess = false,
+                            ErrorMessage = denied,
+                            TenantId = ctx.TenantId
+                        };
+                    }
+                }
+            }
+
+            var rungs = await coverageService.GetFamilyCoverageAsync(rtId);
 
             var items = rungs.Select(r => new ArchiveCoverageItem
             {
