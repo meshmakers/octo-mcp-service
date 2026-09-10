@@ -38,6 +38,22 @@ public class RollupBackfillResponse : TimeSeriesResponse
     public RollupRecomputeJobInfoDto? Job { get; set; }
 }
 
+/// <summary>Response for list_recompute_jobs (AB#5189).</summary>
+public class ListRecomputeJobsResponse : TimeSeriesResponse
+{
+    /// <summary>Rollup archive runtime id whose jobs were listed.</summary>
+    public string? ArchiveRtId { get; set; }
+
+    /// <summary>
+    /// The archive's recompute jobs, newest first. <c>LastProgressAt</c> on a non-terminal job is
+    /// its heartbeat; a Running job whose heartbeat stops advancing is no longer alive.
+    /// </summary>
+    public List<RollupRecomputeJobInfoDto> Jobs { get; set; } = [];
+
+    /// <summary>Total number of jobs returned.</summary>
+    public int TotalCount { get; set; }
+}
+
 /// <summary>Response for list_rollups_for_archive.</summary>
 public class ListRollupsResponse : TimeSeriesResponse
 {

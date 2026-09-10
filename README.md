@@ -20,7 +20,7 @@ A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Ki
 - **Data flows + triggers + pools**: deploy/undeploy + status
 - **Workload CI/CD rollout** (Epic 3054): chart-version staging, deploy, bulk pipeline reassignment
 
-### **Time Series, Reporting, Diagnostics (14 tools)**
+### **Time Series, Reporting, Diagnostics (16 tools)**
 - **Stream data + archives**: enable/disable, activate, freeze + rewind rollups
 - **Reporting service**: enable/disable
 - **Runtime log-level reconfiguration**: dispatches to all 6 backend services
@@ -181,8 +181,8 @@ dotnet run
 - Data Flows / Triggers / Pools (7): `deploy_data_flow` · `undeploy_data_flow`<sup>‡</sup> · `get_data_flow_status` · `deploy_triggers` · `undeploy_triggers`<sup>‡</sup> · `get_pools` · `undeploy_pool`<sup>‡</sup>
 - Workloads + CI/CD (5): `get_workloads_by_chart` · `update_workload_chart_version` · `deploy_workload` · `undeploy_workload`<sup>‡</sup> · `move_pipelines`<sup>‡</sup>
 
-### **Time Series + Reporting + Diagnostics** (14)
-- Stream Data + Archives (11): `enable_stream_data` · `disable_stream_data`<sup>‡</sup> · `activate_archive` · `disable_archive` · `enable_archive` · `retry_archive_activation` · `delete_archive`<sup>‡</sup> · `list_rollups_for_archive` · `freeze_rollup_archive` · `unfreeze_rollup_archive` · `rewind_rollup_watermark`<sup>‡</sup>
+### **Time Series + Reporting + Diagnostics** (16)
+- Stream Data + Archives (13): `enable_stream_data` · `disable_stream_data`<sup>‡</sup> · `activate_archive` · `disable_archive` · `enable_archive` · `retry_archive_activation` · `delete_archive`<sup>‡</sup> · `list_rollups_for_archive` · `backfill_rollup_archive`<sup>‡</sup> · `list_recompute_jobs` · `freeze_rollup_archive` · `unfreeze_rollup_archive` · `rewind_rollup_watermark`<sup>‡</sup>
 - Reporting (2): `enable_reporting` · `disable_reporting`<sup>‡</sup>
 - Diagnostics (1): `reconfigure_log_level` (dispatches to Identity/AssetRepository/Communication/Reporting/Bot)
 

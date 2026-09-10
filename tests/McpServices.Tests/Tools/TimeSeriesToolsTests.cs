@@ -160,6 +160,59 @@ public class TimeSeriesToolsTests : ToolTestBase
         result.SourceArchiveRtId.Should().Be(ArchiveRtId);
     }
 
+    // ── Recompute jobs (AB#5189) ─────────────────────────────────────────────
+
+    [Fact]
+    public async Task ListRecomputeJobs_HappyPath_ReturnsJobsWithTheirHeartbeat()
+    {
+        var heartbeat = new DateTime(2026, 9, 10, 17, 4, 0, DateTimeKind.Utc);
+        MockStreamDataClient.Setup(c => c.ListRecomputeJobsForArchiveAsync(DefaultTenantId, RollupRtId))
+            .ReturnsAsync(new[]
+            {
+                new RollupRecomputeJobInfoDto(
+                    "69fda707d47638c68edc7fec", "Running", 30, 3, heartbeat.AddMinutes(-2), null, null, null, heartbeat),
+                new RollupRecomputeJobInfoDto(
+                    "69fda707d47638c68edc7fed", "Failed", 0, 0, heartbeat.AddHours(-3), heartbeat.AddHours(-2), 3600000,
+                    "Presumed dead: no progress since ...", heartbeat.AddHours(-3)),
+            });
+
+        var result = await TimeSeriesTools.ListRecomputeJobs(MockServer.Object, RollupRtId);
+
+        result.IsSuccess.Should().BeTrue();
+        result.ArchiveRtId.Should().Be(RollupRtId);
+        result.TotalCount.Should().Be(2);
+        result.Jobs.Should().HaveCount(2);
+        result.Jobs[0].State.Should().Be("Running");
+        result.Jobs[0].LastProgressAt.Should().Be(heartbeat, "the heartbeat is what tells a live job from a dead one");
+        result.Jobs[1].ErrorReason.Should().StartWith("Presumed dead");
+        MockStreamDataClient.Verify(c => c.ListRecomputeJobsForArchiveAsync(DefaultTenantId, RollupRtId), Times.Once);
+    }
+
+    [Fact]
+    public async Task ListRecomputeJobs_NoJobs_SucceedsWithEmptyList()
+    {
+        MockStreamDataClient.Setup(c => c.ListRecomputeJobsForArchiveAsync(DefaultTenantId, RollupRtId))
+            .ReturnsAsync(Array.Empty<RollupRecomputeJobInfoDto>());
+
+        var result = await TimeSeriesTools.ListRecomputeJobs(MockServer.Object, RollupRtId);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Jobs.Should().BeEmpty();
+        result.TotalCount.Should().Be(0);
+        result.Message.Should().Contain("No recompute jobs");
+    }
+
+    [Fact]
+    public async Task ListRecomputeJobs_MissingArchiveRtId_Fails()
+    {
+        var result = await TimeSeriesTools.ListRecomputeJobs(MockServer.Object, string.Empty);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("archiveRtId is required");
+        MockStreamDataClient.Verify(
+            c => c.ListRecomputeJobsForArchiveAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
     [Fact]
     public async Task ListRollupsForArchive_MultiSourceRollup_KeepsBothSourcesOnTheRow()
     {
