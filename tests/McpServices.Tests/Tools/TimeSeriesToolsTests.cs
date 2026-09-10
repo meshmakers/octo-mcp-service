@@ -203,6 +203,19 @@ public class TimeSeriesToolsTests : ToolTestBase
     }
 
     [Fact]
+    public async Task ListRecomputeJobs_Unauthenticated_ReturnsAuthError()
+    {
+        GivenUnauthenticated();
+
+        var result = await TimeSeriesTools.ListRecomputeJobs(MockServer.Object, RollupRtId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("Not authenticated");
+        MockStreamDataClient.Verify(
+            c => c.ListRecomputeJobsForArchiveAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
     public async Task ListRecomputeJobs_MissingArchiveRtId_Fails()
     {
         var result = await TimeSeriesTools.ListRecomputeJobs(MockServer.Object, string.Empty);

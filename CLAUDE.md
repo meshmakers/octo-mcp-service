@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes ~199 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
+`octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes 201 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
 
 Three distinct tool families live here — be aware which one you're touching:
 
@@ -23,7 +23,7 @@ dotnet build src/McpServices/McpServices.csproj -c DebugL
 # Build the entire solution (server + tests + resources)
 dotnet build Octo.McpServices.sln -c DebugL
 
-# Run all tests (currently 839, ~1 s)
+# Run all tests (currently 863, ~1 s)
 dotnet test Octo.McpServices.sln -c DebugL
 
 # Filter tests by class
@@ -48,7 +48,7 @@ Minimum coverage per tool:
 - **Missing required args** — pass empty / null, assert validation error, no SDK call.
 - **Destructive without confirm** — for any tool with a `confirm` parameter, assert refusing without it.
 
-The current ratio is ~4.2 tests per tool (839 tests for 199 tools). Don't lower it.
+The current ratio is ~4.3 tests per tool (863 tests for 201 tools). Don't lower it.
 
 ### 2. Use the `*ClientContext` helpers — never call the factory directly from a tool
 
@@ -411,7 +411,7 @@ Both `MapMcp` endpoints require it. Before this they carried a bare `RequireAuth
 token with no Octo API scope at all (a front-end `openid profile` token, say) reached every tool —
 while every backend service gates on `scope`.
 
-**The requirement is uniform, and it is the write scope `octo_api`.** MCP multiplexes all ~199 tools
+**The requirement is uniform, and it is the write scope `octo_api`.** MCP multiplexes all 201 tools
 over one JSON-RPC `POST`; the tool name lives in the request *body* and ASP.NET authorization runs on
 the endpoint before the body is read, so there is no second endpoint to hang a stricter policy on and
 no way to split read from write there. Accepting `octo_api.read_only` would therefore hand a
@@ -874,7 +874,7 @@ Notes:
 - **Code coverage** is collected via `coverlet.collector` (already referenced in `McpServices.Tests.csproj`) and surfaced in the Code Coverage tab of the build. Cobertura XML lands in `$(Agent.TempDirectory)`.
 - **Test glob excludes `*SystemTests.csproj`** so a future `McpServices.SystemTests` project (real-service integration suite) can be added later without breaking the main build — those would need their own pipeline + Testcontainers env, matching the pattern in `octo-identity-services`.
 
-The current suite is ~839 mock-based unit tests + a handful of in-process integration tests (`McpServerIntegrationTests`). If you add real-service-dependent tests, put them in a separate `*SystemTests` project so they're skipped here.
+The current suite is ~863 mock-based unit tests + a handful of in-process integration tests (`McpServerIntegrationTests`). If you add real-service-dependent tests, put them in a separate `*SystemTests` project so they're skipped here.
 
 ## Project Layout
 
