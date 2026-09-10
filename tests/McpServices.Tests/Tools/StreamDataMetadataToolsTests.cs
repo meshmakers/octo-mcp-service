@@ -636,6 +636,23 @@ public class StreamDataMetadataToolsTests : TestBase
         result.Message.Should().Contain("not enabled");
     }
 
+    // AB#5157 review: the tool's authorization gate had no test of its own. The other stream-data
+    // metadata tools each pin the unauthenticated case, and without it a regression in the gate
+    // would only show up as coverage quietly reaching a caller who has no tenant at all.
+    [Fact]
+    public async Task GetArchiveCoverage_UnauthenticatedCaller_IsRefusedWithoutProbingCoverage()
+    {
+        GivenUnauthenticatedCaller();
+
+        var result = await StreamDataMetadataTools.GetArchiveCoverage(MockServer.Object, Archive1);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("Not authenticated");
+        _familyCoverage.Verify(
+            s => s.GetFamilyCoverageAsync(It.IsAny<OctoObjectId>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     [Fact]
     public async Task GetArchiveCoverage_MissingRtId_ReturnsValidationError()
     {

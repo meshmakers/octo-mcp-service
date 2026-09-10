@@ -314,6 +314,33 @@ public class StreamDataPermissionGateTests : TestBase
     }
 
     [Fact]
+    public async Task ArchiveCoverage_RollupRtId_OwnerScopedGrant_Refused()
+    {
+        // AB#5157 review: the tool takes a base archive OR a rollup, but the gate resolved the
+        // target type from the archive store alone. A rollup rtId is unknown there, which left the
+        // type null and skipped the check — handing the whole family's coverage to a caller whose
+        // grant does not cover its rows.
+        GivenPolicy(ownedOnly: true);
+        _archiveStore
+            .Setup(s => s.GetAsync(new OctoObjectId(RollupRtId)))
+            .ReturnsAsync((ArchiveSnapshot?)null);
+        _rollupStore
+            .Setup(s => s.GetAsync(new OctoObjectId(RollupRtId)))
+            .ReturnsAsync(new RollupArchiveSnapshot(
+                new OctoObjectId(RollupRtId), SensorCkType, CkArchiveStatus.Activated, "hourly",
+                [new RollupSourceReference(new OctoObjectId(ArchiveRtId))], TimeSpan.FromHours(1), TimeSpan.FromMinutes(1), null,
+                [new CkRollupAggregationSpec("Power", CkRollupFunction.Avg, null)], null));
+        _tenantCtx
+            .Setup(c => c.GetArchiveFamilyCoverageService())
+            .Returns(new Mock<IArchiveFamilyCoverageService>().Object);
+
+        var result = await StreamDataMetadataTools.GetArchiveCoverage(MockServer.Object, RollupRtId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be(ExpectedRefusal);
+    }
+
+    [Fact]
     public async Task ResolveSeries_OwnerScopedGrant_Refused()
     {
         GivenPolicy(ownedOnly: true);

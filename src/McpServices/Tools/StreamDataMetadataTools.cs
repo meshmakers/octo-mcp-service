@@ -194,11 +194,24 @@ public sealed class StreamDataMetadataTools
             var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
             if (await DataPermissionStreamGuard.IsEnforcingAsync(server, tenantRepository, access.SecurityContext))
             {
-                var snapshot = await ctx.GetArchiveRuntimeStore().GetAsync(rtId);
-                if (snapshot != null)
+                // The tool accepts a base archive OR a rollup, so the target type has to be resolved
+                // from both stores like EnsureArchivesReadableAsync does. Asking only the archive
+                // store left the type null for every rollup rtId, which skipped the gate entirely
+                // and handed the whole family's coverage to a caller who may not read its rows.
+                var ckTypeId = (await ctx.GetArchiveRuntimeStore().GetAsync(rtId))?.TargetCkTypeId;
+                if (ckTypeId == null)
+                {
+                    var rollupStore = ctx.GetRollupArchiveRuntimeStore();
+                    if (rollupStore != null)
+                    {
+                        ckTypeId = (await rollupStore.GetAsync(rtId))?.TargetCkTypeId;
+                    }
+                }
+
+                if (ckTypeId != null)
                 {
                     var denied = await DataPermissionStreamGuard.EnsureStreamReadAllowedAsync(
-                        server, tenantRepository, ctx.TenantId, snapshot.TargetCkTypeId,
+                        server, tenantRepository, ctx.TenantId, ckTypeId,
                         access.SecurityContext);
                     if (denied != null)
                     {
