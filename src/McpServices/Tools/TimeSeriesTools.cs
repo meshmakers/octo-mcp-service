@@ -221,6 +221,53 @@ public sealed class TimeSeriesTools
         }
     }
 
+    /// <summary>List the recompute job history of a rollup archive.</summary>
+    [McpServerTool(Name = "list_recompute_jobs")]
+    [Description(
+        "List the most recent recompute jobs of a rollup archive, newest first (capped at 50 by the server). Each " +
+        "job carries state (Pending / Running / Swapping / Completed / Failed / Coalesced), row and window counts, " +
+        "timings and the failure reason. `lastProgressAt` is the heartbeat of a non-terminal job (AB#5189): it is " +
+        "stamped when the job is created or starts computing and after every committed chunk, so a Running job " +
+        "whose heartbeat stops advancing is no longer alive — after the server's stale-job timeout it is failed " +
+        "with the reason 'Presumed dead'. Use this to watch a backfill_rollup_archive or recompute job run to " +
+        "completion. Equivalent to octo-cli ListRecomputeJobs.")]
+    public static async Task<ListRecomputeJobsResponse> ListRecomputeJobs(
+        McpServer server,
+        [Description("Rollup archive runtime ID whose recompute jobs to list.")] string archiveRtId,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(archiveRtId))
+        {
+            return new ListRecomputeJobsResponse { IsSuccess = false, ErrorMessage = "archiveRtId is required." };
+        }
+
+        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new ListRecomputeJobsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            var jobs = (await ctx.Client!.ListRecomputeJobsForArchiveAsync(ctx.TenantId!, archiveRtId)).ToList();
+            return new ListRecomputeJobsResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                ArchiveRtId = archiveRtId,
+                Jobs = jobs,
+                TotalCount = jobs.Count,
+                Message = jobs.Count == 0
+                    ? $"No recompute jobs recorded for archive '{archiveRtId}'."
+                    : $"{jobs.Count} recompute job(s) for archive '{archiveRtId}', newest first."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ListRecomputeJobsResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
     /// <summary>Freeze a rollup archive until a target timestamp.</summary>
     [McpServerTool(Name = "freeze_rollup_archive")]
     [McpRisk(McpRiskLevel.High)]
@@ -364,8 +411,9 @@ public sealed class TimeSeriesTools
         "timestamp and enqueues a recompute of [sourceMin, now); the heavy work runs in the background (never bound " +
         "to this request, so a client timeout cannot cancel it) and the queued work survives an asset-repo restart. " +
         "Returns the Pending RecomputeJob id immediately — poll list_recompute_jobs to watch Pending -> Running -> " +
-        "Completed. Re-running resets an already-populated rollup. Requires confirm=true. A no-op when the source " +
-        "archive holds no data. Equivalent to octo-cli BackfillRollup.")]
+        "Completed (its `lastProgressAt` heartbeat shows whether a Running job is still alive). Re-running resets an " +
+        "already-populated rollup. Requires confirm=true. A no-op when the source archive holds no data. Equivalent " +
+        "to octo-cli BackfillRollup.")]
     public static async Task<RollupBackfillResponse> BackfillRollupArchive(
         McpServer server,
         [Description("Rollup archive runtime ID to backfill from its source.")] string rollupRtId,
