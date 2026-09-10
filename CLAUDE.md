@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes 201 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
+`octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes 202 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
 
 Three distinct tool families live here — be aware which one you're touching:
 
@@ -48,7 +48,7 @@ Minimum coverage per tool:
 - **Missing required args** — pass empty / null, assert validation error, no SDK call.
 - **Destructive without confirm** — for any tool with a `confirm` parameter, assert refusing without it.
 
-The current ratio is ~4.3 tests per tool (863 tests for 201 tools). Don't lower it.
+The current ratio is ~4.3 tests per tool (863 tests for 202 tools). Don't lower it.
 
 ### 2. Use the `*ClientContext` helpers — never call the factory directly from a tool
 
@@ -411,7 +411,7 @@ Both `MapMcp` endpoints require it. Before this they carried a bare `RequireAuth
 token with no Octo API scope at all (a front-end `openid profile` token, say) reached every tool —
 while every backend service gates on `scope`.
 
-**The requirement is uniform, and it is the write scope `octo_api`.** MCP multiplexes all 201 tools
+**The requirement is uniform, and it is the write scope `octo_api`.** MCP multiplexes all 202 tools
 over one JSON-RPC `POST`; the tool name lives in the request *body* and ASP.NET authorization runs on
 the endpoint before the body is read, so there is no second endpoint to hang a stricter policy on and
 no way to split read from write there. Accepting `octo_api.read_only` would therefore hand a

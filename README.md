@@ -1,6 +1,6 @@
 # OctoMesh MCP Service
 
-A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, exposing **201 tools** that mirror the full surface of `octo-cli`, the asset-repo GraphQL transient + persisted query APIs (including the `availableArchivePaths` studio introspection), plus generic CK-type CRUD. AI assistants get direct access to tenant administration, identity management, communication-controller, blueprints, time-series queries + aggregations, reporting, and large-file transfers — without ever invoking the CLI or sending GraphQL.
+A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, exposing **202 tools** that mirror the full surface of `octo-cli`, the asset-repo GraphQL transient + persisted query APIs (including the `availableArchivePaths` studio introspection), plus generic CK-type CRUD. AI assistants get direct access to tenant administration, identity management, communication-controller, blueprints, time-series queries + aggregations, reporting, and large-file transfers — without ever invoking the CLI or sending GraphQL.
 
 ## 🚀 Features
 
@@ -140,7 +140,7 @@ dotnet run
 
 ## 🛠️ Available Tools
 
-> **201 tools total.** Most tools mirror the corresponding `octo-cli` command (snake_case naming); the aggregation + persisted-query + archive-path-introspection tools mirror the asset-repo GraphQL transient + persisted query surface. All platform-admin tools accept an optional `tenantId` parameter that falls back to the URL route. Destructive operations require an explicit `confirm: true` parameter (no silent state changes).
+> **202 tools total.** Most tools mirror the corresponding `octo-cli` command (snake_case naming); the aggregation + persisted-query + archive-path-introspection tools mirror the asset-repo GraphQL transient + persisted query surface. All platform-admin tools accept an optional `tenantId` parameter that falls back to the URL route. Destructive operations require an explicit `confirm: true` parameter (no silent state changes).
 
 ### **Authentication & Identity Bootstrap** (4)
 `authenticate` · `check_auth_status` · `whoami` · `list_tenants`

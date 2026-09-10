@@ -170,10 +170,12 @@ public class TimeSeriesToolsTests : ToolTestBase
             .ReturnsAsync(new[]
             {
                 new RollupRecomputeJobInfoDto(
-                    "69fda707d47638c68edc7fec", "Running", 30, 3, heartbeat.AddMinutes(-2), null, null, null, heartbeat),
+                    "69fda707d47638c68edc7fec", "Running", 30, 3, heartbeat.AddMinutes(-2), null, null, null)
+                    { LastProgressAt = heartbeat },
                 new RollupRecomputeJobInfoDto(
                     "69fda707d47638c68edc7fed", "Failed", 0, 0, heartbeat.AddHours(-3), heartbeat.AddHours(-2), 3600000,
-                    "Presumed dead: no progress since ...", heartbeat.AddHours(-3)),
+                    "Presumed dead: no progress since ...")
+                    { LastProgressAt = heartbeat.AddHours(-3) },
             });
 
         var result = await TimeSeriesTools.ListRecomputeJobs(MockServer.Object, RollupRtId);
