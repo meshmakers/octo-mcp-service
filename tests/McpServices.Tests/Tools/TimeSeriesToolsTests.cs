@@ -10,6 +10,7 @@ public class TimeSeriesToolsTests : ToolTestBase
 {
     private const string ArchiveRtId = "69fda707d47638c68edc7fea";
     private const string RollupRtId = "69fda707d47638c68edc7feb";
+    private const string LegacyArchiveRtId = "69fda707d47638c68edc7fec";
 
     public TimeSeriesToolsTests()
     {
@@ -157,6 +158,47 @@ public class TimeSeriesToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue();
         result.Rollups.Should().HaveCount(1);
         result.SourceArchiveRtId.Should().Be(ArchiveRtId);
+    }
+
+    [Fact]
+    public async Task ListRollupsForArchive_MultiSourceRollup_KeepsBothSourcesOnTheRow()
+    {
+        // AB#5157: the SDK DTO carries the rollup's source list (here a legacy source that stopped at
+        // the cutover plus the native one that took over). The tool projects the DTO as-is, so both
+        // spans must survive onto the response row; the deprecated row-level scalar stays null for a
+        // multi-source rollup while the response-level field remains the input echo.
+        var cutover = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        MockStreamDataClient.Setup(c => c.ListRollupsForArchiveAsync(DefaultTenantId, ArchiveRtId))
+            .ReturnsAsync(new[]
+            {
+                new RollupArchiveInfoDto(RollupRtId, "daily", "Activated",
+                    null, 86400000, 60000, null, null, 3,
+                    false, null, null, null, null, 0, 0)
+                {
+                    Sources =
+                    [
+                        new RollupSourceReferenceDto(LegacyArchiveRtId, null, cutover),
+                        new RollupSourceReferenceDto(ArchiveRtId, cutover, null)
+                    ]
+                }
+            });
+
+        var result = await TimeSeriesTools.ListRollupsForArchive(MockServer.Object, ArchiveRtId);
+
+        result.IsSuccess.Should().BeTrue();
+        result.SourceArchiveRtId.Should().Be(ArchiveRtId);
+        result.Rollups.Should().ContainSingle();
+
+        var row = result.Rollups[0];
+        row.SourceArchiveRtId.Should().BeNull();
+        row.Sources.Should().NotBeNull();
+        row.Sources!.Should().HaveCount(2);
+        row.Sources[0].SourceArchiveRtId.Should().Be(LegacyArchiveRtId);
+        row.Sources[0].ValidFrom.Should().BeNull();
+        row.Sources[0].ValidTo.Should().Be(cutover);
+        row.Sources[1].SourceArchiveRtId.Should().Be(ArchiveRtId);
+        row.Sources[1].ValidFrom.Should().Be(cutover);
+        row.Sources[1].ValidTo.Should().BeNull();
     }
 
     [Fact]

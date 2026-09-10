@@ -177,8 +177,13 @@ public sealed class TimeSeriesTools
     /// <summary>List rollup archives attached to a source archive.</summary>
     [McpServerTool(Name = "list_rollups_for_archive")]
     [Description(
-        "List every non-soft-deleted rollup archive attached to the given source CkArchive. Equivalent to " +
-        "octo-cli ListRollupsForArchive.")]
+        "List every non-soft-deleted rollup archive attached to the given source CkArchive. A rollup can " +
+        "be attached to SEVERAL source archives (AB#5157), each authoritative for a half-open " +
+        "[validFrom, validTo) span — read each row's `sources` list for the full picture. The row-level " +
+        "`sourceArchiveRtId` is the deprecated derived field: the server fills it only for a rollup with " +
+        "exactly one unbounded source and leaves it null otherwise. The response-level " +
+        "`sourceArchiveRtId` is just the echo of the archive that was asked for. Equivalent to octo-cli " +
+        "ListRollupsForArchive.")]
     public static async Task<ListRollupsResponse> ListRollupsForArchive(
         McpServer server,
         [Description("Source archive runtime ID.")] string sourceArchiveRtId,

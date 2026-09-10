@@ -11,6 +11,7 @@ using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Configuration;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Extensions;
+using Meshmakers.Octo.Runtime.Engine.CrateDb.Configuration;
 using Meshmakers.Octo.Runtime.Engine.CrateDb.Extensions;
 using Meshmakers.Octo.Communication.Contracts.MessageObjects;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands;
@@ -229,6 +230,12 @@ try
     builder.Services.AddSingleton<Meshmakers.Octo.Runtime.Contracts.MongoDb.Services.IStreamDataCkModelDescriptor>(
         _ => new Meshmakers.Octo.Runtime.Contracts.MongoDb.Services.StreamDataCkModelDescriptor(
             Meshmakers.Octo.ConstructionKit.Models.StreamData.Generated.System.StreamData.v1.SystemStreamDataCkIds.CkModelId));
+
+    // AB#5157: TTL of the process-wide archive-coverage memo behind
+    // ITenantContext.GetArchiveCoverageProvider() / GetArchiveFamilyCoverageService(). Unbound the
+    // cache falls back to its own default (60 s); a negative value is rejected at resolve time.
+    builder.Services.Configure<ArchiveCoverageOptions>(options =>
+        builder.Configuration.GetSection(ArchiveCoverageOptions.SectionName).Bind(options));
 
     builder.Services.AddOctoApiVersioningAndDocumentation(options =>
     {
