@@ -4,11 +4,8 @@ using System.Text.Json.Nodes;
 using Json.Schema;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
+using Meshmakers.Octo.Communication.Contracts.Serialization;
 using ModelContextProtocol.Server;
-using YamlDotNet.Core;
-using YamlDotNet.RepresentationModel;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
 
 // ReSharper disable UnusedMember.Global
 
@@ -491,7 +488,11 @@ public sealed class PipelineTools
         JsonNode? definitionNode;
         try
         {
-            definitionNode = ParsePipelineDefinitionToJsonNode(pipelineDefinition);
+            // Shared with the Communication Controller's deploy-time PipelineSchemaValidator so a
+            // definition gets the same verdict from either surface. Auto-detects YAML vs JSON and
+            // preserves scalar types — the MCP-local conversion used to stringify every scalar,
+            // failing the schema's number / integer / boolean types (AB#5240).
+            definitionNode = YamlToJsonConverter.ToJsonNodeAutoDetect(pipelineDefinition);
         }
         catch (Exception ex)
         {
@@ -584,35 +585,5 @@ public sealed class PipelineTools
                 ? $"Definition is valid against the adapter's composite schema ({nodeCount} node(s))."
                 : $"Definition has {errors.Count} schema error(s); see Errors for details.",
         };
-    }
-
-    /// <summary>
-    ///     Auto-detect YAML vs JSON from the first non-whitespace character. <c>{</c> or
-    ///     <c>[</c> → JSON. Anything else → YAML, deserialized via YamlDotNet into a
-    ///     dynamic object and re-serialized through System.Text.Json to land as a
-    ///     <see cref="JsonNode"/> the schema evaluator understands.
-    /// </summary>
-    private static JsonNode? ParsePipelineDefinitionToJsonNode(string pipelineDefinition)
-    {
-        var firstNonWs = pipelineDefinition.AsSpan().TrimStart();
-        if (firstNonWs.IsEmpty)
-        {
-            return null;
-        }
-        if (firstNonWs[0] == '{' || firstNonWs[0] == '[')
-        {
-            return JsonNode.Parse(pipelineDefinition);
-        }
-        // YAML — round-trip via YamlDotNet → object → System.Text.Json node.
-        var deserializer = new DeserializerBuilder()
-            .WithNamingConvention(CamelCaseNamingConvention.Instance)
-            .Build();
-        var obj = deserializer.Deserialize<object?>(pipelineDefinition);
-        if (obj is null) return null;
-        var serializer = new SerializerBuilder()
-            .JsonCompatible()
-            .Build();
-        var asJson = serializer.Serialize(obj);
-        return JsonNode.Parse(asJson);
     }
 }
