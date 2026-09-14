@@ -31,4 +31,8 @@
     <ProjectReference Include="..\..\src\McpServices\McpServices.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\*.yaml" />
+  </ItemGroup>
+
 </Project>

@@ -367,4 +367,171 @@ public class PipelineToolsTests : ToolTestBase
         result.ErrorMessage.Should().Contain("pipelineDefinition");
         MockCommunicationClient.Verify(c => c.GetPipelineSchemaAsync(It.IsAny<string>()), Times.Never);
     }
+    // ===== YAML/JSON parity (AB#5240) ===========================================
+    // The YAML branch used to stringify every scalar, so a definition carrying numbers
+    // or booleans was rejected with a wall of schema errors while the equivalent JSON
+    // passed. These fixtures type the node config, which is what makes the difference
+    // visible — the schema above is all-strings and cannot catch the regression.
+
+    private const string TypedPipelineSchema = """
+        {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "required": ["name", "nodes"],
+          "properties": {
+            "name":    { "type": "string" },
+            "enabled": { "type": "boolean" },
+            "nodes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["nodeType", "id"],
+                "properties": {
+                  "nodeType": { "type": "string" },
+                  "id":       { "type": "string" },
+                  "adapterId":{ "type": "string" },
+                  "retries":  { "type": "integer" },
+                  "timeout":  { "type": "number" },
+                  "aggregation": {
+                    "type": "object",
+                    "properties": {
+                      "comparisonValue": { "type": "integer" },
+                      "value":           { "type": "integer" },
+                      "strict":          { "type": "boolean" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """;
+
+    // A multi-node definition in the shape a blueprint ships: numeric and boolean node
+    // properties, a nested aggregation config, and an unquoted 24-digit runtime id.
+    private const string TypedPipelineYaml = """
+        name: billing
+        enabled: true
+        nodes:
+          - nodeType: FromPipelineTriggerEvent@1
+            id: trigger
+          - nodeType: SumAggregation@1
+            id: sum
+            retries: 3
+            timeout: 1.5
+            aggregation:
+              comparisonValue: 1
+              value: 1
+              strict: false
+          - nodeType: ApplyChanges@1
+            id: load
+            adapterId: 670000000000000000000002
+        """;
+
+    private const string TypedPipelineJson = """
+        {
+          "name": "billing",
+          "enabled": true,
+          "nodes": [
+            { "nodeType": "FromPipelineTriggerEvent@1", "id": "trigger" },
+            { "nodeType": "SumAggregation@1", "id": "sum", "retries": 3, "timeout": 1.5,
+              "aggregation": { "comparisonValue": 1, "value": 1, "strict": false } },
+            { "nodeType": "ApplyChanges@1", "id": "load", "adapterId": "670000000000000000000002" }
+          ]
+        }
+        """;
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_YamlWithTypedScalars_IsValid()
+    {
+        MockCommunicationClient.Setup(c => c.GetPipelineSchemaAsync(AdapterId))
+            .ReturnsAsync(TypedPipelineSchema);
+
+        var result = await PipelineTools.ValidatePipelineDefinition(
+            MockServer.Object, AdapterId, TypedPipelineYaml);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Errors.Should().BeEmpty(
+            "numbers and booleans must reach the schema as numbers and booleans, not as strings");
+        result.IsValid.Should().BeTrue();
+        result.NodeCount.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_SameDefinitionAsYamlAndJson_GivesTheSameVerdict()
+    {
+        MockCommunicationClient.Setup(c => c.GetPipelineSchemaAsync(AdapterId))
+            .ReturnsAsync(TypedPipelineSchema);
+
+        var fromYaml = await PipelineTools.ValidatePipelineDefinition(
+            MockServer.Object, AdapterId, TypedPipelineYaml);
+        var fromJson = await PipelineTools.ValidatePipelineDefinition(
+            MockServer.Object, AdapterId, TypedPipelineJson);
+
+        fromYaml.IsValid.Should().Be(fromJson.IsValid);
+        fromYaml.Errors.Should().HaveCount(fromJson.Errors.Count);
+        fromYaml.NodeCount.Should().Be(fromJson.NodeCount);
+    }
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_UnquotedRuntimeId_StaysAString()
+    {
+        // 24-digit ids are written unquoted all over the blueprint mirrors. Resolving one
+        // as a number would both lose digits and fail the schema's `string` type.
+        MockCommunicationClient.Setup(c => c.GetPipelineSchemaAsync(AdapterId))
+            .ReturnsAsync(TypedPipelineSchema);
+
+        const string yaml = """
+            name: billing
+            nodes:
+              - nodeType: ApplyChanges@1
+                id: load
+                adapterId: 670000000000000000000002
+            """;
+
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, AdapterId, yaml);
+
+        result.IsValid.Should().BeTrue();
+        result.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_WrongScalarTypeInYaml_IsStillReportedAtTheFailingNodePath()
+    {
+        // The fix must not blunt the tool: a real type error still has to surface, and the
+        // error has to point at the node that carries it.
+        MockCommunicationClient.Setup(c => c.GetPipelineSchemaAsync(AdapterId))
+            .ReturnsAsync(TypedPipelineSchema);
+
+        const string yaml = """
+            name: billing
+            nodes:
+              - nodeType: FromPipelineTriggerEvent@1
+                id: trigger
+              - nodeType: SumAggregation@1
+                id: sum
+                retries: "three"
+            """;
+
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, AdapterId, yaml);
+
+        result.IsSuccess.Should().BeTrue();
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.Path.Contains("/nodes/1/retries"),
+            "the error names the failing node's path so the author can find it");
+    }
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_MultipleYamlDocuments_ReportsParseErrorRatherThanValidatingTheFirst()
+    {
+        MockCommunicationClient.Setup(c => c.GetPipelineSchemaAsync(AdapterId))
+            .ReturnsAsync(TypedPipelineSchema);
+
+        var result = await PipelineTools.ValidatePipelineDefinition(
+            MockServer.Object, AdapterId, "name: a\nnodes: []\n---\nname: b\nnodes: []\n");
+
+        result.IsSuccess.Should().BeTrue();
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().ContainSingle().Which.Path.Should().Be("$");
+    }
 }
