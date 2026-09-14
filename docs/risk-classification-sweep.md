@@ -163,9 +163,9 @@ _High=2_  ·  **Owner reviewed:** ☐
 | `enable_communication` | **H** | |
 | `disable_communication` | **H** | |
 
-### DataFlowTriggerPoolTools (7 tools)
+### DataFlowTriggerPoolTools (9 tools)
 
-_High=5 · Low=2_  ·  **Owner reviewed:** ☐
+_High=6 · Low=3_  ·  **Owner reviewed:** ☐
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
@@ -176,6 +176,8 @@ _High=5 · Low=2_  ·  **Owner reviewed:** ☐
 | `undeploy_triggers` | **H** | |
 | `get_pools` | **L** | |
 | `undeploy_pool` | **H** | Removes the pool's operator resources; remediation for the `disable_communication` refusal (AB#4255) |
+| `get_adapter_pool_queue` | **L** | Read-only view of an adapter pool's queue (AB#4924 §10) |
+| `cancel_queued_execution` | **H** | Destroys one queued work item — it becomes `Cancelled` and never runs. Deliberately **not** Medium: the taxonomy would read it as a single-instance delete, but every destructive verb in this family pauses the worker, and discarding a tenant's queued run unannounced is what the approval gate is for. Refuses an execution that already holds a lease (409) — interrupting a running pipeline is a different operation |
 
 ### DiagnosticsTools (1 tool)
 

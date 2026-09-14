@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes 202 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
+`octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes 204 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
 
 Three distinct tool families live here — be aware which one you're touching:
 
@@ -23,7 +23,7 @@ dotnet build src/McpServices/McpServices.csproj -c DebugL
 # Build the entire solution (server + tests + resources)
 dotnet build Octo.McpServices.sln -c DebugL
 
-# Run all tests (currently 863, ~1 s)
+# Run all tests (currently 877, ~1 s)
 dotnet test Octo.McpServices.sln -c DebugL
 
 # Filter tests by class
@@ -48,7 +48,7 @@ Minimum coverage per tool:
 - **Missing required args** — pass empty / null, assert validation error, no SDK call.
 - **Destructive without confirm** — for any tool with a `confirm` parameter, assert refusing without it.
 
-The current ratio is ~4.3 tests per tool (863 tests for 202 tools). Don't lower it.
+The current ratio is ~4.3 tests per tool (877 tests for 204 tools). Don't lower it.
 
 ### 2. Use the `*ClientContext` helpers — never call the factory directly from a tool
 
@@ -198,6 +198,33 @@ if (res.is_conflict) {
 ```
 
 When you add a new write tool (single-entity create / update / delete pattern), wire `expected_version` the same way and bump `RtVersion` on commit. Don't reach for `RtChangedDateTime` as an alternative token — it survives blueprint writes that `RtVersion` doesn't, but timestamp ties at sub-millisecond resolution are real and the token must be monotonic-per-write.
+
+## Adapter pool queue tools (AB#4924 §10)
+
+`get_adapter_pool_queue` and `cancel_queued_execution` (in `DataFlowTriggerPoolTools`) are the MCP
+third of the queue surface the leasing concept asks for — the same view Refinery Studio and
+`octo-cli` show, all three off one endpoint
+(`GET`/`DELETE {tenantId}/v1/adapterPool/{id}/queue[/{executionId}]`). Three properties are design
+decisions, not implementation detail, and a future "improvement" is most likely to undo exactly
+these:
+
+- **Never summarise position into one number.** The pool serves borrowing tenants round-robin, so an
+  entry carries `positionInTenant` *and* `tenantsAheadInRotation`; item 1 of the tenant whose turn is
+  next runs before item 2 of the tenant being served now. The tool description says so explicitly,
+  because the AI reading it is precisely the consumer that would otherwise compute a helpful,
+  wrong rank. `AdapterPoolQueueToolsTests` pins that no response property is rank-shaped.
+- **`AlreadyLeased` (409) and `NotFound` (404) are outcomes of a call that worked**, so `IsSuccess`
+  stays `true` and the distinction travels in `Outcome`/`WasCancelled`. Reporting the 409 as a
+  failure invites a retry, and retrying is not what the caller should do — interrupting the running
+  pipeline is a **different operation** on a different path.
+- **`cancel_queued_execution` is `High`, not `Medium`.** The taxonomy above would read one queue
+  entry as a "single-instance delete", but the work item is destroyed rather than archived and every
+  other destructive verb in this family pauses the worker. An AI discarding a tenant's queued nightly
+  run without the user seeing the proposal is the case the approval gate exists for. It also requires
+  `confirm=true`, as every destructive tool does.
+
+An empty queue is an idle pool and answers `IsSuccess = true`. Manual (non-pooled) adapters have no
+queue at all and therefore no tool — that asymmetry is intended.
 
 ## File I/O Architecture
 
@@ -411,7 +438,7 @@ Both `MapMcp` endpoints require it. Before this they carried a bare `RequireAuth
 token with no Octo API scope at all (a front-end `openid profile` token, say) reached every tool —
 while every backend service gates on `scope`.
 
-**The requirement is uniform, and it is the write scope `octo_api`.** MCP multiplexes all 202 tools
+**The requirement is uniform, and it is the write scope `octo_api`.** MCP multiplexes all 204 tools
 over one JSON-RPC `POST`; the tool name lives in the request *body* and ASP.NET authorization runs on
 the endpoint before the body is read, so there is no second endpoint to hang a stricter policy on and
 no way to split read from write there. Accepting `octo_api.read_only` would therefore hand a
@@ -874,7 +901,7 @@ Notes:
 - **Code coverage** is collected via `coverlet.collector` (already referenced in `McpServices.Tests.csproj`) and surfaced in the Code Coverage tab of the build. Cobertura XML lands in `$(Agent.TempDirectory)`.
 - **Test glob excludes `*SystemTests.csproj`** so a future `McpServices.SystemTests` project (real-service integration suite) can be added later without breaking the main build — those would need their own pipeline + Testcontainers env, matching the pattern in `octo-identity-services`.
 
-The current suite is ~863 mock-based unit tests + a handful of in-process integration tests (`McpServerIntegrationTests`). If you add real-service-dependent tests, put them in a separate `*SystemTests` project so they're skipped here.
+The current suite is ~877 mock-based unit tests + a handful of in-process integration tests (`McpServerIntegrationTests`). If you add real-service-dependent tests, put them in a separate `*SystemTests` project so they're skipped here.
 
 ## Project Layout
 

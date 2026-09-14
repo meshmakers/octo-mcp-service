@@ -181,6 +181,54 @@ public class GetPoolsResponse : CommunicationResponse
     public int TotalCount { get; set; }
 }
 
+/// <summary>
+///     Response for <c>get_adapter_pool_queue</c> (AB#4924 §10).
+/// </summary>
+/// <remarks>
+///     🔴 <b>There is no global queue position in here, and adding one would be a lie.</b> The pool
+///     serves borrowing tenants round-robin, so each entry reports its position inside its own
+///     tenant plus the number of tenants ahead in the rotation — see
+///     <see cref="AdapterPoolQueueEntryDto" />. Summarising the pair into one number for the AI's
+///     convenience would describe an order the pool does not run in.
+/// </remarks>
+public class GetAdapterPoolQueueResponse : CommunicationResponse
+{
+    /// <summary>The adapter pool that was queried (its runtime object ID in the lending tenant).</summary>
+    public string? AdapterPoolId { get; set; }
+
+    /// <summary>Entries waiting for a lease plus the entries the pool currently has leased out.</summary>
+    public List<AdapterPoolQueueEntryDto> Entries { get; set; } = [];
+
+    /// <summary>How many entries are still waiting.</summary>
+    public int WaitingCount { get; set; }
+
+    /// <summary>How many entries already hold a lease. Those cannot be cancelled through the queue verb.</summary>
+    public int LeasedCount { get; set; }
+}
+
+/// <summary>Response for <c>cancel_queued_execution</c> (AB#4924 §10).</summary>
+public class CancelQueuedExecutionResponse : CommunicationResponse
+{
+    /// <summary>The adapter pool whose queue was addressed.</summary>
+    public string? AdapterPoolId { get; set; }
+
+    /// <summary>The execution the caller asked to cancel.</summary>
+    public string? ExecutionId { get; set; }
+
+    /// <summary>
+    ///     What the server did. <c>AlreadyLeased</c> means nothing was cancelled because the
+    ///     execution is already running on a pool member — stopping it is a different operation.
+    /// </summary>
+    public AdapterPoolQueueCancellationOutcome Outcome { get; set; }
+
+    /// <summary>
+    ///     Whether the entry really was cancelled. False for both <c>AlreadyLeased</c> and
+    ///     <c>NotFound</c>, which are reported with <see cref="CommunicationResponse.IsSuccess" />
+    ///     true — the call worked, it just did not cancel anything.
+    /// </summary>
+    public bool WasCancelled { get; set; }
+}
+
 /// <summary>Response for get_data_flow_status.</summary>
 public class GetDataFlowStatusResponse : CommunicationResponse
 {
