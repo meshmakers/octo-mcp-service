@@ -44,6 +44,10 @@
              the intermediate package was built against, so a new client member (e.g. UndeployPoolAsync)
              is invisible until every intermediate package has been rebuilt. -->
         <PackageReference Include="Meshmakers.Octo.Sdk.ServiceClient" Version="$(OctoCoreLibVersion)"/>
+        <!-- Direct reference for the same reason as the line above: validate_pipeline_definition
+             uses Communication.Contracts' Serialization.YamlToJsonConverter, shared with the
+             Communication Controller so both reach the same verdict on a definition. -->
+        <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="$(OctoCoreLibVersion)"/>
         <PackageReference Include="Meshmakers.Octo.Services.Infrastructure" Version="$(OctoCoreLibVersion)"/>
         <PackageReference Include="Meshmakers.Octo.Services.Observability" Version="$(OctoCoreLibVersion)"/>
         <PackageReference Include="Meshmakers.Octo.Runtime.Engine.MongoDb" Version="$(OctoCoreLibVersion)"/>
