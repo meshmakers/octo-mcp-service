@@ -38,7 +38,7 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
         MockCommunicationClient.Setup(c => c.GetAdapterPoolQueueAsync(PoolId))
             .ReturnsAsync(TwoTenantQueue());
 
-        var result = await DataFlowTriggerPoolTools.GetAdapterPoolQueue(MockServer.Object, PoolId);
+        var result = await DataFlowTriggerDeploymentSiteTools.GetAdapterPoolQueue(MockServer.Object, PoolId);
 
         result.IsSuccess.Should().BeTrue();
         result.AdapterPoolId.Should().Be(PoolId);
@@ -66,7 +66,7 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
         MockCommunicationClient.Setup(c => c.GetAdapterPoolQueueAsync(PoolId))
             .ReturnsAsync(TwoTenantQueue());
 
-        var result = await DataFlowTriggerPoolTools.GetAdapterPoolQueue(MockServer.Object, PoolId);
+        var result = await DataFlowTriggerDeploymentSiteTools.GetAdapterPoolQueue(MockServer.Object, PoolId);
 
         result.LeasedCount.Should().Be(1);
         result.WaitingCount.Should().Be(3);
@@ -82,7 +82,7 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
         MockCommunicationClient.Setup(c => c.GetAdapterPoolQueueAsync(PoolId))
             .ReturnsAsync([]);
 
-        var result = await DataFlowTriggerPoolTools.GetAdapterPoolQueue(MockServer.Object, PoolId);
+        var result = await DataFlowTriggerDeploymentSiteTools.GetAdapterPoolQueue(MockServer.Object, PoolId);
 
         result.IsSuccess.Should().BeTrue();
         result.ErrorMessage.Should().BeNull();
@@ -94,7 +94,7 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
     [Fact]
     public async Task GetQueue_MissingId_ReturnsValidationError()
     {
-        var result = await DataFlowTriggerPoolTools.GetAdapterPoolQueue(MockServer.Object, "");
+        var result = await DataFlowTriggerDeploymentSiteTools.GetAdapterPoolQueue(MockServer.Object, "");
 
         result.IsSuccess.Should().BeFalse();
         MockCommunicationClient.Verify(c => c.GetAdapterPoolQueueAsync(It.IsAny<string>()), Times.Never);
@@ -105,7 +105,7 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
     {
         GivenUnauthenticated();
 
-        var result = await DataFlowTriggerPoolTools.GetAdapterPoolQueue(MockServer.Object, PoolId);
+        var result = await DataFlowTriggerDeploymentSiteTools.GetAdapterPoolQueue(MockServer.Object, PoolId);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("Not authenticated");
@@ -118,7 +118,7 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
         MockCommunicationClient.Setup(c => c.GetAdapterPoolQueueAsync(PoolId))
             .ThrowsAsync(new InvalidOperationException("NotFound: no such adapter pool"));
 
-        var result = await DataFlowTriggerPoolTools.GetAdapterPoolQueue(MockServer.Object, PoolId);
+        var result = await DataFlowTriggerDeploymentSiteTools.GetAdapterPoolQueue(MockServer.Object, PoolId);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Be("NotFound: no such adapter pool");
@@ -129,7 +129,7 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
     [Fact]
     public async Task Cancel_WithoutConfirm_Refuses()
     {
-        var result = await DataFlowTriggerPoolTools.CancelQueuedExecution(MockServer.Object, PoolId, "e-a2");
+        var result = await DataFlowTriggerDeploymentSiteTools.CancelQueuedExecution(MockServer.Object, PoolId, "e-a2");
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("confirm=true");
@@ -146,7 +146,7 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
                 Outcome = AdapterPoolQueueCancellationOutcome.Cancelled
             });
 
-        var result = await DataFlowTriggerPoolTools.CancelQueuedExecution(MockServer.Object, PoolId, "e-a2",
+        var result = await DataFlowTriggerDeploymentSiteTools.CancelQueuedExecution(MockServer.Object, PoolId, "e-a2",
             confirm: true);
 
         result.IsSuccess.Should().BeTrue();
@@ -166,7 +166,7 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
                 ServerMessage = "Execution 'e-run' already holds a lease and is no longer queued."
             });
 
-        var result = await DataFlowTriggerPoolTools.CancelQueuedExecution(MockServer.Object, PoolId, "e-run",
+        var result = await DataFlowTriggerDeploymentSiteTools.CancelQueuedExecution(MockServer.Object, PoolId, "e-run",
             confirm: true);
 
         // The call worked; it just did not cancel anything. Reporting it as a failure would invite a
@@ -187,7 +187,7 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
                 Outcome = AdapterPoolQueueCancellationOutcome.NotFound
             });
 
-        var result = await DataFlowTriggerPoolTools.CancelQueuedExecution(MockServer.Object, PoolId, "e-gone",
+        var result = await DataFlowTriggerDeploymentSiteTools.CancelQueuedExecution(MockServer.Object, PoolId, "e-gone",
             confirm: true);
 
         result.IsSuccess.Should().BeTrue();
@@ -199,7 +199,7 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
     [Fact]
     public async Task Cancel_MissingExecutionId_ReturnsValidationError()
     {
-        var result = await DataFlowTriggerPoolTools.CancelQueuedExecution(MockServer.Object, PoolId, "",
+        var result = await DataFlowTriggerDeploymentSiteTools.CancelQueuedExecution(MockServer.Object, PoolId, "",
             confirm: true);
 
         result.IsSuccess.Should().BeFalse();
@@ -212,7 +212,7 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
     {
         GivenUnauthenticated();
 
-        var result = await DataFlowTriggerPoolTools.CancelQueuedExecution(MockServer.Object, PoolId, "e-a2",
+        var result = await DataFlowTriggerDeploymentSiteTools.CancelQueuedExecution(MockServer.Object, PoolId, "e-a2",
             confirm: true);
 
         result.IsSuccess.Should().BeFalse();
@@ -227,7 +227,7 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
         MockCommunicationClient.Setup(c => c.CancelQueuedExecutionAsync(PoolId, "e-a2"))
             .ThrowsAsync(new InvalidOperationException("ServiceUnavailable"));
 
-        var result = await DataFlowTriggerPoolTools.CancelQueuedExecution(MockServer.Object, PoolId, "e-a2",
+        var result = await DataFlowTriggerDeploymentSiteTools.CancelQueuedExecution(MockServer.Object, PoolId, "e-a2",
             confirm: true);
 
         result.IsSuccess.Should().BeFalse();
@@ -239,7 +239,7 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
     [Fact]
     public void QueueRead_IsLow_AndCancel_IsHigh()
     {
-        var registry = new ToolRiskRegistry(typeof(DataFlowTriggerPoolTools).Assembly);
+        var registry = new ToolRiskRegistry(typeof(DataFlowTriggerDeploymentSiteTools).Assembly);
 
         registry.GetRiskLevel("get_adapter_pool_queue").Should().Be(McpRiskLevel.Low);
         // Destructive: the work item is discarded and never runs. Every other destructive verb in

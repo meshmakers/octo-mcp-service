@@ -49,14 +49,14 @@ public sealed class CommunicationLifecycleTools
 
     /// <summary>
     ///     Disable the communication controller for the tenant. A guarded, reversible flag flip (refused while
-    ///     pools or workloads are still deployed, or while AI Services is still enabled); requires confirm.
+    ///     deploymentSites or workloads are still deployed, or while AI Services is still enabled); requires confirm.
     /// </summary>
     [McpServerTool(Name = "disable_communication")]
     [McpRisk(McpRiskLevel.High)]
     [Description(
-        "Disable the communication controller for the resolved tenant. Refused with a Conflict error while pools " +
+        "Disable the communication controller for the resolved tenant. Refused with a Conflict error while deployment sites " +
         "or workloads (Adapters/Applications) of the tenant are still deployed - the error names them; undeploy " +
-        "them first with undeploy_workload / undeploy_pool (confirm=true). Also refused while AI Services is " +
+        "them first with undeploy_workload / undeploy_deployment_site (confirm=true). Also refused while AI Services is " +
         "still enabled for the tenant (AB#4884) - AI depends on Communication; disable it first (no MCP tool: " +
         "octo-cli DisableAi, or Refinery Studio > General > Settings > Tenant Features). Stops scheduled " +
         "triggers and flushes adapter configuration until re-enabled with enable_communication. Required before " +

@@ -178,7 +178,7 @@ dotnet run
 - Lifecycle (2): `enable_communication` · `disable_communication`<sup>‡</sup>
 - Adapters (4): `get_adapters` · `get_adapter` · `get_adapter_nodes` · `get_pipeline_schema`
 - Pipelines (8): `get_pipeline_status` · `deploy_pipeline` · `execute_pipeline` · `set_pipeline_debug` · `get_pipeline_debug` · `get_pipeline_executions` · `get_latest_pipeline_execution` · `get_pipeline_debug_points`
-- Data Flows / Triggers / Pools (9): `deploy_data_flow` · `undeploy_data_flow`<sup>‡</sup> · `get_data_flow_status` · `deploy_triggers` · `undeploy_triggers`<sup>‡</sup> · `get_pools` · `undeploy_pool`<sup>‡</sup> · `get_adapter_pool_queue` · `cancel_queued_execution`<sup>‡</sup>
+- Data Flows / Triggers / Deployment Sites (9): `deploy_data_flow` · `undeploy_data_flow`<sup>‡</sup> · `get_data_flow_status` · `deploy_triggers` · `undeploy_triggers`<sup>‡</sup> · `get_deployment_sites` · `undeploy_deployment_site`<sup>‡</sup> · `get_adapter_pool_queue` · `cancel_queued_execution`<sup>‡</sup>
 - Workloads + CI/CD (5): `get_workloads_by_chart` · `update_workload_chart_version` · `deploy_workload` · `undeploy_workload`<sup>‡</sup> · `move_pipelines`<sup>‡</sup>
 
 ### **Time Series + Reporting + Diagnostics** (16)

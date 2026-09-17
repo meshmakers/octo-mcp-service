@@ -7,11 +7,11 @@ using Xunit;
 
 namespace McpServices.Tests.Tools;
 
-public class DataFlowTriggerPoolToolsTests : ToolTestBase
+public class DataFlowTriggerDeploymentSiteToolsTests : ToolTestBase
 {
     private const string DataFlowId = "cc0000000000000000000002";
 
-    public DataFlowTriggerPoolToolsTests()
+    public DataFlowTriggerDeploymentSiteToolsTests()
     {
         GivenAuthenticated();
     }
@@ -23,7 +23,7 @@ public class DataFlowTriggerPoolToolsTests : ToolTestBase
     [Fact]
     public async Task DeployDataFlow_HappyPath_CallsSdk()
     {
-        var result = await DataFlowTriggerPoolTools.DeployDataFlow(MockServer.Object, DataFlowId);
+        var result = await DataFlowTriggerDeploymentSiteTools.DeployDataFlow(MockServer.Object, DataFlowId);
 
         result.IsSuccess.Should().BeTrue();
         MockCommunicationClient.Verify(c => c.DeployDataFlowAsync(DataFlowId), Times.Once);
@@ -32,14 +32,14 @@ public class DataFlowTriggerPoolToolsTests : ToolTestBase
     [Fact]
     public async Task DeployDataFlow_MissingId_ReturnsValidationError()
     {
-        var result = await DataFlowTriggerPoolTools.DeployDataFlow(MockServer.Object, "");
+        var result = await DataFlowTriggerDeploymentSiteTools.DeployDataFlow(MockServer.Object, "");
         result.IsSuccess.Should().BeFalse();
     }
 
     [Fact]
     public async Task UndeployDataFlow_WithoutConfirm_Refuses()
     {
-        var result = await DataFlowTriggerPoolTools.UndeployDataFlow(MockServer.Object, DataFlowId);
+        var result = await DataFlowTriggerDeploymentSiteTools.UndeployDataFlow(MockServer.Object, DataFlowId);
 
         result.IsSuccess.Should().BeFalse();
         MockCommunicationClient.Verify(c => c.UndeployDataFlowAsync(It.IsAny<string>()), Times.Never);
@@ -48,7 +48,7 @@ public class DataFlowTriggerPoolToolsTests : ToolTestBase
     [Fact]
     public async Task UndeployDataFlow_WithConfirm_CallsSdk()
     {
-        var result = await DataFlowTriggerPoolTools.UndeployDataFlow(MockServer.Object, DataFlowId, confirm: true);
+        var result = await DataFlowTriggerDeploymentSiteTools.UndeployDataFlow(MockServer.Object, DataFlowId, confirm: true);
 
         result.IsSuccess.Should().BeTrue();
         MockCommunicationClient.Verify(c => c.UndeployDataFlowAsync(DataFlowId), Times.Once);
@@ -65,7 +65,7 @@ public class DataFlowTriggerPoolToolsTests : ToolTestBase
                 Pipelines = []
             });
 
-        var result = await DataFlowTriggerPoolTools.GetDataFlowStatus(MockServer.Object, DataFlowId);
+        var result = await DataFlowTriggerDeploymentSiteTools.GetDataFlowStatus(MockServer.Object, DataFlowId);
 
         result.IsSuccess.Should().BeTrue();
         result.Status.Should().NotBeNull();
@@ -75,7 +75,7 @@ public class DataFlowTriggerPoolToolsTests : ToolTestBase
     [Fact]
     public async Task GetDataFlowStatus_MissingId_ReturnsValidationError()
     {
-        var result = await DataFlowTriggerPoolTools.GetDataFlowStatus(MockServer.Object, "");
+        var result = await DataFlowTriggerDeploymentSiteTools.GetDataFlowStatus(MockServer.Object, "");
         result.IsSuccess.Should().BeFalse();
     }
 
@@ -84,7 +84,7 @@ public class DataFlowTriggerPoolToolsTests : ToolTestBase
     [Fact]
     public async Task DeployTriggers_HappyPath_CallsSdk()
     {
-        var result = await DataFlowTriggerPoolTools.DeployTriggers(MockServer.Object);
+        var result = await DataFlowTriggerDeploymentSiteTools.DeployTriggers(MockServer.Object);
 
         result.IsSuccess.Should().BeTrue();
         MockCommunicationClient.Verify(c => c.DeployTriggersAsync(), Times.Once);
@@ -94,14 +94,14 @@ public class DataFlowTriggerPoolToolsTests : ToolTestBase
     public async Task DeployTriggers_Unauthenticated_ReturnsAuthError()
     {
         GivenUnauthenticated();
-        var result = await DataFlowTriggerPoolTools.DeployTriggers(MockServer.Object);
+        var result = await DataFlowTriggerDeploymentSiteTools.DeployTriggers(MockServer.Object);
         result.IsSuccess.Should().BeFalse();
     }
 
     [Fact]
     public async Task UndeployTriggers_WithoutConfirm_Refuses()
     {
-        var result = await DataFlowTriggerPoolTools.UndeployTriggers(MockServer.Object);
+        var result = await DataFlowTriggerDeploymentSiteTools.UndeployTriggers(MockServer.Object);
 
         result.IsSuccess.Should().BeFalse();
         MockCommunicationClient.Verify(c => c.UndeployTriggersAsync(), Times.Never);
@@ -110,7 +110,7 @@ public class DataFlowTriggerPoolToolsTests : ToolTestBase
     [Fact]
     public async Task UndeployTriggers_WithConfirm_CallsSdk()
     {
-        var result = await DataFlowTriggerPoolTools.UndeployTriggers(MockServer.Object, confirm: true);
+        var result = await DataFlowTriggerDeploymentSiteTools.UndeployTriggers(MockServer.Object, confirm: true);
 
         result.IsSuccess.Should().BeTrue();
         MockCommunicationClient.Verify(c => c.UndeployTriggersAsync(), Times.Once);
@@ -121,10 +121,10 @@ public class DataFlowTriggerPoolToolsTests : ToolTestBase
     [Fact]
     public async Task GetPools_HappyPath_ReturnsList()
     {
-        MockCommunicationClient.Setup(c => c.GetPoolsAsync())
+        MockCommunicationClient.Setup(c => c.GetDeploymentSitesAsync())
             .ReturnsAsync(new[]
             {
-                new PoolSummaryDto
+                new DeploymentSiteSummaryDto
                 {
                     RtId = "pool-1",
                     Name = "Pool A",
@@ -134,17 +134,17 @@ public class DataFlowTriggerPoolToolsTests : ToolTestBase
                 }
             });
 
-        var result = await DataFlowTriggerPoolTools.GetPools(MockServer.Object);
+        var result = await DataFlowTriggerDeploymentSiteTools.GetDeploymentSites(MockServer.Object);
 
         result.IsSuccess.Should().BeTrue();
-        result.Pools.Should().HaveCount(1);
+        result.DeploymentSites.Should().HaveCount(1);
     }
 
     [Fact]
     public async Task GetPools_Unauthenticated_ReturnsAuthError()
     {
         GivenUnauthenticated();
-        var result = await DataFlowTriggerPoolTools.GetPools(MockServer.Object);
+        var result = await DataFlowTriggerDeploymentSiteTools.GetDeploymentSites(MockServer.Object);
         result.IsSuccess.Should().BeFalse();
     }
 
@@ -153,21 +153,21 @@ public class DataFlowTriggerPoolToolsTests : ToolTestBase
     [Fact]
     public async Task UndeployPool_WithoutConfirm_Refuses()
     {
-        var result = await DataFlowTriggerPoolTools.UndeployPool(MockServer.Object, PoolId);
+        var result = await DataFlowTriggerDeploymentSiteTools.UndeployDeploymentSite(MockServer.Object, PoolId);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("confirm=true");
-        MockCommunicationClient.Verify(c => c.UndeployPoolAsync(It.IsAny<string>()), Times.Never);
+        MockCommunicationClient.Verify(c => c.UndeployDeploymentSiteAsync(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
     public async Task UndeployPool_WithConfirm_CallsSdk()
     {
-        var result = await DataFlowTriggerPoolTools.UndeployPool(MockServer.Object, PoolId, confirm: true);
+        var result = await DataFlowTriggerDeploymentSiteTools.UndeployDeploymentSite(MockServer.Object, PoolId, confirm: true);
 
         result.IsSuccess.Should().BeTrue();
         result.ResourceId.Should().Be(PoolId);
-        MockCommunicationClient.Verify(c => c.UndeployPoolAsync(PoolId), Times.Once);
+        MockCommunicationClient.Verify(c => c.UndeployDeploymentSiteAsync(PoolId), Times.Once);
     }
 
     [Fact]
@@ -175,28 +175,28 @@ public class DataFlowTriggerPoolToolsTests : ToolTestBase
     {
         GivenUnauthenticated();
 
-        var result = await DataFlowTriggerPoolTools.UndeployPool(MockServer.Object, PoolId, confirm: true);
+        var result = await DataFlowTriggerDeploymentSiteTools.UndeployDeploymentSite(MockServer.Object, PoolId, confirm: true);
 
         result.IsSuccess.Should().BeFalse();
-        MockCommunicationClient.Verify(c => c.UndeployPoolAsync(It.IsAny<string>()), Times.Never);
+        MockCommunicationClient.Verify(c => c.UndeployDeploymentSiteAsync(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
     public async Task UndeployPool_MissingId_ReturnsValidationError()
     {
-        var result = await DataFlowTriggerPoolTools.UndeployPool(MockServer.Object, "", confirm: true);
+        var result = await DataFlowTriggerDeploymentSiteTools.UndeployDeploymentSite(MockServer.Object, "", confirm: true);
 
         result.IsSuccess.Should().BeFalse();
-        MockCommunicationClient.Verify(c => c.UndeployPoolAsync(It.IsAny<string>()), Times.Never);
+        MockCommunicationClient.Verify(c => c.UndeployDeploymentSiteAsync(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
     public async Task UndeployPool_WhenSdkThrows_ReturnsErrorMessage()
     {
-        MockCommunicationClient.Setup(c => c.UndeployPoolAsync(PoolId))
+        MockCommunicationClient.Setup(c => c.UndeployDeploymentSiteAsync(PoolId))
             .ThrowsAsync(new InvalidOperationException("BadRequest: pool is already undeployed"));
 
-        var result = await DataFlowTriggerPoolTools.UndeployPool(MockServer.Object, PoolId, confirm: true);
+        var result = await DataFlowTriggerDeploymentSiteTools.UndeployDeploymentSite(MockServer.Object, PoolId, confirm: true);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Be("BadRequest: pool is already undeployed");

@@ -171,13 +171,13 @@ public class CommunicationActionResponse : CommunicationResponse
     public string? ResourceId { get; set; }
 }
 
-/// <summary>Response for get_pools.</summary>
-public class GetPoolsResponse : CommunicationResponse
+/// <summary>Response for get_deployment_sites.</summary>
+public class GetDeploymentSitesResponse : CommunicationResponse
 {
-    /// <summary>Pools configured for the tenant.</summary>
-    public List<PoolSummaryDto> Pools { get; set; } = [];
+    /// <summary>DeploymentSites configured for the tenant.</summary>
+    public List<DeploymentSiteSummaryDto> DeploymentSites { get; set; } = [];
 
-    /// <summary>Total number of pools.</summary>
+    /// <summary>Total number of deploymentSites.</summary>
     public int TotalCount { get; set; }
 }
 
@@ -185,18 +185,18 @@ public class GetPoolsResponse : CommunicationResponse
 ///     Response for <c>get_adapter_pool_queue</c> (AB#4924 §10).
 /// </summary>
 /// <remarks>
-///     🔴 <b>There is no global queue position in here, and adding one would be a lie.</b> The pool
+///     🔴 <b>There is no global queue position in here, and adding one would be a lie.</b> The deploymentSite
 ///     serves borrowing tenants round-robin, so each entry reports its position inside its own
 ///     tenant plus the number of tenants ahead in the rotation — see
 ///     <see cref="AdapterPoolQueueEntryDto" />. Summarising the pair into one number for the AI's
-///     convenience would describe an order the pool does not run in.
+///     convenience would describe an order the deploymentSite does not run in.
 /// </remarks>
 public class GetAdapterPoolQueueResponse : CommunicationResponse
 {
     /// <summary>The adapter pool that was queried (its runtime object ID in the lending tenant).</summary>
     public string? AdapterPoolId { get; set; }
 
-    /// <summary>Entries waiting for a lease plus the entries the pool currently has leased out.</summary>
+    /// <summary>Entries waiting for a lease plus the entries the deploymentSite currently has leased out.</summary>
     public List<AdapterPoolQueueEntryDto> Entries { get; set; } = [];
 
     /// <summary>How many entries are still waiting.</summary>

@@ -14,7 +14,7 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 ///     subsystem only has 1–3 operations.
 /// </summary>
 [McpServerToolType]
-public sealed class DataFlowTriggerPoolTools
+public sealed class DataFlowTriggerDeploymentSiteTools
 {
     // ── Data Flows ──────────────────────────────────────────────────────────
 
@@ -157,56 +157,56 @@ public sealed class DataFlowTriggerPoolTools
         }
     }
 
-    // ── Pools ───────────────────────────────────────────────────────────────
+    // ── DeploymentSites ───────────────────────────────────────────────────────────────
 
-    /// <summary>List all pools for the tenant.</summary>
-    [McpServerTool(Name = "get_pools")]
-    [Description("List all pools configured for the tenant. Equivalent to octo-cli GetPools.")]
-    public static async Task<GetPoolsResponse> GetPools(
+    /// <summary>List all deploymentSites for the tenant.</summary>
+    [McpServerTool(Name = "get_deployment_sites")]
+    [Description("List all deployment sites configured for the tenant. Equivalent to octo-cli GetDeploymentSites.")]
+    public static async Task<GetDeploymentSitesResponse> GetDeploymentSites(
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
         var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {
-            return new GetPoolsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+            return new GetDeploymentSitesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
         }
 
         try
         {
-            var pools = (await ctx.Client!.GetPoolsAsync()).ToList();
-            return new GetPoolsResponse
+            var deploymentSites = (await ctx.Client!.GetDeploymentSitesAsync()).ToList();
+            return new GetDeploymentSitesResponse
             {
                 IsSuccess = true,
                 TenantId = ctx.TenantId,
-                Pools = pools,
-                TotalCount = pools.Count,
-                Message = pools.Count == 0 ? "No pools configured." : $"{pools.Count} pool(s)."
+                DeploymentSites = deploymentSites,
+                TotalCount = deploymentSites.Count,
+                Message = deploymentSites.Count == 0 ? "No deployment sites configured." : $"{deploymentSites.Count} deployment site(s)."
             };
         }
         catch (Exception ex)
         {
-            return new GetPoolsResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new GetDeploymentSitesResponse { IsSuccess = false, ErrorMessage = ex.Message };
         }
     }
 
-    /// <summary>Undeploy a pool. Destructive: requires confirm.</summary>
-    [McpServerTool(Name = "undeploy_pool")]
+    /// <summary>Undeploy a deploymentSite. Destructive: requires confirm.</summary>
+    [McpServerTool(Name = "undeploy_deployment_site")]
     [McpRisk(McpRiskLevel.High)]
     [Description(
-        "Undeploy a pool. DESTRUCTIVE - the Communication Operator removes the pool's cluster resources; " +
+        "Undeploy a deployment site. DESTRUCTIVE - the Communication Operator removes the deployment site's cluster resources; " +
         "undeploy its workloads first (undeploy_workload). Requires confirm=true. Needed before " +
-        "disable_communication, which is refused while pools or workloads are deployed. Equivalent to " +
-        "octo-cli UndeployPool.")]
-    public static async Task<CommunicationActionResponse> UndeployPool(
+        "disable_communication, which is refused while deployment sites or workloads are deployed. Equivalent to " +
+        "octo-cli UndeployDeploymentSite.")]
+    public static async Task<CommunicationActionResponse> UndeployDeploymentSite(
         McpServer server,
-        [Description("Pool runtime ID.")] string poolId,
+        [Description("Deployment site runtime ID.")] string deploymentSiteId,
         [Description("Must be true to actually undeploy.")] bool confirm = false,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
-        => await SingleResourceAction(server, tenantId, poolId,
+        => await SingleResourceAction(server, tenantId, deploymentSiteId,
             requiredConfirm: true, confirm,
-            (client, id) => client.UndeployPoolAsync(id),
-            successMessage: id => $"Pool '{id}' undeploy triggered.");
+            (client, id) => client.UndeployDeploymentSiteAsync(id),
+            successMessage: id => $"Deployment site '{id}' undeploy triggered.");
 
     // ── Adapter pool queue (AB#4924 §10) ────────────────────────────────────
 
@@ -214,12 +214,12 @@ public sealed class DataFlowTriggerPoolTools
     [McpServerTool(Name = "get_adapter_pool_queue")]
     [Description(
         "Show an adapter pool's queue: every execution waiting for a lease, plus the executions the pool " +
-        "currently has leased out. Read-only. The tenant is the LENDING tenant that owns the pool; each entry " +
+        "currently has leased out. Read-only. The tenant is the LENDING tenant that owns the deployment site; each entry " +
         "names the borrowing tenant whose work it is. POSITION IS REPORTED AS A PAIR — positionInTenant (where " +
         "the item sits in its own tenant's queue) and tenantsAheadInRotation (how many other tenants take a turn " +
-        "first) — because the pool serves tenants round-robin and there is no single global rank; do not compute " +
+        "first) — because the deployment site serves tenants round-robin and there is no single global rank; do not compute " +
         "one. Entries with leasedOnMemberId set are already running and cannot be cancelled with " +
-        "cancel_queued_execution. An empty list means an idle pool, not an error. Manual (non-pooled) adapters " +
+        "cancel_queued_execution. An empty list means an idle deployment site, not an error. Manual (non-pooled) adapters " +
         "have no queue at all. Equivalent to octo-cli GetAdapterPoolQueue.")]
     public static async Task<GetAdapterPoolQueueResponse> GetAdapterPoolQueue(
         McpServer server,
@@ -283,7 +283,7 @@ public sealed class DataFlowTriggerPoolTools
         "that pipeline': an execution that already holds a lease is refused (HTTP 409) and reported as " +
         "outcome=AlreadyLeased with nothing cancelled, because interrupting a running pipeline is a different " +
         "operation on a different path. Find execution ids with get_adapter_pool_queue. The tenant is the " +
-        "LENDING tenant that owns the pool, not the borrowing tenant whose work is cancelled. Equivalent to " +
+        "LENDING tenant that owns the deployment site, not the borrowing tenant whose work is cancelled. Equivalent to " +
         "octo-cli CancelQueuedExecution.")]
     public static async Task<CancelQueuedExecutionResponse> CancelQueuedExecution(
         McpServer server,
