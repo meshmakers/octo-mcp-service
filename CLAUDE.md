@@ -246,7 +246,7 @@ The tool description says "PUT the file to the returned URL" — historically sa
 
 The CK library status flags every model as either user-managed or **service-managed** (`isServiceManaged: true`). Service-managed models include `System` (always), `System.Communication`, `System.StreamData`, `System.Reporting`, `System.UI`, `System.Ai`, `System.Bot`, `System.Identity`, `System.Notification` — anything that backs a backend service feature.
 
-For service-managed models, `import_ck_from_catalog` will silently no-op even when the model is NOT loaded in the target tenant. The tool returns `IsSuccess=true` with messages like "Enqueued 0 import job(s)" or "Nothing to import — already up to date", but `get_available_models` will not list the model afterwards. Misleading but consistent.
+For service-managed models, `import_ck_from_catalog` will silently no-op even when the model is NOT loaded in the target tenant. The tool returns `IsSuccess=true` with a message like "Nothing to import — already up to date", but `get_available_models` will not list the model afterwards. Misleading but consistent.
 
 The correct way to make those models available is the matching `enable_<feature>` tool:
 
@@ -257,7 +257,7 @@ The correct way to make those models available is the matching `enable_<feature>
 | `System.Reporting-*` | `enable_reporting` |
 | `System.UI-*` | (no MCP tool yet — install via Studio or octo-cli) |
 
-For user-managed CK models (Basic.*, Industry.*, EnergyIQ, Loxone, custom tenant models), `import_ck_from_catalog` works correctly and DOES load them, even though the same "Enqueued 0 import job(s)" message appears. The reliable verification is `get_ck_library_status` — it reports the actually-loaded version and `modelState=Available`. `get_available_models` may be stale right after an import.
+For user-managed CK models (Basic.*, Industry.*, EnergyIQ, Loxone, custom tenant models), `import_ck_from_catalog` works correctly and DOES load them, and the response carries the job id of the batch import. The reliable verification is `get_ck_library_status` — it reports the actually-loaded version and `modelState=Available`. `get_available_models` may be stale right after an import.
 
 ## Aggregation Tools Architecture
 

@@ -244,12 +244,12 @@ public sealed class CkModelLibraryTools
         }
     }
 
-    /// <summary>Import a CK model with its dependencies from a catalog. Returns job IDs (no waiting).</summary>
+    /// <summary>Import a CK model with its dependencies from a catalog. Returns the job ID (no waiting).</summary>
     [McpServerTool(Name = "import_ck_from_catalog")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
-        "Import a CK model from a catalog including all dependencies (in dependency order). Returns the job IDs " +
-        "enqueued — poll asset jobs separately to track completion. Equivalent to octo-cli ImportFromCatalog " +
+        "Import a CK model from a catalog including all dependencies (in dependency order). Returns the ID of the " +
+        "enqueued batch import job — poll it separately to track completion. Equivalent to octo-cli ImportFromCatalog " +
         "without the -w wait flag.")]
     public static async Task<CkImportResponse> ImportFromCatalog(
         McpServer server,
@@ -295,9 +295,9 @@ public sealed class CkModelLibraryTools
                 IsSuccess = true,
                 TenantId = ctx.TenantId,
                 ModelsToImport = depResult.ModelsToImport,
-                JobIds = importResult.JobIds,
+                JobId = importResult.JobId,
                 Message =
-                    $"Enqueued {importResult.JobIds.Count} import job(s) for {depResult.ModelsToImport.Count} model(s)."
+                    $"Enqueued import job '{importResult.JobId}' for {depResult.ModelsToImport.Count} model(s)."
             };
         }
         catch (Exception ex)
@@ -388,9 +388,9 @@ public sealed class CkModelLibraryTools
                 IsSuccess = true,
                 TenantId = ctx.TenantId,
                 ModelsToImport = depResult.ModelsToImport,
-                JobIds = importResult.JobIds,
+                JobId = importResult.JobId,
                 Message =
-                    $"Enqueued {importResult.JobIds.Count} fix-up import job(s) for " +
+                    $"Enqueued fix-up import job '{importResult.JobId}' for " +
                     $"{depResult.ModelsToImport.Count} model(s) ({actionModels.Count} needed action)."
             };
         }

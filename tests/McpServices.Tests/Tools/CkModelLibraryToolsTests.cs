@@ -138,7 +138,7 @@ public class CkModelLibraryToolsTests : ToolTestBase
         var result = await CkModelLibraryTools.ImportFromCatalog(MockServer.Object, "cat", "Energy-1");
 
         result.IsSuccess.Should().BeTrue();
-        result.JobIds.Should().BeEmpty();
+        result.JobId.Should().BeNull();
         result.Message.Should().Contain("already up to date");
         MockAssetClient.Verify(c => c.ImportFromCatalogBatchAsync(
             It.IsAny<string>(), It.IsAny<ImportFromCatalogBatchRequestDto>()), Times.Never);
@@ -156,12 +156,13 @@ public class CkModelLibraryToolsTests : ToolTestBase
         MockAssetClient.Setup(c => c.ImportFromCatalogBatchAsync(DefaultTenantId,
                 It.Is<ImportFromCatalogBatchRequestDto>(r =>
                     r.CatalogName == "cat" && r.ModelIds.Count == 2)))
-            .ReturnsAsync(new BatchImportResponseDto { JobIds = ["job1", "job2"] });
+            .ReturnsAsync(new BatchImportResponseDto { JobId = "job1" });
 
         var result = await CkModelLibraryTools.ImportFromCatalog(MockServer.Object, "cat", "Energy-2.0.0");
 
         result.IsSuccess.Should().BeTrue();
-        result.JobIds.Should().Equal("job1", "job2");
+        result.JobId.Should().Be("job1");
+        result.Message.Should().Contain("job1");
         result.ModelsToImport.Should().HaveCount(2);
     }
 
@@ -237,11 +238,12 @@ public class CkModelLibraryToolsTests : ToolTestBase
             .ReturnsAsync(new BatchDependencyResolutionResponseDto { ModelsToImport = ["Energy-2.0.0"] });
         MockAssetClient.Setup(c => c.ImportFromCatalogBatchAsync(DefaultTenantId,
                 It.IsAny<ImportFromCatalogBatchRequestDto>()))
-            .ReturnsAsync(new BatchImportResponseDto { JobIds = ["job1"] });
+            .ReturnsAsync(new BatchImportResponseDto { JobId = "job1" });
 
         var result = await CkModelLibraryTools.FixAllModels(MockServer.Object, confirm: true);
 
         result.IsSuccess.Should().BeTrue();
-        result.JobIds.Should().Contain("job1");
+        result.JobId.Should().Be("job1");
+        result.Message.Should().Contain("job1");
     }
 }
