@@ -188,7 +188,7 @@ public sealed class SecretMaintenanceTools
         try
         {
             var job = allTenants
-                ? await bot.Client!.StartSecretSweepAllTenantsAsync(sweepMode)
+                ? await bot.Client!.StartSecretSweepAllTenantsAsync(sweepMode, confirm)
                 : await bot.Client!.StartSecretSweepAsync(bot.TenantId!, sweepMode, confirm);
             jobId = job.JobId;
 

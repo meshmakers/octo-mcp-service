@@ -257,13 +257,13 @@ public class SecretMaintenanceToolsTests : ToolTestBase
         result.ErrorMessage.Should().Contain("Verify, Encrypt, Reprotect or CleanupUnreadable");
         MockBotClient.Verify(c => c.StartSecretSweepAsync(It.IsAny<string>(), It.IsAny<SecretSweepModeDto>(), It.IsAny<bool>()),
             Times.Never);
-        MockBotClient.Verify(c => c.StartSecretSweepAllTenantsAsync(It.IsAny<SecretSweepModeDto>()), Times.Never);
+        MockBotClient.Verify(c => c.StartSecretSweepAllTenantsAsync(It.IsAny<SecretSweepModeDto>(), It.IsAny<bool>()), Times.Never);
     }
 
     [Fact]
     public async Task StartSecretSweep_AllTenants_UsesSystemEndpoint()
     {
-        MockBotClient.Setup(c => c.StartSecretSweepAllTenantsAsync(SecretSweepModeDto.Encrypt))
+        MockBotClient.Setup(c => c.StartSecretSweepAllTenantsAsync(SecretSweepModeDto.Encrypt, true))
             .ReturnsAsync(new JobResponseDto("job-all"));
 
         var result = await SecretMaintenanceTools.StartSecretSweep(MockServer.Object, "Encrypt", allTenants: true,
@@ -328,6 +328,6 @@ public class SecretMaintenanceToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("Not authenticated");
-        MockBotClient.Verify(c => c.StartSecretSweepAllTenantsAsync(It.IsAny<SecretSweepModeDto>()), Times.Never);
+        MockBotClient.Verify(c => c.StartSecretSweepAllTenantsAsync(It.IsAny<SecretSweepModeDto>(), It.IsAny<bool>()), Times.Never);
     }
 }
