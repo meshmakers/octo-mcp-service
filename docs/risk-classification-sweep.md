@@ -336,7 +336,7 @@ _High=1 · Low=1_  ·  **Owner reviewed:** ☐
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
-| `get_secret_status` | **L** | AB#5543: report only, never values |
+| `get_secret_status` | **L** | AB#5543: environment status, sweep runs, report — never values |
 | `start_secret_sweep` | **H** | AB#5543: static level; Verify needs no confirm, writing modes need `confirm=true`; no Decrypt |
 
 ### SchemaDiscoveryTools (5 tools)
@@ -463,13 +463,17 @@ update behind an approval), secret writes were split out:
   "unchanged". `update_entity` gained `clearSecretAttributes` (clearing loses a credential but exposes
   nothing; the engine refuses clearing a required secret).
 - `set_entity_secrets` (**High**) and `create_entity_with_secrets` (**High**) are the only entity tools that
-  write a secret value; their `secrets` argument refuses non-secret attributes and placeholders.
+  write a secret value; their `secrets` argument refuses non-secret attributes and empty values (placeholder-looking
+  strings are ordinary values since 2026-10-06).
   `create_entity_with_secrets` exists because the engine refuses to insert an entity whose type has a
   required secret without a value (rule message 2), so `create_entity` + `set_entity_secrets` cannot create it.
 - Identity providers: `add_oauth_identity_provider` and `add_azure_entra_id_identity_provider` were raised
   from Medium to **High** because they hand a client secret to the platform; `update_identity_provider` was
   already High.
-- `start_secret_sweep` is **High** as a whole (three of its four modes rewrite or clear stored secrets);
-  `get_secret_status` is Low.
+- `start_secret_sweep` is **High** as a whole (three of its four modes — Encrypt, Reprotect, CleanupUnreadable —
+  rewrite or remove stored secrets and need `confirm=true`, which is forwarded to the bot service);
+  `get_secret_status` is Low (environment status, run list and report: counts and references, never values).
+- A read tool for the asset-repo secrets inventory (`get_secret_inventory`, would be Low) is a follow-up: the MCP
+  service has no general GraphQL client for the asset repository yet.
 
 Pinned by `tests/McpServices.Tests/Services/SecretToolRiskClassificationTests.cs`.

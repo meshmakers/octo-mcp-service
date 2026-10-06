@@ -20,6 +20,15 @@ public class SecretStatusResponse
     /// <summary>Tenant the report belongs to (tenant mode), <c>null</c> for the system-wide view.</summary>
     public string? TenantId { get; set; }
 
+    /// <summary>
+    ///     Environment-level encryption status (key ring, strict mode, recurring Verify, this tenant's last Verify);
+    ///     tenant mode only.
+    /// </summary>
+    public SecretEnvironmentStatusDto? Environment { get; set; }
+
+    /// <summary>Recent sweep runs of the tenant, newest first, including the pre-sweep dump state; tenant mode only.</summary>
+    public List<SecretSweepRunDto>? RecentRuns { get; set; }
+
     /// <summary>Last sweep report of the tenant (tenant mode); <c>null</c> when no sweep has run yet.</summary>
     public SecretSweepReportDto? Report { get; set; }
 
@@ -63,8 +72,17 @@ public class SecretStatusSummary
     /// <summary>Counts per form of the last step (totals over all slots).</summary>
     public SecretFormCountsReportDto? Totals { get; set; }
 
-    /// <summary>Number of secrets that must be re-entered (cleared because of an unknown key id).</summary>
+    /// <summary>Number of secrets cleared by a CleanupUnreadable sweep (they must be re-entered).</summary>
     public int SecretsToReEnterCount { get; set; }
+
+    /// <summary>Legacy stored placeholder strings converted once to "not set" (migration only).</summary>
+    public long PlaceholdersNormalized { get; set; }
+
+    /// <summary>Number of stored secrets whose key id is not in the key ring (re-entry tasks).</summary>
+    public int UnreadableCount { get; set; }
+
+    /// <summary>Stored secrets whose key id is not in the key ring (re-entry list; references only, no values).</summary>
+    public List<SecretUnreadableValueDto> Unreadable { get; set; } = [];
 }
 
 /// <summary>Response of <c>start_secret_sweep</c> (AB#5543).</summary>

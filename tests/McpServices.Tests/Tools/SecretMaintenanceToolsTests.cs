@@ -14,7 +14,21 @@ public class SecretMaintenanceToolsTests : ToolTestBase
     public SecretMaintenanceToolsTests()
     {
         GivenAuthenticated();
+        MockBotClient.Setup(c => c.GetSecretEnvironmentStatusAsync(Tenant)).ReturnsAsync(Environment());
+        MockBotClient.Setup(c => c.GetSecretSweepRunsAsync(Tenant, It.IsAny<int>()))
+            .ReturnsAsync(new List<SecretSweepRunDto>());
     }
+
+    private static SecretEnvironmentStatusDto Environment(bool configured = true) => new()
+    {
+        KeyRingConfigured = configured,
+        ActiveKeyId = configured ? "k2" : null,
+        KnownKeyIds = configured ? ["k1", "k2"] : [],
+        StrictMode = true,
+        StrictModeSince = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+        RecurringVerifyCron = "0 3 * * *",
+        LastVerifyAt = new DateTime(2026, 10, 6, 3, 0, 0, DateTimeKind.Utc)
+    };
 
     private static SecretSweepReportDto Report(string tenantId, long plaintext = 0, int reEnter = 0) => new()
     {
@@ -37,7 +51,16 @@ public class SecretMaintenanceToolsTests : ToolTestBase
         {
             CkTypeId = "System.Communication/EMailSenderConfiguration", RtId = $"507f1f77bcf86cd79943901{i}",
             AttributePath = "Password", PreviousForm = SecretValueFormDto.UnknownKeyId, KeyId = "k0"
-        }).ToList()
+        }).ToList(),
+        Unreadable =
+        [
+            new SecretUnreadableValueDto
+            {
+                CkTypeId = "System.Communication/SftpConfiguration", RtId = "507f1f77bcf86cd799439099",
+                AttributePath = "password", KeyId = "src1"
+            }
+        ],
+        PlaceholdersNormalized = 3
     };
 
     // ── get_secret_status ─────────────────────────────────────────────────
@@ -55,7 +78,47 @@ public class SecretMaintenanceToolsTests : ToolTestBase
         result.Summaries.Should().ContainSingle();
         result.Summaries[0].Totals!.Plaintext.Should().Be(2);
         result.Summaries[0].SecretsToReEnterCount.Should().Be(1);
+        result.Summaries[0].UnreadableCount.Should().Be(1);
+        result.Summaries[0].Unreadable.Single().KeyId.Should().Be("src1");
+        result.Summaries[0].PlaceholdersNormalized.Should().Be(3);
+        result.Message.Should().Contain("unreadable (re-entry needed)=1");
         MockBotClient.Verify(c => c.GetSecretSweepReportsAsync(), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetSecretStatus_Tenant_ReturnsEnvironmentStatusAndRecentRunsWithDumpState()
+    {
+        var run = new SecretSweepRunDto
+        {
+            RunId = "run-7", Mode = SecretSweepModeDto.Encrypt, Trigger = SecretSweepTriggerDto.Manual,
+            Outcome = SecretSweepOutcomeDto.Succeeded, UnreadableCount = 1,
+            Dump = new SecretSweepDumpDto { FileName = "t-presweep.tar.gz", Exists = true, SizeBytes = 42 }
+        };
+        MockBotClient.Setup(c => c.GetSecretSweepRunsAsync(Tenant, SecretMaintenanceTools.RecentRunLimit))
+            .ReturnsAsync(new List<SecretSweepRunDto> { run });
+        MockBotClient.Setup(c => c.GetSecretSweepReportAsync(Tenant)).ReturnsAsync(Report(Tenant));
+
+        var result = await SecretMaintenanceTools.GetSecretStatus(MockServer.Object, tenantId: Tenant);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Environment!.ActiveKeyId.Should().Be("k2");
+        result.Environment.KnownKeyIds.Should().Equal("k1", "k2");
+        result.RecentRuns.Should().ContainSingle().Which.Dump!.Exists.Should().BeTrue();
+        result.Message.Should().Contain("active key 'k2'").And.Contain("strict mode on").And.Contain("1 recent run");
+        MockBotClient.Verify(c => c.GetSecretEnvironmentStatusAsync(Tenant), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetSecretStatus_Tenant_KeyRingNotConfigured_SaysSo()
+    {
+        MockBotClient.Setup(c => c.GetSecretEnvironmentStatusAsync(Tenant)).ReturnsAsync(Environment(false));
+        MockBotClient.Setup(c => c.GetSecretSweepReportAsync(Tenant)).ReturnsAsync((SecretSweepReportDto?)null);
+
+        var result = await SecretMaintenanceTools.GetSecretStatus(MockServer.Object, tenantId: Tenant);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Environment!.KeyRingConfigured.Should().BeFalse();
+        result.Message.Should().Contain("NOT configured");
     }
 
     [Fact]
@@ -81,6 +144,8 @@ public class SecretMaintenanceToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
         result.Reports.Should().HaveCount(2);
         result.Summaries.Select(s => s.TenantId).Should().BeEquivalentTo("a", "b");
+        result.Environment.Should().BeNull();
+        MockBotClient.Verify(c => c.GetSecretEnvironmentStatusAsync(It.IsAny<string>()), Times.Never);
         result.Message.Should().Contain("plaintext=1");
         MockBotClient.Verify(c => c.GetSecretSweepReportAsync(It.IsAny<string>()), Times.Never);
     }
@@ -113,7 +178,7 @@ public class SecretMaintenanceToolsTests : ToolTestBase
     [Fact]
     public async Task StartSecretSweep_VerifyWithoutConfirm_StartsJob()
     {
-        MockBotClient.Setup(c => c.StartSecretSweepAsync(Tenant, SecretSweepModeDto.Verify))
+        MockBotClient.Setup(c => c.StartSecretSweepAsync(Tenant, SecretSweepModeDto.Verify, false))
             .ReturnsAsync(new JobResponseDto("job-1"));
 
         var result = await SecretMaintenanceTools.StartSecretSweep(MockServer.Object, tenantId: Tenant);
@@ -127,42 +192,70 @@ public class SecretMaintenanceToolsTests : ToolTestBase
     [Theory]
     [InlineData("Encrypt")]
     [InlineData("reprotect")]
-    [InlineData("ClearUnknownKid")]
+    [InlineData("CleanupUnreadable")]
     public async Task StartSecretSweep_WritingModeWithoutConfirm_IsRefused(string mode)
     {
         var result = await SecretMaintenanceTools.StartSecretSweep(MockServer.Object, mode, tenantId: Tenant);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("confirm=true");
-        MockBotClient.Verify(c => c.StartSecretSweepAsync(It.IsAny<string>(), It.IsAny<SecretSweepModeDto>()),
+        MockBotClient.Verify(c => c.StartSecretSweepAsync(It.IsAny<string>(), It.IsAny<SecretSweepModeDto>(), It.IsAny<bool>()),
             Times.Never);
     }
 
     [Fact]
     public async Task StartSecretSweep_ReprotectWithConfirm_StartsJob()
     {
-        MockBotClient.Setup(c => c.StartSecretSweepAsync(Tenant, SecretSweepModeDto.Reprotect))
+        MockBotClient.Setup(c => c.StartSecretSweepAsync(Tenant, SecretSweepModeDto.Reprotect, true))
             .ReturnsAsync(new JobResponseDto("job-2"));
 
         var result = await SecretMaintenanceTools.StartSecretSweep(MockServer.Object, "Reprotect", confirm: true,
             tenantId: Tenant);
 
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
-        MockBotClient.Verify(c => c.StartSecretSweepAsync(Tenant, SecretSweepModeDto.Reprotect), Times.Once);
+        MockBotClient.Verify(c => c.StartSecretSweepAsync(Tenant, SecretSweepModeDto.Reprotect, true), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("CleanupUnreadable", SecretSweepModeDto.CleanupUnreadable)]
+    [InlineData("encrypt", SecretSweepModeDto.Encrypt)]
+    public async Task StartSecretSweep_WritingModeWithConfirm_PassesConfirmToBot(string mode,
+        SecretSweepModeDto expected)
+    {
+        MockBotClient.Setup(c => c.StartSecretSweepAsync(Tenant, expected, true))
+            .ReturnsAsync(new JobResponseDto("job-c"));
+
+        var result = await SecretMaintenanceTools.StartSecretSweep(MockServer.Object, mode, confirm: true,
+            tenantId: Tenant);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Mode.Should().Be(expected);
+        MockBotClient.Verify(c => c.StartSecretSweepAsync(Tenant, expected, true), Times.Once);
+    }
+
+    [Fact]
+    public async Task StartSecretSweep_CleanupUnreadableWithoutConfirm_ExplainsIrreversibility()
+    {
+        var result = await SecretMaintenanceTools.StartSecretSweep(MockServer.Object, "CleanupUnreadable",
+            tenantId: Tenant);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("pre-sweep dump");
     }
 
     [Theory]
     [InlineData("Decrypt")]
     [InlineData("4")]
     [InlineData("Wipe")]
+    [InlineData("ClearUnknownKid")]
     public async Task StartSecretSweep_DecryptOrUnknownMode_IsRefused(string mode)
     {
         var result = await SecretMaintenanceTools.StartSecretSweep(MockServer.Object, mode, confirm: true,
             tenantId: Tenant);
 
         result.IsSuccess.Should().BeFalse();
-        result.ErrorMessage.Should().Contain("Verify, Encrypt, Reprotect or ClearUnknownKid");
-        MockBotClient.Verify(c => c.StartSecretSweepAsync(It.IsAny<string>(), It.IsAny<SecretSweepModeDto>()),
+        result.ErrorMessage.Should().Contain("Verify, Encrypt, Reprotect or CleanupUnreadable");
+        MockBotClient.Verify(c => c.StartSecretSweepAsync(It.IsAny<string>(), It.IsAny<SecretSweepModeDto>(), It.IsAny<bool>()),
             Times.Never);
         MockBotClient.Verify(c => c.StartSecretSweepAllTenantsAsync(It.IsAny<SecretSweepModeDto>()), Times.Never);
     }
@@ -179,14 +272,14 @@ public class SecretMaintenanceToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
         result.AllTenants.Should().BeTrue();
         result.TenantId.Should().BeNull();
-        MockBotClient.Verify(c => c.StartSecretSweepAsync(It.IsAny<string>(), It.IsAny<SecretSweepModeDto>()),
+        MockBotClient.Verify(c => c.StartSecretSweepAsync(It.IsAny<string>(), It.IsAny<SecretSweepModeDto>(), It.IsAny<bool>()),
             Times.Never);
     }
 
     [Fact]
     public async Task StartSecretSweep_WaitForCompletion_ReturnsTenantReport()
     {
-        MockBotClient.Setup(c => c.StartSecretSweepAsync(Tenant, SecretSweepModeDto.Verify))
+        MockBotClient.Setup(c => c.StartSecretSweepAsync(Tenant, SecretSweepModeDto.Verify, false))
             .ReturnsAsync(new JobResponseDto("job-3"));
         MockBotClient.Setup(c => c.GetImportJobStatus("job-3"))
             .ReturnsAsync(new JobDto { Id = "job-3", Status = "Succeeded" });
@@ -203,7 +296,7 @@ public class SecretMaintenanceToolsTests : ToolTestBase
     [Fact]
     public async Task StartSecretSweep_FailedJob_ReportsFailureWithJobId()
     {
-        MockBotClient.Setup(c => c.StartSecretSweepAsync(Tenant, SecretSweepModeDto.Verify))
+        MockBotClient.Setup(c => c.StartSecretSweepAsync(Tenant, SecretSweepModeDto.Verify, false))
             .ReturnsAsync(new JobResponseDto("job-4"));
         MockBotClient.Setup(c => c.GetImportJobStatus("job-4"))
             .ReturnsAsync(new JobDto { Id = "job-4", Status = "Failed", ErrorMessage = "no key ring" });

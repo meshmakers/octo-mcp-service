@@ -20,17 +20,26 @@ public sealed class SecretMaintenanceTools
     private static readonly SecretSweepModeDto[] OfferedModes =
     [
         SecretSweepModeDto.Verify, SecretSweepModeDto.Encrypt, SecretSweepModeDto.Reprotect,
-        SecretSweepModeDto.ClearUnknownKid
+        SecretSweepModeDto.CleanupUnreadable
     ];
+
+    private const string ModeList = "Verify, Encrypt, Reprotect or CleanupUnreadable";
+
+    /// <summary>Number of recent sweep runs returned by <c>get_secret_status</c> in tenant mode.</summary>
+    internal const int RecentRunLimit = 10;
 
     /// <summary>Returns the last secret sweep report of a tenant, or of every tenant.</summary>
     [McpServerTool(Name = "get_secret_status")]
     [Description(
-        "Show the encryption status of Secret attributes from the last secret sweep report (bot service): counts " +
-        "per form (notSet, placeholder, plaintext, encV1, encV2 per key id, unknown key id, failed), per CK type and " +
-        "attribute path, the active key id, strict-mode flags and the list of secrets to re-enter after a " +
-        "cross-environment restore. Never contains secret values. Default: the tenant's report; allTenants=true " +
-        "returns the last report of every tenant (system tenant only). Equivalent to octo-cli SecretStatus.")]
+        "Show the encryption status of Secret attributes (bot service). Tenant mode returns the environment status " +
+        "(key ring configured, active and known key ids, legacy v1 key, strict mode and since when, recurring " +
+        "Verify cron, last Verify of the tenant), the recent sweep runs (mode, trigger, outcome, totals, " +
+        "placeholdersNormalized, unreadable count and the state of the pre-sweep dump) and the last sweep report: " +
+        "counts per form (notSet, plaintext, encV1, encV2 per key id, unknown key id, failed), per CK type and " +
+        "attribute path, and the list of unreadable secrets (stored, but the key id is not in the key ring — e.g. " +
+        "after a restore from another environment; they must be re-entered or removed with the CleanupUnreadable " +
+        "sweep). Never contains secret values. allTenants=true returns the last report of every tenant (system " +
+        "tenant only). Equivalent to octo-cli SecretStatus.")]
     public static async Task<SecretStatusResponse> GetSecretStatus(
         McpServer server,
         [Description("When true, return the last report of every tenant (system API, requires system tenant rights).")]
@@ -66,15 +75,20 @@ public sealed class SecretMaintenanceTools
                 };
             }
 
-            var report = await bot.Client!.GetSecretSweepReportAsync(bot.TenantId!);
+            var environment = await bot.Client!.GetSecretEnvironmentStatusAsync(bot.TenantId!);
+            var runs = (await bot.Client.GetSecretSweepRunsAsync(bot.TenantId!, RecentRunLimit)).ToList();
+            var report = await bot.Client.GetSecretSweepReportAsync(bot.TenantId!);
+            var environmentText = DescribeEnvironment(environment);
             if (report == null)
             {
                 return new SecretStatusResponse
                 {
                     IsSuccess = true,
                     TenantId = bot.TenantId,
-                    Message = $"No secret sweep report for tenant '{bot.TenantId}' yet. Run start_secret_sweep " +
-                              "with mode Verify."
+                    Environment = environment,
+                    RecentRuns = runs,
+                    Message = $"{environmentText} No secret sweep report for tenant '{bot.TenantId}' yet. Run " +
+                              "start_secret_sweep with mode Verify."
                 };
             }
 
@@ -83,12 +97,15 @@ public sealed class SecretMaintenanceTools
             {
                 IsSuccess = true,
                 TenantId = bot.TenantId,
+                Environment = environment,
+                RecentRuns = runs,
                 Report = report,
                 Summaries = [summary],
-                Message = $"Last sweep ({report.Mode}, {report.Trigger}) of tenant '{report.TenantId}' completed " +
-                          $"{report.CompletedAt:O} with outcome {report.Outcome}; plaintext=" +
-                          $"{summary.Totals?.Plaintext ?? 0}, legacy={report.RemainingLegacyValues}, " +
-                          $"secrets to re-enter={summary.SecretsToReEnterCount}."
+                Message = $"{environmentText} Last sweep ({report.Mode}, {report.Trigger}) of tenant " +
+                          $"'{report.TenantId}' completed {report.CompletedAt:O} with outcome {report.Outcome}; " +
+                          $"plaintext={summary.Totals?.Plaintext ?? 0}, legacy={report.RemainingLegacyValues}, " +
+                          $"unreadable (re-entry needed)={summary.UnreadableCount}, " +
+                          $"placeholders normalized={report.PlaceholdersNormalized}; {runs.Count} recent run(s)."
             };
         }
         catch (Exception ex)
@@ -104,19 +121,20 @@ public sealed class SecretMaintenanceTools
     [McpRisk(McpRiskLevel.High)]
     [Description(
         "Start a secret sweep job in the bot service over all Secret attributes of a tenant (or all tenants). " +
-        "Modes: Verify (read-only, counts forms; no confirm needed), Encrypt (encrypts remaining plaintext / enc:v1 " +
-        "values and normalises placeholders), Reprotect (re-encrypts everything with the active key, after a key " +
-        "rotation), ClearUnknownKid (clears secrets whose key id is unknown — IRREVERSIBLE, the values must be " +
-        "re-entered). Writing modes take a pre-sweep backup in the bot service and require confirm=true. Decrypt is " +
-        "not available. Optionally waits for completion and returns the report. Equivalent to octo-cli " +
-        "ReprotectSecrets.")]
+        "Modes: Verify (read-only, counts forms and lists unreadable secrets; no confirm needed), Encrypt (encrypts " +
+        "remaining plaintext / enc:v1 values; legacy stored placeholder strings become not set once), Reprotect " +
+        "(re-encrypts everything with the active key, after a key rotation or after adding a source environment's " +
+        "key), CleanupUnreadable (removes secrets whose key id is not in the key ring — IRREVERSIBLE except via the " +
+        "pre-sweep dump, the values must be re-entered). Writing modes take a pre-sweep dump in the bot service and " +
+        "require confirm=true (passed on to the bot service). Decrypt is not available. Optionally waits for " +
+        "completion and returns the report. Equivalent to octo-cli ReprotectSecrets.")]
     public static async Task<SecretSweepResponse> StartSecretSweep(
         McpServer server,
-        [Description("Sweep mode: Verify (default), Encrypt, Reprotect or ClearUnknownKid.")]
+        [Description("Sweep mode: Verify (default), Encrypt, Reprotect or CleanupUnreadable.")]
         string mode = "Verify",
         [Description("When true, sweep all tenants (system API, requires system tenant rights).")]
         bool allTenants = false,
-        [Description("Must be true for the writing modes Encrypt, Reprotect and ClearUnknownKid.")]
+        [Description("Must be true for the writing modes Encrypt, Reprotect and CleanupUnreadable.")]
         bool confirm = false,
         [Description("When true, wait for the job to finish and return the resulting report(s).")]
         bool waitForCompletion = false,
@@ -139,8 +157,9 @@ public sealed class SecretMaintenanceTools
                 Mode = sweepMode,
                 AllTenants = allTenants,
                 ErrorMessage = $"Refusing to start a {sweepMode} secret sweep for {scope} without confirm=true." +
-                               (sweepMode == SecretSweepModeDto.ClearUnknownKid
-                                   ? " ClearUnknownKid permanently clears secrets encrypted with an unknown key id."
+                               (sweepMode == SecretSweepModeDto.CleanupUnreadable
+                                   ? " CleanupUnreadable permanently removes secrets whose key id is not in the key " +
+                                     "ring (recoverable only from the pre-sweep dump)."
                                    : string.Empty)
             };
         }
@@ -170,7 +189,7 @@ public sealed class SecretMaintenanceTools
         {
             var job = allTenants
                 ? await bot.Client!.StartSecretSweepAllTenantsAsync(sweepMode)
-                : await bot.Client!.StartSecretSweepAsync(bot.TenantId!, sweepMode);
+                : await bot.Client!.StartSecretSweepAsync(bot.TenantId!, sweepMode, confirm);
             jobId = job.JobId;
 
             if (!waitForCompletion)
@@ -237,7 +256,7 @@ public sealed class SecretMaintenanceTools
             .FirstOrDefault(n => string.Equals(n, value, StringComparison.OrdinalIgnoreCase));
         if (match == null)
         {
-            error = $"Unknown secret sweep mode '{value}'. Use Verify, Encrypt, Reprotect or ClearUnknownKid.";
+            error = $"Unknown secret sweep mode '{value}'. Use {ModeList}.";
             return false;
         }
 
@@ -245,7 +264,7 @@ public sealed class SecretMaintenanceTools
         if (!OfferedModes.Contains(sweepMode))
         {
             error = $"Secret sweep mode '{match}' is not available through MCP (it would write clear text back). " +
-                    "Use Verify, Encrypt, Reprotect or ClearUnknownKid.";
+                    $"Use {ModeList}.";
             return false;
         }
 
@@ -266,7 +285,24 @@ public sealed class SecretMaintenanceTools
             StrictModeViolation = report.StrictModeViolation,
             RemainingLegacyValues = report.RemainingLegacyValues,
             Totals = report.Steps.LastOrDefault()?.Totals,
-            SecretsToReEnterCount = report.SecretsToReEnter.Count
+            SecretsToReEnterCount = report.SecretsToReEnter.Count,
+            PlaceholdersNormalized = report.PlaceholdersNormalized,
+            UnreadableCount = report.Unreadable.Count,
+            Unreadable = report.Unreadable
         };
+    }
+
+    private static string DescribeEnvironment(SecretEnvironmentStatusDto environment)
+    {
+        if (!environment.KeyRingConfigured)
+        {
+            return "Key ring NOT configured (secret writes fail with SecretEncryptionNotConfigured).";
+        }
+
+        return $"Key ring configured: active key '{environment.ActiveKeyId}', known keys " +
+               $"[{string.Join(", ", environment.KnownKeyIds)}], strict mode " +
+               $"{(environment.StrictMode ? "on" : "off")}" +
+               (environment.StrictModeSince is { } since ? $" since {since:O}" : string.Empty) +
+               $", last Verify {(environment.LastVerifyAt is { } at ? at.ToString("O") : "never")}.";
     }
 }

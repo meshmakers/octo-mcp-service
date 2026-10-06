@@ -185,13 +185,13 @@ public class RuntimeEntityCrudToolsSecretTests : TestBase
     }
 
     [Fact]
-    public async Task CreateEntity_PlaceholderSecret_IsRefused()
+    public async Task CreateEntity_PlaceholderLikeSecret_IsAnOrdinaryValueAndRefusedLikeAnyOther()
     {
         var result = await RuntimeEntityCrudTools.CreateEntity(MockServer.Object, TestCkTypeId,
             [Item("Password", "\"TODO_SET_PASSWORD\"")]);
 
         result.IsSuccess.Should().BeFalse();
-        result.ErrorMessage.Should().Contain("placeholder");
+        result.ErrorMessage.Should().Contain("set_entity_secrets").And.NotContain("placeholder");
     }
 
     // ── create_entity_with_secrets ─────────────────────────────────────────
@@ -254,7 +254,7 @@ public class RuntimeEntityCrudToolsSecretTests : TestBase
     [Theory]
     [InlineData("Name", "\"n\"")]
     [InlineData("Password", "\"\"")]
-    [InlineData("Password", "\"TODO_SET_PASSWORD\"")]
+    [InlineData("Password", "null")]
     [InlineData("Password", "42")]
     public async Task CreateEntityWithSecrets_InvalidSecretEntry_IsRefused(string path, string json)
     {
@@ -266,6 +266,22 @@ public class RuntimeEntityCrudToolsSecretTests : TestBase
         result.IsSuccess.Should().BeFalse();
         MockTenantRepository.Verify(r => r.InsertOneRtEntityAsync(It.IsAny<IOctoSession>(),
             It.IsAny<RtCkId<CkTypeId>>(), It.IsAny<RtEntity>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("TODO_SET_PASSWORD")]
+    [InlineData("<set me>")]
+    public async Task CreateEntityWithSecrets_PlaceholderLikeValue_IsWrittenAsOrdinarySecret(string value)
+    {
+        GivenTransientEntity();
+
+        var result = await RuntimeEntityCrudTools.CreateEntityWithSecrets(MockServer.Object, TestCkTypeId,
+            [], [Item("Password", $"\"{value}\"")]);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        MockTenantRepository.Verify(r => r.InsertOneRtEntityAsync(It.IsAny<IOctoSession>(),
+            It.IsAny<RtCkId<CkTypeId>>(), It.Is<RtEntity>(e => e.Attributes["Password"] is RtSecretValue)),
+            Times.Once);
     }
 
     [Fact]
@@ -350,9 +366,8 @@ public class RuntimeEntityCrudToolsSecretTests : TestBase
     [Theory]
     [InlineData("\"\"")]
     [InlineData("null")]
-    [InlineData("\"<set me>\"")]
     [InlineData("42")]
-    public async Task SetEntitySecrets_EmptyPlaceholderOrNonString_IsRefused(string json)
+    public async Task SetEntitySecrets_EmptyOrNonString_IsRefused(string json)
     {
         var entity = GivenStoredEntity();
 
@@ -361,6 +376,22 @@ public class RuntimeEntityCrudToolsSecretTests : TestBase
 
         result.IsSuccess.Should().BeFalse();
         VerifyNoWrite();
+    }
+
+    [Theory]
+    [InlineData("TODO_SET_PASSWORD")]
+    [InlineData("<set me>")]
+    public async Task SetEntitySecrets_PlaceholderLikeValue_IsWrittenAsOrdinarySecret(string value)
+    {
+        var entity = GivenStoredEntity();
+
+        var result = await RuntimeEntityCrudTools.SetEntitySecrets(MockServer.Object, entity.RtId.ToString(),
+            TestCkTypeId, [Item("Password", $"\"{value}\"")]);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        MockTenantRepository.Verify(r => r.UpdateOneRtEntityByIdAsync(It.IsAny<IOctoSession>(),
+            It.IsAny<RtCkId<CkTypeId>>(), It.IsAny<OctoObjectId>(),
+            It.Is<RtEntity>(e => e.Attributes["Password"] is RtSecretValue)), Times.Once);
     }
 
     [Fact]

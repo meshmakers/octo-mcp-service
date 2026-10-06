@@ -384,9 +384,9 @@ public sealed class RuntimeEntityCrudTools
         "Create a new entity together with its Secret attributes (value type SECRET, e.g. passwords, API keys) in " +
         "one insert. HIGH RISK. Use it for CK types with a required secret, which create_entity cannot create. " +
         "'entityData' holds the non-secret attributes (same rules as create_entity; secret values there are " +
-        "refused); each entry in 'secrets' must target a Secret attribute with a non-empty string value " +
-        "(placeholders like '<...>' or 'TODO_SET_*' are refused). Values are encrypted server-side and are never " +
-        "returned — the response shows secretIsSet only.")]
+        "refused); each entry in 'secrets' must target a Secret attribute with a non-empty string value (any " +
+        "non-empty string is an ordinary value — '<...>' or 'TODO_SET_*' have no special meaning). Values are " +
+        "encrypted server-side and are never returned — the response shows secretIsSet only.")]
     public static Task<CreateEntityResponse> CreateEntityWithSecrets(
         McpServer server,
         [Description("Construction Kit type ID of the new entity.")] string ckTypeId,
@@ -561,8 +561,8 @@ public sealed class RuntimeEntityCrudTools
     [Description(
         "Set, rotate or clear Secret attributes (value type SECRET, e.g. passwords, API keys, client secrets) of " +
         "an existing entity. HIGH RISK. Each entry in 'secrets' must target a Secret attribute (dot notation " +
-        "through records, e.g. 'Endpoints.Token') with a non-empty string value; placeholders like '<...>' or " +
-        "'TODO_SET_*' are refused (use clearSecretAttributes to clear). Other attributes are never touched. " +
+        "through records, e.g. 'Endpoints.Token') with a non-empty string value (any non-empty string is an " +
+        "ordinary value; use clearSecretAttributes to clear). Other attributes are never touched. " +
         "Values are encrypted server-side and are never returned — the response shows secretIsSet only.")]
     public static Task<UpdateEntityResponse> SetEntitySecrets(
         McpServer server,
@@ -1435,7 +1435,7 @@ public sealed class RuntimeEntityCrudTools
 
         /// <summary>
         ///     High-risk <c>set_entity_secrets</c> / <c>secrets</c> of <c>create_entity_with_secrets</c>: only Secret
-        ///     attributes with a non-empty, non-placeholder string value are accepted.
+        ///     attributes with a non-empty string value are accepted (placeholder-looking strings are ordinary values).
         /// </summary>
         SecretValuesOnly
     }
@@ -1477,12 +1477,6 @@ public sealed class RuntimeEntityCrudTools
                            "Use clearSecretAttributes to clear a secret.";
                 case SecretInputKind.Invalid:
                     return $"Secret attribute '{item.AttributePath}' only accepts a string value.";
-            }
-
-            if (SecretAttributeConventions.IsPlaceholder(text))
-            {
-                return $"The value for Secret attribute '{item.AttributePath}' is a placeholder, which would be " +
-                       "stored as \"not set\". Use clearSecretAttributes to clear a secret.";
             }
 
             if (policy == SecretWritePolicy.RefuseSecretValues)
