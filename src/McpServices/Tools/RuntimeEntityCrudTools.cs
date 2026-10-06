@@ -355,12 +355,71 @@ public sealed class RuntimeEntityCrudTools
     [Description(
         "Create a new entity of specified Construction Kit type. Secret attributes cannot be set here: a non-empty " +
         "value for a Secret attribute is refused — create the entity without it, then call set_entity_secrets " +
-        "(high risk). null, \"\" or an echoed {\"isSet\": …} marker for a Secret attribute are ignored.")]
-    public static async Task<CreateEntityResponse> CreateEntity(
+        "(high risk), or use create_entity_with_secrets (high risk) when the type has a required secret. null, " +
+        "\"\" or an echoed {\"isSet\": …} marker for a Secret attribute are ignored.")]
+    public static Task<CreateEntityResponse> CreateEntity(
         McpServer server,
         string ckTypeId,
         List<AttributeUpdateItem> entityData,
         string? tenantId = null)
+    {
+        return CreateCoreAsync(server, ckTypeId, entityData ?? [], null, tenantId);
+    }
+
+    /// <summary>
+    ///     Creates an entity together with its Secret attributes in one insert (AB#5543). High risk: the caller
+    ///     hands credentials to the platform. Needed for CK types with a <i>required</i> secret, which the
+    ///     engine refuses to insert without a value (rule engine message 2), so <c>create_entity</c> +
+    ///     <c>set_entity_secrets</c> cannot create them.
+    /// </summary>
+    /// <param name="server">MCP Server instance</param>
+    /// <param name="ckTypeId">Construction Kit Type ID</param>
+    /// <param name="entityData">Non-secret attributes, same rules as <c>create_entity</c></param>
+    /// <param name="secrets">Secret attribute paths and their non-empty string values</param>
+    /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
+    /// <returns>The created entity; Secret attributes appear only as <c>secretIsSet</c>.</returns>
+    [McpServerTool(Name = "create_entity_with_secrets")]
+    [McpRisk(McpRiskLevel.High)]
+    [Description(
+        "Create a new entity together with its Secret attributes (value type SECRET, e.g. passwords, API keys) in " +
+        "one insert. HIGH RISK. Use it for CK types with a required secret, which create_entity cannot create. " +
+        "'entityData' holds the non-secret attributes (same rules as create_entity; secret values there are " +
+        "refused); each entry in 'secrets' must target a Secret attribute with a non-empty string value " +
+        "(placeholders like '<...>' or 'TODO_SET_*' are refused). Values are encrypted server-side and are never " +
+        "returned — the response shows secretIsSet only.")]
+    public static Task<CreateEntityResponse> CreateEntityWithSecrets(
+        McpServer server,
+        [Description("Construction Kit type ID of the new entity.")] string ckTypeId,
+        [Description(
+            "Non-secret attributes: [{attributePath: 'Name', value: 'smtp'}]. Secret values are refused here — " +
+            "put them into 'secrets'.")]
+        List<AttributeUpdateItem>? entityData = null,
+        [Description(
+            "Secret values to set: [{attributePath: 'Password', value: '<new secret>'}]. Only Secret attributes " +
+            "are accepted; at least one entry is required.")]
+        List<AttributeUpdateItem>? secrets = null,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (secrets == null || secrets.Count == 0)
+        {
+            return Task.FromResult(new CreateEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "Provide at least one entry in 'secrets'. Use create_entity to create an entity " +
+                               "without secrets.",
+                CkTypeId = ckTypeId
+            });
+        }
+
+        return CreateCoreAsync(server, ckTypeId, entityData ?? [], secrets, tenantId);
+    }
+
+    private static async Task<CreateEntityResponse> CreateCoreAsync(
+        McpServer server,
+        string ckTypeId,
+        List<AttributeUpdateItem> entityData,
+        List<AttributeUpdateItem>? secrets,
+        string? tenantId)
     {
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
         var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
@@ -381,6 +440,13 @@ public sealed class RuntimeEntityCrudTools
         var secretError = PrepareSecretAwareWrites(ckCacheService, tenantRepository.TenantId,
             ckTypeId, entityData, SecretWritePolicy.RefuseSecretValues,
             out var effectiveData);
+        if (secretError == null && secrets != null)
+        {
+            secretError = PrepareSecretAwareWrites(ckCacheService, tenantRepository.TenantId,
+                ckTypeId, secrets, SecretWritePolicy.SecretValuesOnly, out var effectiveSecrets);
+            effectiveData.AddRange(effectiveSecrets);
+        }
+
         if (secretError != null)
         {
             return new CreateEntityResponse
@@ -1368,8 +1434,8 @@ public sealed class RuntimeEntityCrudTools
         RefuseSecretValues,
 
         /// <summary>
-        ///     High-risk <c>set_entity_secrets</c>: only Secret attributes with a non-empty, non-placeholder
-        ///     string value are accepted.
+        ///     High-risk <c>set_entity_secrets</c> / <c>secrets</c> of <c>create_entity_with_secrets</c>: only Secret
+        ///     attributes with a non-empty, non-placeholder string value are accepted.
         /// </summary>
         SecretValuesOnly
     }
@@ -1392,7 +1458,8 @@ public sealed class RuntimeEntityCrudTools
                 if (policy == SecretWritePolicy.SecretValuesOnly)
                 {
                     return $"Attribute '{item.AttributePath}' is not a Secret attribute of '{ckTypeId}'. " +
-                           "set_entity_secrets only writes Secret attributes; use update_entity for other attributes.";
+                           "'secrets' only accepts Secret attributes; pass other attributes via update_entity " +
+                           "(existing entity) or entityData (create_entity_with_secrets).";
                 }
 
                 effectiveData.Add(item);
@@ -1421,8 +1488,8 @@ public sealed class RuntimeEntityCrudTools
             if (policy == SecretWritePolicy.RefuseSecretValues)
             {
                 return $"Attribute '{item.AttributePath}' is a Secret attribute. Setting a secret is a high-risk " +
-                       "operation and is not done by this tool: call set_entity_secrets for an existing entity " +
-                       "(create the entity first without the secret).";
+                       "operation and is not done by this tool: call set_entity_secrets for an existing entity, or " +
+                       "create_entity_with_secrets to create an entity together with its secrets.";
             }
 
             effectiveData.Add(new AttributeUpdateItem { AttributePath = item.AttributePath, Value = text });

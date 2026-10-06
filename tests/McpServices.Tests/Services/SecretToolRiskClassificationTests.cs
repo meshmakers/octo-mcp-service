@@ -15,6 +15,7 @@ public class SecretToolRiskClassificationTests
 
     [Theory]
     [InlineData("set_entity_secrets")]
+    [InlineData("create_entity_with_secrets")]
     [InlineData("start_secret_sweep")]
     [InlineData("update_identity_provider")]
     [InlineData("add_oauth_identity_provider")]

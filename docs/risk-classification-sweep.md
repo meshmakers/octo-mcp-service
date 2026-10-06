@@ -315,7 +315,7 @@ _Low=3_  ·  **Owner reviewed:** ☐
 
 ### RuntimeEntityCrudTools (9 tools)
 
-_High=1 · Low=5 · Medium=3_  ·  **Owner reviewed:** ☐
+_High=2 · Low=5 · Medium=3_  ·  **Owner reviewed:** ☐
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
@@ -325,7 +325,8 @@ _High=1 · Low=5 · Medium=3_  ·  **Owner reviewed:** ☐
 | `create_entity` | **M** | AB#5543: refuses Secret values |
 | `update_entity` | **M** | AB#5543: refuses Secret values; `clearSecretAttributes` |
 | `delete_entity` | **M** | |
-| `set_entity_secrets` | **H** | AB#5543: the only tool that sets/rotates Secret values |
+| `set_entity_secrets` | **H** | AB#5543: sets/rotates/clears Secret values of an existing entity |
+| `create_entity_with_secrets` | **H** | AB#5543: creates an entity with its Secret values (required secrets) |
 | `navigate_associations` | **L** — owner: confirm | |
 | `get_association_tree` | **L** | |
 
@@ -461,8 +462,10 @@ update behind an approval), secret writes were split out:
   (the error names `set_entity_secrets`). `null`, `""` and an echoed `{ "isSet": … }` marker mean
   "unchanged". `update_entity` gained `clearSecretAttributes` (clearing loses a credential but exposes
   nothing; the engine refuses clearing a required secret).
-- `set_entity_secrets` (**High**) is the only entity tool that writes a secret value; it refuses non-secret
-  attributes and placeholders.
+- `set_entity_secrets` (**High**) and `create_entity_with_secrets` (**High**) are the only entity tools that
+  write a secret value; their `secrets` argument refuses non-secret attributes and placeholders.
+  `create_entity_with_secrets` exists because the engine refuses to insert an entity whose type has a
+  required secret without a value (rule message 2), so `create_entity` + `set_entity_secrets` cannot create it.
 - Identity providers: `add_oauth_identity_provider` and `add_azure_entra_id_identity_provider` were raised
   from Medium to **High** because they hand a client secret to the platform; `update_identity_provider` was
   already High.

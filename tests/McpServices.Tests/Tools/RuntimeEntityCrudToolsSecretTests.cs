@@ -194,6 +194,111 @@ public class RuntimeEntityCrudToolsSecretTests : TestBase
         result.ErrorMessage.Should().Contain("placeholder");
     }
 
+    // ── create_entity_with_secrets ─────────────────────────────────────────
+
+    private void GivenTransientEntity()
+    {
+        MockTenantRepository
+            .Setup(r => r.CreateTransientRtEntityAsync(It.IsAny<CkId<CkTypeId>>()))
+            .ReturnsAsync(() => new RtEntity
+            {
+                RtId = OctoObjectId.GenerateNewId(),
+                CkTypeId = new RtCkId<CkTypeId>(TestCkTypeId)
+            });
+    }
+
+    [Fact]
+    public async Task CreateEntityWithSecrets_HappyPath_InsertsOnceWithSecretAndReturnsIsSetOnly()
+    {
+        GivenTransientEntity();
+
+        var result = await RuntimeEntityCrudTools.CreateEntityWithSecrets(MockServer.Object, TestCkTypeId,
+            [Item("Name", "\"smtp\"")], [Item("password", $"\"{FakeSecret}\"")]);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        MockTenantRepository.Verify(r => r.InsertOneRtEntityAsync(It.IsAny<IOctoSession>(),
+            It.IsAny<RtCkId<CkTypeId>>(),
+            It.Is<RtEntity>(e => (string?)e.Attributes["Name"] == "smtp" && e.Attributes["Password"] is RtSecretValue)),
+            Times.Once);
+        JsonSerializer.Serialize(result).Should().NotContain(FakeSecret);
+        result.Entity!.Attributes!.Single(a =>
+                string.Equals(a.AttributeName, "password", StringComparison.OrdinalIgnoreCase))
+            .SecretIsSet.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task CreateEntityWithSecrets_NoSecrets_PointsToCreateEntity()
+    {
+        var result = await RuntimeEntityCrudTools.CreateEntityWithSecrets(MockServer.Object, TestCkTypeId,
+            [Item("Name", "\"n\"")]);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("create_entity");
+        MockSecureSessionFactory.Verify(f => f.GetSessionAsync(It.IsAny<RtSecurityContext>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateEntityWithSecrets_SecretValueInEntityData_IsRefused()
+    {
+        GivenTransientEntity();
+
+        var result = await RuntimeEntityCrudTools.CreateEntityWithSecrets(MockServer.Object, TestCkTypeId,
+            [Item("ApiKey", $"\"{FakeSecret}\"")], [Item("Password", "\"other-fake\"")]);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().NotContain(FakeSecret);
+        MockTenantRepository.Verify(r => r.InsertOneRtEntityAsync(It.IsAny<IOctoSession>(),
+            It.IsAny<RtCkId<CkTypeId>>(), It.IsAny<RtEntity>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("Name", "\"n\"")]
+    [InlineData("Password", "\"\"")]
+    [InlineData("Password", "\"TODO_SET_PASSWORD\"")]
+    [InlineData("Password", "42")]
+    public async Task CreateEntityWithSecrets_InvalidSecretEntry_IsRefused(string path, string json)
+    {
+        GivenTransientEntity();
+
+        var result = await RuntimeEntityCrudTools.CreateEntityWithSecrets(MockServer.Object, TestCkTypeId,
+            [], [Item(path, json)]);
+
+        result.IsSuccess.Should().BeFalse();
+        MockTenantRepository.Verify(r => r.InsertOneRtEntityAsync(It.IsAny<IOctoSession>(),
+            It.IsAny<RtCkId<CkTypeId>>(), It.IsAny<RtEntity>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateEntityWithSecrets_EngineRefusal_AbortsWithoutValue()
+    {
+        GivenTransientEntity();
+        MockTenantRepository
+            .Setup(r => r.InsertOneRtEntityAsync(It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntity>()))
+            .ThrowsAsync(new InvalidOperationException("2: Required attribute 'ApiKey' is missing."));
+
+        var result = await RuntimeEntityCrudTools.CreateEntityWithSecrets(MockServer.Object, TestCkTypeId,
+            [], [Item("Password", $"\"{FakeSecret}\"")]);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("2:").And.NotContain(FakeSecret);
+        MockSession.Verify(s => s.AbortTransactionAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateEntityWithSecrets_Unauthenticated_ReturnsNotAuthenticated()
+    {
+        GivenUnauthenticatedCaller();
+
+        var result = await RuntimeEntityCrudTools.CreateEntityWithSecrets(MockServer.Object, TestCkTypeId,
+            [], [Item("Password", $"\"{FakeSecret}\"")]);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().StartWith("Not authenticated");
+        MockTenantRepository.Verify(r => r.InsertOneRtEntityAsync(It.IsAny<IOctoSession>(),
+            It.IsAny<RtCkId<CkTypeId>>(), It.IsAny<RtEntity>()), Times.Never);
+    }
+
     // ── set_entity_secrets ─────────────────────────────────────────────────
 
     [Fact]

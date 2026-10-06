@@ -1,6 +1,6 @@
 # OctoMesh MCP Service
 
-A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, exposing **205 tools** that mirror the full surface of `octo-cli`, the asset-repo GraphQL transient + persisted query APIs (including the `availableArchivePaths` studio introspection), plus generic CK-type CRUD. AI assistants get direct access to tenant administration, identity management, communication-controller, blueprints, time-series queries + aggregations, reporting, and large-file transfers — without ever invoking the CLI or sending GraphQL.
+A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, exposing **206 tools** that mirror the full surface of `octo-cli`, the asset-repo GraphQL transient + persisted query APIs (including the `availableArchivePaths` studio introspection), plus generic CK-type CRUD. AI assistants get direct access to tenant administration, identity management, communication-controller, blueprints, time-series queries + aggregations, reporting, and large-file transfers — without ever invoking the CLI or sending GraphQL.
 
 ## 🚀 Features
 
@@ -140,7 +140,7 @@ dotnet run
 
 ## 🛠️ Available Tools
 
-> **205 tools total.** Most tools mirror the corresponding `octo-cli` command (snake_case naming); the aggregation + persisted-query + archive-path-introspection tools mirror the asset-repo GraphQL transient + persisted query surface. All platform-admin tools accept an optional `tenantId` parameter that falls back to the URL route. Destructive operations require an explicit `confirm: true` parameter (no silent state changes).
+> **206 tools total.** Most tools mirror the corresponding `octo-cli` command (snake_case naming); the aggregation + persisted-query + archive-path-introspection tools mirror the asset-repo GraphQL transient + persisted query surface. All platform-admin tools accept an optional `tenantId` parameter that falls back to the URL route. Destructive operations require an explicit `confirm: true` parameter (no silent state changes).
 
 ### **Authentication & Identity Bootstrap** (4)
 `authenticate` · `check_auth_status` · `whoami` · `list_tenants`
@@ -201,8 +201,8 @@ dotnet run
 - Persisted queries (2): `execute_runtime_query` · `execute_stream_data_query`
 - Archive metadata (4): `get_archive_storage_stats` · `get_rollup_query_metadata` · `resolve_series_query` · `get_archive_coverage`
 
-### **Generic Runtime CRUD + Schema Discovery** (16)
-- CRUD (7): `query_entities` · `query_entities_simple` · `get_entity_by_id` · `create_entity` · `update_entity` · `delete_entity`<sup>‡</sup> · `set_entity_secrets`
+### **Generic Runtime CRUD + Schema Discovery** (17)
+- CRUD (8): `query_entities` · `query_entities_simple` · `get_entity_by_id` · `create_entity` · `update_entity` · `delete_entity`<sup>‡</sup> · `set_entity_secrets` · `create_entity_with_secrets`
 - Schema (7): `get_available_types` · `get_type_schema` · `get_available_models` · `search_types` · `get_association_tree` · `navigate_associations` · `get_available_archive_paths`
 - Tool Management (4): `list_available_tools` · `get_tool_details` · `get_tool_statistics` · `validate_tool_parameters`
 - Echo (1): `Echo`
@@ -211,9 +211,9 @@ dotnet run
 - Secret maintenance (2): `get_secret_status` · `start_secret_sweep`<sup>‡</sup> (writing modes Encrypt / Reprotect / ClearUnknownKid need `confirm: true`; Verify does not; Decrypt is not offered)
 - Attributes with value type `SECRET` are write-only. Every tool that returns entities shows `value: null` plus `secretIsSet: true|false` — never the value or the ciphertext (an architecture test forbids decryption in this assembly).
 - `create_entity` / `update_entity` (medium risk) refuse non-empty secret values; `null`, `""` or an echoed `{ "isSet": … }` leave the stored secret unchanged. `update_entity` takes `clearSecretAttributes` (camelCase or PascalCase names) to clear optional secrets.
-- `set_entity_secrets` (**high risk**) is the only tool that sets or rotates a secret value; placeholders (`<…>`, `TODO_SET_*`) are refused.
+- `set_entity_secrets` (**high risk**) sets, rotates or clears secrets of an existing entity; `create_entity_with_secrets` (**high risk**) creates an entity together with its secrets (needed for types with a required secret, which `create_entity` cannot create). These are the only entity tools that write a secret value; placeholders (`<…>`, `TODO_SET_*`) are refused.
 - Filters on a secret: only `IsNull` / `IsNotNull`. Other filter operators, aggregations and group-by on a secret are refused with `SecretAttributeNotQueryable`; `get_available_archive_paths` never lists secrets.
-- Identity providers: `clientSecret` is write-only (`clientSecretIsSet` instead). `update_identity_provider` sends no secret unless a new one is passed. Risk classification and its rationale: `docs/risk-classification-sweep.md`.
+- Identity providers: `clientSecret` is write-only (`clientSecretIsSet` instead; `get_identity_providers` also drops a client secret an older identity service might still return). `update_identity_provider` sends no secret unless a new one is passed. Risk classification and its rationale: `docs/risk-classification-sweep.md`.
 
 <sup>‡</sup> Destructive — requires `confirm: true`.
 <sup>📁</sup> Uses file-transfer endpoints (see Section *File I/O Flow* below).

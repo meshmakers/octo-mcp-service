@@ -305,6 +305,30 @@ public class IdentityProviderToolsTests : ToolTestBase
     }
 
     [Fact]
+    public async Task GetIdentityProviders_ClientSecretFromOlderService_IsScrubbed()
+    {
+        // AB#5543 defense in depth: an identity service that still echoes client secrets must not leak them
+        // into the AI transcript.
+        const string fakeSecret = "fake-client-secret-from-old-service";
+        MockIdentityClient.Setup(c => c.GetIdentityProviders())
+            .ReturnsAsync(new List<IdentityProviderDto>
+            {
+                new GoogleIdentityProviderDto { Name = "G", ClientId = "g", ClientSecret = fakeSecret },
+                new MicrosoftIdentityProviderDto { Name = "M", ClientId = "m", ClientSecret = fakeSecret },
+                new FacebookIdentityProviderDto { Name = "F", ClientId = "f", ClientSecret = fakeSecret },
+                new AzureEntraIdProviderDto { Name = "A", ClientId = "a", TenantId = "t", ClientSecret = fakeSecret }
+            });
+
+        var result = await IdentityProviderTools.GetIdentityProviders(MockServer.Object);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Providers.Should().HaveCount(4);
+        System.Text.Json.JsonSerializer.Serialize<object>(result).Should().NotContain(fakeSecret);
+        System.Text.Json.JsonSerializer.Serialize(result.Providers.Cast<object>().ToList())
+            .Should().NotContain(fakeSecret);
+    }
+
+    [Fact]
     public async Task UpdateIdentityProvider_OpenLdap_PreservesHostAndUserBaseDn()
     {
         MockIdentityClient.Setup(c => c.GetIdentityProvider(It.IsAny<OctoObjectId>()))

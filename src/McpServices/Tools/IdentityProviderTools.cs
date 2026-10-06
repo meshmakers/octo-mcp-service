@@ -36,6 +36,7 @@ public sealed class IdentityProviderTools
         try
         {
             var providers = (await ctx.Client!.GetIdentityProviders()).ToList();
+            ScrubClientSecrets(providers);
             return new GetIdentityProvidersResponse
             {
                 IsSuccess = true,
@@ -326,6 +327,33 @@ public sealed class IdentityProviderTools
         if (!string.IsNullOrWhiteSpace(defaultGroupRtId))
         {
             dto.DefaultGroupRtId = defaultGroupRtId;
+        }
+    }
+
+    /// <summary>
+    ///     Defense in depth (AB#5543): the identity service never returns a client secret, but an older service
+    ///     version did. Tool results reach an AI transcript, so the MCP server drops any client secret it receives
+    ///     and keeps only <c>clientSecretIsSet</c>.
+    /// </summary>
+    internal static void ScrubClientSecrets(IEnumerable<IdentityProviderDto> providers)
+    {
+        foreach (var provider in providers)
+        {
+            switch (provider)
+            {
+                case GoogleIdentityProviderDto google:
+                    google.ClientSecret = null;
+                    break;
+                case MicrosoftIdentityProviderDto microsoft:
+                    microsoft.ClientSecret = null;
+                    break;
+                case FacebookIdentityProviderDto facebook:
+                    facebook.ClientSecret = null;
+                    break;
+                case AzureEntraIdProviderDto azure:
+                    azure.ClientSecret = null;
+                    break;
+            }
         }
     }
 
