@@ -71,12 +71,14 @@ public class RuntimeSecretInventoryClientTests
             .Should().Be(RuntimeSecretInventoryClient.BuildQuery(true, true).Count(c => c == '}'));
     }
 
-    [Fact]
-    public async Task QueryAsync_ForbiddenCode_ReturnsForbidden()
+    [Theory]
+    [InlineData("Forbidden")]
+    [InlineData("FORBIDDEN")]
+    public async Task QueryAsync_ForbiddenCode_ReturnsForbidden(string code)
     {
-        var handler = new CannedHandler(HttpStatusCode.OK, """
+        var handler = new CannedHandler(HttpStatusCode.OK, $$$"""
             {"errors":[{"message":"The secrets overview requires the 'AdminPanelManagement' role.",
-                        "extensions":{"code":"Forbidden"}}],"data":{"secrets":null}}
+                        "extensions":{"code":"{{{code}}}"}}],"data":{"secrets":null}}
             """);
 
         var result = await MakeClient(handler).QueryAsync("t", "tenant-a", new SecretInventoryRequest(),

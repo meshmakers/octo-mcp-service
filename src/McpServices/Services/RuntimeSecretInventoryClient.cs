@@ -103,7 +103,8 @@ public sealed class RuntimeSecretInventoryClient(
             }
 
             var errors = parsed?.Errors ?? [];
-            if (errors.Any(e => string.Equals(e.Extensions?.Code, ForbiddenCode, StringComparison.Ordinal)))
+            // Handover §13: the asset repo uses "Forbidden" here but "FORBIDDEN" elsewhere - match case-insensitively.
+            if (errors.Any(e => string.Equals(e.Extensions?.Code, ForbiddenCode, StringComparison.OrdinalIgnoreCase)))
             {
                 return Fail(SecretInventoryQueryOutcome.Forbidden,
                     "The secrets overview requires the 'AdminPanelManagement' role in tenant " +
