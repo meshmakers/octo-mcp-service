@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.Sdk.ServiceClient.BotServices;
 using Moq;
 using Xunit;
 
@@ -329,5 +330,136 @@ public class SecretMaintenanceToolsTests : ToolTestBase
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("Not authenticated");
         MockBotClient.Verify(c => c.StartSecretSweepAllTenantsAsync(It.IsAny<SecretSweepModeDto>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    // ── get_secret_status: dump key ids (AB#5559) ─────────────────────────
+
+    [Fact]
+    public async Task GetSecretStatus_Tenant_ShowsRequiredKeyIdsAndDumpKeyMissing()
+    {
+        var environment = Environment();
+        environment.RequiredKeyIds = ["k0", "k2"];
+        environment.Warnings = [SecretEnvironmentWarningCodes.DumpKeyMissing];
+        MockBotClient.Setup(c => c.GetSecretEnvironmentStatusAsync(Tenant)).ReturnsAsync(environment);
+
+        var result = await SecretMaintenanceTools.GetSecretStatus(MockServer.Object, tenantId: Tenant);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Environment!.RequiredKeyIds.Should().Equal("k0", "k2");
+        result.Message.Should().Contain("Encrypted dumps need key ids [k0, k2]")
+            .And.Contain("DumpKeyMissing").And.Contain("([k0])");
+    }
+
+    [Fact]
+    public async Task GetSecretStatus_Tenant_NoEncryptedDumps_MentionsNoDumpKeys()
+    {
+        var result = await SecretMaintenanceTools.GetSecretStatus(MockServer.Object, tenantId: Tenant);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Message.Should().NotContain("Encrypted dumps").And.NotContain("DumpKeyMissing");
+    }
+
+    // ── restore_secret_sweep_dump (AB#5559) ───────────────────────────────
+
+    [Fact]
+    public async Task RestoreSecretSweepDump_WithConfirm_StartsTheRestoreJob()
+    {
+        MockBotClient.Setup(c => c.RestoreSecretSweepDumpAsync(Tenant, "run-1", true))
+            .ReturnsAsync(new JobResponseDto("job-9"));
+
+        var result = await SecretMaintenanceTools.RestoreSecretSweepDump(MockServer.Object, Tenant, "run-1", true);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.JobId.Should().Be("job-9");
+        result.TenantId.Should().Be(Tenant);
+        result.Completed.Should().BeFalse();
+        result.Message.Should().Contain("Encrypt");
+        MockBotClient.Verify(c => c.GetImportJobStatus(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RestoreSecretSweepDump_WithoutConfirm_IsRefusedWithoutCallingTheBot()
+    {
+        var result = await SecretMaintenanceTools.RestoreSecretSweepDump(MockServer.Object, Tenant, "run-1", false);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("confirm=true").And.Contain("plaintext");
+        MockBotClient.Verify(c => c.RestoreSecretSweepDumpAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()),
+            Times.Never);
+    }
+
+    [Theory]
+    [InlineData("", "run-1", "tenantId")]
+    [InlineData(Tenant, " ", "runId")]
+    public async Task RestoreSecretSweepDump_MissingArguments_AreRefused(string tenantId, string runId, string expected)
+    {
+        var result = await SecretMaintenanceTools.RestoreSecretSweepDump(MockServer.Object, tenantId, runId, true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain(expected);
+        MockBotClient.Verify(c => c.RestoreSecretSweepDumpAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()),
+            Times.Never);
+    }
+
+    [Theory]
+    [InlineData(SecretSweepDumpRestoreFailure.DumpKeyMissing, System.Net.HttpStatusCode.Conflict, "DumpKeyMissing")]
+    [InlineData(SecretSweepDumpRestoreFailure.DumpDeleted, System.Net.HttpStatusCode.Conflict, "DumpDeleted")]
+    [InlineData(SecretSweepDumpRestoreFailure.NotFound, System.Net.HttpStatusCode.NotFound, "Not found")]
+    public async Task RestoreSecretSweepDump_Refusals_AreReportedWithTheReason(SecretSweepDumpRestoreFailure reason,
+        System.Net.HttpStatusCode status, string expected)
+    {
+        MockBotClient.Setup(c => c.RestoreSecretSweepDumpAsync(Tenant, "run-1", true))
+            .ThrowsAsync(new SecretSweepDumpRestoreException(reason, status));
+
+        var result = await SecretMaintenanceTools.RestoreSecretSweepDump(MockServer.Object, Tenant, "run-1", true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.RefusalReason.Should().Be(reason.ToString());
+        result.ErrorMessage.Should().Contain(expected);
+    }
+
+    [Fact]
+    public async Task RestoreSecretSweepDump_WaitForCompletion_WaitsForTheJob()
+    {
+        MockBotClient.Setup(c => c.RestoreSecretSweepDumpAsync(Tenant, "run-1", true))
+            .ReturnsAsync(new JobResponseDto("job-10"));
+        MockBotClient.Setup(c => c.GetImportJobStatus("job-10"))
+            .ReturnsAsync(new JobDto { Id = "job-10", Status = "Succeeded" });
+
+        var result = await SecretMaintenanceTools.RestoreSecretSweepDump(MockServer.Object, Tenant, "run-1", true,
+            waitForCompletion: true);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Completed.Should().BeTrue();
+        result.Message.Should().Contain("restored");
+    }
+
+    [Fact]
+    public async Task RestoreSecretSweepDump_FailedJob_ReportsFailureWithJobId()
+    {
+        MockBotClient.Setup(c => c.RestoreSecretSweepDumpAsync(Tenant, "run-1", true))
+            .ReturnsAsync(new JobResponseDto("job-11"));
+        MockBotClient.Setup(c => c.GetImportJobStatus("job-11"))
+            .ReturnsAsync(new JobDto { Id = "job-11", Status = "Failed", ErrorMessage = "mongorestore failed" });
+
+        var result = await SecretMaintenanceTools.RestoreSecretSweepDump(MockServer.Object, Tenant, "run-1", true,
+            waitForCompletion: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.JobId.Should().Be("job-11");
+        result.ErrorMessage.Should().Contain("mongorestore failed");
+    }
+
+    [Fact]
+    public async Task RestoreSecretSweepDump_Unauthenticated_ReturnsAuthError()
+    {
+        GivenUnauthenticated();
+
+        var result = await SecretMaintenanceTools.RestoreSecretSweepDump(MockServer.Object, Tenant, "run-1", true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("Not authenticated");
+        MockBotClient.Verify(c => c.RestoreSecretSweepDumpAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()),
+            Times.Never);
     }
 }

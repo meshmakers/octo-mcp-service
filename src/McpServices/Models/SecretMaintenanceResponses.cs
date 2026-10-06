@@ -116,6 +116,37 @@ public class SecretSweepResponse
     public List<SecretSweepReportDto>? Reports { get; set; }
 }
 
+/// <summary>Response of <c>restore_secret_sweep_dump</c> (AB#5559). Never contains secret values.</summary>
+public class SecretSweepDumpRestoreResponse
+{
+    /// <summary>True when the restore job was started (and, when waited for, completed).</summary>
+    public bool IsSuccess { get; set; }
+
+    /// <summary>Error message when <see cref="IsSuccess" /> is false.</summary>
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>Human-readable summary.</summary>
+    public string? Message { get; set; }
+
+    /// <summary>Tenant the dump is restored into.</summary>
+    public string? TenantId { get; set; }
+
+    /// <summary>Run id whose pre-sweep dump is restored.</summary>
+    public string? RunId { get; set; }
+
+    /// <summary>Bot job id of the restore.</summary>
+    public string? JobId { get; set; }
+
+    /// <summary>True when the tool waited and the job completed.</summary>
+    public bool Completed { get; set; }
+
+    /// <summary>
+    ///     Why the bot service refused the restore: <c>ConfirmationRequired</c>, <c>NotFound</c>, <c>DumpDeleted</c>
+    ///     or <c>DumpKeyMissing</c>; <c>null</c> otherwise.
+    /// </summary>
+    public string? RefusalReason { get; set; }
+}
+
 /// <summary>
 ///     Response of <c>get_secret_inventory</c> (AB#5543, handover §7): one page of the tenant's secret slots with
 ///     storage form, key id, set-at and re-entry state, plus the optional summary. Never contains secret values.

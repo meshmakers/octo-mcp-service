@@ -17,6 +17,7 @@ public class SecretToolRiskClassificationTests
     [InlineData("set_entity_secrets")]
     [InlineData("create_entity_with_secrets")]
     [InlineData("start_secret_sweep")]
+    [InlineData("restore_secret_sweep_dump")]
     [InlineData("update_identity_provider")]
     [InlineData("add_oauth_identity_provider")]
     [InlineData("add_azure_entra_id_identity_provider")]

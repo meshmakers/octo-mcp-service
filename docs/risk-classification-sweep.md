@@ -339,6 +339,7 @@ _High=1 · Low=1_  ·  **Owner reviewed:** ☐
 | `get_secret_status` | **L** | AB#5543: environment status, sweep runs, report — never values |
 | `get_secret_inventory` | **L** | AB#5543: asset-repo secrets overview (inventory + optional summary/usedBy) — never values |
 | `start_secret_sweep` | **H** | AB#5543: static level; Verify needs no confirm, writing modes need `confirm=true`; no Decrypt |
+| `restore_secret_sweep_dump` | **H** | AB#5559: replaces the tenant database with a pre-sweep dump (may bring plaintext secrets back); `confirm=true` required |
 
 ### SchemaDiscoveryTools (5 tools)
 

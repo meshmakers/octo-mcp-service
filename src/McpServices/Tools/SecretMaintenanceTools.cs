@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.Sdk.ServiceClient.BotServices;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -33,7 +34,8 @@ public sealed class SecretMaintenanceTools
     [Description(
         "Show the encryption status of Secret attributes (bot service). Tenant mode returns the environment status " +
         "(key ring configured, active and known key ids, legacy v1 key, strict mode and since when, recurring " +
-        "Verify cron, last Verify of the tenant), the recent sweep runs (mode, trigger, outcome, totals, " +
+        "Verify cron, last Verify of the tenant, requiredKeyIds = key ids the encrypted dumps need, warnings such as " +
+        "DumpKeyMissing when one of them is not in the key ring), the recent sweep runs (mode, trigger, outcome, totals, " +
         "placeholdersNormalized, unreadable count and the state of the pre-sweep dump) and the last sweep report: " +
         "counts per form (notSet, plaintext, encV1, encV2 per key id, unknown key id, failed), per CK type and " +
         "attribute path, and the list of unreadable secrets (stored, but the key id is not in the key ring — e.g. " +
@@ -394,6 +396,140 @@ public sealed class SecretMaintenanceTools
         }
     }
 
+    /// <summary>Restores the pre-sweep dump of a sweep run into the same tenant (AB#5559).</summary>
+    [McpServerTool(Name = "restore_secret_sweep_dump")]
+    // Replaces the whole tenant database and can bring plaintext secrets back.
+    [McpRisk(McpRiskLevel.High)]
+    [Description(
+        "Restore the pre-sweep dump of a secret sweep run into the tenant it was taken from (bot service). " +
+        "DESTRUCTIVE: the tenant's database is dropped and replaced by the dump (all changes since the run are " +
+        "lost); a Verify sweep runs afterwards. WARNING: a dump taken before the first Encrypt sweep contains " +
+        "PLAINTEXT secrets — restoring it brings the plaintext back; run start_secret_sweep with mode Encrypt " +
+        "(confirm=true) right after the restore. Find the run id with get_secret_status (recentRuns[].runId, " +
+        "dump.exists). Requires the SecretManagement role in the tenant and confirm=true. Refused when the dump " +
+        "was deleted or expired (DumpDeleted), no longer exists (not found), or is encrypted with a key id that " +
+        "is not in the key ring (DumpKeyMissing — put the key back first). Returns the restore job id; " +
+        "optionally waits for completion. Never returns secret values.")]
+    public static async Task<SecretSweepDumpRestoreResponse> RestoreSecretSweepDump(
+        McpServer server,
+        [Description("Tenant the dump was taken from (a dump can only be restored into it). Required.")]
+        string tenantId,
+        [Description("Run id of the sweep run whose pre-sweep dump is restored (get_secret_status recentRuns[].runId). Required.")]
+        string runId,
+        [Description("Must be true: the restore replaces the tenant's data and may bring back plaintext secrets.")]
+        bool confirm,
+        [Description("When true, wait for the restore job to finish.")]
+        bool waitForCompletion = false,
+        [Description("Wait timeout in minutes when waitForCompletion=true (default 60).")]
+        int waitTimeoutMinutes = 60)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId))
+        {
+            return new SecretSweepDumpRestoreResponse { IsSuccess = false, ErrorMessage = "tenantId is required." };
+        }
+
+        if (string.IsNullOrWhiteSpace(runId))
+        {
+            return new SecretSweepDumpRestoreResponse
+            {
+                IsSuccess = false, TenantId = tenantId, ErrorMessage = "runId is required."
+            };
+        }
+
+        if (!confirm)
+        {
+            return new SecretSweepDumpRestoreResponse
+            {
+                IsSuccess = false,
+                TenantId = tenantId,
+                RunId = runId,
+                ErrorMessage = $"Refusing to restore the pre-sweep dump of run '{runId}' into tenant '{tenantId}' " +
+                               "without confirm=true. The restore replaces the tenant's database; a dump taken " +
+                               "before the first Encrypt brings plaintext secrets back (run Encrypt afterwards)."
+            };
+        }
+
+        if (waitTimeoutMinutes <= 0)
+        {
+            return new SecretSweepDumpRestoreResponse
+            {
+                IsSuccess = false, TenantId = tenantId, RunId = runId,
+                ErrorMessage = "waitTimeoutMinutes must be > 0."
+            };
+        }
+
+        var bot = await BotClientContext.TryBuildAsync(server, tenantId.Trim());
+        if (bot.Error != null)
+        {
+            return new SecretSweepDumpRestoreResponse
+            {
+                IsSuccess = false, TenantId = tenantId, RunId = runId, ErrorMessage = bot.Error
+            };
+        }
+
+        string? jobId = null;
+        try
+        {
+            var job = await bot.Client!.RestoreSecretSweepDumpAsync(bot.TenantId!, runId.Trim(), true);
+            jobId = job.JobId;
+            var followUp = " Then run start_secret_sweep with mode Encrypt (confirm=true) if the dump predates the " +
+                           "first Encrypt, and check get_secret_status.";
+
+            if (!waitForCompletion)
+            {
+                return new SecretSweepDumpRestoreResponse
+                {
+                    IsSuccess = true,
+                    TenantId = bot.TenantId,
+                    RunId = runId,
+                    JobId = jobId,
+                    Message = $"Restore of the pre-sweep dump of run '{runId}' into tenant '{bot.TenantId}' started " +
+                              $"(job '{jobId}'). Wait for the job to complete.{followUp}"
+                };
+            }
+
+            await JobPollingHelper.WaitForJobAsync(bot.Client, jobId, TimeSpan.FromMinutes(waitTimeoutMinutes));
+            return new SecretSweepDumpRestoreResponse
+            {
+                IsSuccess = true,
+                TenantId = bot.TenantId,
+                RunId = runId,
+                JobId = jobId,
+                Completed = true,
+                Message = $"Pre-sweep dump of run '{runId}' restored into tenant '{bot.TenantId}' (job '{jobId}'); " +
+                          $"a Verify sweep ran afterwards.{followUp}"
+            };
+        }
+        catch (SecretSweepDumpRestoreException ex)
+        {
+            return new SecretSweepDumpRestoreResponse
+            {
+                IsSuccess = false,
+                TenantId = bot.TenantId,
+                RunId = runId,
+                RefusalReason = ex.Reason.ToString(),
+                ErrorMessage = ex.Reason switch
+                {
+                    SecretSweepDumpRestoreFailure.DumpKeyMissing =>
+                        "DumpKeyMissing: the dump is encrypted with a key id that is not in the key ring " +
+                        "(see get_secret_status environment.requiredKeyIds). Put the key back into the key ring first.",
+                    SecretSweepDumpRestoreFailure.DumpDeleted =>
+                        "DumpDeleted: the pre-sweep dump of this run was deleted (early or expired).",
+                    SecretSweepDumpRestoreFailure.NotFound =>
+                        "Not found: unknown run, the run has no pre-sweep dump, or the dump is no longer stored.",
+                    _ => ex.Message
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            return new SecretSweepDumpRestoreResponse
+            {
+                IsSuccess = false, TenantId = bot.TenantId, RunId = runId, JobId = jobId, ErrorMessage = ex.Message
+            };
+        }
+    }
+
     internal static bool TryParseMode(string? mode, out SecretSweepModeDto sweepMode, out string? error)
     {
         sweepMode = SecretSweepModeDto.Verify;
@@ -445,13 +581,34 @@ public sealed class SecretMaintenanceTools
     {
         if (!environment.KeyRingConfigured)
         {
-            return "Key ring NOT configured (secret writes fail with SecretEncryptionNotConfigured).";
+            return "Key ring NOT configured (secret writes fail with SecretEncryptionNotConfigured)." +
+                   DescribeDumpKeys(environment);
         }
 
         return $"Key ring configured: active key '{environment.ActiveKeyId}', known keys " +
                $"[{string.Join(", ", environment.KnownKeyIds)}], strict mode " +
                $"{(environment.StrictMode ? "on" : "off")}" +
                (environment.StrictModeSince is { } since ? $" since {since:O}" : string.Empty) +
-               $", last Verify {(environment.LastVerifyAt is { } at ? at.ToString("O") : "never")}.";
+               $", last Verify {(environment.LastVerifyAt is { } at ? at.ToString("O") : "never")}." +
+               DescribeDumpKeys(environment);
+    }
+
+    /// <summary>
+    ///     Key ids the encrypted dumps need (AB#5559) and the <c>DumpKeyMissing</c> warning, if any.
+    /// </summary>
+    internal static string DescribeDumpKeys(SecretEnvironmentStatusDto environment)
+    {
+        var text = environment.RequiredKeyIds.Count > 0
+            ? $" Encrypted dumps need key ids [{string.Join(", ", environment.RequiredKeyIds)}]."
+            : string.Empty;
+        if (environment.Warnings.Contains(SecretEnvironmentWarningCodes.DumpKeyMissing))
+        {
+            var missing = environment.RequiredKeyIds.Where(k => !environment.KnownKeyIds.Contains(k)).ToList();
+            text += " WARNING DumpKeyMissing: an encrypted dump needs a key id that is not in the key ring" +
+                    (missing.Count > 0 ? $" ([{string.Join(", ", missing)}])" : string.Empty) +
+                    "; it can neither be restored nor downloaded until the key is put back.";
+        }
+
+        return text;
     }
 }
