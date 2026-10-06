@@ -70,6 +70,14 @@ public sealed class RuntimeEntityCrudTools
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var resolvedTenantId = tenantRepository.TenantId;
 
+        var secretUsage = SecretAttributePaths.FindNotQueryableUsage(
+            server.Services!.GetRequiredService<ICkCacheService>(), resolvedTenantId,
+            ckTypeId, SecretRelevantFilterUsages(filters));
+        if (secretUsage != null)
+        {
+            return new QueryEntitiesResponse { IsSuccess = false, ErrorMessage = secretUsage, CkTypeId = ckTypeId };
+        }
+
         using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
@@ -172,6 +180,16 @@ public sealed class RuntimeEntityCrudTools
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var resolvedTenantId = tenantRepository.TenantId;
 
+        // Simple filters are equality filters, which a Secret attribute never supports (AB#5543).
+        var secretUsage = SecretAttributePaths.FindNotQueryableUsage(
+            server.Services!.GetRequiredService<ICkCacheService>(), resolvedTenantId,
+            ckTypeId,
+            (simpleFilters ?? []).Select(f => ((string?)f.AttributePath, "filter operator 'Equals'")));
+        if (secretUsage != null)
+        {
+            return new QueryEntitiesResponse { IsSuccess = false, ErrorMessage = secretUsage, CkTypeId = ckTypeId };
+        }
+
         using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
@@ -234,6 +252,12 @@ public sealed class RuntimeEntityCrudTools
     /// <returns>An actionable error message for the tool response.</returns>
     internal static string DescribeQueryException(Exception ex)
     {
+        var secretError = SecretErrors.TryDescribe(ex);
+        if (secretError != null)
+        {
+            return secretError;
+        }
+
         if (ex.Message.Contains("RtRecord", StringComparison.Ordinal))
         {
             return "Cannot filter on a Record attribute directly — a Record attribute holds a composite " +
@@ -303,7 +327,7 @@ public sealed class RuntimeEntityCrudTools
             return new GetEntityResponse
             {
                 IsSuccess = false,
-                ErrorMessage = ex.Message,
+                ErrorMessage = SecretErrors.Describe(ex),
                 TypeId = ckTypeId
             };
         }
@@ -320,9 +344,18 @@ public sealed class RuntimeEntityCrudTools
     /// </param>
     /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Created entity with runtime ID</returns>
+    /// <remarks>
+    ///     Secret attributes (AB#5543) are not written here: this tool is medium risk, and setting a secret is
+    ///     high risk. A non-empty value for a Secret attribute is refused with a pointer to
+    ///     <c>set_entity_secrets</c>; <c>null</c>, <c>""</c> or the read marker <c>{ "isSet": … }</c> are ignored
+    ///     (= "not set").
+    /// </remarks>
     [McpServerTool(Name = "create_entity")]
     [McpRisk(McpRiskLevel.Medium)]
-    [Description("Create a new entity of specified Construction Kit type")]
+    [Description(
+        "Create a new entity of specified Construction Kit type. Secret attributes cannot be set here: a non-empty " +
+        "value for a Secret attribute is refused — create the entity without it, then call set_entity_secrets " +
+        "(high risk). null, \"\" or an echoed {\"isSet\": …} marker for a Secret attribute are ignored.")]
     public static async Task<CreateEntityResponse> CreateEntity(
         McpServer server,
         string ckTypeId,
@@ -345,6 +378,19 @@ public sealed class RuntimeEntityCrudTools
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
+        var secretError = PrepareSecretAwareWrites(ckCacheService, tenantRepository.TenantId,
+            ckTypeId, entityData, SecretWritePolicy.RefuseSecretValues,
+            out var effectiveData);
+        if (secretError != null)
+        {
+            return new CreateEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = secretError,
+                CkTypeId = ckTypeId
+            };
+        }
+
         using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
@@ -353,7 +399,7 @@ public sealed class RuntimeEntityCrudTools
             // Create transient entity
             var entity = await tenantRepository.CreateTransientRtEntityAsync(new CkId<CkTypeId>(ckTypeId));
 
-            Assign(entity, ckCacheService, tenantRepository.TenantId, entityData);
+            Assign(entity, ckCacheService, tenantRepository.TenantId, effectiveData);
 
             // Insert entity
             await tenantRepository.InsertOneRtEntityAsync(session, new RtCkId<CkTypeId>(ckTypeId), entity);
@@ -375,7 +421,7 @@ public sealed class RuntimeEntityCrudTools
             return new CreateEntityResponse
             {
                 IsSuccess = false,
-                ErrorMessage = ex.Message,
+                ErrorMessage = SecretErrors.Describe(ex),
                 CkTypeId = ckTypeId
             };
         }
@@ -396,12 +442,25 @@ public sealed class RuntimeEntityCrudTools
     ///     does not match, the call returns <c>IsSuccess=false</c> + <c>IsConflict=true</c>
     ///     with the current <c>RtVersion</c> and entity payload — no write happens.
     /// </param>
+    /// <param name="clearSecretAttributes">
+    ///     Optional names of Secret attributes to clear (camelCase or PascalCase). Clearing a required
+    ///     secret is refused by the engine.
+    /// </param>
     /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Updated entity</returns>
+    /// <remarks>
+    ///     Secret attributes (AB#5543): setting a value is refused (use the high-risk <c>set_entity_secrets</c>);
+    ///     <c>null</c>, <c>""</c> or the read marker leave the stored secret unchanged; clearing is explicit via
+    ///     <paramref name="clearSecretAttributes" />.
+    /// </remarks>
     [McpServerTool(Name = "update_entity")]
     [McpRisk(McpRiskLevel.Medium)]
-    [Description("Update an existing entity with new data")]
-    public static async Task<UpdateEntityResponse> UpdateEntity(
+    [Description(
+        "Update an existing entity with new data. Secret attributes: a non-empty value is refused — use " +
+        "set_entity_secrets (high risk) to set or rotate a secret; null, \"\" or an echoed {\"isSet\": …} marker " +
+        "leave the stored secret unchanged; use clearSecretAttributes to clear an optional secret. Secret values " +
+        "are never returned — entities show secretIsSet instead.")]
+    public static Task<UpdateEntityResponse> UpdateEntity(
         McpServer server, string rtId, string ckTypeId, List<AttributeUpdateItem> entityData,
         [Description(
             "Optional optimistic-lock token. Pass the RtVersion the caller read with the entity. " +
@@ -409,7 +468,68 @@ public sealed class RuntimeEntityCrudTools
             "carries IsConflict=true plus the current RtVersion + Entity so the caller can " +
             "rebase. Omit to skip the check (last-write-wins).")]
         ulong? expectedVersion = null,
+        [Description(
+            "Optional names of Secret attributes to clear (camelCase or PascalCase, e.g. [\"password\"]). " +
+            "Clearing a required secret, a non-secret attribute, or setting and clearing the same secret is refused.")]
+        List<string>? clearSecretAttributes = null,
         string? tenantId = null)
+    {
+        return UpdateCoreAsync(server, rtId, ckTypeId, entityData ?? [], clearSecretAttributes, expectedVersion,
+            tenantId, SecretWritePolicy.RefuseSecretValues);
+    }
+
+    /// <summary>
+    ///     Sets, rotates or clears Secret attributes of an existing entity (AB#5543). High risk: the caller
+    ///     hands a credential to the platform. Values are encrypted by the engine and never returned.
+    /// </summary>
+    /// <param name="server">MCP Server instance</param>
+    /// <param name="rtId">The runtime ID of the entity</param>
+    /// <param name="ckTypeId">The Construction Kit Type ID of the entity</param>
+    /// <param name="secrets">Secret attribute paths and their new non-empty string values</param>
+    /// <param name="clearSecretAttributes">Optional names of Secret attributes to clear</param>
+    /// <param name="expectedVersion">Optional optimistic-lock token (see <c>update_entity</c>)</param>
+    /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
+    /// <returns>The updated entity; Secret attributes appear only as <c>secretIsSet</c>.</returns>
+    [McpServerTool(Name = "set_entity_secrets")]
+    [McpRisk(McpRiskLevel.High)]
+    [Description(
+        "Set, rotate or clear Secret attributes (value type SECRET, e.g. passwords, API keys, client secrets) of " +
+        "an existing entity. HIGH RISK. Each entry in 'secrets' must target a Secret attribute (dot notation " +
+        "through records, e.g. 'Endpoints.Token') with a non-empty string value; placeholders like '<...>' or " +
+        "'TODO_SET_*' are refused (use clearSecretAttributes to clear). Other attributes are never touched. " +
+        "Values are encrypted server-side and are never returned — the response shows secretIsSet only.")]
+    public static Task<UpdateEntityResponse> SetEntitySecrets(
+        McpServer server,
+        [Description("Runtime ID (24-hex) of the entity.")] string rtId,
+        [Description("Construction Kit type ID of the entity.")] string ckTypeId,
+        [Description(
+            "Secret values to set: [{attributePath: 'Password', value: '<new secret>'}]. Only Secret attributes " +
+            "are accepted.")]
+        List<AttributeUpdateItem>? secrets = null,
+        [Description("Optional names of Secret attributes to clear (camelCase or PascalCase).")]
+        List<string>? clearSecretAttributes = null,
+        [Description("Optional optimistic-lock token (the RtVersion read with the entity).")]
+        ulong? expectedVersion = null,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        if ((secrets == null || secrets.Count == 0) && (clearSecretAttributes == null || clearSecretAttributes.Count == 0))
+        {
+            return Task.FromResult(new UpdateEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "Provide at least one entry in 'secrets' or 'clearSecretAttributes'.",
+                TypeId = ckTypeId,
+                RtId = rtId
+            });
+        }
+
+        return UpdateCoreAsync(server, rtId, ckTypeId, secrets ?? [], clearSecretAttributes, expectedVersion,
+            tenantId, SecretWritePolicy.SecretValuesOnly);
+    }
+
+    private static async Task<UpdateEntityResponse> UpdateCoreAsync(
+        McpServer server, string rtId, string ckTypeId, List<AttributeUpdateItem> entityData,
+        List<string>? clearSecretAttributes, ulong? expectedVersion, string? tenantId, SecretWritePolicy policy)
     {
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
         var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
@@ -427,6 +547,25 @@ public sealed class RuntimeEntityCrudTools
         var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
+        var secretError = PrepareSecretAwareWrites(ckCacheService, tenantRepository.TenantId, ckTypeId,
+            entityData, policy, out var effectiveData);
+        if (secretError != null)
+        {
+            return new UpdateEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = secretError,
+                TypeId = ckTypeId,
+                RtId = rtId
+            };
+        }
+
+        var clearList = clearSecretAttributes?
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Select(n => SecretAttributePaths.NormaliseTopLevelName(ckCacheService, tenantRepository.TenantId,
+                ckTypeId, n.Trim()))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
 
         using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
@@ -461,7 +600,7 @@ public sealed class RuntimeEntityCrudTools
                 };
             }
 
-            Assign(existingEntity, ckCacheService, tenantRepository.TenantId, entityData);
+            Assign(existingEntity, ckCacheService, tenantRepository.TenantId, effectiveData);
             // Bump RtVersion explicitly — the engine's Mongo layer does not auto-increment
             // it on update_one (auto-bump lives only on the bulk-mutation path). Without
             // this, the next optimistic-locked update would never see a fresh token and
@@ -471,9 +610,21 @@ public sealed class RuntimeEntityCrudTools
                 ? existingEntity.RtVersion
                 : existingEntity.RtVersion + 1;
 
-            // Update entity
-            await tenantRepository.UpdateOneRtEntityByIdAsync(session, rtEntityId.CkTypeId, rtEntityId.RtId,
-                existingEntity);
+            if (clearList is { Count: > 0 })
+            {
+                // Clearing goes through the bulk funnel with an explicit clear list (AB#5532): the rule
+                // engine validates the names (messages 21-23) and turns each entry into an explicit null.
+                var updateInfo = EntityUpdateInfo<RtEntity>.CreateUpdate(rtEntityId, existingEntity, clearList);
+                await tenantRepository.ApplyChangesAsync(session, new List<IEntityUpdateInfo<RtEntity>> { updateInfo },
+                    new OperationResult());
+            }
+            else
+            {
+                // Update entity
+                await tenantRepository.UpdateOneRtEntityByIdAsync(session, rtEntityId.CkTypeId, rtEntityId.RtId,
+                    existingEntity);
+            }
+
             await session.CommitTransactionAsync();
 
             // Get updated entity
@@ -506,7 +657,7 @@ public sealed class RuntimeEntityCrudTools
             return new UpdateEntityResponse
             {
                 IsSuccess = false,
-                ErrorMessage = ex.Message,
+                ErrorMessage = SecretErrors.Describe(ex),
                 TypeId = ckTypeId,
                 RtId = rtId
             };
@@ -608,7 +759,7 @@ public sealed class RuntimeEntityCrudTools
             return new DeleteEntityResponse
             {
                 IsSuccess = false,
-                ErrorMessage = ex.Message,
+                ErrorMessage = SecretErrors.Describe(ex),
                 CkTypeId = ckTypeId,
                 RtId = rtId
             };
@@ -724,7 +875,7 @@ public sealed class RuntimeEntityCrudTools
             return new NavigateAssociationsResponse
             {
                 IsSuccess = false,
-                ErrorMessage = ex.Message,
+                ErrorMessage = SecretErrors.Describe(ex),
                 OriginCkTypeId = ckTypeId,
                 OriginRtId = rtId,
                 CkRoleId = ckRoleId,
@@ -833,7 +984,7 @@ public sealed class RuntimeEntityCrudTools
             return new AssociationTreeResponse
             {
                 IsSuccess = false,
-                ErrorMessage = ex.Message,
+                ErrorMessage = SecretErrors.Describe(ex),
                 CkRoleId = ckRoleId,
                 Direction = direction.ToString(),
                 MaxDepth = maxDepth
@@ -1175,6 +1326,149 @@ public sealed class RuntimeEntityCrudTools
         }
     }
 
+    /// <summary>
+    ///     Lists the filter usages that are not allowed on a Secret attribute (every operator except
+    ///     IsNull / IsNotNull), recursively through nested filter groups. Used for the Secret pre-validation of
+    ///     the query and aggregation tools (AB#5543).
+    /// </summary>
+    internal static IEnumerable<(string? Path, string Operation)> SecretRelevantFilterUsages(
+        FieldFilterCriteriaDto? filters)
+    {
+        if (filters == null)
+        {
+            yield break;
+        }
+
+        foreach (var field in filters.Fields)
+        {
+            if (field.Operator is not (FilterOperatorDto.IsNull or FilterOperatorDto.IsNotNull))
+            {
+                yield return (field.AttributePath, $"filter operator '{field.Operator}'");
+            }
+        }
+
+        foreach (var nested in filters.NestedFilters ?? [])
+        {
+            foreach (var usage in SecretRelevantFilterUsages(nested))
+            {
+                yield return usage;
+            }
+        }
+    }
+
+    /// <summary>
+    ///     How a write tool treats values that target Secret attributes (AB#5543).
+    /// </summary>
+    internal enum SecretWritePolicy
+    {
+        /// <summary>
+        ///     Medium-risk generic writes: non-empty secret values are refused (route to set_entity_secrets),
+        ///     "unchanged" inputs for secrets are dropped, other attributes pass through.
+        /// </summary>
+        RefuseSecretValues,
+
+        /// <summary>
+        ///     High-risk <c>set_entity_secrets</c>: only Secret attributes with a non-empty, non-placeholder
+        ///     string value are accepted.
+        /// </summary>
+        SecretValuesOnly
+    }
+
+    /// <summary>
+    ///     Classifies each attribute write against the CK type graph and applies the
+    ///     <paramref name="policy" />. Returns an error message (never containing a value) or <c>null</c> with
+    ///     the writes that should actually be assigned.
+    /// </summary>
+    internal static string? PrepareSecretAwareWrites(ICkCacheService ckCacheService, string tenantId,
+        string ckTypeId, List<AttributeUpdateItem> entityData, SecretWritePolicy policy,
+        out List<AttributeUpdateItem> effectiveData)
+    {
+        effectiveData = new List<AttributeUpdateItem>(entityData.Count);
+        foreach (var item in entityData)
+        {
+            var isSecret = SecretAttributePaths.IsSecretPath(ckCacheService, tenantId, ckTypeId, item.AttributePath);
+            if (!isSecret)
+            {
+                if (policy == SecretWritePolicy.SecretValuesOnly)
+                {
+                    return $"Attribute '{item.AttributePath}' is not a Secret attribute of '{ckTypeId}'. " +
+                           "set_entity_secrets only writes Secret attributes; use update_entity for other attributes.";
+                }
+
+                effectiveData.Add(item);
+                continue;
+            }
+
+            var kind = ClassifySecretInput(item.Value, out var text);
+            switch (kind)
+            {
+                case SecretInputKind.Unchanged when policy == SecretWritePolicy.RefuseSecretValues:
+                    // null / "" / echoed {isSet} marker: the stored secret stays as it is (concept §4.3).
+                    continue;
+                case SecretInputKind.Unchanged:
+                    return $"Secret attribute '{item.AttributePath}' needs a non-empty string value. " +
+                           "Use clearSecretAttributes to clear a secret.";
+                case SecretInputKind.Invalid:
+                    return $"Secret attribute '{item.AttributePath}' only accepts a string value.";
+            }
+
+            if (SecretAttributeConventions.IsPlaceholder(text))
+            {
+                return $"The value for Secret attribute '{item.AttributePath}' is a placeholder, which would be " +
+                       "stored as \"not set\". Use clearSecretAttributes to clear a secret.";
+            }
+
+            if (policy == SecretWritePolicy.RefuseSecretValues)
+            {
+                return $"Attribute '{item.AttributePath}' is a Secret attribute. Setting a secret is a high-risk " +
+                       "operation and is not done by this tool: call set_entity_secrets for an existing entity " +
+                       "(create the entity first without the secret).";
+            }
+
+            effectiveData.Add(new AttributeUpdateItem { AttributePath = item.AttributePath, Value = text });
+        }
+
+        return null;
+    }
+
+    private enum SecretInputKind
+    {
+        Unchanged,
+        Value,
+        Invalid
+    }
+
+    private static SecretInputKind ClassifySecretInput(object? value, out string? text)
+    {
+        text = null;
+        switch (value)
+        {
+            case null:
+                return SecretInputKind.Unchanged;
+            case string s:
+                text = s;
+                return s.Length == 0 ? SecretInputKind.Unchanged : SecretInputKind.Value;
+            case JsonElement json:
+                switch (json.ValueKind)
+                {
+                    case JsonValueKind.Null:
+                    case JsonValueKind.Undefined:
+                    case JsonValueKind.Object: // echoed read marker { "isSet": ... }
+                        return SecretInputKind.Unchanged;
+                    case JsonValueKind.String:
+                        text = json.GetString();
+                        return string.IsNullOrEmpty(text) ? SecretInputKind.Unchanged : SecretInputKind.Value;
+                    default:
+                        return SecretInputKind.Invalid;
+                }
+            case IDictionary<string, object?>:
+            case OctoSecretStateDto:
+                return SecretInputKind.Unchanged;
+            default:
+                return SecretInputKind.Invalid;
+        }
+    }
+
     private static void Assign(RtEntity rtEntity, ICkCacheService ckCacheService, string tenantId,
         List<AttributeUpdateItem> entityData)
     {
@@ -1184,6 +1478,9 @@ public sealed class RuntimeEntityCrudTools
 
             switch (attributeUpdateItem.Value)
             {
+                case string stringValue:
+                    value = stringValue;
+                    break;
                 case JsonElement jsonElement:
                     if (jsonElement.ValueKind == JsonValueKind.String)
                     {

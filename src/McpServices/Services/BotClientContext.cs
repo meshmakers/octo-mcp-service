@@ -54,4 +54,29 @@ internal sealed record BotClientContext(
             return new BotClientContext(null, null, ex.Message);
         }
     }
+
+    /// <summary>
+    ///     Builds a Bot client for system-scoped calls (<c>system/v1/…</c>) that do not need a tenant, e.g.
+    ///     the all-tenant secret sweep (AB#5543). Skips tenant resolution, so it also works on the tenantless
+    ///     <c>/mcp</c> endpoint; the service itself enforces the system-tenant gate. <see cref="TenantId" />
+    ///     is <c>null</c>.
+    /// </summary>
+    public static async Task<BotClientContext> TryBuildSystemAsync(McpServer server)
+    {
+        try
+        {
+            var token = await McpSessionContext.ResolveAccessTokenAsync(server);
+            if (token.Error != null || token.AccessToken == null)
+            {
+                return new BotClientContext(null, null, token.Error ?? Constants.NotAuthenticatedError);
+            }
+
+            var factory = server.Services!.GetRequiredService<IOctoServiceClientFactory>();
+            return new BotClientContext(factory.CreateBotClient(token.AccessToken), null, null);
+        }
+        catch (Exception ex)
+        {
+            return new BotClientContext(null, null, ex.Message);
+        }
+    }
 }

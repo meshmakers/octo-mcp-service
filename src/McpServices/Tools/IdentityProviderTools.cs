@@ -19,7 +19,10 @@ public sealed class IdentityProviderTools
 {
     /// <summary>List all identity providers in the tenant.</summary>
     [McpServerTool(Name = "get_identity_providers")]
-    [Description("List all identity providers in the tenant. Equivalent to octo-cli GetIdentityProviders.")]
+    [Description(
+        "List all identity providers in the tenant. Client secrets are write-only and never returned " +
+        "(clientSecret is always null); OAuth-style providers report clientSecretIsSet instead. Equivalent to " +
+        "octo-cli GetIdentityProviders.")]
     public static async Task<GetIdentityProvidersResponse> GetIdentityProviders(
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
@@ -101,7 +104,8 @@ public sealed class IdentityProviderTools
 
     /// <summary>Add a Google/Microsoft/Facebook OAuth identity provider.</summary>
     [McpServerTool(Name = "add_oauth_identity_provider")]
-    [McpRisk(McpRiskLevel.Medium)]
+    // AB#5543: hands a client secret (SECRET value type) to the platform — secret-setting tools are high risk.
+    [McpRisk(McpRiskLevel.High)]
     [Description(
         "Create a Google, Microsoft or Facebook OAuth identity provider. Equivalent to octo-cli AddOAuthIdentityProvider.")]
     public static async Task<IdentityProviderResponse> AddOAuthIdentityProvider(
@@ -158,7 +162,8 @@ public sealed class IdentityProviderTools
 
     /// <summary>Add an Azure Entra ID identity provider.</summary>
     [McpServerTool(Name = "add_azure_entra_id_identity_provider")]
-    [McpRisk(McpRiskLevel.Medium)]
+    // AB#5543: hands a client secret (SECRET value type) to the platform — secret-setting tools are high risk.
+    [McpRisk(McpRiskLevel.High)]
     [Description("Create an Azure Entra ID identity provider. Equivalent to octo-cli AddAzureEntryIdIdentityProvider.")]
     public static async Task<IdentityProviderResponse> AddAzureEntraIdIdentityProvider(
         McpServer server,
@@ -359,15 +364,19 @@ public sealed class IdentityProviderTools
         "Update common fields on an existing identity provider. Fetches the provider, preserves type-specific " +
         "properties (LDAP/AD host+port, Azure tenant+authority, OctoTenant parent), and applies the changes. " +
         "name and isEnabled are required; other fields are optional patches. clientId/clientSecret apply only " +
-        "to OAuth-style providers (Google/Microsoft/Facebook/AzureEntraId). Equivalent to octo-cli " +
-        "UpdateIdentityProvider.")]
+        "to OAuth-style providers (Google/Microsoft/Facebook/AzureEntraId). The client secret is write-only: " +
+        "omit clientSecret to keep the stored one, pass a new value to rotate it (it cannot be cleared). " +
+        "Equivalent to octo-cli UpdateIdentityProvider.")]
     public static async Task<IdentityProviderResponse> UpdateIdentityProvider(
         McpServer server,
         [Description("Runtime ID of the identity provider.")] string providerId,
         [Description("New display name.")] string name,
         [Description("Enabled flag.")] bool isEnabled,
         [Description("Optional new client ID (OAuth/Azure providers only).")] string? clientId = null,
-        [Description("Optional new client secret (OAuth/Azure providers only).")] string? clientSecret = null,
+        [Description(
+            "Optional new client secret (OAuth/Azure providers only). Omit to keep the stored secret; it is never " +
+            "returned by the server.")]
+        string? clientSecret = null,
         [Description("Optional new self-registration flag.")] bool? allowSelfRegistration = null,
         [Description("Optional new default group RtId.")] string? defaultGroupRtId = null,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
@@ -399,22 +408,36 @@ public sealed class IdentityProviderTools
                 };
             }
 
+            // AB#5543: the client secret is write-only — GET never returns it (clientSecretIsSet instead), and
+            // PUT treats null / "" as "keep the stored secret". Only a newly supplied value is sent; the existing
+            // DTO's ClientSecret is never echoed back.
+            var newClientSecret = string.IsNullOrEmpty(clientSecret) ? null : clientSecret;
+
             IdentityProviderDto patched = existing switch
             {
-                GoogleIdentityProviderDto =>
+                GoogleIdentityProviderDto oauth =>
                     new GoogleIdentityProviderDto
                     {
-                        IsEnabled = isEnabled, Name = name, ClientId = clientId, ClientSecret = clientSecret
+                        IsEnabled = isEnabled,
+                        Name = name,
+                        ClientId = clientId ?? oauth.ClientId,
+                        ClientSecret = newClientSecret
                     },
-                MicrosoftIdentityProviderDto =>
+                MicrosoftIdentityProviderDto oauth =>
                     new MicrosoftIdentityProviderDto
                     {
-                        IsEnabled = isEnabled, Name = name, ClientId = clientId, ClientSecret = clientSecret
+                        IsEnabled = isEnabled,
+                        Name = name,
+                        ClientId = clientId ?? oauth.ClientId,
+                        ClientSecret = newClientSecret
                     },
-                FacebookIdentityProviderDto =>
+                FacebookIdentityProviderDto oauth =>
                     new FacebookIdentityProviderDto
                     {
-                        IsEnabled = isEnabled, Name = name, ClientId = clientId, ClientSecret = clientSecret
+                        IsEnabled = isEnabled,
+                        Name = name,
+                        ClientId = clientId ?? oauth.ClientId,
+                        ClientSecret = newClientSecret
                     },
                 AzureEntraIdProviderDto az =>
                     new AzureEntraIdProviderDto
@@ -424,7 +447,7 @@ public sealed class IdentityProviderTools
                         TenantId = az.TenantId,
                         Authority = az.Authority,
                         ClientId = clientId ?? az.ClientId,
-                        ClientSecret = clientSecret ?? az.ClientSecret
+                        ClientSecret = newClientSecret
                     },
                 MicrosoftAdProviderDto ad =>
                     new MicrosoftAdProviderDto

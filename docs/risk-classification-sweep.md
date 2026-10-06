@@ -244,8 +244,8 @@ _High=2 · Low=1 · Medium=5_  ·  **Owner reviewed:** ☐
 |------|---------|------------------|
 | `get_identity_providers` | **L** | |
 | `delete_identity_provider` | **H** | |
-| `add_oauth_identity_provider` | **M** | |
-| `add_azure_entra_id_identity_provider` | **M** | |
+| `add_oauth_identity_provider` | **H** | AB#5543: sets a client secret |
+| `add_azure_entra_id_identity_provider` | **H** | AB#5543: sets a client secret |
 | `add_open_ldap_identity_provider` | **M** | |
 | `add_active_directory_identity_provider` | **M** | |
 | `add_octo_tenant_identity_provider` | **M** | |
@@ -313,20 +313,30 @@ _Low=3_  ·  **Owner reviewed:** ☐
 | `query_entities_aggregation` | **L** | |
 | `query_entities_grouping` | **L** | |
 
-### RuntimeEntityCrudTools (8 tools)
+### RuntimeEntityCrudTools (9 tools)
 
-_Low=5 · Medium=3_  ·  **Owner reviewed:** ☐
+_High=1 · Low=5 · Medium=3_  ·  **Owner reviewed:** ☐
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
 | `query_entities` | **L** | |
 | `query_entities_simple` | **L** | |
 | `get_entity_by_id` | **L** | |
-| `create_entity` | **M** | |
-| `update_entity` | **M** | |
+| `create_entity` | **M** | AB#5543: refuses Secret values |
+| `update_entity` | **M** | AB#5543: refuses Secret values; `clearSecretAttributes` |
 | `delete_entity` | **M** | |
+| `set_entity_secrets` | **H** | AB#5543: the only tool that sets/rotates Secret values |
 | `navigate_associations` | **L** — owner: confirm | |
 | `get_association_tree` | **L** | |
+
+### SecretMaintenanceTools (2 tools)
+
+_High=1 · Low=1_  ·  **Owner reviewed:** ☐
+
+| Tool | Current | Notes for review |
+|------|---------|------------------|
+| `get_secret_status` | **L** | AB#5543: report only, never values |
+| `start_secret_sweep` | **H** | AB#5543: static level; Verify needs no confirm, writing modes need `confirm=true`; no Decrypt |
 
 ### SchemaDiscoveryTools (5 tools)
 
@@ -439,3 +449,24 @@ _High=3 · Low=1 · Medium=1_  ·  **Owner reviewed:** ☐
 | `deploy_workload` | **H** | |
 | `undeploy_workload` | **H** | |
 | `move_pipelines` | **H** | |
+
+## Secret attributes (AB#5543)
+
+Concept §4.7 says "tools that set secrets are classified high risk". `ToolRiskRegistry` is static — one level
+per tool, reflected once at startup — so a tool cannot become high risk only when its payload targets a
+`SECRET` attribute. Instead of raising every generic write to High (which would gate every ordinary entity
+update behind an approval), secret writes were split out:
+
+- `create_entity` / `update_entity` stay **Medium** and **refuse** a non-empty value for a Secret attribute
+  (the error names `set_entity_secrets`). `null`, `""` and an echoed `{ "isSet": … }` marker mean
+  "unchanged". `update_entity` gained `clearSecretAttributes` (clearing loses a credential but exposes
+  nothing; the engine refuses clearing a required secret).
+- `set_entity_secrets` (**High**) is the only entity tool that writes a secret value; it refuses non-secret
+  attributes and placeholders.
+- Identity providers: `add_oauth_identity_provider` and `add_azure_entra_id_identity_provider` were raised
+  from Medium to **High** because they hand a client secret to the platform; `update_identity_provider` was
+  already High.
+- `start_secret_sweep` is **High** as a whole (three of its four modes rewrite or clear stored secrets);
+  `get_secret_status` is Low.
+
+Pinned by `tests/McpServices.Tests/Services/SecretToolRiskClassificationTests.cs`.

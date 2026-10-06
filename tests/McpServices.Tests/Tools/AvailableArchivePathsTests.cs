@@ -44,6 +44,29 @@ public class AvailableArchivePathsTests : TestBase
     }
 
     [Fact]
+    public void Resolve_SecretAttributes_AreNeverOffered()
+    {
+        // AB#5543: Secret attributes are never archived, so they are not archive paths — neither at the top
+        // level nor as record members.
+        var endpointRecordId = new CkId<CkRecordId>("EnergyCommunity-1/Endpoint-1");
+        var typeGraph = BuildType("EnergyCommunity-1/Sensor-1",
+            ("Name", AttributeValueTypesDto.String, null),
+            ("ApiKey", AttributeValueTypesDto.Secret, null),
+            ("Endpoint", AttributeValueTypesDto.Record, endpointRecordId));
+        var endpointRecord = BuildRecord(endpointRecordId,
+            ("Url", AttributeValueTypesDto.String, null),
+            ("Token", AttributeValueTypesDto.Secret, null));
+
+        var ckCache = new Mock<ICkCacheService>();
+        ckCache.Setup(c => c.GetRtCkType(TenantId, SensorCkType)).Returns(typeGraph);
+        SetupTryGetCkRecord(ckCache, endpointRecordId, endpointRecord);
+
+        var result = AvailableArchivePathsResolver.Resolve(ckCache.Object, TenantId, SensorCkType, maxDepth: 5);
+
+        result.Select(p => p.Path).Should().BeEquivalentTo("Name", "Endpoint", "Endpoint.Url");
+    }
+
+    [Fact]
     public void Resolve_RecordAttribute_EmitsRecordRowPlusChildren()
     {
         var addressRecordId = new CkId<CkRecordId>("EnergyCommunity-1/Address-1");
