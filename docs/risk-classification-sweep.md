@@ -330,13 +330,14 @@ _High=2 · Low=5 · Medium=3_  ·  **Owner reviewed:** ☐
 | `navigate_associations` | **L** — owner: confirm | |
 | `get_association_tree` | **L** | |
 
-### SecretMaintenanceTools (2 tools)
+### SecretMaintenanceTools (3 tools)
 
 _High=1 · Low=1_  ·  **Owner reviewed:** ☐
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
 | `get_secret_status` | **L** | AB#5543: environment status, sweep runs, report — never values |
+| `get_secret_inventory` | **L** | AB#5543: asset-repo secrets overview (inventory + optional summary/usedBy) — never values |
 | `start_secret_sweep` | **H** | AB#5543: static level; Verify needs no confirm, writing modes need `confirm=true`; no Decrypt |
 
 ### SchemaDiscoveryTools (5 tools)
@@ -473,7 +474,7 @@ update behind an approval), secret writes were split out:
 - `start_secret_sweep` is **High** as a whole (three of its four modes — Encrypt, Reprotect, CleanupUnreadable —
   rewrite or remove stored secrets and need `confirm=true`, which is forwarded to the bot service);
   `get_secret_status` is Low (environment status, run list and report: counts and references, never values).
-- A read tool for the asset-repo secrets inventory (`get_secret_inventory`, would be Low) is a follow-up: the MCP
-  service has no general GraphQL client for the asset repository yet.
+- `get_secret_inventory` is Low: it reads the asset-repo secrets overview (slot metadata and counts, never values)
+  through a small typed GraphQL client (`RuntimeSecretInventoryClient`) with the caller's token.
 
 Pinned by `tests/McpServices.Tests/Services/SecretToolRiskClassificationTests.cs`.

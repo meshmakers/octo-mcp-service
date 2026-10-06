@@ -141,6 +141,8 @@ try
     // existing "identity" named HttpClient (already configured for the self-signed
     // ClusterIP certs that asset-services serves on).
     builder.Services.AddSingleton<IRuntimeGraphqlIntrospectionClient, RuntimeGraphqlIntrospectionClient>();
+    // AB#5543 — secrets overview (get_secret_inventory) over the same asset-services GraphQL endpoint.
+    builder.Services.AddSingleton<IRuntimeSecretInventoryClient, RuntimeSecretInventoryClient>();
 
     builder.Services.AddCors();
 

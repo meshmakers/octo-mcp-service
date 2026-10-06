@@ -39,4 +39,11 @@ public class SecretToolRiskClassificationTests
         Registry.GetAll().Should().ContainKey("get_secret_status");
         Registry.GetRiskLevel("get_secret_status").Should().Be(McpRiskLevel.Low);
     }
+
+    [Fact]
+    public void GetSecretInventory_IsReadOnlyLow()
+    {
+        Registry.GetAll().Should().ContainKey("get_secret_inventory");
+        Registry.GetRiskLevel("get_secret_inventory").Should().Be(McpRiskLevel.Low);
+    }
 }

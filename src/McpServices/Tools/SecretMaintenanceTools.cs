@@ -114,6 +114,155 @@ public sealed class SecretMaintenanceTools
         }
     }
 
+    /// <summary>Default page size of <c>get_secret_inventory</c>.</summary>
+    internal const int InventoryDefaultPageSize = 50;
+
+    /// <summary>Largest page size <c>get_secret_inventory</c> accepts.</summary>
+    internal const int InventoryMaxPageSize = 200;
+
+    private static readonly IReadOnlyDictionary<string, string> StorageForms =
+        new[] { "NOT_SET", "PLAINTEXT", "ENC_V1", "ENC_V2", "KEY_MISSING", "CORRUPT" }
+            .ToDictionary(f => f.Replace("_", string.Empty), f => f, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Lists the secret slots of a tenant (secrets overview, handover §7). Read-only, never values.</summary>
+    [McpServerTool(Name = "get_secret_inventory")]
+    [Description(
+        "List the Secret attribute slots of a tenant from the asset repository's secrets overview: per slot the " +
+        "entity (ckTypeId, rtId, rtWellKnownName, displayName), attributePath (camelCase, record members like " +
+        "endpoints[key=prod].token), attributeName, required, storage form (NOT_SET, PLAINTEXT, ENC_V1, ENC_V2, " +
+        "KEY_MISSING, CORRUPT), keyId, setAt and needsReEntry (KEY_MISSING, CORRUPT, or NOT_SET and required). " +
+        "needsReEntry=true lists the live re-entry tasks (e.g. after a restore from another environment). " +
+        "summary=true adds the counts per form and per key id; usedBy=true adds the pipelines (RevealSecret@1 " +
+        "nodes) that reveal each secret (heavier). Paged: pass endCursor as after while hasNextPage is true. " +
+        "Requires the AdminPanelManagement role in the tenant. Read-only; secret values are never returned.")]
+    public static async Task<SecretInventoryResponse> GetSecretInventory(
+        McpServer server,
+        [Description("Only entities of this CK type, e.g. 'System.Communication/Application' (derived types included).")]
+        string? ckTypeId = null,
+        [Description("Only slots in one of these storage forms: NOT_SET, PLAINTEXT, ENC_V1, ENC_V2, KEY_MISSING, CORRUPT.")]
+        string[]? forms = null,
+        [Description("true: only re-entry tasks; false: only slots that need no re-entry; omit for all.")]
+        bool? needsReEntry = null,
+        [Description("Free-text search over rtId, CK type (full or short name), well-known name, display name and attribute path.")]
+        string? search = null,
+        [Description("Page size (default 50, max 200).")]
+        int first = InventoryDefaultPageSize,
+        [Description("Cursor of the previous page (its endCursor).")]
+        string? after = null,
+        [Description("When true, also return the summary (counts per storage form and per key id).")]
+        bool summary = false,
+        [Description("When true, also return the pipelines that reveal each secret (heavier query).")]
+        bool usedBy = false,
+        [Description("Tenant to list. Falls back to URL route.")]
+        string? tenantId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (first < 1 || first > InventoryMaxPageSize)
+        {
+            return new SecretInventoryResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = $"first must be between 1 and {InventoryMaxPageSize}."
+            };
+        }
+
+        var normalizedForms = new List<string>();
+        foreach (var form in forms ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(form) ||
+                !StorageForms.TryGetValue(form.Trim().Replace("_", string.Empty), out var normalized))
+            {
+                return new SecretInventoryResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = $"Unknown storage form '{form}'. Use NOT_SET, PLAINTEXT, ENC_V1, ENC_V2, " +
+                                   "KEY_MISSING or CORRUPT."
+                };
+            }
+
+            if (!normalizedForms.Contains(normalized))
+            {
+                normalizedForms.Add(normalized);
+            }
+        }
+
+        string resolvedTenantId;
+        try
+        {
+            resolvedTenantId = server.Services!.GetRequiredService<ITenantResolutionService>().ResolveTenantId(tenantId);
+        }
+        catch (Exception ex)
+        {
+            return new SecretInventoryResponse { IsSuccess = false, ErrorMessage = $"Failed to resolve tenant: {ex.Message}" };
+        }
+
+        // Tenant-aware token (home tenant → session token; other tenant → exchanged token), as AssetClientContext.
+        var token = await McpSessionContext.ResolveAccessTokenAsync(server, resolvedTenantId);
+        if (token.Error != null || token.AccessToken == null)
+        {
+            return new SecretInventoryResponse
+            {
+                IsSuccess = false,
+                TenantId = resolvedTenantId,
+                ErrorMessage = token.Error ?? Constants.NotAuthenticatedError
+            };
+        }
+
+        try
+        {
+            var client = server.Services!.GetRequiredService<IRuntimeSecretInventoryClient>();
+            var result = await client.QueryAsync(token.AccessToken, resolvedTenantId, new SecretInventoryRequest
+            {
+                First = first,
+                After = string.IsNullOrWhiteSpace(after) ? null : after.Trim(),
+                CkTypeId = string.IsNullOrWhiteSpace(ckTypeId) ? null : ckTypeId.Trim(),
+                Forms = normalizedForms.Count > 0 ? normalizedForms : null,
+                NeedsReEntry = needsReEntry,
+                Search = string.IsNullOrWhiteSpace(search) ? null : search.Trim(),
+                IncludeSummary = summary,
+                IncludeUsedBy = usedBy
+            }, cancellationToken);
+
+            if (result.Outcome != SecretInventoryQueryOutcome.Succeeded || result.Inventory == null)
+            {
+                return new SecretInventoryResponse
+                {
+                    IsSuccess = false,
+                    TenantId = resolvedTenantId,
+                    ErrorMessage = result.ErrorMessage ?? "The secret inventory query returned no data."
+                };
+            }
+
+            var inventory = result.Inventory;
+            var reEntryOnPage = inventory.Items.Count(i => i.NeedsReEntry);
+            return new SecretInventoryResponse
+            {
+                IsSuccess = true,
+                TenantId = resolvedTenantId,
+                TotalCount = inventory.TotalCount,
+                HasNextPage = inventory.PageInfo?.HasNextPage ?? false,
+                EndCursor = inventory.PageInfo?.EndCursor,
+                Items = inventory.Items,
+                Summary = result.Summary,
+                Message = $"{inventory.Items.Count} of {inventory.TotalCount} secret slot(s) in tenant " +
+                          $"'{resolvedTenantId}'; {reEntryOnPage} on this page need re-entry." +
+                          (result.Summary != null
+                              ? $" Summary: total={result.Summary.Total}, encV2={result.Summary.EncV2}, " +
+                                $"plaintext={result.Summary.Plaintext}, encV1={result.Summary.EncV1}, " +
+                                $"keyMissing={result.Summary.KeyMissing}, corrupt={result.Summary.Corrupt}, " +
+                                $"notSet={result.Summary.NotSet}, needsReEntry={result.Summary.NeedsReEntry}."
+                              : string.Empty) +
+                          (inventory.PageInfo?.HasNextPage == true
+                              ? $" More pages: pass after='{inventory.PageInfo.EndCursor}'."
+                              : string.Empty)
+            };
+        }
+        catch (Exception ex)
+        {
+            return new SecretInventoryResponse { IsSuccess = false, TenantId = resolvedTenantId, ErrorMessage = ex.Message };
+        }
+    }
+
     /// <summary>Starts a secret sweep job for a tenant or all tenants.</summary>
     [McpServerTool(Name = "start_secret_sweep")]
     // Static classification: the registry has no per-argument risk, and three of the four modes rewrite or clear
