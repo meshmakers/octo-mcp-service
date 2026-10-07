@@ -874,6 +874,12 @@ Notes:
 - **Code coverage** is collected via `coverlet.collector` (already referenced in `McpServices.Tests.csproj`) and surfaced in the Code Coverage tab of the build. Cobertura XML lands in `$(Agent.TempDirectory)`.
 - **Test glob excludes `*SystemTests.csproj`** so a future `McpServices.SystemTests` project (real-service integration suite) can be added later without breaking the main build — those would need their own pipeline + Testcontainers env, matching the pattern in `octo-identity-services`.
 
+CI build-time settings (root `azure-pipelines.yml`, AB#5711 phase 0):
+
+- **Docs-only commits do not start CI.** The `trigger:` excludes `**/*.md`, `*.md`, `.claude/` and `docs/`. A commit touching only those paths builds nothing; the change ships with the next code commit.
+- **NuGet restore uses the HTTP cache.** `purge-private-nuget-http-cache.yml` (octo-pipeline-templates) drops only the private feed's cache entries before the restore, so floating `0.1.*` ranges still see freshly published packages; `--force` and `noCache: true` are gone (`checkout: clean: true` already rules out stale `obj/`).
+- **Docker layer reuse** comes from the template pin `tpl-v0.6.5`: a registry cache (`octo-mesh-mcp-services:buildcache`) plus the buildx builder `mybuilder`, which now survives between runs on the same agent.
+
 The current suite is ~863 mock-based unit tests + a handful of in-process integration tests (`McpServerIntegrationTests`). If you add real-service-dependent tests, put them in a separate `*SystemTests` project so they're skipped here.
 
 ## Project Layout
