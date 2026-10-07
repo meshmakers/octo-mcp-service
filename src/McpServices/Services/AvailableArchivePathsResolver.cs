@@ -26,6 +26,9 @@ namespace Meshmakers.Octo.Backend.McpServices.Services;
 ///         flag propagates into the record's children so a downstream consumer can tell apart "this
 ///         path is a column" from "this path is an element of an array column".
 ///     </para>
+///     <para>
+///         Secret attributes (and Secret record members) are skipped — they are never archived.
+///     </para>
 /// </remarks>
 internal static class AvailableArchivePathsResolver
 {
@@ -65,6 +68,13 @@ internal static class AvailableArchivePathsResolver
         HashSet<CkId<CkRecordId>> visitedRecords,
         List<ArchivePathInfo> sink)
     {
+        // Secret attributes are never archived (CrateDB excludes them, AB#5528 concept §4.4), so they are
+        // not offered as archive paths either.
+        if (attribute.ValueType == AttributeValueTypesDto.Secret)
+        {
+            return;
+        }
+
         var isArray = isInsideArray
                       || attribute.ValueType is AttributeValueTypesDto.RecordArray
                                              or AttributeValueTypesDto.StringArray

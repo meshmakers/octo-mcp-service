@@ -128,8 +128,8 @@ public class CkImportResponse : AssetResponse
     /// <summary>Models that will be imported (resolved including dependencies).</summary>
     public List<string> ModelsToImport { get; set; } = [];
 
-    /// <summary>Asset-service job IDs for the import operations. Poll separately to track completion.</summary>
-    public List<string> JobIds { get; set; } = [];
+    /// <summary>Job ID of the batch import that imports all models. Poll separately to track completion.</summary>
+    public string? JobId { get; set; }
 }
 
 /// <summary>Response of refresh_ck_catalogs.</summary>

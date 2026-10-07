@@ -1,6 +1,6 @@
 # OctoMesh MCP Service
 
-A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, exposing **204 tools** that mirror the full surface of `octo-cli`, the asset-repo GraphQL transient + persisted query APIs (including the `availableArchivePaths` studio introspection), plus generic CK-type CRUD. AI assistants get direct access to tenant administration, identity management, communication-controller, blueprints, time-series queries + aggregations, reporting, and large-file transfers — without ever invoking the CLI or sending GraphQL.
+A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, exposing **208 tools** that mirror the full surface of `octo-cli`, the asset-repo GraphQL transient + persisted query APIs (including the `availableArchivePaths` studio introspection), plus generic CK-type CRUD. AI assistants get direct access to tenant administration, identity management, communication-controller, blueprints, time-series queries + aggregations, reporting, and large-file transfers — without ever invoking the CLI or sending GraphQL.
 
 ## 🚀 Features
 
@@ -140,7 +140,7 @@ dotnet run
 
 ## 🛠️ Available Tools
 
-> **204 tools total.** Most tools mirror the corresponding `octo-cli` command (snake_case naming); the aggregation + persisted-query + archive-path-introspection tools mirror the asset-repo GraphQL transient + persisted query surface. All platform-admin tools accept an optional `tenantId` parameter that falls back to the URL route. Destructive operations require an explicit `confirm: true` parameter (no silent state changes).
+> **208 tools total.** Most tools mirror the corresponding `octo-cli` command (snake_case naming); the aggregation + persisted-query + archive-path-introspection tools mirror the asset-repo GraphQL transient + persisted query surface. All platform-admin tools accept an optional `tenantId` parameter that falls back to the URL route. Destructive operations require an explicit `confirm: true` parameter (no silent state changes).
 
 ### **Authentication & Identity Bootstrap** (4)
 `authenticate` · `check_auth_status` · `whoami` · `list_tenants`
@@ -178,7 +178,7 @@ dotnet run
 - Lifecycle (2): `enable_communication` · `disable_communication`<sup>‡</sup>
 - Adapters (4): `get_adapters` · `get_adapter` · `get_adapter_nodes` · `get_pipeline_schema`
 - Pipelines (8): `get_pipeline_status` · `deploy_pipeline` · `execute_pipeline` · `set_pipeline_debug` · `get_pipeline_debug` · `get_pipeline_executions` · `get_latest_pipeline_execution` · `get_pipeline_debug_points`
-- Data Flows / Triggers / Deployment Sites (9): `deploy_data_flow` · `undeploy_data_flow`<sup>‡</sup> · `get_data_flow_status` · `deploy_triggers` · `undeploy_triggers`<sup>‡</sup> · `get_deployment_sites` · `undeploy_deployment_site`<sup>‡</sup> · `get_adapter_pool_queue` · `cancel_queued_execution`<sup>‡</sup>
+- Data Flows / Triggers / Pools (7): `deploy_data_flow` · `undeploy_data_flow`<sup>‡</sup> · `get_data_flow_status` · `deploy_triggers` · `undeploy_triggers`<sup>‡</sup> · `get_pools` · `undeploy_pool`<sup>‡</sup>
 - Workloads + CI/CD (5): `get_workloads_by_chart` · `update_workload_chart_version` · `deploy_workload` · `undeploy_workload`<sup>‡</sup> · `move_pipelines`<sup>‡</sup>
 
 ### **Time Series + Reporting + Diagnostics** (16)
@@ -201,11 +201,20 @@ dotnet run
 - Persisted queries (2): `execute_runtime_query` · `execute_stream_data_query`
 - Archive metadata (4): `get_archive_storage_stats` · `get_rollup_query_metadata` · `resolve_series_query` · `get_archive_coverage`
 
-### **Generic Runtime CRUD + Schema Discovery** (16)
-- CRUD (6): `query_entities` · `query_entities_simple` · `get_entity_by_id` · `create_entity` · `update_entity` · `delete_entity`<sup>‡</sup>
+### **Generic Runtime CRUD + Schema Discovery** (17)
+- CRUD (8): `query_entities` · `query_entities_simple` · `get_entity_by_id` · `create_entity` · `update_entity` · `delete_entity`<sup>‡</sup> · `set_entity_secrets` · `create_entity_with_secrets`
 - Schema (7): `get_available_types` · `get_type_schema` · `get_available_models` · `search_types` · `get_association_tree` · `navigate_associations` · `get_available_archive_paths`
 - Tool Management (4): `list_available_tools` · `get_tool_details` · `get_tool_statistics` · `validate_tool_parameters`
 - Echo (1): `Echo`
+
+### **Secret attributes + maintenance** (AB#5543)
+- Secret maintenance (4): `get_secret_status` (environment status — key ring, active/known key ids, strict mode, recurring Verify, last Verify, `requiredKeyIds` of the encrypted dumps and the `DumpKeyMissing` warning —, recent sweep runs with the pre-sweep dump state, last report incl. the list of unreadable secrets to re-enter) · `start_secret_sweep`<sup>‡</sup> (modes Verify / Encrypt / Reprotect / CleanupUnreadable; the writing modes need `confirm: true`, which is passed on to the bot service; Verify does not; Decrypt is not offered) · `restore_secret_sweep_dump`<sup>‡</sup> (AB#5559: `tenantId`, `runId`, `confirm` required; restores a run's pre-sweep dump into the same tenant — drops and replaces the tenant database, Verify afterwards; refused with `DumpDeleted`, not found or `DumpKeyMissing`; 🔴 a dump taken before the first Encrypt brings plaintext secrets back — run Encrypt afterwards; needs role `SecretManagement`)
+- `get_secret_inventory` (read-only, low risk): the asset-repo secrets overview (`secrets { inventory, summary }`, handover §7) with the caller's token — per slot entity, `attributePath`, `form` (NOT_SET / PLAINTEXT / ENC_V1 / ENC_V2 / KEY_MISSING / CORRUPT), `keyId`, `setAt`, `needsReEntry`; filters `ckTypeId`, `forms`, `needsReEntry`, `search`; paging `first` (default 50, max 200) / `after`; `summary: true` adds the counts, `usedBy: true` the revealing pipelines (heavier). Needs role `AdminPanelManagement` in the tenant (otherwise a clear Forbidden message). Never returns values.
+- Attributes with value type `SECRET` are write-only. Every tool that returns entities shows `value: null` plus `secretIsSet: true|false` — never the value or the ciphertext (an architecture test forbids decryption in this assembly).
+- `create_entity` / `update_entity` (medium risk) refuse non-empty secret values; `null`, `""` or an echoed `{ "isSet": … }` leave the stored secret unchanged. `update_entity` takes `clearSecretAttributes` (camelCase or PascalCase names) to clear optional secrets.
+- `set_entity_secrets` (**high risk**) sets, rotates or clears secrets of an existing entity; `create_entity_with_secrets` (**high risk**) creates an entity together with its secrets (needed for types with a required secret, which `create_entity` cannot create). These are the only entity tools that write a secret value; an empty value is refused, any non-empty string (including `<…>` or `TODO_SET_*`) is an ordinary value.
+- Filters on a secret: only `IsNull` / `IsNotNull`. Other filter operators, aggregations and group-by on a secret are refused with `SecretAttributeNotQueryable`; `get_available_archive_paths` never lists secrets.
+- Identity providers: `clientSecret` is write-only (`clientSecretIsSet` instead; `get_identity_providers` also drops a client secret an older identity service might still return). `update_identity_provider` sends no secret unless a new one is passed. Risk classification and its rationale: `docs/risk-classification-sweep.md`.
 
 <sup>‡</sup> Destructive — requires `confirm: true`.
 <sup>📁</sup> Uses file-transfer endpoints (see Section *File I/O Flow* below).

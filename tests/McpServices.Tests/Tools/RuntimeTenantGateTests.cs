@@ -432,6 +432,11 @@ public class RuntimeTenantGateTests : TestBase
         { "update_entity", s => RuntimeEntityCrudTools.UpdateEntity(s, TestRtId, TestCkTypeId, []) },
         { "delete_entity", s => RuntimeEntityCrudTools.DeleteEntity(s, TestCkTypeId, TestRtId) },
         {
+            "set_entity_secrets",
+            s => RuntimeEntityCrudTools.SetEntitySecrets(s, TestRtId, TestCkTypeId,
+                clearSecretAttributes: ["Password"])
+        },
+        {
             "navigate_associations",
             s => RuntimeEntityCrudTools.NavigateAssociations(
                 s, TestCkTypeId, TestRtId, "System/ParentChild",

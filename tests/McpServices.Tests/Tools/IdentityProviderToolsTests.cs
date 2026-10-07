@@ -209,6 +209,7 @@ public class IdentityProviderToolsTests : ToolTestBase
     [Fact]
     public async Task UpdateIdentityProvider_AzureEntra_PreservesTenantAndAuthority()
     {
+        // AB#5543: GET no longer returns the client secret (write-only, clientSecretIsSet instead).
         MockIdentityClient.Setup(c => c.GetIdentityProvider(It.IsAny<OctoObjectId>()))
             .ReturnsAsync(new AzureEntraIdProviderDto
             {
@@ -216,7 +217,49 @@ public class IdentityProviderToolsTests : ToolTestBase
                 TenantId = "azure-tid",
                 Authority = "https://my-authority/",
                 ClientId = "old-cid",
-                ClientSecret = "old-sec"
+                ClientSecret = null,
+                ClientSecretIsSet = true
+            });
+
+        await IdentityProviderTools.UpdateIdentityProvider(MockServer.Object,
+            providerId: ProviderId, name: "New", isEnabled: true);
+
+        // No new secret supplied -> null on the wire = "keep the stored secret".
+        MockIdentityClient.Verify(c => c.UpdateIdentityProvider(
+            It.IsAny<OctoObjectId>(),
+            It.Is<AzureEntraIdProviderDto>(p =>
+                p.Name == "New" && p.TenantId == "azure-tid" &&
+                p.Authority == "https://my-authority/" &&
+                p.ClientId == "old-cid" && p.ClientSecret == null)),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateIdentityProvider_AzureEntra_WithNewSecret_RotatesSecret()
+    {
+        MockIdentityClient.Setup(c => c.GetIdentityProvider(It.IsAny<OctoObjectId>()))
+            .ReturnsAsync(new AzureEntraIdProviderDto
+            {
+                Name = "Old", TenantId = "azure-tid", ClientId = "old-cid", ClientSecretIsSet = true
+            });
+
+        await IdentityProviderTools.UpdateIdentityProvider(MockServer.Object,
+            providerId: ProviderId, name: "New", isEnabled: true, clientSecret: "rotated-test-secret");
+
+        MockIdentityClient.Verify(c => c.UpdateIdentityProvider(
+            It.IsAny<OctoObjectId>(),
+            It.Is<AzureEntraIdProviderDto>(p => p.ClientSecret == "rotated-test-secret")),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateIdentityProvider_Google_WithoutSecret_SendsNullAndKeepsClientId()
+    {
+        // Even if a (legacy) server still echoed a secret, the tool must never send it back.
+        MockIdentityClient.Setup(c => c.GetIdentityProvider(It.IsAny<OctoObjectId>()))
+            .ReturnsAsync(new GoogleIdentityProviderDto
+            {
+                Name = "Old", ClientId = "old-cid", ClientSecret = "echoed-by-old-server", ClientSecretIsSet = true
             });
 
         await IdentityProviderTools.UpdateIdentityProvider(MockServer.Object,
@@ -224,11 +267,65 @@ public class IdentityProviderToolsTests : ToolTestBase
 
         MockIdentityClient.Verify(c => c.UpdateIdentityProvider(
             It.IsAny<OctoObjectId>(),
-            It.Is<AzureEntraIdProviderDto>(p =>
-                p.Name == "New" && p.TenantId == "azure-tid" &&
-                p.Authority == "https://my-authority/" &&
-                p.ClientId == "old-cid" && p.ClientSecret == "old-sec")),
+            It.Is<GoogleIdentityProviderDto>(p => p.ClientId == "old-cid" && p.ClientSecret == null)),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateIdentityProvider_EmptySecret_IsTreatedAsUnchanged()
+    {
+        MockIdentityClient.Setup(c => c.GetIdentityProvider(It.IsAny<OctoObjectId>()))
+            .ReturnsAsync(new MicrosoftIdentityProviderDto { Name = "Old", ClientId = "cid" });
+
+        await IdentityProviderTools.UpdateIdentityProvider(MockServer.Object,
+            providerId: ProviderId, name: "New", isEnabled: true, clientSecret: "");
+
+        MockIdentityClient.Verify(c => c.UpdateIdentityProvider(
+            It.IsAny<OctoObjectId>(),
+            It.Is<MicrosoftIdentityProviderDto>(p => p.ClientSecret == null)),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task GetIdentityProviders_PassesClientSecretIsSetThrough()
+    {
+        MockIdentityClient.Setup(c => c.GetIdentityProviders())
+            .ReturnsAsync(new List<IdentityProviderDto>
+            {
+                new GoogleIdentityProviderDto { Name = "G", ClientId = "cid", ClientSecretIsSet = true }
+            });
+
+        var result = await IdentityProviderTools.GetIdentityProviders(MockServer.Object);
+
+        result.IsSuccess.Should().BeTrue();
+        var google = result.Providers.Should().ContainSingle().Which.Should().BeOfType<GoogleIdentityProviderDto>()
+            .Subject;
+        google.ClientSecretIsSet.Should().BeTrue();
+        google.ClientSecret.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetIdentityProviders_ClientSecretFromOlderService_IsScrubbed()
+    {
+        // AB#5543 defense in depth: an identity service that still echoes client secrets must not leak them
+        // into the AI transcript.
+        const string fakeSecret = "fake-client-secret-from-old-service";
+        MockIdentityClient.Setup(c => c.GetIdentityProviders())
+            .ReturnsAsync(new List<IdentityProviderDto>
+            {
+                new GoogleIdentityProviderDto { Name = "G", ClientId = "g", ClientSecret = fakeSecret },
+                new MicrosoftIdentityProviderDto { Name = "M", ClientId = "m", ClientSecret = fakeSecret },
+                new FacebookIdentityProviderDto { Name = "F", ClientId = "f", ClientSecret = fakeSecret },
+                new AzureEntraIdProviderDto { Name = "A", ClientId = "a", TenantId = "t", ClientSecret = fakeSecret }
+            });
+
+        var result = await IdentityProviderTools.GetIdentityProviders(MockServer.Object);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Providers.Should().HaveCount(4);
+        System.Text.Json.JsonSerializer.Serialize<object>(result).Should().NotContain(fakeSecret);
+        System.Text.Json.JsonSerializer.Serialize(result.Providers.Cast<object>().ToList())
+            .Should().NotContain(fakeSecret);
     }
 
     [Fact]

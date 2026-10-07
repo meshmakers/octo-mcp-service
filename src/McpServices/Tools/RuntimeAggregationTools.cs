@@ -106,7 +106,7 @@ public sealed class RuntimeAggregationTools
             return new PersistedRuntimeQueryResponse
             {
                 IsSuccess = false,
-                ErrorMessage = ex.Message,
+                ErrorMessage = SecretErrors.Describe(ex),
                 QueryRtId = queryRtId,
                 TenantId = resolvedTenantId
             };
@@ -183,6 +183,18 @@ public sealed class RuntimeAggregationTools
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var resolvedTenantId = tenantRepository.TenantId;
 
+        // AB#5543: Secret attributes can be neither aggregated nor grouped, and filtered only with IsNull /
+        // IsNotNull. Refuse before the engine round-trip with the same error code the engine uses.
+        var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
+        var secretUsage = SecretAttributePaths.FindNotQueryableUsage(ckCacheService, resolvedTenantId, ckTypeId,
+            aggregations!.Select(a => (a.AttributePath, $"aggregation '{a.Function}'"))
+                .Concat((groupByAttributePaths ?? []).Select(g => ((string?)g, "group-by")))
+                .Concat(RuntimeEntityCrudTools.SecretRelevantFilterUsages(filters)));
+        if (secretUsage != null)
+        {
+            return new AggregationResultResponse { IsSuccess = false, ErrorMessage = secretUsage };
+        }
+
         using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
@@ -235,7 +247,7 @@ public sealed class RuntimeAggregationTools
         }
         catch (Exception ex)
         {
-            return new AggregationResultResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new AggregationResultResponse { IsSuccess = false, ErrorMessage = SecretErrors.Describe(ex) };
         }
     }
 

@@ -246,8 +246,8 @@ _High=2 · Low=1 · Medium=5_  ·  **Owner reviewed:** ☐
 |------|---------|------------------|
 | `get_identity_providers` | **L** | |
 | `delete_identity_provider` | **H** | |
-| `add_oauth_identity_provider` | **M** | |
-| `add_azure_entra_id_identity_provider` | **M** | |
+| `add_oauth_identity_provider` | **H** | AB#5543: sets a client secret |
+| `add_azure_entra_id_identity_provider` | **H** | AB#5543: sets a client secret |
 | `add_open_ldap_identity_provider` | **M** | |
 | `add_active_directory_identity_provider` | **M** | |
 | `add_octo_tenant_identity_provider` | **M** | |
@@ -315,20 +315,33 @@ _Low=3_  ·  **Owner reviewed:** ☐
 | `query_entities_aggregation` | **L** | |
 | `query_entities_grouping` | **L** | |
 
-### RuntimeEntityCrudTools (8 tools)
+### RuntimeEntityCrudTools (9 tools)
 
-_Low=5 · Medium=3_  ·  **Owner reviewed:** ☐
+_High=2 · Low=5 · Medium=3_  ·  **Owner reviewed:** ☐
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
 | `query_entities` | **L** | |
 | `query_entities_simple` | **L** | |
 | `get_entity_by_id` | **L** | |
-| `create_entity` | **M** | |
-| `update_entity` | **M** | |
+| `create_entity` | **M** | AB#5543: refuses Secret values |
+| `update_entity` | **M** | AB#5543: refuses Secret values; `clearSecretAttributes` |
 | `delete_entity` | **M** | |
+| `set_entity_secrets` | **H** | AB#5543: sets/rotates/clears Secret values of an existing entity |
+| `create_entity_with_secrets` | **H** | AB#5543: creates an entity with its Secret values (required secrets) |
 | `navigate_associations` | **L** — owner: confirm | |
 | `get_association_tree` | **L** | |
+
+### SecretMaintenanceTools (3 tools)
+
+_High=1 · Low=1_  ·  **Owner reviewed:** ☐
+
+| Tool | Current | Notes for review |
+|------|---------|------------------|
+| `get_secret_status` | **L** | AB#5543: environment status, sweep runs, report — never values |
+| `get_secret_inventory` | **L** | AB#5543: asset-repo secrets overview (inventory + optional summary/usedBy) — never values |
+| `start_secret_sweep` | **H** | AB#5543: static level; Verify needs no confirm, writing modes need `confirm=true`; no Decrypt |
+| `restore_secret_sweep_dump` | **H** | AB#5559: replaces the tenant database with a pre-sweep dump (may bring plaintext secrets back); `confirm=true` required |
 
 ### SchemaDiscoveryTools (5 tools)
 
@@ -441,3 +454,30 @@ _High=3 · Low=1 · Medium=1_  ·  **Owner reviewed:** ☐
 | `deploy_workload` | **H** | |
 | `undeploy_workload` | **H** | |
 | `move_pipelines` | **H** | |
+
+## Secret attributes (AB#5543)
+
+Concept §4.7 says "tools that set secrets are classified high risk". `ToolRiskRegistry` is static — one level
+per tool, reflected once at startup — so a tool cannot become high risk only when its payload targets a
+`SECRET` attribute. Instead of raising every generic write to High (which would gate every ordinary entity
+update behind an approval), secret writes were split out:
+
+- `create_entity` / `update_entity` stay **Medium** and **refuse** a non-empty value for a Secret attribute
+  (the error names `set_entity_secrets`). `null`, `""` and an echoed `{ "isSet": … }` marker mean
+  "unchanged". `update_entity` gained `clearSecretAttributes` (clearing loses a credential but exposes
+  nothing; the engine refuses clearing a required secret).
+- `set_entity_secrets` (**High**) and `create_entity_with_secrets` (**High**) are the only entity tools that
+  write a secret value; their `secrets` argument refuses non-secret attributes and empty values (placeholder-looking
+  strings are ordinary values since 2026-10-06).
+  `create_entity_with_secrets` exists because the engine refuses to insert an entity whose type has a
+  required secret without a value (rule message 2), so `create_entity` + `set_entity_secrets` cannot create it.
+- Identity providers: `add_oauth_identity_provider` and `add_azure_entra_id_identity_provider` were raised
+  from Medium to **High** because they hand a client secret to the platform; `update_identity_provider` was
+  already High.
+- `start_secret_sweep` is **High** as a whole (three of its four modes — Encrypt, Reprotect, CleanupUnreadable —
+  rewrite or remove stored secrets and need `confirm=true`, which is forwarded to the bot service);
+  `get_secret_status` is Low (environment status, run list and report: counts and references, never values).
+- `get_secret_inventory` is Low: it reads the asset-repo secrets overview (slot metadata and counts, never values)
+  through a small typed GraphQL client (`RuntimeSecretInventoryClient`) with the caller's token.
+
+Pinned by `tests/McpServices.Tests/Services/SecretToolRiskClassificationTests.cs`.

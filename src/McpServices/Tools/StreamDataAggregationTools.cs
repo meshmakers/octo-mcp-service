@@ -165,7 +165,7 @@ public sealed class StreamDataAggregationTools
             return new PersistedStreamDataQueryResponse
             {
                 IsSuccess = false,
-                ErrorMessage = ex.Message,
+                ErrorMessage = SecretErrors.Describe(ex),
                 QueryRtId = queryRtId,
                 TenantId = resolvedTenantId
             };
@@ -236,7 +236,7 @@ public sealed class StreamDataAggregationTools
         }
         catch (Exception ex)
         {
-            return new StreamDataResultResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new StreamDataResultResponse { IsSuccess = false, ErrorMessage = SecretErrors.Describe(ex) };
         }
     }
 
@@ -291,7 +291,7 @@ public sealed class StreamDataAggregationTools
         }
         catch (Exception ex)
         {
-            return new AggregationResultResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new AggregationResultResponse { IsSuccess = false, ErrorMessage = SecretErrors.Describe(ex) };
         }
     }
 
@@ -349,7 +349,7 @@ public sealed class StreamDataAggregationTools
         }
         catch (Exception ex)
         {
-            return new AggregationResultResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new AggregationResultResponse { IsSuccess = false, ErrorMessage = SecretErrors.Describe(ex) };
         }
     }
 
@@ -431,7 +431,7 @@ public sealed class StreamDataAggregationTools
         }
         catch (Exception ex)
         {
-            return new DownsamplingResultResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new DownsamplingResultResponse { IsSuccess = false, ErrorMessage = SecretErrors.Describe(ex) };
         }
     }
 
