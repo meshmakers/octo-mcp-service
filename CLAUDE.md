@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes 204 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
+`octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes 209 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
 
 Three distinct tool families live here — be aware which one you're touching:
 
@@ -23,7 +23,7 @@ dotnet build src/McpServices/McpServices.csproj -c DebugL
 # Build the entire solution (server + tests + resources)
 dotnet build Octo.McpServices.sln -c DebugL
 
-# Run all tests (currently 877, ~1 s)
+# Run all tests (currently 1040, ~1 s)
 dotnet test Octo.McpServices.sln -c DebugL
 
 # Filter tests by class
@@ -258,6 +258,19 @@ HTTP GET <publicUrl>/file-transfer/download/{transferId}
 
 Transfer ids are random 128-bit GUIDs in URL paths; they expire in 30 min; no extra auth check on the endpoints. For stricter setups, put the service behind your own auth gateway. **Do not** add base64-in-tool-parameter as an alternative path — the file-transfer endpoints are the only sanctioned mechanism for binary payloads.
 
+### Platform file system tools (AB#6182, `PlatformFileTools`)
+
+`list_files`, `upload_file`, `download_file`, `create_folder`, `delete_file` wrap the typed
+`IAssetServicesClient.Files` client of the SDK (System.Files, AB#6171 — REST `{tenant}/v1/files` for bytes,
+GraphQL for metadata). They are Family 1 (`AssetClientContext`) and use the file-transfer channel above for
+bytes: `prepare_file_upload` → PUT → `upload_file(transferId, root, path)`; `download_file` stages the bytes in
+`IFileTransferStore` and returns a `downloadUrlPath`. Files are addressed by root well-known name (default
+`Files`) + `/`-separated path, or by `rtId`. Server error codes (NAME_CONFLICT, PATH_NOT_FOUND, …) are returned
+in `ErrorCode`. Risk: `list_files`, `download_file`, `create_folder` Low; `upload_file` Medium (`conflict=replace`
+overwrites content); `delete_file` **High** + `confirm=true` — deleting a folder is recursive server-side
+(all or nothing, delete cap 2,000 entries), the refusal message reports what would be deleted. The tenant needs
+no `enable_*` call; `GET {tenant}/v1/files/capabilities` reports `available:false / SYSTEM_FILES_MISSING` otherwise.
+
 ### CK + runtime model upload formats (gotchas)
 
 `import_ck_model` and `import_runtime_model` are NOT JSON-only — confirmed accepted formats:
@@ -283,6 +296,7 @@ The correct way to make those models available is the matching `enable_<feature>
 | `System.StreamData-*` | `enable_stream_data` |
 | `System.Reporting-*` | `enable_reporting` |
 | `System.UI-*` | (no MCP tool yet — install via Studio or octo-cli) |
+| `System.Files-*` | none needed — imported into every tenant (AB#6171); the platform file system works without any `enable_*` tool (see below) |
 
 For user-managed CK models (Basic.*, Industry.*, EnergyIQ, Loxone, custom tenant models), `import_ck_from_catalog` works correctly and DOES load them, and the response carries the job id of the batch import. The reliable verification is `get_ck_library_status` — it reports the actually-loaded version and `modelState=Available`. `get_available_models` may be stale right after an import.
 
@@ -438,7 +452,7 @@ Both `MapMcp` endpoints require it. Before this they carried a bare `RequireAuth
 token with no Octo API scope at all (a front-end `openid profile` token, say) reached every tool —
 while every backend service gates on `scope`.
 
-**The requirement is uniform, and it is the write scope `octo_api`.** MCP multiplexes all 204 tools
+**The requirement is uniform, and it is the write scope `octo_api`.** MCP multiplexes all 209 tools
 over one JSON-RPC `POST`; the tool name lives in the request *body* and ASP.NET authorization runs on
 the endpoint before the body is read, so there is no second endpoint to hang a stricter policy on and
 no way to split read from write there. Accepting `octo_api.read_only` would therefore hand a
