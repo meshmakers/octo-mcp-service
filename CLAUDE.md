@@ -905,7 +905,7 @@ CI build-time settings (root `azure-pipelines.yml`, AB#5711 phase 0):
 
 - **Docs-only commits do not start CI.** The `trigger:` excludes `**/*.md`, `*.md`, `.claude/` and `docs/`. A commit touching only those paths builds nothing; the change ships with the next code commit.
 - **NuGet restore uses the HTTP cache.** `purge-private-nuget-http-cache.yml` (octo-pipeline-templates) drops only the private feed's cache entries before the restore, so floating `0.1.*` ranges still see freshly published packages; `--force` and `noCache: true` are gone (`checkout: clean: true` already rules out stale `obj/`).
-- **Docker layer reuse** comes from the template pin (since `tpl-v0.6.5`, now `tpl-v1.3.1`): a registry cache (`octo-mesh-mcp-services:buildcache`) plus the buildx builder `mybuilder`, which now survives between runs on the same agent.
+- **Docker layer reuse** comes from the template pin (since `tpl-v0.6.5`, now `tpl-v1.3.2`): a registry cache (`octo-mesh-mcp-services:buildcache`) plus the buildx builder `mybuilder`, which now survives between runs on the same agent.
 
 The current suite is ~877 mock-based unit tests + a handful of in-process integration tests (`McpServerIntegrationTests`). If you add real-service-dependent tests, put them in a separate `*SystemTests` project so they're skipped here.
 
