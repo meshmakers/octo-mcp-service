@@ -39,23 +39,25 @@ public class ApiSecretToolsTests : ToolTestBase
     }
 
     [Fact]
-    public async Task CreateClientSecret_HappyPath_ReturnsEncryptedValue()
+    public async Task CreateClientSecret_HappyPath_ReturnsServerGeneratedClearText_AndSendsNoSecretMaterial()
     {
         MockIdentityClient.Setup(c => c.CreateApiSecretForClient(ClientId,
-                It.Is<ApiSecretDto>(s => s.ValueClearText == "cleartext")))
-            .ReturnsAsync(new ApiSecretDto { ValueEncrypted = "enc-1" });
+                It.Is<ApiSecretDto>(s => s.ValueClearText == null && s.ValueEncrypted == null
+                                         && s.Description == "d")))
+            .ReturnsAsync(new ApiSecretDto { ValueEncrypted = "enc-1", ValueClearText = "clear-1" });
 
-        var result = await ApiSecretTools.CreateClientSecret(MockServer.Object,
-            ClientId, "cleartext");
+        var result = await ApiSecretTools.CreateClientSecret(MockServer.Object, ClientId, description: "d");
 
         result.IsSuccess.Should().BeTrue();
-        result.SecretValue.Should().Be("enc-1");
+        result.ClearTextSecret.Should().Be("clear-1");
+        result.SecretValue.Should().Be("enc-1", "the hash identifies the secret for update and delete");
+        result.Message.Should().NotContain("clear-1").And.NotContain("enc-1");
     }
 
     [Fact]
     public async Task CreateClientSecret_MissingArgs_ReturnsValidationError()
     {
-        var result = await ApiSecretTools.CreateClientSecret(MockServer.Object, "", "");
+        var result = await ApiSecretTools.CreateClientSecret(MockServer.Object, "");
         result.IsSuccess.Should().BeFalse();
     }
 
@@ -104,17 +106,25 @@ public class ApiSecretToolsTests : ToolTestBase
     }
 
     [Fact]
-    public async Task CreateApiResourceSecret_HappyPath_ReturnsEncryptedValue()
+    public async Task CreateApiResourceSecret_HappyPath_ReturnsServerGeneratedClearText()
     {
         MockIdentityClient.Setup(c => c.CreateApiSecretForApiResource(ResourceName,
-                It.IsAny<ApiSecretDto>()))
-            .ReturnsAsync(new ApiSecretDto { ValueEncrypted = "enc-2" });
+                It.Is<ApiSecretDto>(s => s.ValueClearText == null && s.ValueEncrypted == null)))
+            .ReturnsAsync(new ApiSecretDto { ValueEncrypted = "enc-2", ValueClearText = "clear-2" });
 
-        var result = await ApiSecretTools.CreateApiResourceSecret(MockServer.Object,
-            ResourceName, "clear");
+        var result = await ApiSecretTools.CreateApiResourceSecret(MockServer.Object, ResourceName);
 
         result.IsSuccess.Should().BeTrue();
+        result.ClearTextSecret.Should().Be("clear-2");
         result.SecretValue.Should().Be("enc-2");
+        result.Message.Should().NotContain("clear-2").And.NotContain("enc-2");
+    }
+
+    [Fact]
+    public async Task CreateApiResourceSecret_MissingName_ReturnsValidationError()
+    {
+        var result = await ApiSecretTools.CreateApiResourceSecret(MockServer.Object, "");
+        result.IsSuccess.Should().BeFalse();
     }
 
     [Fact]
