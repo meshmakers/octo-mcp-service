@@ -62,23 +62,19 @@ public sealed class ApiSecretTools
     [McpServerTool(Name = "create_client_secret")]
     [McpRisk(McpRiskLevel.High)]
     [Description(
-        "Create a new API secret on a client. Equivalent to octo-cli CreateApiSecretClient. The server returns " +
-        "the encrypted value; capture it from the response.")]
+        "Create a new API secret on a client. Equivalent to octo-cli CreateApiSecretClient. The server generates " +
+        "the secret (256 bit); the response carries the clear text ONCE in clearTextSecret - capture it, it cannot " +
+        "be retrieved again. secretValue is the stored hash that identifies the secret for update/delete.")]
     public static async Task<ApiSecretResponse> CreateClientSecret(
         McpServer server,
         [Description("Client ID.")] string clientId,
-        [Description("Cleartext secret value.")] string valueClearText,
         [Description("Optional expiration date (UTC).")] DateTime? expirationDate = null,
         [Description("Optional description.")] string? description = null,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(valueClearText))
+        if (string.IsNullOrWhiteSpace(clientId))
         {
-            return new ApiSecretResponse
-            {
-                IsSuccess = false,
-                ErrorMessage = "clientId and valueClearText are required."
-            };
+            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = "clientId is required." };
         }
 
         var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
@@ -91,7 +87,6 @@ public sealed class ApiSecretTools
         {
             var result = await ctx.Client!.CreateApiSecretForClient(clientId, new ApiSecretDto
             {
-                ValueClearText = valueClearText,
                 ExpirationDate = expirationDate,
                 Description = description
             });
@@ -101,7 +96,9 @@ public sealed class ApiSecretTools
                 TenantId = ctx.TenantId,
                 OwnerId = clientId,
                 SecretValue = result.ValueEncrypted,
-                Message = $"Secret created on client '{clientId}'."
+                ClearTextSecret = result.ValueClearText,
+                Message = $"Secret created on client '{clientId}'. The clear text is in clearTextSecret and is " +
+                          "not shown again."
             };
         }
         catch (Exception ex)
@@ -259,22 +256,20 @@ public sealed class ApiSecretTools
     [McpServerTool(Name = "create_api_resource_secret")]
     [McpRisk(McpRiskLevel.High)]
     [Description(
-        "Create a new API secret on an API resource. Equivalent to octo-cli CreateApiSecretApiResource.")]
+        "Create a new API secret on an API resource. Equivalent to octo-cli CreateApiSecretApiResource. The " +
+        "server generates the secret (256 bit); the response carries the clear text ONCE in clearTextSecret - " +
+        "capture it, it cannot be retrieved again. secretValue is the stored hash that identifies the secret " +
+        "for update/delete.")]
     public static async Task<ApiSecretResponse> CreateApiResourceSecret(
         McpServer server,
         [Description("API resource name.")] string apiResourceName,
-        [Description("Cleartext secret value.")] string valueClearText,
         [Description("Optional expiration date (UTC).")] DateTime? expirationDate = null,
         [Description("Optional description.")] string? description = null,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        if (string.IsNullOrWhiteSpace(apiResourceName) || string.IsNullOrWhiteSpace(valueClearText))
+        if (string.IsNullOrWhiteSpace(apiResourceName))
         {
-            return new ApiSecretResponse
-            {
-                IsSuccess = false,
-                ErrorMessage = "apiResourceName and valueClearText are required."
-            };
+            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = "apiResourceName is required." };
         }
 
         var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
@@ -287,7 +282,6 @@ public sealed class ApiSecretTools
         {
             var result = await ctx.Client!.CreateApiSecretForApiResource(apiResourceName, new ApiSecretDto
             {
-                ValueClearText = valueClearText,
                 ExpirationDate = expirationDate,
                 Description = description
             });
@@ -297,7 +291,9 @@ public sealed class ApiSecretTools
                 TenantId = ctx.TenantId,
                 OwnerId = apiResourceName,
                 SecretValue = result.ValueEncrypted,
-                Message = $"Secret created on API resource '{apiResourceName}'."
+                ClearTextSecret = result.ValueClearText,
+                Message = $"Secret created on API resource '{apiResourceName}'. The clear text is in clearTextSecret and is " +
+                          "not shown again."
             };
         }
         catch (Exception ex)

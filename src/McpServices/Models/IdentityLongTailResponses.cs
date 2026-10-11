@@ -71,8 +71,17 @@ public class ApiSecretResponse : IdentityLongTailResponse
     /// <summary>Owner identifier (client id or api-resource name).</summary>
     public string? OwnerId { get; set; }
 
-    /// <summary>The secret value the operation targeted (when applicable).</summary>
+    /// <summary>
+    ///     The stored (hashed) secret value the operation targeted - the identifier for update and delete.
+    ///     Never the clear text.
+    /// </summary>
     public string? SecretValue { get; set; }
+
+    /// <summary>
+    ///     The clear-text secret the server generated. Only set by the create tools, shown once - the
+    ///     server keeps just the hash.
+    /// </summary>
+    public string? ClearTextSecret { get; set; }
 }
 
 /// <summary>List of email-domain group rules response.</summary>
