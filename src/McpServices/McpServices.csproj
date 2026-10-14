@@ -33,8 +33,8 @@
         <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.18.0" />
         <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.18.0" />
 
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.11" />
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.11" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.13" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.13" />
         <!-- Direct reference: OidcConstants is used by the client management tools. The released Octo SDK still ships
              the legacy IdentityModel package until the next libs train; Duende.IdentityModel is its successor. -->
         <PackageReference Include="Duende.IdentityModel" Version="8.1.0" />
