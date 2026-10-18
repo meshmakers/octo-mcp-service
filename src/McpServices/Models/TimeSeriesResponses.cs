@@ -83,10 +83,22 @@ public class RepairRollupsResponse : TimeSeriesResponse
     /// <summary>True when nothing was changed (dry run).</summary>
     public bool DryRun { get; set; }
 
+    /// <summary>The planned steps of a dry run; <c>null</c> when a repair was requested.</summary>
+    public RollupRepairReportDto? Plan { get; set; }
+
     /// <summary>
-    /// The planned steps (dry run) or the steps that ran / were enqueued. For an applied repair
-    /// <c>Report.JobIds</c> lists the recompute jobs to follow with list_recompute_jobs; validate_rollups
-    /// afterwards shows the final state.
+    /// The repair request of an applied repair (state Pending at first). The repair runs in the background on the
+    /// server; follow it with get_rollup_repair_status until the state is Done or Failed.
     /// </summary>
-    public RollupRepairReportDto? Report { get; set; }
+    public RollupRepairRequestDto? Request { get; set; }
+}
+
+/// <summary>Response for get_rollup_repair_status (AB#6968).</summary>
+public class RollupRepairStatusResponse : TimeSeriesResponse
+{
+    /// <summary>The repair request: state, planned steps and, once it has ended, the final report.</summary>
+    public RollupRepairRequestDto? Request { get; set; }
+
+    /// <summary>True when the request has ended (Done or Failed).</summary>
+    public bool IsFinished { get; set; }
 }

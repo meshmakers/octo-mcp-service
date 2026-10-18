@@ -1,6 +1,6 @@
 # OctoMesh MCP Service
 
-A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, exposing **210 tools** that mirror the full surface of `octo-cli`, the asset-repo GraphQL transient + persisted query APIs (including the `availableArchivePaths` studio introspection), plus generic CK-type CRUD. AI assistants get direct access to tenant administration, identity management, communication-controller, blueprints, time-series queries + aggregations, reporting, and large-file transfers — without ever invoking the CLI or sending GraphQL.
+A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Kit operations, exposing **211 tools** that mirror the full surface of `octo-cli`, the asset-repo GraphQL transient + persisted query APIs (including the `availableArchivePaths` studio introspection), plus generic CK-type CRUD. AI assistants get direct access to tenant administration, identity management, communication-controller, blueprints, time-series queries + aggregations, reporting, and large-file transfers — without ever invoking the CLI or sending GraphQL.
 
 ## 🚀 Features
 
@@ -20,7 +20,7 @@ A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Ki
 - **Data flows + triggers + pools**: deploy/undeploy + status
 - **Workload CI/CD rollout** (Epic 3054): chart-version staging, deploy, bulk pipeline reassignment
 
-### **Time Series, Reporting, Diagnostics (18 tools)**
+### **Time Series, Reporting, Diagnostics (19 tools)**
 - **Stream data + archives**: enable/disable, activate, freeze + rewind rollups
 - **Reporting service**: enable/disable
 - **Runtime log-level reconfiguration**: dispatches to all 6 backend services
@@ -140,7 +140,7 @@ dotnet run
 
 ## 🛠️ Available Tools
 
-> **216 tools total.** Most tools mirror the corresponding `octo-cli` command (snake_case naming); the aggregation + persisted-query + archive-path-introspection tools mirror the asset-repo GraphQL transient + persisted query surface. All platform-admin tools accept an optional `tenantId` parameter that falls back to the URL route. Destructive operations require an explicit `confirm: true` parameter (no silent state changes).
+> **217 tools total.** Most tools mirror the corresponding `octo-cli` command (snake_case naming); the aggregation + persisted-query + archive-path-introspection tools mirror the asset-repo GraphQL transient + persisted query surface. All platform-admin tools accept an optional `tenantId` parameter that falls back to the URL route. Destructive operations require an explicit `confirm: true` parameter (no silent state changes).
 
 ### **Authentication & Identity Bootstrap** (4)
 `authenticate` · `check_auth_status` · `whoami` · `list_tenants`
@@ -181,8 +181,8 @@ dotnet run
 - Data Flows / Triggers / Pools (7): `deploy_data_flow` · `undeploy_data_flow`<sup>‡</sup> · `get_data_flow_status` · `deploy_triggers` · `undeploy_triggers`<sup>‡</sup> · `get_pools` · `undeploy_pool`<sup>‡</sup>
 - Workloads + CI/CD (5): `get_workloads_by_chart` · `update_workload_chart_version` · `deploy_workload` · `undeploy_workload`<sup>‡</sup> · `move_pipelines`<sup>‡</sup>
 
-### **Time Series + Reporting + Diagnostics** (18)
-- Stream Data + Archives (15): `enable_stream_data` · `disable_stream_data`<sup>‡</sup> · `activate_archive` · `disable_archive` · `enable_archive` · `retry_archive_activation` · `delete_archive`<sup>‡</sup> · `list_rollups_for_archive` · `backfill_rollup_archive`<sup>‡</sup> · `list_recompute_jobs` · `freeze_rollup_archive` · `unfreeze_rollup_archive` · `rewind_rollup_watermark`<sup>‡</sup> · `validate_rollups` · `repair_rollups`<sup>‡</sup>
+### **Time Series + Reporting + Diagnostics** (19)
+- Stream Data + Archives (16): `enable_stream_data` · `disable_stream_data`<sup>‡</sup> · `activate_archive` · `disable_archive` · `enable_archive` · `retry_archive_activation` · `delete_archive`<sup>‡</sup> · `list_rollups_for_archive` · `backfill_rollup_archive`<sup>‡</sup> · `list_recompute_jobs` · `freeze_rollup_archive` · `unfreeze_rollup_archive` · `rewind_rollup_watermark`<sup>‡</sup> · `validate_rollups` · `repair_rollups`<sup>‡</sup> · `get_rollup_repair_status`
 - Reporting (2): `enable_reporting` · `disable_reporting`<sup>‡</sup>
 - Diagnostics (1): `reconfigure_log_level` (dispatches to Identity/AssetRepository/Communication/Reporting/Bot)
 

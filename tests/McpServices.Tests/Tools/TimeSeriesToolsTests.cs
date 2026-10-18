@@ -403,13 +403,13 @@ public class TimeSeriesToolsTests : ToolTestBase
         ])
     ]);
 
-    private static RollupRepairReportDto Repair(bool dryRun, string? failedStep = null, params string[] jobIds) =>
-        new(dryRun, failedStep is null, Broken(),
-        [
-            new RollupRepairActionDto(RollupRtId, "DeleteOrphans", "step", dryRun ? "Planned" : "Executed", null, null,
-                120, null, null)
-        ],
-        null, failedStep, jobIds);
+    private static RollupRepairActionDto PlannedAction() =>
+        new(RollupRtId, "DeleteOrphans", "step", "Planned", null, null, 3, null);
+
+    private static RollupRepairReportDto Plan() => new(true, true, Broken(), [PlannedAction()], null, null);
+
+    private static RollupRepairRequestDto RepairRequest(string state, RollupRepairReportDto? report = null) =>
+        new("req-1", state, DateTime.UtcNow, report is null ? null : DateTime.UtcNow, [PlannedAction()], report);
 
     [Fact]
     public async Task ValidateRollups_ReturnsTheReportAndSaysItIsInconsistent()
@@ -449,29 +449,31 @@ public class TimeSeriesToolsTests : ToolTestBase
     }
 
     [Fact]
-    public async Task ValidateRollups_IsReadClass_RepairIsHigh()
+    public void ValidateRollups_AndStatus_AreReadClass_RepairIsHigh()
     {
         var registry = new Meshmakers.Octo.Backend.McpServices.Services.ToolRiskRegistry(
             typeof(TimeSeriesTools).Assembly);
 
         registry.GetRiskLevel("validate_rollups").Should().Be(Meshmakers.Octo.Backend.McpServices.Models.McpRiskLevel.Low);
+        registry.GetRiskLevel("get_rollup_repair_status")
+            .Should().Be(Meshmakers.Octo.Backend.McpServices.Models.McpRiskLevel.Low);
         registry.GetRiskLevel("repair_rollups").Should().Be(Meshmakers.Octo.Backend.McpServices.Models.McpRiskLevel.High);
-        await Task.CompletedTask;
     }
 
     [Fact]
     public async Task RepairRollups_DefaultIsADryRunWithoutConfirm()
     {
-        MockStreamDataClient.Setup(c => c.RepairRollupsAsync(DefaultTenantId, null, true)).ReturnsAsync(Repair(true));
+        MockStreamDataClient.Setup(c => c.PlanRollupRepairAsync(DefaultTenantId, null)).ReturnsAsync(Plan());
 
         var result = await TimeSeriesTools.RepairRollups(MockServer.Object);
 
         result.IsSuccess.Should().BeTrue();
         result.DryRun.Should().BeTrue();
+        result.Plan!.Actions.Should().ContainSingle();
+        result.Request.Should().BeNull();
         result.Message.Should().Contain("nothing was changed");
-        MockStreamDataClient.Verify(c => c.RepairRollupsAsync(DefaultTenantId, null, true), Times.Once);
-        MockStreamDataClient.Verify(c => c.RepairRollupsAsync(It.IsAny<string>(),
-            It.IsAny<IReadOnlyCollection<string>?>(), false), Times.Never);
+        MockStreamDataClient.Verify(c => c.EnqueueRollupRepairAsync(It.IsAny<string>(),
+            It.IsAny<IReadOnlyCollection<string>?>()), Times.Never);
     }
 
     [Fact]
@@ -481,45 +483,70 @@ public class TimeSeriesToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("confirm=true");
-        MockStreamDataClient.Verify(c => c.RepairRollupsAsync(It.IsAny<string>(),
-            It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<bool>()), Times.Never);
+        MockStreamDataClient.Verify(c => c.EnqueueRollupRepairAsync(It.IsAny<string>(),
+            It.IsAny<IReadOnlyCollection<string>?>()), Times.Never);
     }
 
     [Fact]
-    public async Task RepairRollups_ApplyWithConfirm_ReturnsTheEnqueuedJobs()
+    public async Task RepairRollups_ApplyWithConfirm_ReturnsTheRequestToPoll()
     {
-        MockStreamDataClient.Setup(c => c.RepairRollupsAsync(DefaultTenantId, null, false))
-            .ReturnsAsync(Repair(false, null, "job-1"));
+        MockStreamDataClient.Setup(c => c.EnqueueRollupRepairAsync(DefaultTenantId, null))
+            .ReturnsAsync(RepairRequest("Pending"));
 
         var result = await TimeSeriesTools.RepairRollups(MockServer.Object, dryRun: false, confirm: true);
 
         result.IsSuccess.Should().BeTrue();
-        result.Report!.JobIds.Should().Equal("job-1");
-        result.Message.Should().Contain("list_recompute_jobs").And.Contain("validate_rollups");
-    }
-
-    [Fact]
-    public async Task RepairRollups_FailedStep_IsReportedAsFailureWithTheReport()
-    {
-        MockStreamDataClient.Setup(c => c.RepairRollupsAsync(DefaultTenantId, null, false))
-            .ReturnsAsync(Repair(false, "DeleteOrphans on r1: timeout"));
-
-        var result = await TimeSeriesTools.RepairRollups(MockServer.Object, dryRun: false, confirm: true);
-
-        result.IsSuccess.Should().BeFalse();
-        result.ErrorMessage.Should().Contain("DeleteOrphans on r1: timeout");
-        result.Report.Should().NotBeNull();
+        result.DryRun.Should().BeFalse();
+        result.Request!.RequestId.Should().Be("req-1");
+        result.Plan.Should().BeNull();
+        result.Message.Should().Contain("get_rollup_repair_status");
     }
 
     [Fact]
     public async Task RepairRollups_ServiceError_ReturnsTheMessage()
     {
-        MockStreamDataClient.Setup(c => c.RepairRollupsAsync(DefaultTenantId, null, true))
+        MockStreamDataClient.Setup(c => c.PlanRollupRepairAsync(DefaultTenantId, null))
             .ThrowsAsync(new InvalidOperationException("Stream data is not enabled"));
 
         var result = await TimeSeriesTools.RepairRollups(MockServer.Object);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("not enabled");
+    }
+
+    [Fact]
+    public async Task GetRollupRepairStatus_RunningRequest_IsNotFinished()
+    {
+        MockStreamDataClient.Setup(c => c.GetRollupRepairRequestAsync(DefaultTenantId, "req-1"))
+            .ReturnsAsync(RepairRequest("Running"));
+
+        var result = await TimeSeriesTools.GetRollupRepairStatus(MockServer.Object, "req-1");
+
+        result.IsSuccess.Should().BeTrue();
+        result.IsFinished.Should().BeFalse();
+        result.Message.Should().Contain("poll again");
+    }
+
+    [Fact]
+    public async Task GetRollupRepairStatus_FailedRequest_IsFinishedAndCarriesTheReport()
+    {
+        var report = new RollupRepairReportDto(false, false, Broken(), [PlannedAction()], null, "step 1: timeout");
+        MockStreamDataClient.Setup(c => c.GetRollupRepairRequestAsync(DefaultTenantId, "req-1"))
+            .ReturnsAsync(RepairRequest("Failed", report));
+
+        var result = await TimeSeriesTools.GetRollupRepairStatus(MockServer.Object, "req-1");
+
+        result.IsFinished.Should().BeTrue();
+        result.Request!.Report!.FailedStep.Should().Be("step 1: timeout");
+    }
+
+    [Fact]
+    public async Task GetRollupRepairStatus_MissingRequestId_ReturnsError()
+    {
+        var result = await TimeSeriesTools.GetRollupRepairStatus(MockServer.Object, " ");
+
+        result.IsSuccess.Should().BeFalse();
+        MockStreamDataClient.Verify(c => c.GetRollupRepairRequestAsync(It.IsAny<string>(), It.IsAny<string>()),
+            Times.Never);
     }
 }

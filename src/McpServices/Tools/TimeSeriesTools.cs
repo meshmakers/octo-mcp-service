@@ -511,15 +511,15 @@ public sealed class TimeSeriesTools
         "Repair what validate_rollups finds (AB#6968): delete rows above the generation the pointer selects, rewind " +
         "a watermark, create a missing generation map, recompute a pointer range. Idempotent. DRY RUN BY DEFAULT: " +
         "with dryRun=true (the default) it lists the planned steps per rollup and changes nothing. With " +
-        "dryRun=false (requires confirm=true) the fast steps run at once and the recompute ranges are ENQUEUED as " +
-        "recompute jobs: `report.jobIds` and `report.actions[].jobId` name them. Poll list_recompute_jobs (archiveRtId " +
-        "= the action's rollupRtId) until they are Completed, then call validate_rollups to see the final state. " +
-        "Equivalent to octo-cli RepairRollups.")]
+        "dryRun=false (requires confirm=true) it REQUESTS the repair: the server executes it in the background " +
+        "(nothing runs inside this call) and returns `request` with a `requestId`. Poll get_rollup_repair_status " +
+        "until the state is Done or Failed; the final report then lists every step and the validation after the " +
+        "repair. A second request while one is active returns the active request. Equivalent to octo-cli RepairRollups.")]
     public static async Task<RepairRollupsResponse> RepairRollups(
         McpServer server,
         [Description("Rollup archive runtime IDs to repair. Omit to repair every rollup of the tenant.")]
         List<string>? rollupRtIds = null,
-        [Description("True (default) lists the planned repairs and changes nothing; false runs the repair.")]
+        [Description("True (default) lists the planned repairs and changes nothing; false requests the repair.")]
         bool dryRun = true,
         [Description("Must be true when dryRun is false (the repair deletes rows and recomputes ranges).")]
         bool confirm = false,
@@ -542,26 +542,76 @@ public sealed class TimeSeriesTools
 
         try
         {
-            var report = await ctx.Client!.RepairRollupsAsync(ctx.TenantId!, rollupRtIds, dryRun);
-            var failed = !string.IsNullOrEmpty(report.FailedStep);
+            if (dryRun)
+            {
+                var plan = await ctx.Client!.PlanRollupRepairAsync(ctx.TenantId!, rollupRtIds);
+                return new RepairRollupsResponse
+                {
+                    IsSuccess = true,
+                    TenantId = ctx.TenantId,
+                    DryRun = true,
+                    Plan = plan,
+                    Message = $"Dry run: {plan.Actions.Count} planned step(s); nothing was changed."
+                };
+            }
+
+            var request = await ctx.Client!.EnqueueRollupRepairAsync(ctx.TenantId!, rollupRtIds);
             return new RepairRollupsResponse
             {
-                IsSuccess = !failed,
+                IsSuccess = true,
                 TenantId = ctx.TenantId,
-                DryRun = report.DryRun,
-                Report = report,
-                ErrorMessage = failed ? $"The rollup repair failed at step: {report.FailedStep}" : null,
-                Message = report.DryRun
-                    ? $"Dry run: {report.Actions.Count} planned step(s); nothing was changed."
-                    : report.JobIds.Count > 0
-                        ? $"Repair applied: {report.JobIds.Count} recompute job(s) enqueued ({string.Join(", ", report.JobIds)}). "
-                          + "Poll list_recompute_jobs, then call validate_rollups."
-                        : "Repair applied; call validate_rollups to see the final state."
+                Request = request,
+                Message = $"Repair requested: {request.RequestId} is {request.State}. It runs in the background; "
+                          + "poll get_rollup_repair_status until it is Done or Failed."
             };
         }
         catch (Exception ex)
         {
             return new RepairRollupsResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>Read the state of a rollup repair request (AB#6968).</summary>
+    [McpServerTool(Name = "get_rollup_repair_status")]
+    [McpRisk(McpRiskLevel.Low)]
+    [Description(
+        "Read-only: the state of a rollup repair request started by repair_rollups (AB#6968): Pending, Running, " +
+        "Done or Failed, the planned steps and, once the request has ended, the final report (every step, the " +
+        "validation after the repair and, on failure, the failed step). `isFinished` is true for Done and Failed. " +
+        "Equivalent to octo-cli GetRollupRepairStatus.")]
+    public static async Task<RollupRepairStatusResponse> GetRollupRepairStatus(
+        McpServer server,
+        [Description("The requestId returned by repair_rollups.")] string requestId,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(requestId))
+        {
+            return new RollupRepairStatusResponse { IsSuccess = false, ErrorMessage = "requestId is required." };
+        }
+
+        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new RollupRepairStatusResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            var request = await ctx.Client!.GetRollupRepairRequestAsync(ctx.TenantId!, requestId);
+            return new RollupRepairStatusResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                Request = request,
+                IsFinished = request.IsFinished,
+                Message = request.IsFinished
+                    ? $"Repair request {request.RequestId} ended: {request.State}."
+                    : $"Repair request {request.RequestId} is {request.State}; poll again."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new RollupRepairStatusResponse { IsSuccess = false, ErrorMessage = ex.Message };
         }
     }
 
