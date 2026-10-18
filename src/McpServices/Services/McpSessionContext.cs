@@ -51,6 +51,9 @@ internal static class McpSessionContext
     private static readonly ConcurrentDictionary<(string SessionId, string TenantId), SemaphoreSlim>
         ExchangeLocks = new();
 
+    /// <summary>Label of a caller that cannot be identified; never matches any file-transfer owner.</summary>
+    internal const string AnonymousCallerLabel = "anonymous";
+
     /// <summary>
     ///     Returns the key this request's tokens live under in <see cref="IMcpSessionTokenStore" />, or
     ///     null when no authenticated caller can be identified — in which case the request simply has no
@@ -82,15 +85,16 @@ internal static class McpSessionContext
     }
 
     /// <summary>
-    ///     Non-null caller label for the file-transfer store's ownership tag. That tag is informational
-    ///     (the transfer endpoints authorise on the opaque 128-bit transfer id, not on the session), so an
-    ///     unidentifiable caller gets a constant here — unlike <see cref="TryGetSessionKey" />, where a
-    ///     shared value would be a security hole.
+    ///     Non-null caller label for the file-transfer store's ownership tag. Tools compare it with the
+    ///     tag stored at reservation time (AB#6989), so a transfer id can only be consumed by the session
+    ///     that created it. An unidentifiable caller gets the shared <see cref="AnonymousCallerLabel" />
+    ///     constant, which the store never treats as an identity (fails closed) — unlike
+    ///     <see cref="TryGetSessionKey" />, where a shared value would be a security hole.
     /// </summary>
     /// <param name="server">MCP server instance — provides DI access to the request context.</param>
     public static string GetCallerLabel(McpServer server)
     {
-        return TryGetSessionKey(server) ?? "anonymous";
+        return TryGetSessionKey(server) ?? AnonymousCallerLabel;
     }
 
     /// <summary>

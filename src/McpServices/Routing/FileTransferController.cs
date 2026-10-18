@@ -11,7 +11,9 @@ namespace Meshmakers.Octo.Backend.McpServices.Routing;
 ///     Security: transfer ids are random 128-bit GUIDs only visible inside the MCP response to the
 ///     authenticated client. The endpoints accept any transfer id that's still alive (no extra auth) because
 ///     guessability is computationally infeasible and entries expire in 30 minutes. For stricter setups, put
-///     this service behind your own gateway.
+///     this service behind your own gateway. AB#6989 narrows the window: the tools that consume an upload or
+///     cancel a transfer only accept ids of the calling session, and a download is single-use — the entry and
+///     its file are deleted after the first complete GET (an aborted or partial read keeps it until TTL).
 /// </summary>
 [ApiController]
 [Route("file-transfer")]
@@ -85,7 +87,20 @@ public sealed class FileTransferController : ControllerBase
             return NotFound(new { error = "Download file is no longer available." });
         }
 
-        var stream = System.IO.File.OpenRead(download.FilePath);
+        // Single use (AB#6989): delete entry + file once the last byte was served and the client did not
+        // abort. OnCompleted runs after the response finished, when the stream is already disposed. A partial
+        // read (client abort, range that stops early) leaves the entry for a resume; the sweeper ends it at TTL.
+        var stream = new EndTrackingStream(System.IO.File.OpenRead(download.FilePath));
+        var requestAborted = HttpContext.RequestAborted;
+        Response.OnCompleted(() =>
+        {
+            if (stream.ReachedEnd && !requestAborted.IsCancellationRequested)
+            {
+                _store.DeleteDownload(transferId);
+            }
+
+            return Task.CompletedTask;
+        });
         return File(stream, "application/octet-stream", download.FileName, enableRangeProcessing: true);
     }
 }

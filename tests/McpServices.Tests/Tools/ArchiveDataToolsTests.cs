@@ -122,7 +122,7 @@ public class ArchiveDataToolsTests : ToolTestBase
 
     private string StageImportUpload()
     {
-        var (id, path) = FileTransferStore.ReserveUpload("test-session", "archive-export.zip");
+        var (id, path) = FileTransferStore.ReserveUpload(CallerSession, "archive-export.zip");
         File.WriteAllBytes(path, [0, 1, 2]);
         FileTransferStore.CompleteUpload(id, 3);
         return id;
@@ -143,7 +143,7 @@ public class ArchiveDataToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
         result.JobId.Should().Be("imp-1");
         // Upload buffer cleaned up on success.
-        FileTransferStore.GetUpload(transferId).Should().BeNull();
+        FileTransferStore.GetUpload(transferId, CallerSession).Should().BeNull();
     }
 
     [Fact]

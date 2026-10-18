@@ -376,8 +376,8 @@ public class McpSessionContextTests
     [Fact]
     public void GetCallerLabel_WithoutAuthenticatedPrincipal_IsConstant()
     {
-        // The file-transfer ownership tag is informational (transfers authorise on the opaque transfer
-        // id), so it may fall back where the token-store key must not.
+        // The file-transfer ownership tag may fall back to a constant where the token-store key must not —
+        // the store (AB#6989) never treats that constant as an identity, see FileTransferStoreTests.
         _httpContext.User = new ClaimsPrincipal(new ClaimsIdentity());
 
         McpSessionContext.GetCallerLabel(_mockServer.Object).Should().Be("anonymous");

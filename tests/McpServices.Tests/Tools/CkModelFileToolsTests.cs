@@ -19,7 +19,7 @@ public class CkModelFileToolsTests : ToolTestBase
 
     private (string transferId, string filePath) StageUpload(string content = "{}", string fileName = "model.json")
     {
-        var (id, path) = FileTransferStore.ReserveUpload("test-session", fileName);
+        var (id, path) = FileTransferStore.ReserveUpload(CallerSession, fileName);
         File.WriteAllText(path, content);
         FileTransferStore.CompleteUpload(id, content.Length);
         return (id, path);
@@ -44,7 +44,7 @@ public class CkModelFileToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue();
         result.JobId.Should().Be("job-1");
         // The upload buffer was cleaned up on success.
-        FileTransferStore.GetUpload(transferId).Should().BeNull();
+        FileTransferStore.GetUpload(transferId, CallerSession).Should().BeNull();
     }
 
     [Fact]
@@ -79,7 +79,7 @@ public class CkModelFileToolsTests : ToolTestBase
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("schema mismatch");
         // Buffer still there for inspection / retry.
-        FileTransferStore.GetUpload(transferId).Should().NotBeNull();
+        FileTransferStore.GetUpload(transferId, CallerSession).Should().NotBeNull();
     }
 
     // ── import_runtime_model ────────────────────────────────────────────────

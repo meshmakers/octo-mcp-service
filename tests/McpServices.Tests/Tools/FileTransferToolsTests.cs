@@ -58,7 +58,7 @@ public class FileTransferToolsTests : ToolTestBase
         var result = await FileTransferTools.CancelFileTransfer(MockServer.Object, prep.TransferId!);
 
         result.IsSuccess.Should().BeTrue();
-        FileTransferStore.GetUpload(prep.TransferId!).Should().BeNull();
+        FileTransferStore.GetUpload(prep.TransferId!, CallerSession).Should().BeNull();
         File.Exists(target).Should().BeFalse();
     }
 

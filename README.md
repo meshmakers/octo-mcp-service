@@ -194,7 +194,7 @@ dotnet run
 - Archive Data: `export_archive_data` · `import_archive_data`
 - Fixup Scripts: `run_fixup_scripts`<sup>‡</sup> (create via generic `create_entity` with `RtFixup` CK type)
 - Platform file system (5): `list_files` · `upload_file` · `download_file` · `create_folder` · `delete_file`<sup>‡</sup> (System.Files; bytes via the file-transfer endpoints, no `enable_*` needed)
-- HTTP: `PUT /file-transfer/upload/{id}` · `GET /file-transfer/download/{id}` (range-enabled, 5 GiB cap)
+- HTTP: `PUT /file-transfer/upload/{id}` · `GET /file-transfer/download/{id}` (range-enabled, 5 GiB cap; uploads are bound to the reserving session, downloads are single-use)
 
 ### **Runtime + Stream Data Aggregations** (12)
 - Runtime aggregation (2): `query_entities_aggregation` · `query_entities_grouping`

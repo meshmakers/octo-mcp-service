@@ -49,6 +49,12 @@ public abstract class ToolTestBase : TestBase
     /// <summary>File-transfer store — real instance, in-memory. Internal because the store type is internal.</summary>
     internal FileTransferStore FileTransferStore { get; }
 
+    /// <summary>
+    ///     The file-transfer owner label of the current test caller (AB#6989) — what the tools compare an
+    ///     upload's stored session with. Evaluated lazily so it follows <c>GivenRequestPrincipal</c>.
+    /// </summary>
+    protected string CallerSession => McpSessionContext.GetCallerLabel(MockServer.Object);
+
     protected ToolTestBase()
     {
         MockTokenStore = new Mock<IMcpSessionTokenStore>();
