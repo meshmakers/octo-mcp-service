@@ -425,6 +425,26 @@ public class TimeSeriesToolsTests : ToolTestBase
     }
 
     [Fact]
+    public async Task ValidateRollups_NotCheckedRollup_IsNeverConsistentAndIsCounted()
+    {
+        var report = new RollupConsistencyReportDto(false, DateTime.UtcNow,
+        [
+            new RollupConsistencyEntryDto(RollupRtId, false, [], true,
+                new RollupNotCheckedDto("NoLiveTable", "The rollup table does not exist."))
+        ], true);
+        MockStreamDataClient.Setup(c => c.ValidateRollupsAsync(DefaultTenantId, null)).ReturnsAsync(report);
+
+        var result = await TimeSeriesTools.ValidateRollups(MockServer.Object);
+
+        result.IsSuccess.Should().BeTrue();
+        result.IsConsistent.Should().BeFalse();
+        result.HasNotChecked.Should().BeTrue();
+        result.NotCheckedCount.Should().Be(1);
+        result.Report!.Entries.Single().NotChecked!.Cause.Should().Be("NoLiveTable");
+        result.Message.Should().Contain("NOT CHECKED").And.Contain("0 inconsistent");
+    }
+
+    [Fact]
     public async Task ValidateRollups_WithIds_PassesThemOn()
     {
         MockStreamDataClient.Setup(c => c.ValidateRollupsAsync(DefaultTenantId, It.IsAny<IReadOnlyCollection<string>?>()))

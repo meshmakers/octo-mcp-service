@@ -468,7 +468,9 @@ public sealed class TimeSeriesTools
         "Read-only consistency check of the rollup archives of a tenant (AB#6968): a pointer without rows, rows " +
         "above the pointer, a watermark ahead of the rows, a missing generation map. Run it after a CrateDB " +
         "restore (DR runbook). The server uses counts and MAX/MIN statements only; nothing is changed and no row is " +
-        "exported. An inconsistent rollup is reported in `report.entries[].findings`, not as an error. If " +
+        "exported. An inconsistent rollup is reported in `report.entries[].findings`, not as an error. A rollup that " +
+        "cannot be checked (no live table, never activated, source missing) is reported with `isNotChecked` and " +
+        "`notChecked` {cause, reason} and makes `isConsistent` false; it is never reported as consistent. If " +
         "`isConsistent` is false, call repair_rollups (dry run first). Equivalent to octo-cli ValidateRollups.")]
     public static async Task<ValidateRollupsResponse> ValidateRollups(
         McpServer server,
@@ -485,16 +487,22 @@ public sealed class TimeSeriesTools
         try
         {
             var report = await ctx.Client!.ValidateRollupsAsync(ctx.TenantId!, rollupRtIds);
-            var inconsistent = report.Entries.Count(e => !e.IsOk);
+            var notChecked = report.Entries.Count(e => e.IsNotChecked);
+            var inconsistent = report.Entries.Count(e => !e.IsOk && (!e.IsNotChecked || e.Findings.Count > 0));
             return new ValidateRollupsResponse
             {
                 IsSuccess = true,
                 TenantId = ctx.TenantId,
                 IsConsistent = report.IsOk,
+                HasNotChecked = report.HasNotChecked,
+                NotCheckedCount = notChecked,
                 Report = report,
                 Message = report.IsOk
                     ? $"{report.Entries.Count} rollup(s) checked, all consistent."
-                    : $"{report.Entries.Count} rollup(s) checked, {inconsistent} inconsistent. "
+                    : $"{report.Entries.Count} rollup(s) listed, {inconsistent} inconsistent, {notChecked} NOT CHECKED. "
+                      + (notChecked > 0
+                          ? "A rollup that is not checked is not known to be consistent; see report.entries[].notChecked for the cause. "
+                          : string.Empty)
                       + "Call repair_rollups (dry run first) to see the planned repairs."
             };
         }
