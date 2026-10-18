@@ -23,7 +23,7 @@ dotnet build src/McpServices/McpServices.csproj -c DebugL
 # Build the entire solution (server + tests + resources)
 dotnet build Octo.McpServices.sln -c DebugL
 
-# Run all tests (currently 1040, ~1 s)
+# Run all tests (currently 1063, ~1 s)
 dotnet test Octo.McpServices.sln -c DebugL
 
 # Filter tests by class
@@ -234,7 +234,7 @@ Tools that need to receive or produce files use a separate HTTP channel: the JSO
 
 - `IFileTransferStore` / `FileTransferStore` — in-memory + disk-backed buffers. Reservations live in `_pending`; completed uploads in `_uploads`; pending downloads in `_downloads`. Files land in `Path.GetTempPath()/octo-mcp-file-transfer/<random>/`.
 - `FileTransferSweeper` — `BackgroundService` that purges expired entries + their files every 5 min.
-- `FileTransferController` — `PUT /file-transfer/upload/{id}` writes the body to the reserved path (5 GiB cap, streaming chunked). `GET /file-transfer/download/{id}` streams the file with range support.
+- `FileTransferController` — `PUT /file-transfer/upload/{id}` writes the body to the reserved path (5 GiB cap, streaming chunked). `GET /file-transfer/download/{id}` streams the file with range support and is single-use (deleted after the first complete GET).
 - `JobPollingHelper` — generic async-job poller for asset + bot service jobs (Succeeded/Failed/Timeout).
 
 ### Upload-then-import flow
@@ -245,7 +245,7 @@ HTTP PUT to <publicUrl>/file-transfer/upload/{transferId}
 import_ck_model(transferId, tenantId) → waits for job, returns jobId
 ```
 
-Inside the import tool: `store.GetUpload(transferId)` returns the on-disk path; pass that to the SDK call (which requires a file path argument, e.g. `ImportCkModelAsync(tenantId, filePath)`). On success, `store.DeleteUpload(transferId)` to clean up.
+Inside the import tool: `store.GetUpload(transferId, McpSessionContext.GetCallerLabel(server))` returns the on-disk path (only for the session that reserved the upload, see *Security*); pass that to the SDK call (which requires a file path argument, e.g. `ImportCkModelAsync(tenantId, filePath)`). On success, `store.DeleteUpload(transferId)` to clean up.
 
 ### Export-then-download flow
 
@@ -256,7 +256,30 @@ HTTP GET <publicUrl>/file-transfer/download/{transferId}
 
 ### Security
 
-Transfer ids are random 128-bit GUIDs in URL paths; they expire in 30 min; no extra auth check on the endpoints. For stricter setups, put the service behind your own auth gateway. **Do not** add base64-in-tool-parameter as an alternative path — the file-transfer endpoints are the only sanctioned mechanism for binary payloads.
+The HTTP endpoints stay **anonymous** by design (curl-based clients must keep working): the random 128-bit
+transfer id (`Guid.NewGuid().ToString("N")`, 30 min TTL) in the URL path is the capability. AB#6989 narrows what
+that capability allows:
+
+- **Session binding (tool side).** The store records the owner (`McpSessionContext.GetCallerLabel(server)`: the
+  validated principal's store key, plus `|<Mcp-Session-Id>` when the client sends that header) for every
+  reservation and download. `GetUpload(transferId, callerSessionId)` returns the upload **only for that owner**; every
+  consuming tool (`import_ck_model`, `import_runtime_model`, `restore_tenant`, `import_archive_data`, `upload_file`)
+  passes the caller's label and a foreign id gets exactly the answer an unknown/expired id gets (`Upload '<id>' not
+  found or expired.`) — no information leak, the owner's file stays untouched. `cancel_file_transfer` goes through
+  `CancelTransfer(id, caller)`: foreign id = silent no-op with the usual success answer. The shared `anonymous` label
+  (`McpSessionContext.AnonymousCallerLabel`, unidentifiable caller) **never matches** — it fails closed.
+  New tools that consume an upload must pass the caller label; never add a `GetUpload` overload without one.
+- **Single-use download.** `GET /file-transfer/download/{id}` deletes the entry **and** the temp file once the last
+  byte was served and the client did not abort (`EndTrackingStream` + `Response.OnCompleted`, checked against
+  `RequestAborted`). A second GET is 404. An aborted transfer, or a range that stops before the end of the file,
+  keeps the entry so the client can resume with a range request; the entry is then deleted when the resume reaches
+  the end, or by the TTL sweeper at the latest. Parallel chunked downloads: the chunk that reaches the end deletes
+  the file for the others — download sequentially.
+- **Still open** (separate stories under AB#6988): bearer token on `/file-transfer`, atomic claim of the upload slot
+  (two parallel PUTs on one id), disk quota / limit of concurrent reservations. A PUT still needs a `Content-Type`
+  header (framework behaviour, not a documented rule).
+
+For stricter setups, put the service behind your own auth gateway. **Do not** add base64-in-tool-parameter as an alternative path — the file-transfer endpoints are the only sanctioned mechanism for binary payloads.
 
 ### Platform file system tools (AB#6182, `PlatformFileTools`)
 

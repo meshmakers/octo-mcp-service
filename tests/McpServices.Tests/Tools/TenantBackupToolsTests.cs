@@ -122,7 +122,7 @@ public class TenantBackupToolsTests : ToolTestBase
 
     private (string transferId, string filePath) StageRestoreUpload()
     {
-        var (id, path) = FileTransferStore.ReserveUpload("test-session", "dump.tar.gz");
+        var (id, path) = FileTransferStore.ReserveUpload(CallerSession, "dump.tar.gz");
         File.WriteAllBytes(path, [0, 1, 2]);
         FileTransferStore.CompleteUpload(id, 3);
         return (id, path);
@@ -161,7 +161,7 @@ public class TenantBackupToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
         result.JobId.Should().Be("restore-1");
         // Upload buffer cleaned up on success.
-        FileTransferStore.GetUpload(transferId).Should().BeNull();
+        FileTransferStore.GetUpload(transferId, CallerSession).Should().BeNull();
         MockBotClient.Verify(c => c.RestoreRepositoryWithTusAsync(
             "target", "newdb", It.IsAny<string>(),
             null, false, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()), Times.Once);

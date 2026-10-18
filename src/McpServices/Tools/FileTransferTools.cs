@@ -85,8 +85,8 @@ public sealed class FileTransferTools
         }
 
         var store = server.Services!.GetRequiredService<IFileTransferStore>();
-        store.DeleteUpload(transferId);
-        store.DeleteDownload(transferId);
+        // AB#6989: only the owning session can cancel; a foreign id is a silent no-op (same answer as unknown).
+        store.CancelTransfer(transferId, McpSessionContext.GetCallerLabel(server));
 
         return Task.FromResult(new FileTransferResponse
         {

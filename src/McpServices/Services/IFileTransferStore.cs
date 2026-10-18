@@ -43,8 +43,15 @@ public interface IFileTransferStore
     /// <summary>Mark an upload as complete with the bytes written so far.</summary>
     void CompleteUpload(string transferId, long sizeBytes);
 
-    /// <summary>Returns the upload entry — or null if expired / not found / not finished.</summary>
-    FileTransferUpload? GetUpload(string transferId);
+    /// <summary>Returns the upload entry — or null if expired / not found / not finished / owned by another
+    /// session (AB#6989: a foreign caller is answered exactly like an unknown id).</summary>
+    /// <param name="transferId">Transfer id from <c>prepare_file_upload</c>.</param>
+    /// <param name="callerSessionId">The calling session, <c>McpSessionContext.GetCallerLabel(server)</c>.</param>
+    FileTransferUpload? GetUpload(string transferId, string callerSessionId);
+
+    /// <summary>Cancel an upload reservation / finished upload / download, but only when it belongs to
+    /// <paramref name="callerSessionId" />; a foreign or unknown id is a silent no-op.</summary>
+    void CancelTransfer(string transferId, string callerSessionId);
 
     /// <summary>Removes the upload entry and deletes its file.</summary>
     void DeleteUpload(string transferId);
@@ -53,7 +60,9 @@ public interface IFileTransferStore
     /// The store takes ownership of the file (it gets deleted on TTL or DeleteDownload).</summary>
     string RegisterDownload(string sessionId, string filePath, string fileName, TimeSpan? ttl = null);
 
-    /// <summary>Returns the download entry — or null if expired / not found.</summary>
+    /// <summary>Returns the download entry — or null if expired / not found. Used by the anonymous GET
+    /// endpoint, where the transfer id is the capability. The entry is single-use: the controller deletes it
+    /// once the file was served completely (AB#6989).</summary>
     FileTransferDownload? GetDownload(string transferId);
 
     /// <summary>Removes the download entry and deletes its file.</summary>

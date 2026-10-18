@@ -45,9 +45,11 @@ internal sealed class FileTransferStore : IFileTransferStore
             transferId, pending.SessionId, pending.TargetPath, pending.FileName, sizeBytes, pending.ExpiresAtUtc);
     }
 
-    public FileTransferUpload? GetUpload(string transferId)
+    public FileTransferUpload? GetUpload(string transferId, string callerSessionId)
     {
-        if (!_uploads.TryGetValue(transferId, out var u))
+        // AB#6989: a foreign (or unidentifiable) caller gets exactly the answer an unknown id gets, so the
+        // existence of someone else's upload is not observable.
+        if (!_uploads.TryGetValue(transferId, out var u) || !IsOwner(u.SessionId, callerSessionId))
         {
             return null;
         }
@@ -80,6 +82,23 @@ internal sealed class FileTransferStore : IFileTransferStore
         _downloads[id] = new FileTransferDownload(
             id, sessionId, filePath, fileName, size, DateTime.UtcNow.Add(ttl ?? DefaultTtl));
         return id;
+    }
+
+    public void CancelTransfer(string transferId, string callerSessionId)
+    {
+        if (_uploads.TryGetValue(transferId, out var u) && IsOwner(u.SessionId, callerSessionId))
+        {
+            DeleteUpload(transferId);
+        }
+        else if (_pending.TryGetValue(transferId, out var p) && IsOwner(p.SessionId, callerSessionId))
+        {
+            DeleteUpload(transferId);
+        }
+
+        if (_downloads.TryGetValue(transferId, out var d) && IsOwner(d.SessionId, callerSessionId))
+        {
+            DeleteDownload(transferId);
+        }
     }
 
     public FileTransferDownload? GetDownload(string transferId)
@@ -155,6 +174,18 @@ internal sealed class FileTransferStore : IFileTransferStore
                 DeleteDownload(id);
             }
         }
+    }
+
+    /// <summary>
+    ///     True when <paramref name="callerSessionId" /> is the session that created the entry. Fails closed
+    ///     for the <see cref="McpSessionContext.AnonymousCallerLabel" />: that label is a shared constant for
+    ///     unidentifiable callers, so it must never act as an identity.
+    /// </summary>
+    internal static bool IsOwner(string ownerSessionId, string callerSessionId)
+    {
+        return !string.IsNullOrEmpty(callerSessionId)
+               && callerSessionId != McpSessionContext.AnonymousCallerLabel
+               && string.Equals(ownerSessionId, callerSessionId, StringComparison.Ordinal);
     }
 
     private static void TryDeleteFile(string path)

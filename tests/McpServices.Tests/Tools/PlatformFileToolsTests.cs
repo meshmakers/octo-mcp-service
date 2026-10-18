@@ -24,7 +24,7 @@ public class PlatformFileToolsTests : ToolTestBase
 
     private string StageUpload(string content = "hello")
     {
-        var (id, path) = FileTransferStore.ReserveUpload("test-session", "a.txt");
+        var (id, path) = FileTransferStore.ReserveUpload(CallerSession, "a.txt");
         File.WriteAllText(path, content);
         FileTransferStore.CompleteUpload(id, content.Length);
         return id;
@@ -107,7 +107,7 @@ public class PlatformFileToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeTrue();
         result.Entry!.RtId.Should().Be(FileRtId);
-        FileTransferStore.GetUpload(transferId).Should().BeNull();
+        FileTransferStore.GetUpload(transferId, CallerSession).Should().BeNull();
     }
 
     [Theory]
@@ -165,7 +165,7 @@ public class PlatformFileToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("NAME_CONFLICT");
-        FileTransferStore.GetUpload(transferId).Should().NotBeNull();
+        FileTransferStore.GetUpload(transferId, CallerSession).Should().NotBeNull();
     }
 
     // ── download_file ───────────────────────────────────────────────────────
