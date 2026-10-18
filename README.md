@@ -582,6 +582,10 @@ cd src/McpServices && dotnet run --environment Development
 
 ## 📝 Changelog
 
+### **Unreleased** — ckTypeId round trip (AB#6998)
+- `search_types` / `get_available_types` now return the full `ckTypeId` (`Industry.Basic-2.6.0/Machine-1`, as `get_type_schema` does) plus `rtCkTypeId` (`Industry.Basic/Machine`); previously a major-only id (`Industry.Basic-2/Machine`) that `get_type_schema` rejected
+- `get_type_schema`, `get_available_archive_paths`, `query_entities_aggregation` and `query_entities_grouping` accept the full id, the runtime id and unambiguous short spellings; unknown/ambiguous ids list the full candidate ids
+
 ### **Version 1.5.3** — Studio archive-path introspection
 - New `get_available_archive_paths(ckTypeId, maxDepth=5)` tool walks the CK type/record graph and returns one `{ Path, PrimitiveType, IsRecord, IsArray, RecordTypeId }` row per reachable attribute path — the studio's column-picker behavior when composing a new CkArchive
 - `AvailableArchivePathsResolver` reproduces the asset-repo GraphQL `availableArchivePaths` resolver in MCP-side code; depth-bounded (clamped to ≥1), visited-record cycle guard, array-flag propagates into nested record attributes

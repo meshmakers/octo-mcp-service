@@ -121,7 +121,7 @@ public sealed class RuntimeAggregationTools
         "query_entities_grouping if you want groups. Equivalent to GraphQL Runtime.TransientQuery.Aggregation.")]
     public static async Task<AggregationResultResponse> QueryEntitiesAggregation(
         McpServer server,
-        [Description("CK type id, e.g. 'EnergyCommunity-1.0.0/Sensor-1.0.0'.")] string ckTypeId,
+        [Description("CK type id, preferably the full id from search_types, e.g. 'EnergyCommunity-1.0.0/Sensor-1'.")] string ckTypeId,
         [Description("Aggregation columns to compute. At least one required.")]
         List<AggregationColumnDto> aggregations,
         [Description("Optional filter (And/Or with nested support).")] FieldFilterCriteriaDto? filters = null,
@@ -186,6 +186,17 @@ public sealed class RuntimeAggregationTools
         // AB#5543: Secret attributes can be neither aggregated nor grouped, and filtered only with IsNull /
         // IsNotNull. Refuse before the engine round-trip with the same error code the engine uses.
         var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
+
+        // AB#6998: accept the full id that search_types returns as well as the runtime form; unknown or ambiguous ids
+        // get an error that names the full ids of the candidates.
+        await tenantRepository.LoadCacheForTenantAsync(ckCacheService);
+        var typeResolution = CkTypeIdResolver.Resolve(ckCacheService, resolvedTenantId, ckTypeId);
+        if (typeResolution.Type == null)
+        {
+            return new AggregationResultResponse { IsSuccess = false, ErrorMessage = typeResolution.Error };
+        }
+
+        ckTypeId = CkTypeIdResolver.ToRtCkId(typeResolution.Type);
         var secretUsage = SecretAttributePaths.FindNotQueryableUsage(ckCacheService, resolvedTenantId, ckTypeId,
             aggregations!.Select(a => (a.AttributePath, $"aggregation '{a.Function}'"))
                 .Concat((groupByAttributePaths ?? []).Select(g => ((string?)g, "group-by")))
