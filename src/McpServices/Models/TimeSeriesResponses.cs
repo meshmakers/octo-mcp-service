@@ -66,3 +66,48 @@ public class ListRollupsResponse : TimeSeriesResponse
     /// <summary>Total number of rollups.</summary>
     public int TotalCount { get; set; }
 }
+
+/// <summary>Response for validate_rollups (AB#6968).</summary>
+public class ValidateRollupsResponse : TimeSeriesResponse
+{
+    /// <summary>True when every checked rollup is consistent.</summary>
+    public bool IsConsistent { get; set; }
+
+    /// <summary>True when at least one rollup could not be checked, informational entries included.</summary>
+    public bool HasNotChecked { get; set; }
+
+    /// <summary>Number of rollups that could not be checked in a way that makes the report not consistent; see <c>Report.Entries[].NotChecked</c>.</summary>
+    public int NotCheckedCount { get; set; }
+
+    /// <summary>Number of rollups listed as not checked for information only (never activated); they do not affect <c>IsConsistent</c>.</summary>
+    public int NotCheckedInformationalCount { get; set; }
+
+    /// <summary>The validator's report: one entry per checked rollup with its findings.</summary>
+    public RollupConsistencyReportDto? Report { get; set; }
+}
+
+/// <summary>Response for repair_rollups (AB#6968).</summary>
+public class RepairRollupsResponse : TimeSeriesResponse
+{
+    /// <summary>True when nothing was changed (dry run).</summary>
+    public bool DryRun { get; set; }
+
+    /// <summary>The planned steps of a dry run; <c>null</c> when a repair was requested.</summary>
+    public RollupRepairReportDto? Plan { get; set; }
+
+    /// <summary>
+    /// The repair request of an applied repair (state Pending at first). The repair runs in the background on the
+    /// server; follow it with get_rollup_repair_status until the state is Done or Failed.
+    /// </summary>
+    public RollupRepairRequestDto? Request { get; set; }
+}
+
+/// <summary>Response for get_rollup_repair_status (AB#6968).</summary>
+public class RollupRepairStatusResponse : TimeSeriesResponse
+{
+    /// <summary>The repair request: state, planned steps and, once it has ended, the final report.</summary>
+    public RollupRepairRequestDto? Request { get; set; }
+
+    /// <summary>True when the request has ended (Done or Failed).</summary>
+    public bool IsFinished { get; set; }
+}
