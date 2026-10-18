@@ -66,3 +66,27 @@ public class ListRollupsResponse : TimeSeriesResponse
     /// <summary>Total number of rollups.</summary>
     public int TotalCount { get; set; }
 }
+
+/// <summary>Response for validate_rollups (AB#6968).</summary>
+public class ValidateRollupsResponse : TimeSeriesResponse
+{
+    /// <summary>True when every checked rollup is consistent.</summary>
+    public bool IsConsistent { get; set; }
+
+    /// <summary>The validator's report: one entry per checked rollup with its findings.</summary>
+    public RollupConsistencyReportDto? Report { get; set; }
+}
+
+/// <summary>Response for repair_rollups (AB#6968).</summary>
+public class RepairRollupsResponse : TimeSeriesResponse
+{
+    /// <summary>True when nothing was changed (dry run).</summary>
+    public bool DryRun { get; set; }
+
+    /// <summary>
+    /// The planned steps (dry run) or the steps that ran / were enqueued. For an applied repair
+    /// <c>Report.JobIds</c> lists the recompute jobs to follow with list_recompute_jobs; validate_rollups
+    /// afterwards shows the final state.
+    /// </summary>
+    public RollupRepairReportDto? Report { get; set; }
+}

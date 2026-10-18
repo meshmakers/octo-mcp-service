@@ -461,6 +461,110 @@ public sealed class TimeSeriesTools
         }
     }
 
+    /// <summary>Check the rollup archives of the tenant for restore inconsistencies (AB#6968).</summary>
+    [McpServerTool(Name = "validate_rollups")]
+    [McpRisk(McpRiskLevel.Low)]
+    [Description(
+        "Read-only consistency check of the rollup archives of a tenant (AB#6968): a pointer without rows, rows " +
+        "above the pointer, a watermark ahead of the rows, a missing generation map. Run it after a CrateDB " +
+        "restore (DR runbook). The server uses counts and MAX/MIN statements only; nothing is changed and no row is " +
+        "exported. An inconsistent rollup is reported in `report.entries[].findings`, not as an error. If " +
+        "`isConsistent` is false, call repair_rollups (dry run first). Equivalent to octo-cli ValidateRollups.")]
+    public static async Task<ValidateRollupsResponse> ValidateRollups(
+        McpServer server,
+        [Description("Rollup archive runtime IDs to check. Omit to check every rollup of the tenant.")]
+        List<string>? rollupRtIds = null,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new ValidateRollupsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            var report = await ctx.Client!.ValidateRollupsAsync(ctx.TenantId!, rollupRtIds);
+            var inconsistent = report.Entries.Count(e => !e.IsOk);
+            return new ValidateRollupsResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                IsConsistent = report.IsOk,
+                Report = report,
+                Message = report.IsOk
+                    ? $"{report.Entries.Count} rollup(s) checked, all consistent."
+                    : $"{report.Entries.Count} rollup(s) checked, {inconsistent} inconsistent. "
+                      + "Call repair_rollups (dry run first) to see the planned repairs."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ValidateRollupsResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>Repair the rollup inconsistencies validate_rollups finds (AB#6968).</summary>
+    [McpServerTool(Name = "repair_rollups")]
+    [McpRisk(McpRiskLevel.High)]
+    [Description(
+        "Repair what validate_rollups finds (AB#6968): delete rows above the generation the pointer selects, rewind " +
+        "a watermark, create a missing generation map, recompute a pointer range. Idempotent. DRY RUN BY DEFAULT: " +
+        "with dryRun=true (the default) it lists the planned steps per rollup and changes nothing. With " +
+        "dryRun=false (requires confirm=true) the fast steps run at once and the recompute ranges are ENQUEUED as " +
+        "recompute jobs: `report.jobIds` and `report.actions[].jobId` name them. Poll list_recompute_jobs (archiveRtId " +
+        "= the action's rollupRtId) until they are Completed, then call validate_rollups to see the final state. " +
+        "Equivalent to octo-cli RepairRollups.")]
+    public static async Task<RepairRollupsResponse> RepairRollups(
+        McpServer server,
+        [Description("Rollup archive runtime IDs to repair. Omit to repair every rollup of the tenant.")]
+        List<string>? rollupRtIds = null,
+        [Description("True (default) lists the planned repairs and changes nothing; false runs the repair.")]
+        bool dryRun = true,
+        [Description("Must be true when dryRun is false (the repair deletes rows and recomputes ranges).")]
+        bool confirm = false,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (!dryRun && !confirm)
+        {
+            return new RepairRollupsResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "Refusing to repair rollups without confirm=true. Use dryRun=true to see the plan."
+            };
+        }
+
+        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new RepairRollupsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            var report = await ctx.Client!.RepairRollupsAsync(ctx.TenantId!, rollupRtIds, dryRun);
+            var failed = !string.IsNullOrEmpty(report.FailedStep);
+            return new RepairRollupsResponse
+            {
+                IsSuccess = !failed,
+                TenantId = ctx.TenantId,
+                DryRun = report.DryRun,
+                Report = report,
+                ErrorMessage = failed ? $"The rollup repair failed at step: {report.FailedStep}" : null,
+                Message = report.DryRun
+                    ? $"Dry run: {report.Actions.Count} planned step(s); nothing was changed."
+                    : report.JobIds.Count > 0
+                        ? $"Repair applied: {report.JobIds.Count} recompute job(s) enqueued ({string.Join(", ", report.JobIds)}). "
+                          + "Poll list_recompute_jobs, then call validate_rollups."
+                        : "Repair applied; call validate_rollups to see the final state."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new RepairRollupsResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
     private static async Task<ArchiveActionResponse> ArchiveAction(
         McpServer server,
         string? tenantId,
