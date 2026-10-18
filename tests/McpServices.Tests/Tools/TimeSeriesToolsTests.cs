@@ -430,8 +430,8 @@ public class TimeSeriesToolsTests : ToolTestBase
         var report = new RollupConsistencyReportDto(false, DateTime.UtcNow,
         [
             new RollupConsistencyEntryDto(RollupRtId, false, [], true,
-                new RollupNotCheckedDto("NoLiveTable", "The rollup table does not exist."))
-        ], true);
+                new RollupNotCheckedDto("NoLiveTable", "The rollup table does not exist.", true), true)
+        ], true, true);
         MockStreamDataClient.Setup(c => c.ValidateRollupsAsync(DefaultTenantId, null)).ReturnsAsync(report);
 
         var result = await TimeSeriesTools.ValidateRollups(MockServer.Object);
@@ -442,6 +442,25 @@ public class TimeSeriesToolsTests : ToolTestBase
         result.NotCheckedCount.Should().Be(1);
         result.Report!.Entries.Single().NotChecked!.Cause.Should().Be("NoLiveTable");
         result.Message.Should().Contain("NOT CHECKED").And.Contain("0 inconsistent");
+    }
+
+    [Fact]
+    public async Task ValidateRollups_InformationalNotChecked_StaysConsistentAndIsCountedSeparately()
+    {
+        var report = new RollupConsistencyReportDto(true, DateTime.UtcNow,
+        [
+            new RollupConsistencyEntryDto(RollupRtId, true, [], true,
+                new RollupNotCheckedDto("NeverActivated", "The archive was never activated.", false))
+        ], true);
+        MockStreamDataClient.Setup(c => c.ValidateRollupsAsync(DefaultTenantId, null)).ReturnsAsync(report);
+
+        var result = await TimeSeriesTools.ValidateRollups(MockServer.Object);
+
+        result.IsConsistent.Should().BeTrue();
+        result.HasNotChecked.Should().BeTrue();
+        result.NotCheckedCount.Should().Be(0);
+        result.NotCheckedInformationalCount.Should().Be(1);
+        result.Message.Should().Contain("all consistent").And.Contain("information only");
     }
 
     [Fact]
