@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Models.Aggregation;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Backend.McpServices.Tools;
@@ -160,6 +161,31 @@ public class CkTypeIdRoundTripTests : TestBase
 
         response.IsSuccess.Should().BeFalse();
         response.ErrorMessage.Should().Contain(FullMachine);
+    }
+
+    [Fact]
+    public async Task AssociationTree_FullIdFromSearch_ResolvesAndUnknownIdNamesCandidates()
+    {
+        GivenInstalled(_machine, _sensor);
+        var result = new ResultSet<RtEntity>([], 0, null, null);
+        RtCkId<CkTypeId>? seen = null;
+        MockTenantRepository
+            .Setup(r => r.GetRtEntitiesByTypeAsync(
+                It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(), It.IsAny<RtEntityQueryOptions>(),
+                It.IsAny<int?>(), It.IsAny<int?>()))
+            .Callback<IOctoSession, RtCkId<CkTypeId>, RtEntityQueryOptions, int?, int?>((_, id, _, _, _) => seen = id)
+            .ReturnsAsync(result);
+
+        var ok = await RuntimeEntityCrudTools.GetAssociationTree(
+            MockServer.Object, FullMachine, "System/ParentChild", CkTypeAssociationDirectionDto.Inbound);
+        ok.IsSuccess.Should().BeTrue(ok.ErrorMessage ?? "");
+        seen!.ToString().Should().Be("Industry.Basic/Machine");
+
+        var unknown = await RuntimeEntityCrudTools.GetAssociationTree(
+            MockServer.Object, "Industry.Basic-2.6.0/Machin-1", "System/ParentChild",
+            CkTypeAssociationDirectionDto.Inbound);
+        unknown.IsSuccess.Should().BeFalse();
+        unknown.ErrorMessage.Should().Contain(FullMachine);
     }
 
     [Fact]
