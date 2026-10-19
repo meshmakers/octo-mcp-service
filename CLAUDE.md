@@ -905,6 +905,16 @@ public class MyToolsTests : ToolTestBase
 
 ### Pitfalls to remember
 
+- **`ckTypeId` format of the type tools (AB#6998).** `search_types` / `get_available_types` return the canonical full id
+  in `ckTypeId` (`Industry.Basic-2.6.0/Machine-1`, the same as `get_type_schema` returns) and the runtime id in
+  `rtCkTypeId` (`Industry.Basic/Machine`; model without version, element version `1` is not spelled). `TypeId` /
+  `TypeName` stay the display names. `get_type_schema`, `get_available_archive_paths`, `get_association_tree` and the aggregation tools
+  (`query_entities_aggregation`, `query_entities_grouping`) resolve their `ckTypeId` through `CkTypeIdResolver`: the full
+  id, the runtime id and unambiguous short spellings (`Industry.Basic-2/Machine`, `Industry.Basic-2.6.0/Machine`) all
+  find the installed type; an unknown or ambiguous id returns an error that lists the full candidate ids ("Did you
+  mean ..."). A major-only spelling is ambiguous when two minors of the model are installed - then use the full id.
+  Not yet routed through the resolver: the other generic CRUD tools (`query_entities`, create/update/delete in
+  `RuntimeEntityCrudTools`) and `export_..._by_deep_graph` (`CkModelFileTools`); they still parse the strict runtime id. Tests: `CkTypeIdRoundTripTests`.
 - **CkTypeId format is `Name-VersionUint`, not SemVer.** `new CkTypeId("MyType-1")` works; `new CkTypeId("MyType-1.0.0")` throws because the SDK reflection-constructs `CkTypeId` from the second path segment and parses the version as `uint`.
 - **`OctoObjectId` must be a 24-char hex string.** Use realistic values like `"507f1f77bcf86cd799439011"` in tests.
 - **Moq method matchers must use the right type-param.** For methods that take `IEnumerable<T>`, match with `It.IsAny<IEnumerable<T>>()`, not `It.IsAny<List<T>>()`.

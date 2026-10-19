@@ -996,6 +996,24 @@ public sealed class RuntimeEntityCrudTools
         var resolvedTenantId = tenantRepository.TenantId;
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
+        // AB#6998: accept the full id that search_types returns; unknown ids list the full candidates.
+        var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
+        await tenantRepository.LoadCacheForTenantAsync(ckCacheService);
+        var rootResolution = CkTypeIdResolver.Resolve(ckCacheService, resolvedTenantId, rootCkTypeId);
+        if (rootResolution.Type == null)
+        {
+            return new AssociationTreeResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = rootResolution.Error,
+                CkRoleId = ckRoleId,
+                Direction = direction.ToString(),
+                MaxDepth = maxDepth
+            };
+        }
+
+        rootCkTypeId = CkTypeIdResolver.ToRtCkId(rootResolution.Type);
+
         using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 

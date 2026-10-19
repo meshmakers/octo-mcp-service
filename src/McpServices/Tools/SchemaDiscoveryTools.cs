@@ -65,10 +65,21 @@ public sealed class SchemaDiscoveryTools
             var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
             await tenantRepository.LoadCacheForTenantAsync(ckCacheService);
 
+            var resolution = CkTypeIdResolver.Resolve(ckCacheService, tenantRepository.TenantId, ckTypeId);
+            if (resolution.Type == null)
+            {
+                return new AvailableArchivePathsResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = resolution.Error,
+                    CkTypeId = ckTypeId
+                };
+            }
+
             var effectiveMaxDepth = maxDepth ?? AvailableArchivePathsResolver.DefaultMaxDepth;
             var paths = AvailableArchivePathsResolver.Resolve(
                 ckCacheService, tenantRepository.TenantId,
-                new RtCkId<CkTypeId>(ckTypeId), effectiveMaxDepth);
+                resolution.Type.CkTypeId.ToRtCkId(), effectiveMaxDepth);
 
             return new AvailableArchivePathsResponse
             {
@@ -188,7 +199,8 @@ public sealed class SchemaDiscoveryTools
 
                 availableTypes.Add(new CkTypeInfo
                 {
-                    CkTypeId = ckTypeGraph.CkTypeId.SemanticVersionedFullName,
+                    CkTypeId = ckTypeGraph.CkTypeId.ToString(),
+                    RtCkTypeId = CkTypeIdResolver.ToRtCkId(ckTypeGraph),
                     ModelId = ckTypeGraph.CkTypeId.ModelId.ToString(CultureInfo.InvariantCulture),
                     TypeId = ckTypeGraph.CkTypeId.ElementId.SemanticVersionedFullName,
                     TypeName = ckTypeGraph.CkTypeId.ElementId.SemanticVersionedFullName,
@@ -227,7 +239,9 @@ public sealed class SchemaDiscoveryTools
     /// <param name="ckTypeId">Construction Kit Type ID</param>
     /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     [McpServerTool(Name = "get_type_schema")]
-    [Description("Get detailed schema information for a specific Construction Kit type")]
+    [Description("Get detailed schema information for a specific Construction Kit type. ckTypeId is the full id as " +
+                 "returned by search_types / get_available_types (e.g. 'Industry.Basic-2.6.0/Machine-1'); the " +
+                 "runtime form 'Industry.Basic/Machine-1' is accepted too.")]
     public static async Task<TypeSchemaResponse> GetTypeSchema(
         McpServer server,
         string ckTypeId,
@@ -253,7 +267,18 @@ public sealed class SchemaDiscoveryTools
             var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
             await tenantRepository.LoadCacheForTenantAsync(ckCacheService);
 
-            var typeGraph = ckCacheService.GetCkType(tenantRepository.TenantId, new CkId<CkTypeId>(ckTypeId));
+            var resolution = CkTypeIdResolver.Resolve(ckCacheService, tenantRepository.TenantId, ckTypeId);
+            if (resolution.Type == null)
+            {
+                return new TypeSchemaResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = resolution.Error,
+                    CkTypeId = ckTypeId
+                };
+            }
+
+            var typeGraph = resolution.Type;
 
             return new TypeSchemaResponse
             {

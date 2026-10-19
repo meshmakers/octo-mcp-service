@@ -11,6 +11,12 @@ public class CkTypeInfo
     public required string CkTypeId { get; init; }
 
     /// <summary>
+    ///     Runtime id of the type, the model without version (e.g., 'EnergyCommunity/Customer'; an element version of 1 is not spelled, version 2 is 'Customer-2'). Accepted by the same
+    ///     tools as <see cref="CkTypeId" />; the full id is the canonical one.
+    /// </summary>
+    public string? RtCkTypeId { get; init; }
+
+    /// <summary>
     ///     Model ID that contains this type (e.g., 'EnergyCommunity-1.0.0')
     /// </summary>
     public required string ModelId { get; init; }
