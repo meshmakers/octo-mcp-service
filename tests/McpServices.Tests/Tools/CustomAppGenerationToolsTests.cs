@@ -2,6 +2,7 @@ using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Backend.McpServices.Tools;
+using Moq;
 using Xunit;
 
 namespace McpServices.Tests.Tools;
@@ -691,6 +692,63 @@ public class CustomAppGenerationToolsTests : ToolTestBase
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("GraphQL errors");
         result.TransferId.Should().BeNull();
+    }
+
+    // ----- AB#7282: introspection uses the token exchanged for the addressed tenant -----
+
+    [Fact]
+    public async Task ExportRuntimeGraphqlSdl_HomeTenant_UsesHomeTokenWithoutExchange()
+    {
+        var home = GivenAuthenticated();
+        var exchanger = new Mock<ITenantTokenExchanger>();
+        TestServiceProvider.RegisterService(exchanger.Object);
+        var stub = new StubIntrospectionClient { PayloadToWrite = "{}" };
+        TestServiceProvider.RegisterService<IRuntimeGraphqlIntrospectionClient>(stub);
+
+        var result = await CustomAppGenerationTools.ExportRuntimeGraphqlSdl(
+            MockServer.Object, cancellationToken: TestContext.Current.CancellationToken);
+
+        result.IsSuccess.Should().BeTrue();
+        stub.LastCall!.AccessToken.Should().Be(home);
+        stub.LastCall.TenantId.Should().Be(DefaultTenantId);
+        exchanger.Verify(e => e.ExchangeForTenantAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        FileTransferStore.DeleteDownload(result.TransferId!);
+    }
+
+    [Fact]
+    public async Task ExportRuntimeGraphqlSdl_NonHomeTenant_UsesExchangedToken()
+    {
+        GivenAuthenticated();
+        MockTenantResolution.Setup(t => t.ResolveTenantId("other")).Returns("other");
+        GivenTokenExchange(_ => "exchanged-other-token");
+        var stub = new StubIntrospectionClient { PayloadToWrite = "{}" };
+        TestServiceProvider.RegisterService<IRuntimeGraphqlIntrospectionClient>(stub);
+
+        var result = await CustomAppGenerationTools.ExportRuntimeGraphqlSdl(
+            MockServer.Object, "other", TestContext.Current.CancellationToken);
+
+        result.IsSuccess.Should().BeTrue();
+        stub.LastCall!.AccessToken.Should().Be("exchanged-other-token");
+        stub.LastCall.TenantId.Should().Be("other");
+        FileTransferStore.DeleteDownload(result.TransferId!);
+    }
+
+    [Fact]
+    public async Task ExportRuntimeGraphqlSdl_ExchangeFails_ReturnsSessionErrorWithoutIntrospection()
+    {
+        GivenAuthenticated();
+        MockTenantResolution.Setup(t => t.ResolveTenantId("other")).Returns("other");
+        GivenTokenExchange(_ => null);
+        var stub = new StubIntrospectionClient { PayloadToWrite = "{}" };
+        TestServiceProvider.RegisterService<IRuntimeGraphqlIntrospectionClient>(stub);
+
+        var result = await CustomAppGenerationTools.ExportRuntimeGraphqlSdl(
+            MockServer.Object, "other", TestContext.Current.CancellationToken);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("token exchange for tenant 'other'");
+        stub.LastCall.Should().BeNull("the home token must never be used for another tenant");
     }
 
     private sealed class StubIntrospectionClient : IRuntimeGraphqlIntrospectionClient

@@ -815,6 +815,18 @@ home token — service tokens are skipped by `TenantAuthorizationMiddleware` any
 home token** — its client is NOT tenant-routed (`CreateBotClient` takes no `tenantId`), so an exchange
 there is unnecessary and could break bot ops the home token already serves.
 
+**Tools that build their client without a `*ClientContext` (AB#7282).** `TenantManagementTools`
+(`get_tenants`, `create_tenant`, `delete_tenant`, and `clean_tenant` / `attach_tenant` / `detach_tenant` /
+`clear_tenant_cache` / `update_system_ck_model` via `TryBuildContext`) and `export_runtime_graphql_sdl`
+used to take the **home** token (`ResolveAccessTokenAsync(server)`) and route it to the parent/route
+tenant, so under user-token Enforce a caller homed elsewhere got 403 on a parent tenant. They now resolve
+the route/parent tenant first and call `ResolveAccessTokenAsync(server, tenantId)` (same RFC 8693 path
+as octo-cli AB#6836). A failed exchange returns `IsSuccess = false` with the session error
+(`Constants.TenantExchangeFailedError`) and makes **no** SDK call — never a fallback to the home token.
+The caller needs access to the addressed (parent) tenant itself; being admin of the child is not enough.
+Any new tool that routes an SDK/HTTP client to a tenant must use the tenant overload; the home-token
+overload is only for tenant-less calls (whoami, file transfer, Bot).
+
 > **Interactive-client note:** because the transport now requires an inbound bearer, a purely
 > interactive client that previously relied only on the in-band device flow must present a bearer
 > token to connect. The production clients (AiWorker, mesh-adapter) already do. The

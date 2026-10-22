@@ -265,8 +265,8 @@ internal static class McpSessionContext
         {
             // No identifiable caller ⇒ nowhere to cache the exchanged token. The home token came from the
             // request's own bearer header, so a one-shot uncached exchange is still correct.
-            return new SessionAccessToken(
-                await ExchangeAsync(server, tenantId, home.AccessToken, cancellationToken), null);
+            return WithExchangeOutcome(
+                await ExchangeAsync(server, tenantId, home.AccessToken, cancellationToken), tenantId);
         }
 
         var tokenStore = server.Services!.GetRequiredService<IMcpSessionTokenStore>();
@@ -276,8 +276,19 @@ internal static class McpSessionContext
             return new SessionAccessToken(cached.AccessToken, null);
         }
 
-        return new SessionAccessToken(
-            await TryExchangeAsync(server, sessionKey, tenantId, home.AccessToken, cancellationToken), null);
+        return WithExchangeOutcome(
+            await TryExchangeAsync(server, sessionKey, tenantId, home.AccessToken, cancellationToken), tenantId);
+    }
+
+    /// <summary>
+    ///     AB#7282: a failed cross-tenant exchange carries its own error so tools do not report the (authenticated)
+    ///     caller as "Not authenticated" — and, above all, never fall back to the home token.
+    /// </summary>
+    private static SessionAccessToken WithExchangeOutcome(string? exchangedToken, string tenantId)
+    {
+        return exchangedToken != null
+            ? new SessionAccessToken(exchangedToken, null)
+            : new SessionAccessToken(null, Constants.TenantExchangeFailedError(tenantId));
     }
 
     /// <summary>

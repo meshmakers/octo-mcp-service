@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Moq;
@@ -271,5 +272,190 @@ public class TenantManagementToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Be("backend down");
+    }
+
+    // ----- AB#7282: tenant-management tools exchange the token for the addressed parent tenant -----
+
+    private const string ParentTenant = "parent-tenant";
+    private const string ExchangedToken = "exchanged-parent-token";
+
+    private string GivenCrossTenantCall()
+    {
+        var home = GivenAuthenticated();
+        MockTenantResolution.Setup(t => t.ResolveTenantId(ParentTenant)).Returns(ParentTenant);
+        GivenTokenExchange(_ => ExchangedToken);
+        return home;
+    }
+
+    private void GivenExchangeRefused()
+    {
+        GivenAuthenticated();
+        MockTenantResolution.Setup(t => t.ResolveTenantId(ParentTenant)).Returns(ParentTenant);
+        GivenTokenExchange(_ => null);
+    }
+
+    private void VerifyNoSdkCall()
+    {
+        MockClientFactory.Verify(f => f.CreateAssetClient(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        MockAssetClient.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetTenants_HomeTenant_UsesHomeTokenWithoutExchange()
+    {
+        var home = GivenAuthenticated();
+        var exchanger = new Mock<ITenantTokenExchanger>();
+        TestServiceProvider.RegisterService(exchanger.Object);
+        MockAssetClient.Setup(c => c.GetTenantsAsync()).ReturnsAsync([]);
+
+        var result = await TenantManagementTools.GetTenants(MockServer.Object);
+
+        result.IsSuccess.Should().BeTrue();
+        MockClientFactory.Verify(f => f.CreateAssetClient(DefaultTenantId, home), Times.Once);
+        exchanger.Verify(e => e.ExchangeForTenantAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetTenants_NonHomeParent_UsesExchangedToken()
+    {
+        GivenCrossTenantCall();
+        MockAssetClient.Setup(c => c.GetTenantsAsync()).ReturnsAsync([]);
+
+        var result = await TenantManagementTools.GetTenants(MockServer.Object, ParentTenant);
+
+        result.IsSuccess.Should().BeTrue();
+        result.ParentTenantId.Should().Be(ParentTenant);
+        MockClientFactory.Verify(f => f.CreateAssetClient(ParentTenant, ExchangedToken), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetTenants_ExchangeFails_ReturnsSessionErrorWithoutSdkCall()
+    {
+        GivenExchangeRefused();
+
+        var result = await TenantManagementTools.GetTenants(MockServer.Object, ParentTenant);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("token exchange for tenant 'parent-tenant'");
+        VerifyNoSdkCall();
+    }
+
+    [Fact]
+    public async Task CreateTenant_HomeTenant_UsesHomeTokenWithoutExchange()
+    {
+        var home = GivenAuthenticated();
+        var exchanger = new Mock<ITenantTokenExchanger>();
+        TestServiceProvider.RegisterService(exchanger.Object);
+
+        var result = await TenantManagementTools.CreateTenant(MockServer.Object, "c1", "db1");
+
+        result.IsSuccess.Should().BeTrue();
+        MockClientFactory.Verify(f => f.CreateAssetClient(DefaultTenantId, home), Times.Once);
+        exchanger.Verify(e => e.ExchangeForTenantAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateTenant_NonHomeParent_UsesExchangedToken()
+    {
+        GivenCrossTenantCall();
+
+        var result = await TenantManagementTools.CreateTenant(MockServer.Object, "c1", "db1", ParentTenant);
+
+        result.IsSuccess.Should().BeTrue();
+        MockClientFactory.Verify(f => f.CreateAssetClient(ParentTenant, ExchangedToken), Times.Once);
+        MockAssetClient.Verify(c => c.CreateTenantAsync("c1", "db1"), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateTenant_ExchangeFails_ReturnsSessionErrorWithoutSdkCall()
+    {
+        GivenExchangeRefused();
+
+        var result = await TenantManagementTools.CreateTenant(MockServer.Object, "c1", "db1", ParentTenant);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("token exchange for tenant 'parent-tenant'");
+        VerifyNoSdkCall();
+    }
+
+    [Fact]
+    public async Task DeleteTenant_HomeTenant_UsesHomeTokenWithoutExchange()
+    {
+        var home = GivenAuthenticated();
+        var exchanger = new Mock<ITenantTokenExchanger>();
+        TestServiceProvider.RegisterService(exchanger.Object);
+
+        var result = await TenantManagementTools.DeleteTenant(MockServer.Object, "c1", confirm: true);
+
+        result.IsSuccess.Should().BeTrue();
+        MockClientFactory.Verify(f => f.CreateAssetClient(DefaultTenantId, home), Times.Once);
+        exchanger.Verify(e => e.ExchangeForTenantAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DeleteTenant_NonHomeParent_UsesExchangedToken()
+    {
+        GivenCrossTenantCall();
+
+        var result = await TenantManagementTools.DeleteTenant(MockServer.Object, "c1", confirm: true, tenantId: ParentTenant);
+
+        result.IsSuccess.Should().BeTrue();
+        MockClientFactory.Verify(f => f.CreateAssetClient(ParentTenant, ExchangedToken), Times.Once);
+        MockAssetClient.Verify(c => c.DeleteTenantAsync("c1"), Times.Once);
+    }
+
+    [Fact]
+    public async Task DeleteTenant_ExchangeFails_ReturnsSessionErrorWithoutSdkCall()
+    {
+        GivenExchangeRefused();
+
+        var result = await TenantManagementTools.DeleteTenant(MockServer.Object, "c1", confirm: true, tenantId: ParentTenant);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("token exchange for tenant 'parent-tenant'");
+        VerifyNoSdkCall();
+    }
+
+    [Fact]
+    public async Task CleanTenant_HomeTenant_UsesHomeTokenWithoutExchange()
+    {
+        var home = GivenAuthenticated();
+        var exchanger = new Mock<ITenantTokenExchanger>();
+        TestServiceProvider.RegisterService(exchanger.Object);
+
+        var result = await TenantManagementTools.CleanTenant(MockServer.Object, "t1", confirm: true);
+
+        result.IsSuccess.Should().BeTrue();
+        MockClientFactory.Verify(f => f.CreateAssetClient(DefaultTenantId, home), Times.Once);
+        exchanger.Verify(e => e.ExchangeForTenantAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CleanTenant_NonHomeParent_UsesExchangedToken()
+    {
+        GivenCrossTenantCall();
+
+        var result = await TenantManagementTools.CleanTenant(MockServer.Object, "t1", confirm: true, tenantId: ParentTenant);
+
+        result.IsSuccess.Should().BeTrue();
+        result.ParentTenantId.Should().Be(ParentTenant);
+        MockClientFactory.Verify(f => f.CreateAssetClient(ParentTenant, ExchangedToken), Times.Once);
+        MockAssetClient.Verify(c => c.CleanTenantAsync("t1"), Times.Once);
+    }
+
+    [Fact]
+    public async Task CleanTenant_ExchangeFails_ReturnsSessionErrorWithoutSdkCall()
+    {
+        GivenExchangeRefused();
+
+        var result = await TenantManagementTools.CleanTenant(MockServer.Object, "t1", confirm: true, tenantId: ParentTenant);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("token exchange for tenant 'parent-tenant'");
+        VerifyNoSdkCall();
     }
 }
