@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
+using Meshmakers.Octo.Sdk.ServiceClient.TenantLifecycle;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -131,8 +132,9 @@ public sealed class TenantManagementTools
     [Description(
         "Create a new child tenant under the given parent tenant. Equivalent to the octo-cli CreateTenant command. " +
         "Note: unlike the CLI, this does NOT automatically provision the calling user as admin — call the identity " +
-        "provisioning tools separately once those are exposed. Requires access to the addressed parent tenant " +
-        "itself (the token is exchanged for it).")]
+        "provisioning tools separately once those are exposed. With scratch=true (octo-cli Create --scratch) a " +
+        "client-credentials caller becomes administrator of the tenant it creates. Requires access to the addressed " +
+        "parent tenant itself (the token is exchanged for it).")]
     public static async Task<CreateTenantResponse> CreateTenant(
         McpServer server,
         [Description("Identifier of the new child tenant (will be lower-cased).")]
@@ -140,7 +142,12 @@ public sealed class TenantManagementTools
         [Description("Name of the MongoDB database backing the new tenant (will be lower-cased).")]
         string database,
         [Description("Parent tenant under which the child is created. If omitted, the tenant is resolved from the URL route.")]
-        string? tenantId = null)
+        string? tenantId = null,
+        [Description("Create the tenant as a scratch tenant (AB#7192): the client-credentials client of the parent that makes " +
+                     "this call becomes administrator of the new tenant, so an agent can work in it and clean it up without a " +
+                     "human login. Only accepted for a client-credentials token of the direct parent with TenantManagement " +
+                     "(403 for a user session); the client must be flagged AutoProvisionInChildTenants. Default false.")]
+        bool scratch = false)
     {
         // AB#7282: the token is exchanged for the addressed (route/parent) tenant, never the home token.
         var target = await ResolveParentAndTokenAsync(server, tenantId);
@@ -183,7 +190,14 @@ public sealed class TenantManagementTools
             var normalizedChild = childTenantId.ToLowerInvariant();
             var normalizedDb = database.ToLowerInvariant();
 
-            await assetClient.CreateTenantAsync(normalizedChild, normalizedDb);
+            if (scratch)
+            {
+                await assetClient.CreateTenantAsync(normalizedChild, normalizedDb, true);
+            }
+            else
+            {
+                await assetClient.CreateTenantAsync(normalizedChild, normalizedDb);
+            }
 
             return new CreateTenantResponse
             {
@@ -191,7 +205,9 @@ public sealed class TenantManagementTools
                 ParentTenantId = resolvedParent,
                 CreatedTenantId = normalizedChild,
                 Database = normalizedDb,
-                Message = $"Tenant '{normalizedChild}' (database '{normalizedDb}') created under '{resolvedParent}'."
+                Message = $"Tenant '{normalizedChild}' (database '{normalizedDb}') created under '{resolvedParent}'" +
+                          (scratch ? " as a scratch tenant: the calling client is its administrator once identity has set the " +
+                                     "tenant up." : ".")
             };
         }
         catch (Exception ex)
@@ -212,9 +228,13 @@ public sealed class TenantManagementTools
         "command without the interactive confirmation prompt. Refused with a Conflict error while Stream Data, " +
         "Communication, Reporting or AI Services is still enabled for the child tenant; the error names them. " +
         "Check the current flags with get_tenant_features (tenantId=<child>). " +
-        "Disable them first via disable_stream_data / disable_communication / disable_reporting " +
-        "(tenantId=<child>, confirm=true); AI Services has no MCP tool - run octo-cli DisableAi in a context of " +
-        "the child tenant (UseContext or --context <name>). Run dump_tenant beforehand if the data is still " +
+        "Disable them first via disable_ai / disable_stream_data / disable_communication / disable_reporting " +
+        "(tenantId=<child>, confirm=true) - or set disableFeatures=true (octo-cli Delete --disable-features, AB#7192), " +
+        "which switches off every enabled capability with YOUR token for the child tenant and deletes the tenant " +
+        "afterwards: the capability endpoints belong to the child's own administrator, so the session must hold (or be " +
+        "able to exchange for) a token of the child with TenantManagement there. It reports what it disabled, never " +
+        "deletes archives - activated archives keep Stream Data enabled, are listed in featuresStillEnabled and the " +
+        "tenant is NOT deleted. Run dump_tenant beforehand if the data is still " +
         "needed. Answers a reason-free not-found error when the tenant is not a child of the parent. " +
         "Requires access to the addressed parent tenant itself (the token is exchanged for it).")]
     public static async Task<DeleteTenantResponse> DeleteTenant(
@@ -224,7 +244,10 @@ public sealed class TenantManagementTools
         [Description("Must be set to true to actually perform the deletion. Without this, the call is rejected.")]
         bool confirm = false,
         [Description("Parent tenant under which the child lives. If omitted, the tenant is resolved from the URL route.")]
-        string? tenantId = null)
+        string? tenantId = null,
+        [Description("Switch off every capability the child has enabled (AI Services, Communication, Reporting, Stream Data) " +
+                     "with the caller's token for the child, then delete it (AB#7192). Requires confirm=true. Default false.")]
+        bool disableFeatures = false)
     {
         // AB#7282: the token is exchanged for the addressed (route/parent) tenant, never the home token.
         var target = await ResolveParentAndTokenAsync(server, tenantId);
@@ -266,6 +289,17 @@ public sealed class TenantManagementTools
             var clientFactory = server.Services!.GetRequiredService<IOctoServiceClientFactory>();
             var assetClient = clientFactory.CreateAssetClient(resolvedParent, accessToken);
 
+            var disabled = new List<string>();
+            if (disableFeatures)
+            {
+                var refusal = await DisableChildFeaturesAsync(server, clientFactory, childTenantId, disabled);
+                if (refusal != null)
+                {
+                    refusal.ParentTenantId = resolvedParent;
+                    return refusal;
+                }
+            }
+
             await assetClient.DeleteTenantAsync(childTenantId);
 
             return new DeleteTenantResponse
@@ -273,7 +307,9 @@ public sealed class TenantManagementTools
                 IsSuccess = true,
                 ParentTenantId = resolvedParent,
                 DeletedTenantId = childTenantId,
-                Message = $"Tenant '{childTenantId}' deleted from '{resolvedParent}'."
+                DisabledFeatures = disabled,
+                Message = $"Tenant '{childTenantId}' deleted from '{resolvedParent}'." +
+                          (disabled.Count > 0 ? $" Disabled before: {string.Join(", ", disabled)}." : string.Empty)
             };
         }
         catch (Exception ex)
@@ -284,6 +320,59 @@ public sealed class TenantManagementTools
                 ErrorMessage = ex.Message
             };
         }
+    }
+
+    /// <summary>
+    ///     <c>disableFeatures</c> of <c>delete_tenant</c> (AB#7192): reads which capabilities the child has enabled and
+    ///     switches them off, all with the caller's token for the CHILD tenant - the capability endpoints belong to the
+    ///     child's own administrator and refuse a token of the parent. Returns <c>null</c> when every enabled capability is
+    ///     now disabled (the tenant can be deleted), otherwise the failure response; the names of what was disabled are
+    ///     added to <paramref name="disabled" />.
+    /// </summary>
+    private static async Task<DeleteTenantResponse?> DisableChildFeaturesAsync(McpServer server,
+        IOctoServiceClientFactory clientFactory, string childTenantId, List<string> disabled)
+    {
+        var session = await McpSessionContext.ResolveAccessTokenAsync(server, childTenantId);
+        if (session.AccessToken == null)
+        {
+            return new DeleteTenantResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = $"disableFeatures needs a token for tenant '{childTenantId}': " +
+                               (session.Error ?? Constants.NotAuthenticatedError) +
+                               " The tenant was not deleted. A client-credentials session cannot exchange its token for a " +
+                               "child tenant - disable the capabilities with a session of the child (a client-credentials " +
+                               "token for the child, e.g. octo-cli Delete --disable-features) and delete again."
+            };
+        }
+
+        var childToken = session.AccessToken;
+        var status = await clientFactory.CreateAssetClient(childTenantId, childToken).GetTenantFeaturesStatusAsync();
+        var report = await TenantFeatureDisabler.DisableEnabledAsync(status, new DelegateTenantFeatureSwitches(
+            () => clientFactory.CreateAiClient(childTenantId, childToken).DisableAsync(childTenantId),
+            () => clientFactory.CreateCommunicationClient(childTenantId, childToken).DisableAsync(childTenantId),
+            () => clientFactory.CreateReportingClient(childTenantId, childToken).DisableAsync(childTenantId),
+            () => clientFactory.CreateStreamDataClient(childTenantId, childToken).DisableAsync(childTenantId)));
+
+        disabled.AddRange(report.Disabled.Select(TenantFeatureDisabler.DisplayName));
+        if (report.AllDisabled)
+        {
+            return null;
+        }
+
+        var stillEnabled = report.Failed
+            .Select(f => $"{TenantFeatureDisabler.DisplayName(f.Feature)}: {f.Error}")
+            .ToList();
+        return new DeleteTenantResponse
+        {
+            IsSuccess = false,
+            DisabledFeatures = disabled,
+            FeaturesStillEnabled = stillEnabled,
+            ErrorMessage = $"Tenant '{childTenantId}' was not deleted: {string.Join("; ", stillEnabled)}. Activated " +
+                           "archives are reported, never deleted by this tool - disable them with disable_archive (data is " +
+                           "kept) or remove them with delete_archive (rollups before their source archive), then call " +
+                           "delete_tenant again."
+        };
     }
 
     /// <summary>Reset a child tenant to factory defaults. Destructive: requires confirm=true.</summary>

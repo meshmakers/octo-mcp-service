@@ -286,6 +286,15 @@ _High=2_  ·  **Owner reviewed:** ☐
 | `enable_reporting` | **H** | |
 | `disable_reporting` | **H** | Reversible flag flip, report data is kept; precondition for `delete_tenant` / `detach_tenant` (AB#4255) |
 
+### AiLifecycleTools (2 tools)
+
+_High=2_  ·  **Owner reviewed:** ☐
+
+| Tool | Current | Notes for review |
+|------|---------|------------------|
+| `enable_ai` | **H** | AB#7192; needs Communication enabled on the tenant |
+| `disable_ai` | **H** | AB#7192; reversible flag flip, AI data is kept; precondition for `delete_tenant` / `detach_tenant` (AB#4255) |
+
 ### RiskMetadataTools (1 tool)
 
 _Low=1_  ·  **Owner reviewed:** ☐

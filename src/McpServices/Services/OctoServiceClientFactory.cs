@@ -1,5 +1,6 @@
 using Meshmakers.Octo.Backend.McpServices.Options;
 using Meshmakers.Octo.Sdk.ServiceClient;
+using Meshmakers.Octo.Sdk.ServiceClient.AiServices;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.StreamData;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.System;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants;
@@ -87,6 +88,19 @@ internal sealed class OctoServiceClientFactory : IOctoServiceClientFactory
         };
 
         return new ReportingServicesClient(options, MakeToken(accessToken));
+    }
+
+    public IAiServicesClient CreateAiClient(string tenantId, string accessToken)
+    {
+        var endpoint = RequireUrl(_urlOptions.Value.AiServiceUrl, nameof(OctoServiceUrlOptions.AiServiceUrl));
+
+        var options = new AiServiceClientOptions
+        {
+            EndpointUri = endpoint,
+            TenantId = tenantId
+        };
+
+        return new AiServicesClient(options, MakeToken(accessToken));
     }
 
     public IBotServicesClient CreateBotClient(string accessToken)

@@ -140,7 +140,7 @@ public class TenantBackupToolsTests : ToolTestBase
         result.ErrorMessage.Should().Contain("confirm=true");
         MockBotClient.Verify(c => c.RestoreRepositoryWithTusAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<Action<double>?>(),
+            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<Action<double>?>(),
             It.IsAny<CancellationToken>()),
             Times.Never);
     }
@@ -151,7 +151,7 @@ public class TenantBackupToolsTests : ToolTestBase
         var (transferId, _) = StageRestoreUpload();
         MockBotClient.Setup(c => c.RestoreRepositoryWithTusAsync(
                 "target", "newdb", It.IsAny<string>(),
-                null, false, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()))
+                null, false, false, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new JobResponseDto("restore-1"));
         GivenJobSucceeds("restore-1");
 
@@ -164,7 +164,7 @@ public class TenantBackupToolsTests : ToolTestBase
         FileTransferStore.GetUpload(transferId, CallerSession).Should().BeNull();
         MockBotClient.Verify(c => c.RestoreRepositoryWithTusAsync(
             "target", "newdb", It.IsAny<string>(),
-            null, false, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()), Times.Once);
+            null, false, false, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -173,7 +173,7 @@ public class TenantBackupToolsTests : ToolTestBase
         var (transferId, _) = StageRestoreUpload();
         MockBotClient.Setup(c => c.RestoreRepositoryWithTusAsync(
                 "target", "newdb", It.IsAny<string>(),
-                null, true, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()))
+                null, true, false, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new JobResponseDto("restore-arc"));
         GivenJobSucceeds("restore-arc");
 
@@ -183,7 +183,7 @@ public class TenantBackupToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
         MockBotClient.Verify(c => c.RestoreRepositoryWithTusAsync(
             "target", "newdb", It.IsAny<string>(),
-            null, true, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()), Times.Once);
+            null, true, false, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -192,7 +192,7 @@ public class TenantBackupToolsTests : ToolTestBase
         var (transferId, _) = StageRestoreUpload();
         MockBotClient.Setup(c => c.RestoreRepositoryWithTusAsync(
                 "target", "newdb", It.IsAny<string>(),
-                "olddb", false, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()))
+                "olddb", false, false, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new JobResponseDto("restore-2"));
         GivenJobSucceeds("restore-2");
 
@@ -202,7 +202,7 @@ public class TenantBackupToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue();
         MockBotClient.Verify(c => c.RestoreRepositoryWithTusAsync(
             "target", "newdb", It.IsAny<string>(),
-            "olddb", false, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()), Times.Once);
+            "olddb", false, false, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
