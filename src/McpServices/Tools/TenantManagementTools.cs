@@ -232,7 +232,9 @@ public sealed class TenantManagementTools
         "(tenantId=<child>, confirm=true) - or set disableFeatures=true (octo-cli Delete --disable-features, AB#7192), " +
         "which switches off every enabled capability with YOUR token for the child tenant and deletes the tenant " +
         "afterwards: the capability endpoints belong to the child's own administrator, so the session must hold (or be " +
-        "able to exchange for) a token of the child with TenantManagement there. It reports what it disabled, never " +
+        "able to exchange for) a token of the child with TenantManagement there. It works with a USER MCP session (provision " +
+        "yourself as administrator of the child first, provision_current_user_as_admin); a client-credentials agent cannot " +
+        "exchange its token and uses octo-cli Delete --disable-features instead. It reports what it disabled, never " +
         "deletes archives - activated archives keep Stream Data enabled, are listed in featuresStillEnabled and the " +
         "tenant is NOT deleted. Run dump_tenant beforehand if the data is still " +
         "needed. Answers a reason-free not-found error when the tenant is not a child of the parent. " +
