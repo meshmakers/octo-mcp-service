@@ -455,13 +455,21 @@ public sealed class TenantManagementTools
 
         // AB#5036: session.Error names the real reason (a stored token that is not the caller's, or a
         // failed exchange) instead of collapsing it into "Not authenticated".
-        var session = await McpSessionContext.ResolveAccessTokenAsync(server, parent);
-        if (session.AccessToken == null)
+        try
         {
-            return new ParentTarget(parent, null, session.Error ?? Constants.NotAuthenticatedError);
-        }
+            var session = await McpSessionContext.ResolveAccessTokenAsync(server, parent);
+            if (session.AccessToken == null)
+            {
+                return new ParentTarget(parent, null, session.Error ?? Constants.NotAuthenticatedError);
+            }
 
-        return new ParentTarget(parent, session.AccessToken, null);
+            return new ParentTarget(parent, session.AccessToken, null);
+        }
+        catch (Exception ex)
+        {
+            // Never throw out of a tool (e.g. identity unreachable during the exchange).
+            return new ParentTarget(parent, null, ex.Message);
+        }
     }
 
     private static async Task<TenantOperationResponse> InvokeAsync(

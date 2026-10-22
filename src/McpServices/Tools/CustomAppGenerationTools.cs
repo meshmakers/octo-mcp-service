@@ -468,15 +468,32 @@ public sealed class CustomAppGenerationTools
 
         // AB#7282: introspect with the token exchanged for the addressed tenant (RFC 8693), never the
         // home token; AB#5036: session.Error names the real reason (foreign stored token, failed exchange).
-        var session = await McpSessionContext.ResolveAccessTokenAsync(server, resolvedTenantId, cancellationToken);
-        var accessToken = session.AccessToken;
+        string? accessToken;
+        string? sessionError;
+        try
+        {
+            var session = await McpSessionContext.ResolveAccessTokenAsync(server, resolvedTenantId, cancellationToken);
+            accessToken = session.AccessToken;
+            sessionError = session.Error;
+        }
+        catch (Exception ex)
+        {
+            // Never throw out of a tool (e.g. identity unreachable during the exchange).
+            return new ExportRuntimeGraphqlSdlResponse
+            {
+                IsSuccess = false,
+                TenantId = resolvedTenantId,
+                ErrorMessage = ex.Message,
+            };
+        }
+
         if (accessToken == null)
         {
             return new ExportRuntimeGraphqlSdlResponse
             {
                 IsSuccess = false,
                 TenantId = resolvedTenantId,
-                ErrorMessage = session.Error ?? Constants.NotAuthenticatedError,
+                ErrorMessage = sessionError ?? Constants.NotAuthenticatedError,
             };
         }
 

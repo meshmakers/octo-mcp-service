@@ -458,4 +458,22 @@ public class TenantManagementToolsTests : ToolTestBase
         result.ErrorMessage.Should().Contain("token exchange for tenant 'parent-tenant'");
         VerifyNoSdkCall();
     }
+
+    [Fact]
+    public async Task GetTenants_ExchangeThrows_ReturnsErrorWithoutSdkCall()
+    {
+        GivenAuthenticated();
+        MockTenantResolution.Setup(t => t.ResolveTenantId(ParentTenant)).Returns(ParentTenant);
+        var exchanger = new Mock<ITenantTokenExchanger>();
+        exchanger.Setup(e => e.ExchangeForTenantAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("identity unreachable"));
+        TestServiceProvider.RegisterService(exchanger.Object);
+
+        var result = await TenantManagementTools.GetTenants(MockServer.Object, ParentTenant);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be("identity unreachable");
+        VerifyNoSdkCall();
+    }
 }
