@@ -219,26 +219,4 @@ public class ScratchTenantToolsTests : ToolTestBase
         result.TenantId.Should().Be(DefaultTenantId);
         MockAiClient.Verify(c => c.DisableAsync(DefaultTenantId), Times.Once);
     }
-
-    // ----- restore_tenant scratch -----
-
-    [Fact]
-    public async Task RestoreTenant_Scratch_PassesTheFlagToTheSdk()
-    {
-        var (id, path) = FileTransferStore.ReserveUpload(CallerSession, "dump.tar.gz");
-        File.WriteAllBytes(path, [0, 1, 2]);
-        FileTransferStore.CompleteUpload(id, 3);
-        MockBotClient.Setup(c => c.RestoreRepositoryWithTusAsync("target", "newdb", It.IsAny<string>(), null, false, true,
-                It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new JobResponseDto("restore-scratch"));
-        MockBotClient.Setup(c => c.GetImportJobStatus("restore-scratch"))
-            .ReturnsAsync(new JobDto { Status = "Succeeded" });
-
-        var result = await TenantBackupTools.RestoreTenant(MockServer.Object, id, "target", "newdb", confirm: true,
-            scratch: true);
-
-        result.IsSuccess.Should().BeTrue();
-        MockBotClient.Verify(c => c.RestoreRepositoryWithTusAsync("target", "newdb", It.IsAny<string>(), null, false,
-            true, It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()), Times.Once);
-    }
 }

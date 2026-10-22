@@ -74,7 +74,7 @@ public class FileTransferOwnershipTests : ToolTestBase
         result.ErrorMessage.Should().Contain("not found or expired");
         MockBotClient.Verify(c => c.RestoreRepositoryWithTusAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()),
+                It.IsAny<bool>(), It.IsAny<Action<double>?>(), It.IsAny<CancellationToken>()),
             Times.Never);
         AssertUntouchedForOwner(id, path);
     }

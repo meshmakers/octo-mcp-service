@@ -112,13 +112,7 @@ public sealed class TenantBackupTools
         bool restoreArchiveData = false,
         [Description("Must be true to actually restore.")] bool confirm = false,
         [Description("Wait timeout in minutes (default 30).")] int waitTimeoutMinutes = 30,
-        [Description("Calling/system tenant context. Falls back to URL route.")] string? tenantId = null,
-        [Description(
-            "Restore as a scratch tenant (AB#7192): the client-credentials client of the system tenant that makes this " +
-            "call becomes administrator of the restored tenant. Refused (403) for a user session or any other caller; " +
-            "where the service-token tenant gate is enforced such a token cannot address the restored tenant at all - " +
-            "restore into a tenant created with create_tenant scratch=true using the child's token instead. Default false.")]
-        bool scratch = false)
+        [Description("Calling/system tenant context. Falls back to URL route.")] string? tenantId = null)
     {
         if (string.IsNullOrWhiteSpace(transferId) ||
             string.IsNullOrWhiteSpace(targetTenantId) ||
@@ -161,7 +155,7 @@ public sealed class TenantBackupTools
         {
             var startResponse = await bot.Client!.RestoreRepositoryWithTusAsync(
                 targetTenantId, databaseName, upload.FilePath, oldDatabaseName,
-                restoreArchiveData: restoreArchiveData, scratch: scratch);
+                restoreArchiveData: restoreArchiveData);
 
             await JobPollingHelper.WaitForJobAsync(bot.Client, startResponse.JobId,
                 TimeSpan.FromMinutes(waitTimeoutMinutes));

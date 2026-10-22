@@ -1077,7 +1077,7 @@ An agent can work in and clean up the scratch tenants it creates without a human
 
 - `create_tenant` takes `scratch` (SDK `CreateTenantAsync(.., scratch: true)`): the client-credentials client of the parent that makes the call becomes
   administrator (`TenantOwners`) of the new tenant. The asset repository answers 403 for a user session or another tenant's token - a plain user
-  MCP session cannot create a scratch tenant. `restore_tenant` takes `scratch` as well (system-tenant service token only; see the bot service `CLAUDE.md`).
+  MCP session cannot create a scratch tenant.  `restore_tenant` has no scratch flag: restore into a tenant created with `create_tenant scratch=true` using the child token - the scratch record survives the restore.
 - `enable_ai` / `disable_ai` (`AiLifecycleTools`, High) close the gap of the fourth tenant capability: a tenant with AI Services enabled used to need
   octo-cli `DisableAi` before `delete_tenant`. They use the new `OctoServiceUrls:AiServiceUrl` (default `https://localhost:5019/`; **deployments must set
   `OctoServiceUrls__AiServiceUrl`** or the AI tools fail with the missing-configuration message) and `IOctoServiceClientFactory.CreateAiClient`.
@@ -1088,4 +1088,4 @@ An agent can work in and clean up the scratch tenants it creates without a human
   (Stream Data with activated archives answers 409 naming them) lands in `featuresStillEnabled` and the tenant is **not** deleted - archives are reported,
   never deleted. A client-credentials session cannot exchange its token for a child (the exchange needs a user); it gets a clear error and uses the child's
   own session (a client-credentials token for the child) or octo-cli `Delete --disable-features`.
-- Tests: `ScratchTenantToolsTests` (create / restore flag, disableFeatures order, archives, no child token, enable/disable AI).
+- Tests: `ScratchTenantToolsTests` (create flag, disableFeatures order, archives, no child token, enable/disable AI).
