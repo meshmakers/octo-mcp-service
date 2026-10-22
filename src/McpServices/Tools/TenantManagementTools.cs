@@ -294,6 +294,19 @@ public sealed class TenantManagementTools
             var disabled = new List<string>();
             if (disableFeatures)
             {
+                // Only a direct child of the resolved parent can be deleted from here; do not switch anything off in a
+                // tenant that the delete below would refuse anyway.
+                var children = await assetClient.GetTenantsAsync();
+                if (children?.Any(t => string.Equals(t.TenantId, childTenantId, StringComparison.OrdinalIgnoreCase)) != true)
+                {
+                    return new DeleteTenantResponse
+                    {
+                        IsSuccess = false,
+                        ParentTenantId = resolvedParent,
+                        ErrorMessage = $"Tenant '{childTenantId}' was not found under '{resolvedParent}'. Nothing was disabled."
+                    };
+                }
+
                 var refusal = await DisableChildFeaturesAsync(server, clientFactory, childTenantId, disabled);
                 if (refusal != null)
                 {

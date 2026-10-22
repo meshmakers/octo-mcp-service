@@ -8,7 +8,7 @@ using Xunit;
 namespace McpServices.Tests.Tools;
 
 /// <summary>
-///     AB#7192: <c>create_tenant scratch</c>, <c>restore_tenant scratch</c>, <c>delete_tenant disableFeatures</c> and the
+///     AB#7192: <c>create_tenant scratch</c>, <c>delete_tenant disableFeatures</c> and the
 ///     AI toggle tools <c>enable_ai</c> / <c>disable_ai</c>.
 /// </summary>
 public class ScratchTenantToolsTests : ToolTestBase
@@ -18,6 +18,8 @@ public class ScratchTenantToolsTests : ToolTestBase
     public ScratchTenantToolsTests()
     {
         GivenAuthenticated();
+        MockAssetClient.Setup(c => c.GetTenantsAsync())
+            .ReturnsAsync(new[] { new TenantDto { TenantId = Child, Database = Child } });
     }
 
     private static TenantFeaturesStatusDto Status(bool ai, bool communication, bool reporting, bool streamData) => new()
@@ -123,6 +125,17 @@ public class ScratchTenantToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue();
         result.DisabledFeatures.Should().BeEmpty();
         MockAssetClient.Verify(c => c.DeleteTenantAsync(Child), Times.Once);
+    }
+
+    [Fact]
+    public async Task DeleteTenant_DisableFeatures_TenantOfAnotherParent_IsRefused_BeforeAnythingIsSwitchedOff()
+    {
+        var result = await TenantManagementTools.DeleteTenant(MockServer.Object, "someoneelse", confirm: true,
+            disableFeatures: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("not found under").And.Contain("Nothing was disabled");
+        MockAssetClient.Verify(c => c.DeleteTenantAsync(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
