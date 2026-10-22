@@ -18,29 +18,29 @@ public sealed class TenantManagementTools
     [McpServerTool(Name = "get_tenants")]
     [Description(
         "List all child tenants visible from the given parent tenant. Equivalent to the octo-cli GetTenants " +
-        "command. Returns each child's tenant ID and database name.")]
+        "command. Returns each child's tenant ID and database name. Requires access to the addressed parent " +
+        "tenant itself (the token is exchanged for it).")]
     public static async Task<GetTenantsResponse> GetTenants(
         McpServer server,
         [Description("Parent tenant whose child tenants should be listed. If omitted, the tenant is resolved from the URL route.")]
         string? tenantId = null)
     {
-        // AB#5036: session.Error names the real reason (a stored token that is not the
-        // caller's) instead of collapsing it into "Not authenticated".
-        var session = await McpSessionContext.ResolveAccessTokenAsync(server);
-        var accessToken = session.AccessToken;
-        if (accessToken == null)
+        // AB#7282: the token is exchanged for the addressed (route/parent) tenant, never the home token.
+        var target = await ResolveParentAndTokenAsync(server, tenantId);
+        if (target.Error != null)
         {
             return new GetTenantsResponse
             {
                 IsSuccess = false,
-                ErrorMessage = session.Error ?? Constants.NotAuthenticatedError
+                ErrorMessage = target.Error
             };
         }
 
+        var accessToken = target.AccessToken!;
+
         try
         {
-            var tenantResolver = server.Services!.GetRequiredService<ITenantResolutionService>();
-            var resolvedParent = tenantResolver.ResolveTenantId(tenantId);
+            var resolvedParent = target.ParentTenantId!;
 
             var clientFactory = server.Services!.GetRequiredService<IOctoServiceClientFactory>();
             var assetClient = clientFactory.CreateAssetClient(resolvedParent, accessToken);
@@ -131,7 +131,8 @@ public sealed class TenantManagementTools
     [Description(
         "Create a new child tenant under the given parent tenant. Equivalent to the octo-cli CreateTenant command. " +
         "Note: unlike the CLI, this does NOT automatically provision the calling user as admin — call the identity " +
-        "provisioning tools separately once those are exposed.")]
+        "provisioning tools separately once those are exposed. Requires access to the addressed parent tenant " +
+        "itself (the token is exchanged for it).")]
     public static async Task<CreateTenantResponse> CreateTenant(
         McpServer server,
         [Description("Identifier of the new child tenant (will be lower-cased).")]
@@ -141,18 +142,18 @@ public sealed class TenantManagementTools
         [Description("Parent tenant under which the child is created. If omitted, the tenant is resolved from the URL route.")]
         string? tenantId = null)
     {
-        // AB#5036: session.Error names the real reason (a stored token that is not the
-        // caller's) instead of collapsing it into "Not authenticated".
-        var session = await McpSessionContext.ResolveAccessTokenAsync(server);
-        var accessToken = session.AccessToken;
-        if (accessToken == null)
+        // AB#7282: the token is exchanged for the addressed (route/parent) tenant, never the home token.
+        var target = await ResolveParentAndTokenAsync(server, tenantId);
+        if (target.Error != null)
         {
             return new CreateTenantResponse
             {
                 IsSuccess = false,
-                ErrorMessage = session.Error ?? Constants.NotAuthenticatedError
+                ErrorMessage = target.Error
             };
         }
+
+        var accessToken = target.AccessToken!;
 
         if (string.IsNullOrWhiteSpace(childTenantId))
         {
@@ -174,8 +175,7 @@ public sealed class TenantManagementTools
 
         try
         {
-            var tenantResolver = server.Services!.GetRequiredService<ITenantResolutionService>();
-            var resolvedParent = tenantResolver.ResolveTenantId(tenantId);
+            var resolvedParent = target.ParentTenantId!;
 
             var clientFactory = server.Services!.GetRequiredService<IOctoServiceClientFactory>();
             var assetClient = clientFactory.CreateAssetClient(resolvedParent, accessToken);
@@ -215,7 +215,8 @@ public sealed class TenantManagementTools
         "Disable them first via disable_stream_data / disable_communication / disable_reporting " +
         "(tenantId=<child>, confirm=true); AI Services has no MCP tool - run octo-cli DisableAi in a context of " +
         "the child tenant (UseContext or --context <name>). Run dump_tenant beforehand if the data is still " +
-        "needed. Answers a reason-free not-found error when the tenant is not a child of the parent.")]
+        "needed. Answers a reason-free not-found error when the tenant is not a child of the parent. " +
+        "Requires access to the addressed parent tenant itself (the token is exchanged for it).")]
     public static async Task<DeleteTenantResponse> DeleteTenant(
         McpServer server,
         [Description("Identifier of the child tenant to delete.")]
@@ -225,18 +226,18 @@ public sealed class TenantManagementTools
         [Description("Parent tenant under which the child lives. If omitted, the tenant is resolved from the URL route.")]
         string? tenantId = null)
     {
-        // AB#5036: session.Error names the real reason (a stored token that is not the
-        // caller's) instead of collapsing it into "Not authenticated".
-        var session = await McpSessionContext.ResolveAccessTokenAsync(server);
-        var accessToken = session.AccessToken;
-        if (accessToken == null)
+        // AB#7282: the token is exchanged for the addressed (route/parent) tenant, never the home token.
+        var target = await ResolveParentAndTokenAsync(server, tenantId);
+        if (target.Error != null)
         {
             return new DeleteTenantResponse
             {
                 IsSuccess = false,
-                ErrorMessage = session.Error ?? Constants.NotAuthenticatedError
+                ErrorMessage = target.Error
             };
         }
+
+        var accessToken = target.AccessToken!;
 
         if (string.IsNullOrWhiteSpace(childTenantId))
         {
@@ -260,8 +261,7 @@ public sealed class TenantManagementTools
 
         try
         {
-            var tenantResolver = server.Services!.GetRequiredService<ITenantResolutionService>();
-            var resolvedParent = tenantResolver.ResolveTenantId(tenantId);
+            var resolvedParent = target.ParentTenantId!;
 
             var clientFactory = server.Services!.GetRequiredService<IOctoServiceClientFactory>();
             var assetClient = clientFactory.CreateAssetClient(resolvedParent, accessToken);
@@ -291,7 +291,8 @@ public sealed class TenantManagementTools
     [McpRisk(McpRiskLevel.High)]
     [Description(
         "Reset a child tenant to its initial state, deleting all data and resetting the construction kit to " +
-        "system-only models. DESTRUCTIVE — requires confirm=true.")]
+        "system-only models. DESTRUCTIVE — requires confirm=true. " +
+        "Requires access to the addressed parent tenant itself (the token is exchanged for it).")]
     public static Task<TenantOperationResponse> CleanTenant(
         McpServer server,
         [Description("Identifier of the child tenant to clean.")] string childTenantId,
@@ -308,7 +309,8 @@ public sealed class TenantManagementTools
     [McpRisk(McpRiskLevel.High)]
     [Description(
         "Attach an existing database as a child tenant. The database must already exist; only the metadata " +
-        "binding is created. Non-destructive.")]
+        "binding is created. Non-destructive. " +
+        "Requires access to the addressed parent tenant itself (the token is exchanged for it).")]
     public static async Task<TenantOperationResponse> AttachTenant(
         McpServer server,
         [Description("Identifier of the child tenant to attach.")] string childTenantId,
@@ -358,7 +360,8 @@ public sealed class TenantManagementTools
         "Disable them first via disable_stream_data / disable_communication / disable_reporting " +
         "(tenantId=<child>, confirm=true); AI Services has no MCP tool - run octo-cli DisableAi in a context of " +
         "the child tenant (UseContext or --context <name>). Run dump_tenant beforehand if the data is still " +
-        "needed. Answers a reason-free not-found error when the tenant is not a child of the parent.")]
+        "needed. Answers a reason-free not-found error when the tenant is not a child of the parent. " +
+        "Requires access to the addressed parent tenant itself (the token is exchanged for it).")]
     public static Task<TenantOperationResponse> DetachTenant(
         McpServer server,
         [Description("Identifier of the child tenant to detach.")] string childTenantId,
@@ -374,7 +377,8 @@ public sealed class TenantManagementTools
     [McpRisk(McpRiskLevel.High)]
     [Description(
         "Clear the in-memory caches of a child tenant. May cause temporary performance degradation while caches " +
-        "re-warm. Requires confirm=true.")]
+        "re-warm. Requires confirm=true. " +
+        "Requires access to the addressed parent tenant itself (the token is exchanged for it).")]
     public static Task<TenantOperationResponse> ClearTenantCache(
         McpServer server,
         [Description("Identifier of the child tenant whose cache should be cleared.")] string childTenantId,
@@ -391,7 +395,8 @@ public sealed class TenantManagementTools
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Update the system construction-kit model of a child tenant to the currently-published version. " +
-        "Non-destructive but may affect entity validation behaviour.")]
+        "Non-destructive but may affect entity validation behaviour. " +
+        "Requires access to the addressed parent tenant itself (the token is exchanged for it).")]
     public static Task<TenantOperationResponse> UpdateSystemCkModel(
         McpServer server,
         [Description("Identifier of the child tenant to update.")] string childTenantId,
@@ -409,26 +414,61 @@ public sealed class TenantManagementTools
 
     private static async Task<AssetClientContext> TryBuildContext(McpServer server, string? tenantId)
     {
-        // AB#5036: session.Error names the real reason (a stored token that is not the
-        // caller's) instead of collapsing it into "Not authenticated".
-        var session = await McpSessionContext.ResolveAccessTokenAsync(server);
-        var accessToken = session.AccessToken;
-        if (accessToken == null)
+        var target = await ResolveParentAndTokenAsync(server, tenantId);
+        if (target.Error != null)
         {
-            return new AssetClientContext(null, null,
-                Constants.NotAuthenticatedError);
+            return new AssetClientContext(null, null, target.Error);
         }
 
         try
         {
-            var tenantResolver = server.Services!.GetRequiredService<ITenantResolutionService>();
-            var parent = tenantResolver.ResolveTenantId(tenantId);
             var factory = server.Services!.GetRequiredService<IOctoServiceClientFactory>();
-            return new AssetClientContext(factory.CreateAssetClient(parent, accessToken), parent, null);
+            return new AssetClientContext(
+                factory.CreateAssetClient(target.ParentTenantId!, target.AccessToken!), target.ParentTenantId, null);
         }
         catch (Exception ex)
         {
             return new AssetClientContext(null, null, ex.Message);
+        }
+    }
+
+    private record ParentTarget(string? ParentTenantId, string? AccessToken, string? Error);
+
+    /// <summary>
+    ///     AB#7282: resolves the addressed (route/parent) tenant and the bearer for it. Under user-token
+    ///     Enforce the asset-repo checks the token's tenant against the route tenant, so a caller whose home
+    ///     is a different tenant needs the RFC 8693 exchange token for the parent (same path as octo-cli
+    ///     AB#6836). A failed exchange surfaces the session error — it never falls back to the home token.
+    /// </summary>
+    private static async Task<ParentTarget> ResolveParentAndTokenAsync(McpServer server, string? tenantId)
+    {
+        string parent;
+        try
+        {
+            var tenantResolver = server.Services!.GetRequiredService<ITenantResolutionService>();
+            parent = tenantResolver.ResolveTenantId(tenantId);
+        }
+        catch (Exception ex)
+        {
+            return new ParentTarget(null, null, ex.Message);
+        }
+
+        // AB#5036: session.Error names the real reason (a stored token that is not the caller's, or a
+        // failed exchange) instead of collapsing it into "Not authenticated".
+        try
+        {
+            var session = await McpSessionContext.ResolveAccessTokenAsync(server, parent);
+            if (session.AccessToken == null)
+            {
+                return new ParentTarget(parent, null, session.Error ?? Constants.NotAuthenticatedError);
+            }
+
+            return new ParentTarget(parent, session.AccessToken, null);
+        }
+        catch (Exception ex)
+        {
+            // Never throw out of a tool (e.g. identity unreachable during the exchange).
+            return new ParentTarget(parent, null, ex.Message);
         }
     }
 

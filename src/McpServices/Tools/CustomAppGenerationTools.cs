@@ -443,26 +443,14 @@ public sealed class CustomAppGenerationTools
         "downloads via GET DownloadUrlPath, saves to src/custom-app/schema.json, then runs " +
         "`npx graphql-codegen --config codegen.yml --schema schema.json`. Per-tenant: the " +
         "GraphQL surface varies with the tenant's CK model. Read-only against the " +
-        "asset-services GraphQL endpoint; never mutates.")]
+        "asset-services GraphQL endpoint; never mutates. Requires access to the addressed tenant (the token is " +
+        "exchanged for it).")]
     public static async Task<ExportRuntimeGraphqlSdlResponse> ExportRuntimeGraphqlSdl(
         McpServer server,
         [Description("Tenant whose GraphQL surface to introspect. Falls back to the route's tenant.")]
         string? tenantId = null,
         CancellationToken cancellationToken = default)
     {
-        // AB#5036: session.Error names the real reason (a stored token that is not the
-        // caller's) instead of collapsing it into "Not authenticated".
-        var session = await McpSessionContext.ResolveAccessTokenAsync(server);
-        var accessToken = session.AccessToken;
-        if (accessToken == null)
-        {
-            return new ExportRuntimeGraphqlSdlResponse
-            {
-                IsSuccess = false,
-                ErrorMessage = session.Error ?? Constants.NotAuthenticatedError,
-            };
-        }
-
         string resolvedTenantId;
         try
         {
@@ -475,6 +463,37 @@ public sealed class CustomAppGenerationTools
             {
                 IsSuccess = false,
                 ErrorMessage = $"Failed to resolve tenant: {ex.Message}",
+            };
+        }
+
+        // AB#7282: introspect with the token exchanged for the addressed tenant (RFC 8693), never the
+        // home token; AB#5036: session.Error names the real reason (foreign stored token, failed exchange).
+        string? accessToken;
+        string? sessionError;
+        try
+        {
+            var session = await McpSessionContext.ResolveAccessTokenAsync(server, resolvedTenantId, cancellationToken);
+            accessToken = session.AccessToken;
+            sessionError = session.Error;
+        }
+        catch (Exception ex)
+        {
+            // Never throw out of a tool (e.g. identity unreachable during the exchange).
+            return new ExportRuntimeGraphqlSdlResponse
+            {
+                IsSuccess = false,
+                TenantId = resolvedTenantId,
+                ErrorMessage = ex.Message,
+            };
+        }
+
+        if (accessToken == null)
+        {
+            return new ExportRuntimeGraphqlSdlResponse
+            {
+                IsSuccess = false,
+                TenantId = resolvedTenantId,
+                ErrorMessage = sessionError ?? Constants.NotAuthenticatedError,
             };
         }
 

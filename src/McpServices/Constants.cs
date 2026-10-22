@@ -27,6 +27,16 @@ internal static class Constants
         "Not authenticated. Log in via your MCP client's OAuth flow (e.g. /mcp in Claude Code), or call the 'authenticate' tool for the device-code flow.";
 
     /// <summary>
+    ///     Error for a failed RFC 8693 token exchange towards <paramref name="tenantId" /> (AB#7282): the
+    ///     caller is authenticated but the identity server refused a token for that tenant (no access) or was
+    ///     unreachable. Tests pin the "token exchange for tenant" phrase.
+    /// </summary>
+    /// <param name="tenantId">Tenant the exchange was attempted for.</param>
+    public static string TenantExchangeFailedError(string tenantId) =>
+        $"Access denied: token exchange for tenant '{tenantId}' failed. The caller may not access this tenant, " +
+        "or the identity service is unreachable. The home-tenant token is never used for another tenant.";
+
+    /// <summary>
     ///     Uniform error for a session-store token that does not belong to the authenticated caller
     ///     (AB#5036). Deliberately NOT <see cref="NotAuthenticatedError" />: the caller IS authenticated —
     ///     the stored session simply carries a different identity, and reporting "not authenticated" would
