@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Sdk.ServiceClient.AiServices;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.StreamData;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.System;
 using Meshmakers.Octo.Sdk.ServiceClient.BotServices;
@@ -54,6 +55,13 @@ public interface IOctoServiceClientFactory
     /// <param name="tenantId">Tenant to scope reporting operations to, or <c>null</c> for system scope.</param>
     /// <param name="accessToken">OAuth access token for the bearer header.</param>
     IReportingServicesClient CreateReportingClient(string? tenantId, string accessToken);
+
+    /// <summary>
+    ///     Builds a fresh <see cref="IAiServicesClient" /> bound to the given tenant and access token (AB#7192).
+    /// </summary>
+    /// <param name="tenantId">Tenant to scope AI operations to.</param>
+    /// <param name="accessToken">OAuth access token for the bearer header.</param>
+    IAiServicesClient CreateAiClient(string tenantId, string accessToken);
 
     /// <summary>
     ///     Builds a fresh <see cref="IBotServicesClient" /> authenticated with the given access token. The Bot

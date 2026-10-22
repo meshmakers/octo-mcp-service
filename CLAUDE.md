@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes 214 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
+`octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes 216 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
 
 Three distinct tool families live here — be aware which one you're touching:
 
@@ -475,7 +475,7 @@ Both `MapMcp` endpoints require it. Before this they carried a bare `RequireAuth
 token with no Octo API scope at all (a front-end `openid profile` token, say) reached every tool —
 while every backend service gates on `scope`.
 
-**The requirement is uniform, and it is the write scope `octo_api`.** MCP multiplexes all 214 tools
+**The requirement is uniform, and it is the write scope `octo_api`.** MCP multiplexes all 216 tools
 over one JSON-RPC `POST`; the tool name lives in the request *body* and ASP.NET authorization runs on
 the endpoint before the body is read, so there is no second endpoint to hang a stricter policy on and
 no way to split read from write there. Accepting `octo_api.read_only` would therefore hand a
@@ -1070,3 +1070,22 @@ The MCP server was originally a thin runtime CRUD proxy (Versions 1.0–1.1). Ve
 - **Family 3** also talks directly to the engine (via `ITenantRepository` for runtime aggregations; via `ITenantContext.GetStreamDataRepository()` for stream-data queries), with its own lowercase enum + `AggregationMapper` conventions. Mirrors the asset-repo GraphQL transient-query surface so the AI never has to construct GraphQL.
 
 Don't try to merge them. Generic CRUD doesn't go through the service clients (no HTTP overhead for read-heavy entity queries); platform-admin operations don't bypass the service clients (skipping them would skip the orchestration); aggregations don't go through `*ClientContext` (they need direct engine access for `RtEntityQueryOptions` configuration). The three layers have different cost profiles and different validation needs.
+
+## Scratch tenants, AI toggles and `delete_tenant disableFeatures` (AB#7192)
+
+An agent can work in and clean up the scratch tenants it creates without a human login (octo-identity-services `CLAUDE.md`, "Scratch tenants").
+
+- `create_tenant` takes `scratch` (SDK `CreateTenantAsync(.., scratch: true)`): the client-credentials client of the parent that makes the call becomes
+  administrator (`TenantOwners`) of the new tenant. The asset repository answers 403 for a user session or another tenant's token - a plain user
+  MCP session cannot create a scratch tenant.  `restore_tenant` has no scratch flag: restore into a tenant created with `create_tenant scratch=true` using the child token - the scratch record survives the restore.
+- `enable_ai` / `disable_ai` (`AiLifecycleTools`, High) close the gap of the fourth tenant capability: a tenant with AI Services enabled used to need
+  octo-cli `DisableAi` before `delete_tenant`. They use the new `OctoServiceUrls:AiServiceUrl` (default `https://localhost:5019/`; **deployments must set
+  `OctoServiceUrls__AiServiceUrl`** or the AI tools fail with the missing-configuration message) and `IOctoServiceClientFactory.CreateAiClient`.
+- `delete_tenant` takes `disableFeatures` (requires `confirm=true`): reads the child's capability status, switches off every enabled one - AI Services,
+  Communication, Reporting, Stream Data - through the SDK `TenantFeatureDisabler`, then deletes. All of it with **the session's token for the child tenant**
+  (`McpSessionContext.ResolveAccessTokenAsync(server, child)`: the home token when the session is the child's, else an RFC 8693 exchange): the capability
+  endpoints belong to the child's own administrator and refuse the parent's token. The response lists `disabledFeatures`; a capability that stays enabled
+  (Stream Data with activated archives answers 409 naming them) lands in `featuresStillEnabled` and the tenant is **not** deleted - archives are reported,
+  never deleted. A client-credentials session cannot exchange its token for a child (the exchange needs a user); it gets a clear error and uses the child's
+  own session (a client-credentials token for the child) or octo-cli `Delete --disable-features`.
+- Tests: `ScratchTenantToolsTests` (create flag, disableFeatures order, archives, no child token, enable/disable AI).

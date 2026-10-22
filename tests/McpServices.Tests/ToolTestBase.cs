@@ -1,4 +1,5 @@
 using Meshmakers.Octo.Backend.McpServices.Services;
+using Meshmakers.Octo.Sdk.ServiceClient.AiServices;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.StreamData;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.System;
 using Meshmakers.Octo.Sdk.ServiceClient.BotServices;
@@ -43,6 +44,9 @@ public abstract class ToolTestBase : TestBase
     /// <summary>Mocked Reporting SDK client returned by the factory for the current test.</summary>
     protected Mock<IReportingServicesClient> MockReportingClient { get; }
 
+    /// <summary>Mocked AI SDK client returned by the factory for the current test (AB#7192).</summary>
+    protected Mock<IAiServicesClient> MockAiClient { get; }
+
     /// <summary>Mocked Bot SDK client returned by the factory for the current test.</summary>
     protected Mock<IBotServicesClient> MockBotClient { get; }
 
@@ -66,6 +70,7 @@ public abstract class ToolTestBase : TestBase
         MockStreamDataClient = new Mock<IStreamDataServicesClient>();
         MockReportingClient = new Mock<IReportingServicesClient>();
         MockBotClient = new Mock<IBotServicesClient>();
+        MockAiClient = new Mock<IAiServicesClient>();
         FileTransferStore = new FileTransferStore();
 
         // Factory hands out the per-test mocks regardless of which tenant the tool requests.
@@ -87,6 +92,9 @@ public abstract class ToolTestBase : TestBase
         MockClientFactory
             .Setup(f => f.CreateBotClient(It.IsAny<string>()))
             .Returns(MockBotClient.Object);
+        MockClientFactory
+            .Setup(f => f.CreateAiClient(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(MockAiClient.Object);
 
         // Default cross-tenant exchange (AB#4338): hands back the SAME token for any target tenant. The
         // default session token is a JWT homed in DefaultTenantId (see GivenAuthenticated), so any test

@@ -30,4 +30,10 @@ public class OctoServiceUrlOptions
     ///     Base URL of the Reporting service.
     /// </summary>
     public string? ReportingServiceUrl { get; set; }
+
+    /// <summary>
+    ///     Base URL of the AI service (AI Services capability of a tenant: enable_ai / disable_ai, and the AI part of
+    ///     delete_tenant disableFeatures).
+    /// </summary>
+    public string? AiServiceUrl { get; set; }
 }

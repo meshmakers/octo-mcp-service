@@ -69,6 +69,27 @@ public class DeleteTenantResponse : TenantManagementResponse
 
     /// <summary>Parent tenant from which the child was removed.</summary>
     public string? ParentTenantId { get; set; }
+
+    /// <summary>
+    ///     Capabilities <c>disableFeatures</c> switched off before the delete (AB#7192), by display name
+    ///     (AI Services, Communication, Reporting, Stream Data). Empty when the flag was not set or nothing was enabled.
+    /// </summary>
+    public List<string> DisabledFeatures { get; set; } = [];
+
+    /// <summary>
+    ///     Capabilities that stay enabled and why (AB#7192): for Stream Data the activated archives, which are reported and
+    ///     never deleted. The tenant is not deleted while this is not empty.
+    /// </summary>
+    public List<string> FeaturesStillEnabled { get; set; } = [];
+}
+
+/// <summary>
+///     Response of <c>enable_ai</c> / <c>disable_ai</c> (AB#7192).
+/// </summary>
+public class AiLifecycleResponse : TenantManagementResponse
+{
+    /// <summary>Tenant whose AI Services capability was toggled.</summary>
+    public string? TenantId { get; set; }
 }
 
 /// <summary>
