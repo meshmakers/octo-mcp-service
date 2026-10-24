@@ -199,6 +199,20 @@ if (res.is_conflict) {
 
 When you add a new write tool (single-entity create / update / delete pattern), wire `expected_version` the same way and bump `RtVersion` on commit. Don't reach for `RtChangedDateTime` as an alternative token — it survives blueprint writes that `RtVersion` doesn't, but timestamp ties at sub-millisecond resolution are real and the token must be monotonic-per-write.
 
+### Generic create replaced by a CK method (AB#7119)
+
+`create_entity` and `create_entity_with_secrets` (both go through `CreateCoreAsync`) refuse a CK type that has a
+static method with `replacesGenericCreate: true` (declared on the type or inherited), exactly like the GraphQL
+create of `octo-asset-repo-services` (`GenericCreateReplacedByMethodGraphQlError`). `GenericCreateReplacement`
+(`Services/`) reads the type graph from the tenant's CK cache by the version-less `RtCkId` and uses
+`AllMethods` (inherited methods included). The refusal runs **before** any secret handling or write, so no entity and
+no secret is written, and the response carries ids only (no entity data, no secret value):
+`IsSuccess = false`, `ErrorCode = GENERIC_CREATE_REPLACED_BY_METHOD`, `ErrorParameters` = `ckTypeId` (the type the
+caller tried to create) and `methodId` (version-less qualified method id of the replacing method). A type that is
+not in the CK cache is not refused (the create fails on its own). Tool names, inputs and the happy path are
+unchanged; no type sets the flag today. Tests: `RuntimeEntityCrudToolsGenericCreateTests` (builds type graphs with
+methods via `CkGraphTestBuilder.BuildTypeWithMethods`).
+
 ## Adapter pool queue tools (AB#4924 §10)
 
 `get_adapter_pool_queue` and `cancel_queued_execution` (in `DataFlowTriggerPoolTools`) are the MCP

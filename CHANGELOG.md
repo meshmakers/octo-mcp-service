@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed
+
+- AB#7119: `create_entity` and `create_entity_with_secrets` refuse a CK type whose static method replaces the
+  generic create (`replacesGenericCreate`, own or inherited) with `ErrorCode = GENERIC_CREATE_REPLACED_BY_METHOD`
+  and `ErrorParameters` `ckTypeId` / `methodId`, the same contract as the GraphQL create. The check runs before
+  any write, so no entity and no secret is written; the error contains no entity data. Tool descriptions mention
+  that such types are created through their method. Other types are unaffected.
+
 ### Fixed
 
 - AB#7282: tenant-management tools (`get_tenants`, `create_tenant`, `delete_tenant`, `clean_tenant`,

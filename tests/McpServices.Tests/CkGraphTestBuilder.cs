@@ -16,6 +16,17 @@ internal static class CkGraphTestBuilder
     public static CkTypeGraph BuildType(string typeId,
         params (string Name, AttributeValueTypesDto ValueType, CkId<CkRecordId>? RecordId)[] attrs)
     {
+        return BuildTypeWithMethods(typeId, [], attrs);
+    }
+
+    /// <summary>
+    ///     Like <see cref="BuildType" />, with the methods of the type graph (including inherited ones: pass the
+    ///     declaring type with each method).
+    /// </summary>
+    public static CkTypeGraph BuildTypeWithMethods(string typeId,
+        IReadOnlyCollection<(string DeclaringTypeId, CkMethodDto Method)> methods,
+        params (string Name, AttributeValueTypesDto ValueType, CkId<CkRecordId>? RecordId)[] attrs)
+    {
         var allAttrs = BuildAttributes(attrs);
         var defined = allAttrs.Values
             .Select(g => new CkTypeAttributeDto { CkAttributeId = g.CkAttributeId, AttributeName = g.AttributeName })
@@ -35,7 +46,9 @@ internal static class CkGraphTestBuilder
             indexes: new ReadOnlyCollection<CkTypeIndexDto>([]),
             associations: new CkGraphDirectedAssociations(new List<CkTypeAssociationDto>()),
             description: string.Empty,
-            enableChangeStreamPreAndPostImages: false);
+            enableChangeStreamPreAndPostImages: false,
+            allMethods: methods.ToDictionary(m => m.Method.MethodId,
+                m => new CkMethodGraph(new CkId<CkTypeId>(m.DeclaringTypeId), m.Method)));
     }
 
     public static CkRecordGraph BuildRecord(CkId<CkRecordId> recordId,
