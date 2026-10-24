@@ -179,7 +179,7 @@ dotnet run
 - Adapters (4): `get_adapters` · `get_adapter` · `get_adapter_nodes` · `get_pipeline_schema`
 - Pipelines (8): `get_pipeline_status` · `deploy_pipeline` · `execute_pipeline` · `set_pipeline_debug` · `get_pipeline_debug` · `get_pipeline_executions` · `get_latest_pipeline_execution` · `get_pipeline_debug_points`
 - Data Flows / Triggers / Pools (7): `deploy_data_flow` · `undeploy_data_flow`<sup>‡</sup> · `get_data_flow_status` · `deploy_triggers` · `undeploy_triggers`<sup>‡</sup> · `get_pools` · `undeploy_pool`<sup>‡</sup>
-- Workloads + CI/CD (5): `get_workloads_by_chart` · `update_workload_chart_version` · `deploy_workload` · `undeploy_workload`<sup>‡</sup> · `move_pipelines`<sup>‡</sup>
+- Workloads + CI/CD (7): `get_workloads_by_chart` · `update_workload_chart_version` · `get_workload_resources` · `update_workload_resources` (typed CPU/memory requests and limits, System.Communication 4.10.0; does not deploy) · `deploy_workload` · `undeploy_workload`<sup>‡</sup> · `move_pipelines`<sup>‡</sup>
 
 ### **Time Series + Reporting + AI + Diagnostics** (21)
 - Stream Data + Archives (16): `enable_stream_data` · `disable_stream_data`<sup>‡</sup> · `activate_archive` · `disable_archive` · `enable_archive` · `retry_archive_activation` · `delete_archive`<sup>‡</sup> · `list_rollups_for_archive` · `backfill_rollup_archive`<sup>‡</sup> · `list_recompute_jobs` · `freeze_rollup_archive` · `unfreeze_rollup_archive` · `rewind_rollup_watermark`<sup>‡</sup> · `validate_rollups` · `repair_rollups`<sup>‡</sup> · `get_rollup_repair_status`

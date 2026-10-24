@@ -43,6 +43,53 @@ public class GetAdapterResponse : CommunicationResponse
 
     /// <summary>Adapter runtime ID that was queried.</summary>
     public string? AdapterId { get; set; }
+
+    /// <summary>
+    ///     Typed CPU/memory settings and the last deployment warning (AB#7429). <c>null</c> when the tenant's
+    ///     System.Communication model is older than 4.10.0.
+    /// </summary>
+    public WorkloadResourcesInfo? Resources { get; set; }
+}
+
+/// <summary>
+///     Typed sizing of an adapter or application (System.Communication 4.10.0). A <c>null</c> value is not set: the
+///     chart default applies.
+/// </summary>
+public class WorkloadResourcesInfo
+{
+    /// <summary>CPU request, a Kubernetes quantity such as <c>250m</c>.</summary>
+    public string? CpuRequest { get; set; }
+
+    /// <summary>CPU limit, a Kubernetes quantity such as <c>1</c>.</summary>
+    public string? CpuLimit { get; set; }
+
+    /// <summary>Memory request, a Kubernetes quantity such as <c>512Mi</c>.</summary>
+    public string? MemoryRequest { get; set; }
+
+    /// <summary>Memory limit, a Kubernetes quantity such as <c>1Gi</c>.</summary>
+    public string? MemoryLimit { get; set; }
+
+    /// <summary>
+    ///     Warning of the last deploy, e.g. that a typed value is overridden by an explicit Helm value; <c>null</c>
+    ///     when there is none.
+    /// </summary>
+    public string? LastDeploymentWarning { get; set; }
+}
+
+/// <summary>Response for get_workload_resources / update_workload_resources.</summary>
+public class WorkloadResourcesResponse : CommunicationResponse
+{
+    /// <summary>Runtime ID of the adapter or application.</summary>
+    public string? WorkloadId { get; set; }
+
+    /// <summary>Name of the workload.</summary>
+    public string? WorkloadName { get; set; }
+
+    /// <summary><c>Adapter</c> or <c>Application</c>.</summary>
+    public string? WorkloadKind { get; set; }
+
+    /// <summary>Current sizing (after the write for update_workload_resources).</summary>
+    public WorkloadResourcesInfo? Resources { get; set; }
 }
 
 /// <summary>Response for get_adapter_nodes.</summary>

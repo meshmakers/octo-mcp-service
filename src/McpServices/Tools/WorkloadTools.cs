@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
+using Meshmakers.Octo.Backend.McpServices.Services.WorkloadResources;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using ModelContextProtocol.Server;
 
@@ -103,6 +104,166 @@ public sealed class WorkloadTools
             return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = ex.Message };
         }
     }
+
+    /// <summary>Show the typed CPU and memory settings of an adapter or application.</summary>
+    [McpServerTool(Name = "get_workload_resources")]
+    [Description(
+        "Show the typed CPU request/limit and memory request/limit of an adapter or application and the last " +
+        "deployment warning (e.g. a typed value overridden by an explicit Helm value). A null value is not set: the " +
+        "chart default applies. Needs System.Communication 4.10.0 in the tenant. Adapters also carry these values " +
+        "in get_adapter.")]
+    public static async Task<WorkloadResourcesResponse> GetWorkloadResources(
+        McpServer server,
+        [Description("Runtime ID of the adapter or application.")] string workloadId,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(workloadId))
+        {
+            return new WorkloadResourcesResponse { IsSuccess = false, ErrorMessage = "workloadId is required." };
+        }
+
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new WorkloadResourcesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            var state = await new WorkloadResourcesAccess(ctx.Client!).FindAsync(ctx.TenantId!, workloadId.Trim());
+            return state == null ? NotFound(ctx.TenantId, workloadId) : ToResponse(ctx.TenantId, state);
+        }
+        catch (Exception ex)
+        {
+            return new WorkloadResourcesResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>Set or clear the typed CPU and memory settings of an adapter or application. Does NOT deploy.</summary>
+    [McpServerTool(Name = "update_workload_resources")]
+    [McpRisk(McpRiskLevel.Medium)]
+    [Description(
+        "Set or clear the typed CPU request/limit and memory request/limit of an adapter or application. A " +
+        "parameter that is left out stays unchanged; an empty string clears that value (the chart default applies " +
+        "again). Quantities (e.g. '250m', '0.5', '512Mi', '1Gi') and request <= limit are validated before anything " +
+        "is written, with the same messages the communication controller uses at deploy. Writes runtime state only " +
+        "and does NOT deploy — call deploy_workload afterwards. Precedence at deploy: chart default < these " +
+        "settings < explicit valuesYaml/values[] overrides of the workload. Adapter pools are sized with " +
+        "PoolMember* settings instead. Needs System.Communication 4.10.0. Equivalent to octo-cli " +
+        "UpdateWorkloadResources.")]
+    public static async Task<WorkloadResourcesResponse> UpdateWorkloadResources(
+        McpServer server,
+        [Description("Runtime ID of the adapter or application.")] string workloadId,
+        [Description("CPU request, e.g. '250m'. Empty string clears; omit to keep.")] string? cpuRequest = null,
+        [Description("CPU limit, e.g. '1'. Empty string clears; omit to keep.")] string? cpuLimit = null,
+        [Description("Memory request, e.g. '512Mi'. Empty string clears; omit to keep.")] string? memoryRequest = null,
+        [Description("Memory limit, e.g. '1Gi'. Empty string clears; omit to keep.")] string? memoryLimit = null,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(workloadId))
+        {
+            return new WorkloadResourcesResponse { IsSuccess = false, ErrorMessage = "workloadId is required." };
+        }
+
+        var changes = new Dictionary<string, string?>(StringComparer.Ordinal);
+        AddChange(changes, "CpuRequest", cpuRequest);
+        AddChange(changes, "CpuLimit", cpuLimit);
+        AddChange(changes, "MemoryRequest", memoryRequest);
+        AddChange(changes, "MemoryLimit", memoryLimit);
+        if (changes.Count == 0)
+        {
+            return new WorkloadResourcesResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "Give at least one of cpuRequest, cpuLimit, memoryRequest or memoryLimit " +
+                               "(an empty string clears a value). Use get_workload_resources to read them."
+            };
+        }
+
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new WorkloadResourcesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            var access = new WorkloadResourcesAccess(ctx.Client!);
+            var rtId = workloadId.Trim();
+            var workload = await access.FindAsync(ctx.TenantId!, rtId);
+            if (workload == null)
+            {
+                return NotFound(ctx.TenantId, workloadId);
+            }
+
+            var target = workload.Settings;
+            foreach (var (name, value) in changes)
+            {
+                target = target.With(name, value);
+            }
+
+            var errors = target.Validate();
+            if (errors.Count > 0)
+            {
+                return new WorkloadResourcesResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    WorkloadId = rtId,
+                    ErrorMessage = $"Nothing was written. {string.Join("; ", errors)}."
+                };
+            }
+
+            var updated = await access.UpdateAsync(ctx.TenantId!, workload, changes);
+            var response = ToResponse(ctx.TenantId, updated);
+            response.Message = $"Resources of {updated.Kind} '{rtId}' updated. Nothing was deployed — " +
+                               "call deploy_workload to apply them.";
+            return response;
+        }
+        catch (Exception ex)
+        {
+            return new WorkloadResourcesResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    private static void AddChange(Dictionary<string, string?> changes, string attribute, string? value)
+    {
+        if (value != null)
+        {
+            changes[attribute] = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+    }
+
+    private static WorkloadResourcesResponse NotFound(string? tenantId, string workloadId) =>
+        new()
+        {
+            IsSuccess = false,
+            TenantId = tenantId,
+            WorkloadId = workloadId,
+            ErrorMessage = $"No adapter or application with id '{workloadId}' in this tenant. " +
+                           "Adapter pools are sized with their PoolMember* settings."
+        };
+
+    private static WorkloadResourcesResponse ToResponse(string? tenantId, WorkloadResourcesState state) =>
+        new()
+        {
+            IsSuccess = true,
+            TenantId = tenantId,
+            WorkloadId = state.RtId,
+            WorkloadName = state.Name,
+            WorkloadKind = state.Kind,
+            Resources = ToInfo(state.Settings)
+        };
+
+    internal static WorkloadResourcesInfo ToInfo(WorkloadResourceSettings settings) =>
+        new()
+        {
+            CpuRequest = settings.CpuRequest,
+            CpuLimit = settings.CpuLimit,
+            MemoryRequest = settings.MemoryRequest,
+            MemoryLimit = settings.MemoryLimit,
+            LastDeploymentWarning = settings.LastDeploymentWarning
+        };
 
     /// <summary>Trigger a deploy of a workload via its parent pool.</summary>
     [McpServerTool(Name = "deploy_workload")]

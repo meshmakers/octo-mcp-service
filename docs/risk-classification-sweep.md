@@ -452,14 +452,16 @@ _High=1 · Low=1 · Medium=5_  ·  **Owner reviewed:** ☐
 | `add_user_to_role` | **M** | |
 | `remove_user_from_role` | **M** | |
 
-### WorkloadTools (5 tools)
+### WorkloadTools (7 tools)
 
-_High=3 · Low=1 · Medium=1_  ·  **Owner reviewed:** ☐
+_High=3 · Low=2 · Medium=2_  ·  **Owner reviewed:** ☐
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
 | `get_workloads_by_chart` | **L** | |
 | `update_workload_chart_version` | **M** | |
+| `get_workload_resources` | **L** | AB#7429, read-only |
+| `update_workload_resources` | **M** | AB#7429, writes runtime state (sizing), does not deploy; same level as `update_workload_chart_version` |
 | `deploy_workload` | **H** | |
 | `undeploy_workload` | **H** | |
 | `move_pipelines` | **H** | |

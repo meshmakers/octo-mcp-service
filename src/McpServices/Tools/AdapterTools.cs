@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
+using Meshmakers.Octo.Backend.McpServices.Services.WorkloadResources;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -47,7 +48,10 @@ public sealed class AdapterTools
 
     /// <summary>Get the full configuration of one adapter.</summary>
     [McpServerTool(Name = "get_adapter")]
-    [Description("Get the full configuration of a single adapter. Equivalent to octo-cli GetAdapter.")]
+    [Description(
+        "Get the full configuration of a single adapter, plus its typed CPU/memory requests and limits and the " +
+        "last deployment warning ('resources', null values = chart default; omitted when the tenant's " +
+        "System.Communication model is older than 4.10.0). Equivalent to octo-cli GetAdapter.")]
     public static async Task<GetAdapterResponse> GetAdapter(
         McpServer server,
         [Description("Adapter runtime ID.")] string adapterId,
@@ -72,12 +76,38 @@ public sealed class AdapterTools
                 IsSuccess = true,
                 TenantId = ctx.TenantId,
                 AdapterId = adapterId,
-                Adapter = adapter
+                Adapter = adapter,
+                Resources = await TryReadResourcesAsync(server, tenantId, adapterId)
             };
         }
         catch (Exception ex)
         {
             return new GetAdapterResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>
+    ///     The sizing is an addition to the adapter configuration: a tenant on an older model or a failed read leaves
+    ///     it out instead of failing the whole call.
+    /// </summary>
+    private static async Task<WorkloadResourcesInfo?> TryReadResourcesAsync(McpServer server, string? tenantId,
+        string adapterId)
+    {
+        var assetCtx = await AssetClientContext.TryBuildAsync(server, tenantId);
+        if (assetCtx.Error != null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var state = await new WorkloadResourcesAccess(assetCtx.Client!).FindAsync(assetCtx.TenantId!, adapterId);
+            return state == null ? null : WorkloadTools.ToInfo(state.Settings);
+        }
+        catch (Exception)
+        {
+            // Older model, missing permission or a failed read: the adapter configuration is still returned.
+            return null;
         }
     }
 
