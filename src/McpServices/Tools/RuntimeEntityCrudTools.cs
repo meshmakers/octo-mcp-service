@@ -356,7 +356,9 @@ public sealed class RuntimeEntityCrudTools
         "Create a new entity of specified Construction Kit type. Secret attributes cannot be set here: a non-empty " +
         "value for a Secret attribute is refused — create the entity without it, then call set_entity_secrets " +
         "(high risk), or use create_entity_with_secrets (high risk) when the type has a required secret. null, " +
-        "\"\" or an echoed {\"isSet\": …} marker for a Secret attribute are ignored.")]
+        "\"\" or an echoed {\"isSet\": …} marker for a Secret attribute are ignored. A type whose static CK method " +
+        "replaces the generic create is refused with error code GENERIC_CREATE_REPLACED_BY_METHOD (errorParameters " +
+        "ckTypeId and methodId): create such entities by calling that method instead.")]
     public static Task<CreateEntityResponse> CreateEntity(
         McpServer server,
         string ckTypeId,
@@ -386,7 +388,9 @@ public sealed class RuntimeEntityCrudTools
         "'entityData' holds the non-secret attributes (same rules as create_entity; secret values there are " +
         "refused); each entry in 'secrets' must target a Secret attribute with a non-empty string value (any " +
         "non-empty string is an ordinary value — '<...>' or 'TODO_SET_*' have no special meaning). Values are " +
-        "encrypted server-side and are never returned — the response shows secretIsSet only.")]
+        "encrypted server-side and are never returned — the response shows secretIsSet only. A type whose static CK " +
+        "method replaces the generic create is refused with error code GENERIC_CREATE_REPLACED_BY_METHOD " +
+        "(errorParameters ckTypeId and methodId) and nothing is written: create such entities by calling that method.")]
     public static Task<CreateEntityResponse> CreateEntityWithSecrets(
         McpServer server,
         [Description("Construction Kit type ID of the new entity.")] string ckTypeId,
@@ -436,6 +440,20 @@ public sealed class RuntimeEntityCrudTools
         var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
+
+        // The generic create is replaced by a CK method: refuse BEFORE anything is written (no entity, no secret).
+        var refusal = GenericCreateReplacement.TryGetRefusal(ckCacheService, tenantRepository.TenantId, ckTypeId);
+        if (refusal != null)
+        {
+            return new CreateEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = refusal.Value.Message,
+                ErrorCode = GenericCreateReplacement.Code,
+                ErrorParameters = refusal.Value.Parameters,
+                CkTypeId = ckTypeId
+            };
+        }
 
         var secretError = PrepareSecretAwareWrites(ckCacheService, tenantRepository.TenantId,
             ckTypeId, entityData, SecretWritePolicy.RefuseSecretValues,
