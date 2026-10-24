@@ -203,9 +203,11 @@ When you add a new write tool (single-entity create / update / delete pattern), 
 
 `create_entity` and `create_entity_with_secrets` (both go through `CreateCoreAsync`) refuse a CK type that has a
 static method with `replacesGenericCreate: true` (declared on the type or inherited), exactly like the GraphQL
-create of `octo-asset-repo-services` (`GenericCreateReplacedByMethodGraphQlError`). `GenericCreateReplacement`
-(`Services/`) reads the type graph from the tenant's CK cache by the version-less `RtCkId` and uses
-`AllMethods` (inherited methods included). The refusal runs **before** any secret handling or write, so no entity and
+create of `octo-asset-repo-services` (`GenericCreateReplacedByMethodGraphQlError`). The lookup is the shared engine helper
+`GenericCreateReplacement` (`Meshmakers.Octo.ConstructionKit.Contracts.DependencyGraph`, AB#7121; the same helper
+serves the asset repository and blueprint apply, AB#7448 — never keep a private copy). It reads the type graph from the
+tenant's CK cache by the version-less `RtCkId` and uses `AllMethods` (inherited methods included); `GenericCreateRefusal`
+(`Services/`) only shapes the MCP response around it. The refusal runs **before** any secret handling or write, so no entity and
 no secret is written, and the response carries ids only (no entity data, no secret value):
 `IsSuccess = false`, `ErrorCode = GENERIC_CREATE_REPLACED_BY_METHOD`, `ErrorParameters` = `ckTypeId` (the type the
 caller tried to create) and `methodId` (version-less qualified method id of the replacing method). A type that is

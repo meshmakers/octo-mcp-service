@@ -5,16 +5,17 @@ using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 namespace Meshmakers.Octo.Backend.McpServices.Services;
 
 /// <summary>
-///     The refusal of the generic create for a CK type that has a static method with
+///     The MCP refusal of the generic create for a CK type that has a static method with
 ///     <c>replacesGenericCreate: true</c> (declared on the type or inherited), the MCP counterpart of the GraphQL
-///     refusal of the asset repository. Same machine-readable contract: code
-///     <see cref="Code" /> and parameters <see cref="CkTypeIdParameter" /> and <see cref="MethodIdParameter" />.
-///     The message carries ids only, never entity data or secret values.
+///     refusal of the asset repository. The lookup itself is the shared engine helper
+///     <see cref="GenericCreateReplacement" /> (AB#7121, AB#7448); this class only shapes the MCP response. Same
+///     machine-readable contract: code <see cref="Code" /> and parameters <see cref="CkTypeIdParameter" /> and
+///     <see cref="MethodIdParameter" />. The message carries ids only, never entity data or secret values.
 /// </summary>
-internal static class GenericCreateReplacement
+internal static class GenericCreateRefusal
 {
     /// <summary>Error code of the refusal (identical to the GraphQL error code).</summary>
-    public const string Code = "GENERIC_CREATE_REPLACED_BY_METHOD";
+    public const string Code = GenericCreateReplacement.ReasonToken;
 
     /// <summary>Parameter with the CK type the caller tried to create.</summary>
     public const string CkTypeIdParameter = "ckTypeId";
@@ -23,9 +24,8 @@ internal static class GenericCreateReplacement
     public const string MethodIdParameter = "methodId";
 
     /// <summary>
-    ///     The refusal for <paramref name="ckTypeId" />, or <c>null</c> when the generic create is allowed. The type is
-    ///     read by its version-less runtime id; the methods of the type graph include inherited ones. A type that is
-    ///     not in the cache is not refused here (the create fails on its own).
+    ///     The refusal for <paramref name="ckTypeId" />, or <c>null</c> when the generic create is allowed. A type that
+    ///     is not in the cache is not refused here (the create fails on its own).
     /// </summary>
     public static (string Message, IReadOnlyDictionary<string, string> Parameters)? TryGetRefusal(
         ICkCacheService ckCache, string tenantId, string ckTypeId)
@@ -40,16 +40,7 @@ internal static class GenericCreateReplacement
             return null;
         }
 
-        if (!ckCache.TryGetRtCkType(tenantId, rtCkTypeId, out var typeGraph) || typeGraph == null)
-        {
-            return null;
-        }
-
-        var replacing = typeGraph.AllMethods.Values
-            .Where(m => m.ReplacesGenericCreate)
-            .OrderBy(m => m.QualifiedMethodId, StringComparer.Ordinal)
-            .FirstOrDefault();
-        if (replacing == null)
+        if (!GenericCreateReplacement.TryGetReplacingMethod(ckCache, tenantId, rtCkTypeId, out var replacing))
         {
             return null;
         }

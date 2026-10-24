@@ -442,14 +442,14 @@ public sealed class RuntimeEntityCrudTools
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
         // The generic create is replaced by a CK method: refuse BEFORE anything is written (no entity, no secret).
-        var refusal = GenericCreateReplacement.TryGetRefusal(ckCacheService, tenantRepository.TenantId, ckTypeId);
+        var refusal = GenericCreateRefusal.TryGetRefusal(ckCacheService, tenantRepository.TenantId, ckTypeId);
         if (refusal != null)
         {
             return new CreateEntityResponse
             {
                 IsSuccess = false,
                 ErrorMessage = refusal.Value.Message,
-                ErrorCode = GenericCreateReplacement.Code,
+                ErrorCode = GenericCreateRefusal.Code,
                 ErrorParameters = refusal.Value.Parameters,
                 CkTypeId = ckTypeId
             };
