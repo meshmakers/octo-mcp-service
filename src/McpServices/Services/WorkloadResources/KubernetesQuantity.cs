@@ -81,7 +81,7 @@ internal static partial class KubernetesQuantity
         }
     }
 
-    [GeneratedRegex(@"^(?<number>\d+(\.\d*)?|\.\d+)(?<suffix>Ki|Mi|Gi|Ti|Pi|Ei|n|u|m|k|M|G|T|P|E|[eE][+-]?\d+)?$",
+    [GeneratedRegex(@"^(?<number>[0-9]+(\.[0-9]*)?|\.[0-9]+)(?<suffix>Ki|Mi|Gi|Ti|Pi|Ei|n|u|m|k|M|G|T|P|E|[eE][+-]?[0-9]+)?$",
         RegexOptions.CultureInvariant)]
     private static partial Regex QuantityPattern();
 }

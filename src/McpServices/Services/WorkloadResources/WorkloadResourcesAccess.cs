@@ -82,7 +82,10 @@ internal sealed class WorkloadResourcesAccess(IAssetServicesClient assetClient)
         var field = workload.Kind == "Adapter" ? "systemCommunicationAdapters" : "systemCommunicationApplications";
         var updated = root["data"]?["runtime"]?[field]?["update"] as JsonArray;
         var first = updated is { Count: > 0 } ? updated[0] as JsonObject : null;
-        return first != null ? ToState(first, workload.Kind) : workload;
+        return first != null
+            ? ToState(first, workload.Kind)
+            : throw new WorkloadResourcesException(
+                $"Tenant '{tenantId}' did not return the updated {workload.Kind} '{workload.RtId}'; the write may not have been applied.");
     }
 
     private static JsonObject ParseOrThrow(GraphQlRawResponse response, string tenantId)
@@ -106,7 +109,7 @@ internal sealed class WorkloadResourcesAccess(IAssetServicesClient assetClient)
         if (response.HasErrors)
         {
             var messages = (root["errors"] as JsonArray ?? [])
-                .Select(e => e?["message"]?.GetValue<string>())
+                .Select(e => e?["message"] is JsonValue m && m.TryGetValue<string>(out var t) ? t : null)
                 .Where(m => !string.IsNullOrWhiteSpace(m))
                 .Distinct()
                 .ToList();
@@ -130,8 +133,8 @@ internal sealed class WorkloadResourcesAccess(IAssetServicesClient assetClient)
         connection?["items"] is JsonArray { Count: > 0 } items ? items[0] as JsonObject : null;
 
     private static WorkloadResourcesState ToState(JsonObject item, string kind) =>
-        new(item["rtId"]?.GetValue<string>() ?? string.Empty,
-            item["name"]?.GetValue<string>() ?? string.Empty,
+        new(Text(item, "rtId") ?? string.Empty,
+            Text(item, "name") ?? string.Empty,
             kind,
             new WorkloadResourceSettings(
                 Text(item, "cpuRequest"), Text(item, "cpuLimit"), Text(item, "memoryRequest"),
@@ -139,7 +142,8 @@ internal sealed class WorkloadResourcesAccess(IAssetServicesClient assetClient)
 
     private static string? Text(JsonObject item, string name)
     {
-        var value = item[name]?.GetValue<string>();
+        // A value of another JSON type is treated as not set instead of throwing.
+        var value = item[name] is JsonValue node && node.TryGetValue<string>(out var text) ? text : null;
         return string.IsNullOrEmpty(value) ? null : value;
     }
 }

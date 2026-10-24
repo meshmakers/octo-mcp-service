@@ -216,6 +216,22 @@ public class WorkloadResourcesToolsTests : ToolTestBase
         result.ErrorMessage.Should().Contain("4.10.0");
     }
 
+    [Fact]
+    public async Task Update_MutationWithoutUpdatedItem_IsReported()
+    {
+        GivenWorkload(Items());
+        MockAssetClient
+            .Setup(c => c.SendGraphQlAsync(It.IsAny<string>(), It.Is<string>(q => q.StartsWith("mutation")),
+                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GraphQlRawResponse(
+                "{\"data\":{\"runtime\":{\"systemCommunicationAdapters\":{\"update\":[]}}}}", HttpStatusCode.OK));
+
+        var result = await WorkloadTools.UpdateWorkloadResources(MockServer.Object, RtId, memoryRequest: "512Mi");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("did not return the updated");
+    }
+
     // ── get_workload_resources ──────────────────────────────────────────────
 
     [Fact]

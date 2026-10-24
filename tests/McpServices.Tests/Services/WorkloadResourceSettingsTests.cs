@@ -33,6 +33,8 @@ public sealed class WorkloadResourceSettingsTests
     [InlineData("-1")]
     [InlineData("1mi")]
     [InlineData("abc")]
+    [InlineData("1e\u0663")]
+    [InlineData("\u0663")]
     [InlineData("")]
     [InlineData(null)]
     public void Quantity_Rejects(string? text) => Assert.False(KubernetesQuantity.TryParse(text, out _));
