@@ -70,9 +70,17 @@ public sealed class RuntimeEntityCrudTools
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var resolvedTenantId = tenantRepository.TenantId;
 
+        var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
+        var type = await ResolveCkTypeAsync(ckCacheService, tenantRepository, ckTypeId);
+        if (type.Error != null)
+        {
+            return new QueryEntitiesResponse { IsSuccess = false, ErrorMessage = type.Error, CkTypeId = ckTypeId };
+        }
+
+        var rtTypeId = type.RtCkId;
         var secretUsage = SecretAttributePaths.FindNotQueryableUsage(
-            server.Services!.GetRequiredService<ICkCacheService>(), resolvedTenantId,
-            ckTypeId, SecretRelevantFilterUsages(filters));
+            ckCacheService, resolvedTenantId,
+            rtTypeId, SecretRelevantFilterUsages(filters));
         if (secretUsage != null)
         {
             return new QueryEntitiesResponse { IsSuccess = false, ErrorMessage = secretUsage, CkTypeId = ckTypeId };
@@ -83,7 +91,7 @@ public sealed class RuntimeEntityCrudTools
 
         try
         {
-            await tenantRepository.GetCkTypeGraphAsync(new RtCkId<CkTypeId>(ckTypeId));
+            await tenantRepository.GetCkTypeGraphAsync(new RtCkId<CkTypeId>(rtTypeId));
 
             // Build query operation
             var queryOperation = RtEntityQueryOptions.Create();
@@ -102,7 +110,7 @@ public sealed class RuntimeEntityCrudTools
 
             var results = await tenantRepository.GetRtEntitiesByTypeAsync(
                 session,
-                new RtCkId<CkTypeId>(ckTypeId),
+                new RtCkId<CkTypeId>(rtTypeId),
                 queryOperation,
                 offset,
                 limit);
@@ -181,9 +189,17 @@ public sealed class RuntimeEntityCrudTools
         var resolvedTenantId = tenantRepository.TenantId;
 
         // Simple filters are equality filters, which a Secret attribute never supports (AB#5543).
+        var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
+        var type = await ResolveCkTypeAsync(ckCacheService, tenantRepository, ckTypeId);
+        if (type.Error != null)
+        {
+            return new QueryEntitiesResponse { IsSuccess = false, ErrorMessage = type.Error, CkTypeId = ckTypeId };
+        }
+
+        var rtTypeId = type.RtCkId;
         var secretUsage = SecretAttributePaths.FindNotQueryableUsage(
-            server.Services!.GetRequiredService<ICkCacheService>(), resolvedTenantId,
-            ckTypeId,
+            ckCacheService, resolvedTenantId,
+            rtTypeId,
             (simpleFilters ?? []).Select(f => ((string?)f.AttributePath, "filter operator 'Equals'")));
         if (secretUsage != null)
         {
@@ -195,13 +211,13 @@ public sealed class RuntimeEntityCrudTools
 
         try
         {
-            await tenantRepository.GetCkTypeGraphAsync(new RtCkId<CkTypeId>(ckTypeId));
+            await tenantRepository.GetCkTypeGraphAsync(new RtCkId<CkTypeId>(rtTypeId));
 
             var queryOperation = BuildFilter(simpleFilters);
 
             var results = await tenantRepository.GetRtEntitiesByTypeAsync(
                 session,
-                new RtCkId<CkTypeId>(ckTypeId),
+                new RtCkId<CkTypeId>(rtTypeId),
                 queryOperation,
                 offset,
                 limit);
@@ -299,12 +315,21 @@ public sealed class RuntimeEntityCrudTools
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
+        var type = await ResolveCkTypeAsync(server.Services!.GetRequiredService<ICkCacheService>(),
+            tenantRepository, ckTypeId);
+        if (type.Error != null)
+        {
+            return new GetEntityResponse { IsSuccess = false, ErrorMessage = type.Error, TypeId = ckTypeId };
+        }
+
+        var rtTypeId = type.RtCkId;
+
         using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
         try
         {
-            var rtEntityId = new RtEntityId(new RtCkId<CkTypeId>(ckTypeId),
+            var rtEntityId = new RtEntityId(new RtCkId<CkTypeId>(rtTypeId),
                 new OctoObjectId(rtId));
 
             var entity = await tenantRepository.GetRtEntityByRtIdAsync(session, rtEntityId);
@@ -441,8 +466,19 @@ public sealed class RuntimeEntityCrudTools
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
+        // AB#7553: accept the runtime id as well as the full id from get_type_schema; the refusal, the secret
+        // classification and the engine calls below each need one consistent spelling.
+        var type = await ResolveCkTypeAsync(ckCacheService, tenantRepository, ckTypeId);
+        if (type.Error != null)
+        {
+            return new CreateEntityResponse { IsSuccess = false, ErrorMessage = type.Error, CkTypeId = ckTypeId };
+        }
+
+        var fullCkTypeId = type.FullId;
+        var rtTypeId = type.RtCkId;
+
         // The generic create is replaced by a CK method: refuse BEFORE anything is written (no entity, no secret).
-        var refusal = GenericCreateRefusal.TryGetRefusal(ckCacheService, tenantRepository.TenantId, ckTypeId);
+        var refusal = GenericCreateRefusal.TryGetRefusal(ckCacheService, tenantRepository.TenantId, fullCkTypeId);
         if (refusal != null)
         {
             return new CreateEntityResponse
@@ -456,12 +492,12 @@ public sealed class RuntimeEntityCrudTools
         }
 
         var secretError = PrepareSecretAwareWrites(ckCacheService, tenantRepository.TenantId,
-            ckTypeId, entityData, SecretWritePolicy.RefuseSecretValues,
+            rtTypeId, entityData, SecretWritePolicy.RefuseSecretValues,
             out var effectiveData);
         if (secretError == null && secrets != null)
         {
             secretError = PrepareSecretAwareWrites(ckCacheService, tenantRepository.TenantId,
-                ckTypeId, secrets, SecretWritePolicy.SecretValuesOnly, out var effectiveSecrets);
+                rtTypeId, secrets, SecretWritePolicy.SecretValuesOnly, out var effectiveSecrets);
             effectiveData.AddRange(effectiveSecrets);
         }
 
@@ -481,12 +517,12 @@ public sealed class RuntimeEntityCrudTools
         try
         {
             // Create transient entity
-            var entity = await tenantRepository.CreateTransientRtEntityAsync(new CkId<CkTypeId>(ckTypeId));
+            var entity = await tenantRepository.CreateTransientRtEntityAsync(new CkId<CkTypeId>(fullCkTypeId));
 
             Assign(entity, ckCacheService, tenantRepository.TenantId, effectiveData);
 
             // Insert entity
-            await tenantRepository.InsertOneRtEntityAsync(session, new RtCkId<CkTypeId>(ckTypeId), entity);
+            await tenantRepository.InsertOneRtEntityAsync(session, new RtCkId<CkTypeId>(rtTypeId), entity);
             await session.CommitTransactionAsync();
 
             return new CreateEntityResponse
@@ -631,7 +667,22 @@ public sealed class RuntimeEntityCrudTools
         var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
-        var secretError = PrepareSecretAwareWrites(ckCacheService, tenantRepository.TenantId, ckTypeId,
+
+        // AB#7553: accept the runtime id as well as the full id from get_type_schema.
+        var type = await ResolveCkTypeAsync(ckCacheService, tenantRepository, ckTypeId);
+        if (type.Error != null)
+        {
+            return new UpdateEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = type.Error,
+                TypeId = ckTypeId,
+                RtId = rtId
+            };
+        }
+
+        var rtTypeId = type.RtCkId;
+        var secretError = PrepareSecretAwareWrites(ckCacheService, tenantRepository.TenantId, rtTypeId,
             entityData, policy, out var effectiveData);
         if (secretError != null)
         {
@@ -647,7 +698,7 @@ public sealed class RuntimeEntityCrudTools
         var clearList = clearSecretAttributes?
             .Where(n => !string.IsNullOrWhiteSpace(n))
             .Select(n => SecretAttributePaths.NormaliseTopLevelName(ckCacheService, tenantRepository.TenantId,
-                ckTypeId, n.Trim()))
+                rtTypeId, n.Trim()))
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
@@ -655,7 +706,7 @@ public sealed class RuntimeEntityCrudTools
         session.StartTransaction();
         try
         {
-            var rtEntityId = new RtEntityId(ckTypeId, OctoObjectId.Parse(rtId));
+            var rtEntityId = new RtEntityId(rtTypeId, OctoObjectId.Parse(rtId));
             // Get existing entity
             var existingEntity = await tenantRepository.GetRtEntityByRtIdAsync(session, rtEntityId);
             if (existingEntity == null)
@@ -792,6 +843,21 @@ public sealed class RuntimeEntityCrudTools
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
+        var type = await ResolveCkTypeAsync(server.Services!.GetRequiredService<ICkCacheService>(),
+            tenantRepository, ckTypeId);
+        if (type.Error != null)
+        {
+            return new DeleteEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = type.Error,
+                CkTypeId = ckTypeId,
+                RtId = rtId
+            };
+        }
+
+        var rtTypeId = type.RtCkId;
+
         using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
@@ -799,7 +865,7 @@ public sealed class RuntimeEntityCrudTools
         {
             // Check if entity exists
             var existingEntity = await tenantRepository.GetRtEntityByRtIdAsync(session,
-                new RtEntityId(new RtCkId<CkTypeId>(ckTypeId), new OctoObjectId(rtId)));
+                new RtEntityId(new RtCkId<CkTypeId>(rtTypeId), new OctoObjectId(rtId)));
             if (existingEntity == null)
             {
                 throw new ArgumentException($"Entity with ID '{rtId}' not found in type '{ckTypeId}'");
@@ -825,7 +891,7 @@ public sealed class RuntimeEntityCrudTools
             }
 
             // Delete entity
-            await tenantRepository.DeleteOneRtEntityByRtIdAsync(session, new RtCkId<CkTypeId>(ckTypeId),
+            await tenantRepository.DeleteOneRtEntityByRtIdAsync(session, new RtCkId<CkTypeId>(rtTypeId),
                 new OctoObjectId(rtId), DeleteOptions.Default);
             await session.CommitTransactionAsync();
 
@@ -1474,6 +1540,27 @@ public sealed class RuntimeEntityCrudTools
         ///     attributes with a non-empty string value are accepted (placeholder-looking strings are ordinary values).
         /// </summary>
         SecretValuesOnly
+    }
+
+    /// <summary>A <c>ckTypeId</c> resolved against the tenant CK cache (AB#7553), in both spellings the engine needs.</summary>
+    /// <param name="Error">Error naming the id the caller passed, or <c>null</c> when it resolved.</param>
+    /// <param name="RtCkId">Runtime id <c>Model/Type-n</c> (model without version) for the RtCkId/RtEntityId engine calls.</param>
+    /// <param name="FullId">Full id <c>Model-x.y.z/Type-n</c> for the CkId engine calls.</param>
+    internal sealed record ResolvedCkType(string? Error, string RtCkId, string FullId);
+
+    /// <summary>
+    ///     Resolves the <c>ckTypeId</c> the caller passed (full id from get_type_schema, runtime id, or a unique short
+    ///     spelling) through <see cref="CkTypeIdResolver" />. An unknown or ambiguous id yields an error that names it.
+    /// </summary>
+    internal static async Task<ResolvedCkType> ResolveCkTypeAsync(ICkCacheService ckCacheService,
+        ITenantRepository tenantRepository, string ckTypeId)
+    {
+        await tenantRepository.LoadCacheForTenantAsync(ckCacheService);
+        var resolution = CkTypeIdResolver.Resolve(ckCacheService, tenantRepository.TenantId, ckTypeId);
+        return resolution.Type == null
+            ? new ResolvedCkType(resolution.Error ?? $"CkTypeId '{ckTypeId}' could not be resolved.", ckTypeId, ckTypeId)
+            : new ResolvedCkType(null, CkTypeIdResolver.ToRtCkId(resolution.Type),
+                CkTypeIdResolver.Full(resolution.Type));
     }
 
     /// <summary>

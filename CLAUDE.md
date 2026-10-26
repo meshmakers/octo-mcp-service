@@ -941,8 +941,14 @@ public class MyToolsTests : ToolTestBase
   id, the runtime id and unambiguous short spellings (`Industry.Basic-2/Machine`, `Industry.Basic-2.6.0/Machine`) all
   find the installed type; an unknown or ambiguous id returns an error that lists the full candidate ids ("Did you
   mean ..."). A major-only spelling is ambiguous when two minors of the model are installed - then use the full id.
-  Not yet routed through the resolver: the other generic CRUD tools (`query_entities`, create/update/delete in
-  `RuntimeEntityCrudTools`) and `export_..._by_deep_graph` (`CkModelFileTools`); they still parse the strict runtime id. Tests: `CkTypeIdRoundTripTests`.
+  AB#7553: the generic CRUD and query tools (`query_entities`, `query_entities_simple`, `get_entity_by_id`,
+  `create_entity`, `create_entity_with_secrets`, `update_entity`, `set_entity_secrets`, `delete_entity`) resolve their
+  `ckTypeId` through the same resolver (`RuntimeEntityCrudTools.ResolveCkTypeAsync`): they take the runtime id for
+  the RtCkId/RtEntityId engine calls and the full id for `CreateTransientRtEntityAsync`. `SecretAttributePaths` resolves
+  through the resolver too and throws for an id that does not resolve (no swallowed catch, so an unknown type is never
+  reported as "not a Secret attribute"). Not yet routed: `navigate_associations` and `export_..._by_deep_graph`
+  (`CkModelFileTools`); they still parse the strict runtime id. Tests: `CkTypeIdRoundTripTests`,
+  `RuntimeEntityCrudToolsCkTypeIdTests` (cache and repository behave like the real ones: the id spelling matters).
 - **CkTypeId format is `Name-VersionUint`, not SemVer.** `new CkTypeId("MyType-1")` works; `new CkTypeId("MyType-1.0.0")` throws because the SDK reflection-constructs `CkTypeId` from the second path segment and parses the version as `uint`.
 - **`OctoObjectId` must be a 24-char hex string.** Use realistic values like `"507f1f77bcf86cd799439011"` in tests.
 - **Moq method matchers must use the right type-param.** For methods that take `IEnumerable<T>`, match with `It.IsAny<IEnumerable<T>>()`, not `It.IsAny<List<T>>()`.

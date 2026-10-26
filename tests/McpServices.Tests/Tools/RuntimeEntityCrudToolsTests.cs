@@ -417,7 +417,7 @@ public class RuntimeEntityCrudToolsTests : TestBase
             invalidCkTypeId);
 
         r.IsSuccess.Should().BeFalse();
-        r.ErrorMessage.Should().Contain("'ckId' must contain a model id (Parameter 'ckId')");
+        r.ErrorMessage.Should().Contain("'Invalid-Type-Id'").And.Contain("Model-<version>/Type-<n>");
     }
 
     [Fact]

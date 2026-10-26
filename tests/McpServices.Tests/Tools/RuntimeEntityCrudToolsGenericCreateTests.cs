@@ -65,7 +65,9 @@ public class RuntimeEntityCrudToolsGenericCreateTests : TestBase
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("GENERIC_CREATE_REPLACED_BY_METHOD");
         result.ErrorParameters.Should().NotBeNull();
-        result.ErrorParameters!["ckTypeId"].Should().Be(new RtCkId<CkTypeId>(requestedTypeId).SemanticVersionedFullName);
+        result.ErrorParameters!["ckTypeId"].Should().Be(
+            new RtCkId<CkTypeId>(new CkId<CkTypeId>(requestedTypeId).ToString()).SemanticVersionedFullName,
+            "the refusal names the type by its resolved full id");
         result.ErrorParameters["methodId"].Should().Be(ExpectedMethodId(Method(true)));
         result.RtId.Should().BeNull();
         result.Entity.Should().BeNull();
