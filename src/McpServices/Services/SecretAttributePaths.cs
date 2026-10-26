@@ -13,8 +13,10 @@ namespace Meshmakers.Octo.Backend.McpServices.Services;
 /// </summary>
 /// <remarks>
 ///     Paths use dot notation through records (<c>Endpoints.Token</c>); array indexes
-///     (<c>Endpoints[0].Token</c>) are ignored for the type lookup. An unknown CK type or attribute is
-///     reported as "not a secret" — the engine raises the authoritative error when the write runs.
+///     (<c>Endpoints[0].Token</c>) are ignored for the type lookup. An unknown attribute is reported as "not a
+///     secret" — the engine raises the authoritative error when the write runs. The CK type id is resolved with
+///     <see cref="CkTypeIdResolver" /> (full or runtime id); an id that does not resolve throws
+///     <see cref="ArgumentException" /> with the resolver's message, so callers resolve and report it first.
 /// </remarks>
 internal static class SecretAttributePaths
 {
@@ -79,15 +81,15 @@ internal static class SecretAttributePaths
             return false;
         }
 
-        CkTypeWithAttributesGraph? current;
-        try
+        // The id is resolved through CkTypeIdResolver (full id, runtime id, short spellings). An id that does not
+        // resolve is an error that names it, never "not a secret" (AB#7553); the tools resolve first and report it.
+        var resolution = CkTypeIdResolver.Resolve(ckCache, tenantId, ckTypeId);
+        if (resolution.Type == null)
         {
-            current = ckCache.GetRtCkType(tenantId, new RtCkId<CkTypeId>(ckTypeId));
+            throw new ArgumentException(resolution.Error, nameof(ckTypeId));
         }
-        catch
-        {
-            return false;
-        }
+
+        CkTypeWithAttributesGraph? current = ckCache.GetRtCkType(tenantId, resolution.Type.CkTypeId.ToRtCkId());
 
         var resolvedSegments = new List<string>();
         var segments = path.Split('.', StringSplitOptions.RemoveEmptyEntries);
