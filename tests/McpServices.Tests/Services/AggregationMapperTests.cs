@@ -16,6 +16,7 @@ public class AggregationMapperTests
     [InlineData(AggregationFunctionDto.avg, AggregationFunction.Average)]
     [InlineData(AggregationFunctionDto.min, AggregationFunction.Minimum)]
     [InlineData(AggregationFunctionDto.max, AggregationFunction.Maximum)]
+    [InlineData(AggregationFunctionDto.integral, AggregationFunction.Integral)]
     public void ToEngineFunction_MapsAllValues(AggregationFunctionDto dto, AggregationFunction engine)
     {
         AggregationMapper.ToEngineFunction(dto).Should().Be(engine);
@@ -176,5 +177,67 @@ public class AggregationMapperTests
         result[1].Function.Should().Be(AggregationFunction.Count);
         // Count without path: we substitute "*" as a placeholder for the engine's required string.
         result[1].AttributePath.Should().Be("*");
+    }
+
+    // ── Integral (AB#7919) ───────────────────────────────────────────────────
+
+    [Fact]
+    public void MapCkAggregationName_Integral_MapsToIntegral()
+    {
+        AggregationMapper.MapCkAggregationName("Integral").Should().Be(AggregationFunctionDto.integral);
+    }
+
+    [Fact]
+    public void Validate_Integral_IsRefusedUnlessAllowed()
+    {
+        var columns = new List<AggregationColumnDto>
+        {
+            new() { Function = AggregationFunctionDto.integral, AttributePath = "ActivePower" }
+        };
+
+        AggregationMapper.Validate(columns).Should().Contain("only supported by query_stream_data_aggregation");
+        AggregationMapper.Validate(columns, allowIntegral: true).Should().BeNull();
+    }
+
+    [Fact]
+    public void Validate_IntegralWithoutPath_IsRefused()
+    {
+        var columns = new List<AggregationColumnDto> { new() { Function = AggregationFunctionDto.integral } };
+
+        AggregationMapper.Validate(columns, allowIntegral: true).Should().Contain("attributePath is required");
+    }
+
+    [Fact]
+    public void ValidateIntegralWindow_OnlyAppliesToIntegral()
+    {
+        var sum = new List<AggregationColumnDto> { new() { Function = AggregationFunctionDto.sum, AttributePath = "P" } };
+        var integral = new List<AggregationColumnDto> { new() { Function = AggregationFunctionDto.integral, AttributePath = "P" } };
+        var from = new DateTime(2026, 6, 1, 10, 0, 0, DateTimeKind.Utc);
+
+        AggregationMapper.ValidateIntegralWindow(sum, null, null).Should().BeNull();
+        AggregationMapper.ValidateIntegralWindow(integral, from, null).Should().Contain("from and to");
+        AggregationMapper.ValidateIntegralWindow(integral, from, from).Should().Contain("less than");
+        AggregationMapper.ValidateIntegralWindow(integral, from, from.AddHours(1)).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(AggregationFunctionDto.count, "count")]
+    [InlineData(AggregationFunctionDto.sum, "sum")]
+    [InlineData(AggregationFunctionDto.avg, "avg")]
+    [InlineData(AggregationFunctionDto.min, "min")]
+    [InlineData(AggregationFunctionDto.max, "max")]
+    [InlineData(AggregationFunctionDto.integral, "integral")]
+    public void EngineResultToken_MatchesTheEngineSuffix(AggregationFunctionDto dto, string token)
+    {
+        AggregationMapper.EngineResultToken(dto).Should().Be(token);
+    }
+
+    [Fact]
+    public void ApplyToAggregationInput_Integral_IsRefusedForRuntimeAggregations()
+    {
+        var act = () => AggregationMapper.ApplyToAggregationInput(new AggregationInput(),
+            [new AggregationColumnDto { Function = AggregationFunctionDto.integral, AttributePath = "P" }]);
+
+        act.Should().Throw<ArgumentException>().WithMessage("*only supported by stream-data queries*");
     }
 }

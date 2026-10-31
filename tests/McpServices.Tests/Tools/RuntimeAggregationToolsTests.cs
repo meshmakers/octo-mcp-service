@@ -105,6 +105,19 @@ public class RuntimeAggregationToolsTests : TestBase
     }
 
     [Fact]
+    public async Task QueryEntitiesAggregation_Integral_IsRefused()
+    {
+        // AB#7919: runtime entities have no time axis; integral is a stream-data function only.
+        var result = await RuntimeAggregationTools.QueryEntitiesAggregation(
+            MockServer.Object,
+            CkTypeId,
+            aggregations: [new() { Function = AggregationFunctionDto.integral, AttributePath = "Power" }]);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("query_stream_data_aggregation");
+    }
+
+    [Fact]
     public async Task QueryEntitiesAggregation_MissingCkTypeId_ReturnsValidationError()
     {
         var result = await RuntimeAggregationTools.QueryEntitiesAggregation(

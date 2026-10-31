@@ -396,6 +396,49 @@ public class PersistedQueryToolsTests : TestBase
     }
 
     [Fact]
+    public async Task ExecuteStreamDataQuery_AggregationSubtype_Integral_PassesIntegralAndReadsTheEngineKey()
+    {
+        // AB#7919: a persisted System/AggregationSdQuery with AggregationType = Integral (System 2.8.0).
+        WireStreamDataMocks();
+        var aggregation = new RtAggregationSdQuery
+        {
+            QueryCkTypeId = SensorCkType.ToString(),
+            ArchiveRtId = ArchiveRtId,
+            From = new DateTime(2026, 6, 1, 10, 0, 0, DateTimeKind.Utc),
+            To = new DateTime(2026, 6, 1, 11, 0, 0, DateTimeKind.Utc)
+        };
+        aggregation.Columns.Add(new RtAggregationQueryColumnRecord
+        {
+            AttributePath = "Power",
+            AggregationType = RtAggregationTypesEnum.Integral
+        });
+
+        MockTenantRepository
+            .Setup(r => r.GetRtEntityByRtIdAsync<RtStreamDataQuery>(
+                It.IsAny<IOctoSession>(), It.IsAny<OctoObjectId>()))
+            .ReturnsAsync(aggregation);
+
+        StreamDataAggregationQueryOptions? captured = null;
+        _streamRepo
+            .Setup(r => r.ExecuteAggregationQueryAsync(It.IsAny<OctoObjectId>(),
+                It.IsAny<StreamDataAggregationQueryOptions>()))
+            .Callback<OctoObjectId, StreamDataAggregationQueryOptions>((_, o) => captured = o)
+            .ReturnsAsync(new StreamDataQueryResult
+            {
+                Rows = [new StreamDataRow { Values = new Dictionary<string, object?> { ["power_integral"] = 1650.0 } }],
+                TotalCount = 1
+            });
+
+        var result = await StreamDataAggregationTools.ExecuteStreamDataQuery(
+            MockServer.Object, QueryRtId);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        result.Rows![0]["integral_Power"].Should().Be(1650.0);
+        captured!.AggregationColumns.Single().Function
+            .Should().Be(Meshmakers.Octo.Runtime.Contracts.Repositories.Query.AggregationFunction.Integral);
+    }
+
+    [Fact]
     public async Task ExecuteStreamDataQuery_GroupingSubtype_RejectsEmptyGroupingColumns()
     {
         WireStreamDataMocks();

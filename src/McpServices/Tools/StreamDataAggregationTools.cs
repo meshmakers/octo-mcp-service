@@ -10,6 +10,7 @@ using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Runtime.Contracts.StreamData;
+using Meshmakers.Octo.Runtime.Engine.CrateDb;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -134,6 +135,14 @@ public sealed class StreamDataAggregationTools
 
             var extraMappedFilters = MapFieldFilters(extraFilters);
             var sourceRtIdOverrideList = MapRtIds(sourceRtIdsOverride);
+            // The result keys of aggregation subtypes are the archive's storage names (AB#7919).
+            StreamDataFieldResolver? fieldResolver = null;
+            if (loaded is not RtSimpleSdQuery)
+            {
+                var archiveStore = tenantContext.GetArchiveRuntimeStore();
+                var archiveSnapshot = archiveStore != null ? await archiveStore.GetAsync(archiveRtId) : null;
+                fieldResolver = archiveSnapshot != null ? StreamDataFieldResolver.CreateForArchive(archiveSnapshot) : null;
+            }
 
             return loaded switch
             {
@@ -142,13 +151,14 @@ public sealed class StreamDataAggregationTools
                     sourceRtIdOverrideList, extraMappedFilters, queryRtId, resolvedTenantId),
                 RtAggregationSdQuery aggregation => await ExecutePersistedAggregationAsync(
                     aggregation, streamRepo, archiveRtId, ckTypeId, fromOverride, toOverride,
-                    sourceRtIdOverrideList, extraMappedFilters, queryRtId, resolvedTenantId),
+                    sourceRtIdOverrideList, extraMappedFilters, queryRtId, resolvedTenantId, fieldResolver),
                 RtGroupingAggregationSdQuery grouping => await ExecutePersistedGroupingAsync(
                     grouping, streamRepo, archiveRtId, ckTypeId, fromOverride, toOverride,
-                    sourceRtIdOverrideList, extraMappedFilters, queryRtId, resolvedTenantId),
+                    sourceRtIdOverrideList, extraMappedFilters, queryRtId, resolvedTenantId, fieldResolver),
                 RtDownsamplingSdQuery downsampling => await ExecutePersistedDownsamplingAsync(
                     downsampling, streamRepo, archiveRtId, ckTypeId, fromOverride, toOverride,
-                    limitOverride, sourceRtIdOverrideList, extraMappedFilters, queryRtId, resolvedTenantId),
+                    limitOverride, sourceRtIdOverrideList, extraMappedFilters, queryRtId, resolvedTenantId,
+                    fieldResolver),
                 _ => new PersistedStreamDataQueryResponse
                 {
                     IsSuccess = false,
@@ -244,7 +254,11 @@ public sealed class StreamDataAggregationTools
     [McpServerTool(Name = "query_stream_data_aggregation")]
     [Description(
         "Compute scalar aggregations over the rows in [from, to). Returns one row with the requested " +
-        "aliases. Equivalent to GraphQL StreamData.TransientStreamDataQuery.Aggregation.")]
+        "aliases. Functions: count, sum, avg, min, max, integral. 'integral' is the step integral of a numeric " +
+        "column over [from, to) in value unit x hours (a power column in W gives Wh; divide by 1000 for kWh): the " +
+        "last value holds until the next row, the last row before 'from' carries in, gaps are not interpolated, " +
+        "several rtIds are summed, an empty window gives null; from and to are REQUIRED with 'integral'; raw " +
+        "archives only. Equivalent to GraphQL StreamData.TransientStreamDataQuery.Aggregation.")]
     public static async Task<AggregationResultResponse> QueryAggregation(
         McpServer server,
         string archiveRtId,
@@ -255,7 +269,8 @@ public sealed class StreamDataAggregationTools
         List<string>? sourceRtIds = null,
         string? tenantId = null)
     {
-        var validation = ValidateAggregationCall(archiveRtId, aggregations, groupByPaths: null);
+        var validation = ValidateAggregationCall(archiveRtId, aggregations, groupByPaths: null)
+                         ?? AggregationMapper.ValidateIntegralWindow(aggregations, from, to);
         if (validation != null)
         {
             return new AggregationResultResponse { IsSuccess = false, ErrorMessage = validation };
@@ -279,7 +294,7 @@ public sealed class StreamDataAggregationTools
             var result = await ctx.Repo!.ExecuteAggregationQueryAsync(
                 new OctoObjectId(archiveRtId), options);
 
-            var rows = ProjectStreamAggregationRows(result, aggregations, groupByPaths: null);
+            var rows = ProjectStreamAggregationRows(result, aggregations, groupByPaths: null, ctx.FieldResolver);
 
             return new AggregationResultResponse
             {
@@ -299,7 +314,9 @@ public sealed class StreamDataAggregationTools
     [McpServerTool(Name = "query_stream_data_grouping")]
     [Description(
         "Compute aggregations grouped by attribute paths. Returns one row per distinct group with the " +
-        "group-key columns plus the aggregation aliases. Equivalent to GraphQL " +
+        "group-key columns plus the aggregation aliases. Functions: count, sum, avg, min, max, integral. " +
+        "'integral' is the step integral over [from, to) per group in value unit x hours (W -> Wh, /1000 for kWh); " +
+        "from and to are REQUIRED with 'integral'. Equivalent to GraphQL " +
         "StreamData.TransientStreamDataQuery.GroupingAggregation.")]
     public static async Task<AggregationResultResponse> QueryGrouping(
         McpServer server,
@@ -312,7 +329,8 @@ public sealed class StreamDataAggregationTools
         List<string>? sourceRtIds = null,
         string? tenantId = null)
     {
-        var validation = ValidateAggregationCall(archiveRtId, aggregations, groupByAttributePaths);
+        var validation = ValidateAggregationCall(archiveRtId, aggregations, groupByAttributePaths)
+                         ?? AggregationMapper.ValidateIntegralWindow(aggregations, from, to);
         if (validation != null)
         {
             return new AggregationResultResponse { IsSuccess = false, ErrorMessage = validation };
@@ -337,7 +355,7 @@ public sealed class StreamDataAggregationTools
             var result = await ctx.Repo!.ExecuteGroupedAggregationQueryAsync(
                 new OctoObjectId(archiveRtId), options);
 
-            var rows = ProjectStreamAggregationRows(result, aggregations, groupByAttributePaths);
+            var rows = ProjectStreamAggregationRows(result, aggregations, groupByAttributePaths, ctx.FieldResolver);
 
             return new AggregationResultResponse
             {
@@ -358,6 +376,8 @@ public sealed class StreamDataAggregationTools
     [Description(
         "Aggregate the [from, to) range into <= limit equally-spaced time buckets. Each output row " +
         "carries the aggregation aliases for that bucket — the server picks the bucket size. " +
+        "Functions: count, sum, avg, min, max ('integral' is not supported per bucket; use " +
+        "query_stream_data_aggregation or _grouping). " +
         "Equivalent to GraphQL StreamData.TransientStreamDataQuery.Downsampling.")]
     public static async Task<DownsamplingResultResponse> QueryDownsampling(
         McpServer server,
@@ -418,7 +438,7 @@ public sealed class StreamDataAggregationTools
             var result = await ctx.Repo!.ExecuteDownsamplingQueryAsync(
                 new OctoObjectId(archiveRtId), options);
 
-            var rows = result.Rows.Select(r => BuildBucketRow(r, aggregations)).ToList();
+            var rows = result.Rows.Select(r => BuildBucketRow(r, aggregations, ctx.FieldResolver)).ToList();
 
             return new DownsamplingResultResponse
             {
@@ -446,7 +466,8 @@ public sealed class StreamDataAggregationTools
             return "archiveRtId is required.";
         }
 
-        var aggError = AggregationMapper.Validate(aggregations);
+        // Stream-data aggregation and grouping are where the engine serves 'integral' (AB#7919).
+        var aggError = AggregationMapper.Validate(aggregations, allowIntegral: true);
         if (aggError != null)
         {
             return aggError;
@@ -463,7 +484,8 @@ public sealed class StreamDataAggregationTools
     private static List<Dictionary<string, object?>> ProjectStreamAggregationRows(
         StreamDataQueryResult result,
         IReadOnlyList<AggregationColumnDto> aggregations,
-        IReadOnlyList<string>? groupByPaths)
+        IReadOnlyList<string>? groupByPaths,
+        StreamDataFieldResolver? fieldResolver)
     {
         // For stream-data aggregations the engine returns one StreamDataRow per group (or one row
         // total for non-grouped). The values dictionary is keyed by the engine's column name
@@ -478,15 +500,18 @@ public sealed class StreamDataAggregationTools
             {
                 foreach (var path in groupByPaths)
                 {
-                    dict[path] = row.Values.TryGetValue(path, out var v) ? v : null;
+                    // The engine keys a group column by its storage name (lower-cased for data-stream
+                    // attributes, camelCase for built-ins such as rtId).
+                    var groupKey = fieldResolver?.Resolve(path)?.CrateDbName ?? EngineColumnName(path);
+                    dict[path] = row.Values.TryGetValue(groupKey, out var v) || row.Values.TryGetValue(path, out v)
+                        ? v
+                        : null;
                 }
             }
 
             foreach (var col in aggregations)
             {
-                var alias = AggregationMapper.DeriveAlias(col);
-                var key = EngineColumnKey(col);
-                dict[alias] = row.Values.TryGetValue(key, out var v) ? v : null;
+                dict[AggregationMapper.DeriveAlias(col)] = EngineValue(row, col, fieldResolver);
             }
 
             return dict;
@@ -494,7 +519,7 @@ public sealed class StreamDataAggregationTools
     }
 
     private static Dictionary<string, object?> BuildBucketRow(StreamDataRow row,
-        IReadOnlyList<AggregationColumnDto> aggregations)
+        IReadOnlyList<AggregationColumnDto> aggregations, StreamDataFieldResolver? fieldResolver)
     {
         var dict = new Dictionary<string, object?>
         {
@@ -503,13 +528,43 @@ public sealed class StreamDataAggregationTools
 
         foreach (var col in aggregations)
         {
-            var alias = AggregationMapper.DeriveAlias(col);
-            var key = EngineColumnKey(col);
-            dict[alias] = row.Values.TryGetValue(key, out var v) ? v : null;
+            dict[AggregationMapper.DeriveAlias(col)] = EngineValue(row, col, fieldResolver);
         }
 
         return dict;
     }
+
+    /// <summary>
+    ///     Reads one aggregation value from an engine row. The CrateDB repository keys aggregation results
+    ///     <c>{column}_{token}</c> (e.g. <c>power_avg</c>, <c>power_integral</c>), where <c>column</c> is the
+    ///     storage name the archive's field resolver gives (lower-cased concatenated path for a data-stream
+    ///     attribute, the versioned physical name for a computed column). AB#7919: the tools used to look up
+    ///     only <c>{Function}({path})</c>, a key the engine never writes, so every aggregation value came back
+    ///     null; that key is kept as a fallback.
+    /// </summary>
+    private static object? EngineValue(StreamDataRow row, AggregationColumnDto col,
+        StreamDataFieldResolver? fieldResolver)
+    {
+        if (!string.IsNullOrWhiteSpace(col.AttributePath))
+        {
+            var column = fieldResolver?.Resolve(col.AttributePath!)?.CrateDbName
+                         ?? EngineColumnName(col.AttributePath!);
+            if (row.Values.TryGetValue($"{column}_{AggregationMapper.EngineResultToken(col.Function)}", out var value))
+            {
+                return value;
+            }
+        }
+
+        return row.Values.TryGetValue(EngineColumnKey(col), out var legacy) ? legacy : null;
+    }
+
+    /// <summary>
+    ///     Same rule as the engine's internal <c>ColumnNameMapper.PathToColumnName</c>: path segments concatenated
+    ///     and lower-cased (<c>Sensor.Power</c> -> <c>sensorpower</c>). Used when no field resolver is at hand
+    ///     (rollup chain reads use the logical path).
+    /// </summary>
+    internal static string EngineColumnName(string attributePath) =>
+        attributePath.Replace(".", string.Empty, StringComparison.Ordinal).ToLowerInvariant();
 
     /// <summary>
     ///     Engine column naming convention: <c>{Function}({attributePath})</c> from
@@ -580,7 +635,8 @@ public sealed class StreamDataAggregationTools
         IReadOnlyList<OctoObjectId>? sourceRtIdsOverride,
         IReadOnlyList<FieldFilter>? extraFilters,
         string queryRtId,
-        string resolvedTenantId)
+        string resolvedTenantId,
+        StreamDataFieldResolver? fieldResolver)
     {
         var columns = RuntimeAggregationTools.MapPersistedAggregationColumns(query.Columns);
         var rtIds = sourceRtIdsOverride
@@ -594,7 +650,7 @@ public sealed class StreamDataAggregationTools
             .WithFieldFilters(MergePersistedAndExtraFilters(query.FieldFilter, extraFilters));
 
         var result = await streamRepo.ExecuteAggregationQueryAsync(archiveRtId, options);
-        var rows = ProjectStreamAggregationRows(result, columns, groupByPaths: null);
+        var rows = ProjectStreamAggregationRows(result, columns, groupByPaths: null, fieldResolver);
 
         return new PersistedStreamDataQueryResponse
         {
@@ -619,7 +675,8 @@ public sealed class StreamDataAggregationTools
         IReadOnlyList<OctoObjectId>? sourceRtIdsOverride,
         IReadOnlyList<FieldFilter>? extraFilters,
         string queryRtId,
-        string resolvedTenantId)
+        string resolvedTenantId,
+        StreamDataFieldResolver? fieldResolver)
     {
         var groupBy = query.GroupingColumns?.ToList() ?? [];
         if (groupBy.Count == 0)
@@ -649,7 +706,7 @@ public sealed class StreamDataAggregationTools
             .WithFieldFilters(MergePersistedAndExtraFilters(query.FieldFilter, extraFilters));
 
         var result = await streamRepo.ExecuteGroupedAggregationQueryAsync(archiveRtId, options);
-        var rows = ProjectStreamAggregationRows(result, columns, groupBy);
+        var rows = ProjectStreamAggregationRows(result, columns, groupBy, fieldResolver);
 
         return new PersistedStreamDataQueryResponse
         {
@@ -675,7 +732,8 @@ public sealed class StreamDataAggregationTools
         IReadOnlyList<OctoObjectId>? sourceRtIdsOverride,
         IReadOnlyList<FieldFilter>? extraFilters,
         string queryRtId,
-        string resolvedTenantId)
+        string resolvedTenantId,
+        StreamDataFieldResolver? fieldResolver)
     {
         var effectiveFrom = fromOverride ?? query.From;
         var effectiveTo = toOverride ?? query.To;
@@ -713,6 +771,22 @@ public sealed class StreamDataAggregationTools
         }
 
         var columns = RuntimeAggregationTools.MapPersistedAggregationColumns(query.Columns);
+        // Only the integral is checked here: the other persisted columns keep the engine's own validation.
+        if (columns.Any(c => c.Function == AggregationFunctionDto.integral))
+        {
+            return new PersistedStreamDataQueryResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "'integral' is not supported in downsampling queries; use a persisted aggregation or " +
+                               "grouping query with from and to.",
+                QueryRtId = queryRtId,
+                QuerySubtype = nameof(RtDownsamplingSdQuery),
+                ArchiveRtId = archiveRtId.ToString(),
+                CkTypeId = ckTypeId.ToString(),
+                TenantId = resolvedTenantId
+            };
+        }
+
         var rtIds = sourceRtIdsOverride
                    ?? query.RtIds?.Select(id => new OctoObjectId(id)).ToList();
 
@@ -725,7 +799,7 @@ public sealed class StreamDataAggregationTools
             .WithFieldFilters(MergePersistedAndExtraFilters(query.FieldFilter, extraFilters));
 
         var result = await streamRepo.ExecuteDownsamplingQueryAsync(archiveRtId, options);
-        var rows = result.Rows.Select(r => BuildBucketRow(r, columns)).ToList();
+        var rows = result.Rows.Select(r => BuildBucketRow(r, columns, fieldResolver)).ToList();
 
         return new PersistedStreamDataQueryResponse
         {
@@ -845,7 +919,8 @@ internal sealed record StreamDataContext(
     IStreamDataRepository? Repo,
     RtCkId<CkTypeId>? CkTypeId,
     string? TenantId,
-    string? Error)
+    string? Error,
+    StreamDataFieldResolver? FieldResolver = null)
 {
     public static async Task<StreamDataContext> TryResolveAsync(
         McpServer server, string archiveRtId, string? tenantIdParam)
@@ -894,7 +969,8 @@ internal sealed record StreamDataContext(
                 return new StreamDataContext(null, null, ctx.TenantId, denied);
             }
 
-            return new StreamDataContext(streamRepo, snapshot.TargetCkTypeId, ctx.TenantId, null);
+            return new StreamDataContext(streamRepo, snapshot.TargetCkTypeId, ctx.TenantId, null,
+                StreamDataFieldResolver.CreateForArchive(snapshot));
         }
         catch (Exception ex)
         {
