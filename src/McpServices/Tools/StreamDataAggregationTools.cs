@@ -639,6 +639,22 @@ public sealed class StreamDataAggregationTools
         StreamDataFieldResolver? fieldResolver)
     {
         var columns = RuntimeAggregationTools.MapPersistedAggregationColumns(query.Columns);
+        var windowError = AggregationMapper.ValidateIntegralWindow(
+            columns, fromOverride ?? query.From, toOverride ?? query.To);
+        if (windowError != null)
+        {
+            return new PersistedStreamDataQueryResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = windowError,
+                QueryRtId = queryRtId,
+                QuerySubtype = nameof(RtAggregationSdQuery),
+                ArchiveRtId = archiveRtId.ToString(),
+                CkTypeId = ckTypeId.ToString(),
+                TenantId = resolvedTenantId
+            };
+        }
+
         var rtIds = sourceRtIdsOverride
                    ?? query.RtIds?.Select(id => new OctoObjectId(id)).ToList();
 
@@ -694,6 +710,22 @@ public sealed class StreamDataAggregationTools
         }
 
         var columns = RuntimeAggregationTools.MapPersistedAggregationColumns(query.Columns);
+        var windowError = AggregationMapper.ValidateIntegralWindow(
+            columns, fromOverride ?? query.From, toOverride ?? query.To);
+        if (windowError != null)
+        {
+            return new PersistedStreamDataQueryResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = windowError,
+                QueryRtId = queryRtId,
+                QuerySubtype = nameof(RtGroupingAggregationSdQuery),
+                ArchiveRtId = archiveRtId.ToString(),
+                CkTypeId = ckTypeId.ToString(),
+                TenantId = resolvedTenantId
+            };
+        }
+
         var rtIds = sourceRtIdsOverride
                    ?? query.RtIds?.Select(id => new OctoObjectId(id)).ToList();
 

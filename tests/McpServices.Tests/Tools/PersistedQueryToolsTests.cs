@@ -396,6 +396,29 @@ public class PersistedQueryToolsTests : TestBase
     }
 
     [Fact]
+    public async Task ExecuteStreamDataQuery_AggregationSubtype_IntegralWithoutWindow_IsRefusedBeforeTheEngine()
+    {
+        WireStreamDataMocks();
+        var aggregation = new RtAggregationSdQuery { QueryCkTypeId = SensorCkType.ToString(), ArchiveRtId = ArchiveRtId };
+        aggregation.Columns.Add(new RtAggregationQueryColumnRecord
+        {
+            AttributePath = "Power",
+            AggregationType = RtAggregationTypesEnum.Integral
+        });
+        MockTenantRepository
+            .Setup(r => r.GetRtEntityByRtIdAsync<RtStreamDataQuery>(
+                It.IsAny<IOctoSession>(), It.IsAny<OctoObjectId>()))
+            .ReturnsAsync(aggregation);
+
+        var result = await StreamDataAggregationTools.ExecuteStreamDataQuery(MockServer.Object, QueryRtId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("from and to");
+        _streamRepo.Verify(r => r.ExecuteAggregationQueryAsync(It.IsAny<OctoObjectId>(),
+            It.IsAny<StreamDataAggregationQueryOptions>()), Times.Never);
+    }
+
+    [Fact]
     public async Task ExecuteStreamDataQuery_AggregationSubtype_Integral_PassesIntegralAndReadsTheEngineKey()
     {
         // AB#7919: a persisted System/AggregationSdQuery with AggregationType = Integral (System 2.8.0).
