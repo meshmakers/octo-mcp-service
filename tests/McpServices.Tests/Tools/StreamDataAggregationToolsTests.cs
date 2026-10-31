@@ -4,6 +4,7 @@ using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
+using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Runtime.Contracts.StreamData;
 using Moq;
 using Xunit;
@@ -127,11 +128,11 @@ public class StreamDataAggregationToolsTests : TestBase
     [Fact]
     public async Task Aggregation_HappyPath_MapsEngineColumnKeyToAlias()
     {
-        // Engine returns one row keyed by "Sum(Power)" / "Average(Temperature)".
+        // The CrateDB repository keys aggregation results "{column}_{token}" (AB#7919).
         var row = Row(values:
         [
-            ("Sum(Power)", 1000.0),
-            ("Average(Temperature)", 22.5)
+            ("power_sum", 1000.0),
+            ("temperature_avg", 22.5)
         ]);
         _mockStreamRepo
             .Setup(r => r.ExecuteAggregationQueryAsync(It.IsAny<OctoObjectId>(),
@@ -167,13 +168,13 @@ public class StreamDataAggregationToolsTests : TestBase
     {
         var row1 = Row(values:
         [
-            ("FacilityId", "F1"),
-            ("Sum(Power)", 500.0)
+            ("facilityid", "F1"),
+            ("power_sum", 500.0)
         ]);
         var row2 = Row(values:
         [
-            ("FacilityId", "F2"),
-            ("Sum(Power)", 750.0)
+            ("facilityid", "F2"),
+            ("power_sum", 750.0)
         ]);
         _mockStreamRepo
             .Setup(r => r.ExecuteGroupedAggregationQueryAsync(It.IsAny<OctoObjectId>(),
@@ -216,8 +217,8 @@ public class StreamDataAggregationToolsTests : TestBase
             .Setup(r => r.ExecuteDownsamplingQueryAsync(It.IsAny<OctoObjectId>(),
                 It.IsAny<StreamDataDownsamplingQueryOptions>()))
             .ReturnsAsync(Result(
-                Row(b1, ("Average(Power)", 1.0)),
-                Row(b2, ("Average(Power)", 2.0))));
+                Row(b1, ("power_avg", 1.0)),
+                Row(b2, ("power_avg", 2.0))));
 
         var result = await StreamDataAggregationTools.QueryDownsampling(
             MockServer.Object, ArchiveRtId,
@@ -256,5 +257,136 @@ public class StreamDataAggregationToolsTests : TestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("limit");
+    }
+
+    // ── Integral (AB#7919) ──────────────────────────────────────────────────
+
+    private static readonly DateTime WindowFrom = new(2026, 6, 1, 10, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime WindowTo = new(2026, 6, 1, 11, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public async Task Aggregation_Integral_PassesIntegralAndWindowToTheEngine_AndMapsTheResult()
+    {
+        StreamDataAggregationQueryOptions? captured = null;
+        _mockStreamRepo
+            .Setup(r => r.ExecuteAggregationQueryAsync(It.IsAny<OctoObjectId>(),
+                It.IsAny<StreamDataAggregationQueryOptions>()))
+            .Callback<OctoObjectId, StreamDataAggregationQueryOptions>((_, o) => captured = o)
+            .ReturnsAsync(Result(Row(values: [("activepower_integral", 1650.0)])));
+
+        var result = await StreamDataAggregationTools.QueryAggregation(
+            MockServer.Object, ArchiveRtId,
+            aggregations: [new() { Function = AggregationFunctionDto.integral, AttributePath = "ActivePower" }],
+            from: WindowFrom, to: WindowTo);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        result.Rows.Single()["integral_ActivePower"].Should().Be(1650.0);
+        captured.Should().NotBeNull();
+        captured!.AggregationColumns.Should().ContainSingle()
+            .Which.Function.Should().Be(AggregationFunction.Integral);
+        captured.From.Should().Be(WindowFrom);
+        captured.To.Should().Be(WindowTo);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task Aggregation_IntegralWithoutWindow_IsRefusedWithoutAnEngineCall(bool withFrom, bool withTo)
+    {
+        var result = await StreamDataAggregationTools.QueryAggregation(
+            MockServer.Object, ArchiveRtId,
+            aggregations: [new() { Function = AggregationFunctionDto.integral, AttributePath = "ActivePower" }],
+            from: withFrom ? WindowFrom : null, to: withTo ? WindowTo : null);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("integral").And.Contain("from and to");
+        _mockStreamRepo.Verify(r => r.ExecuteAggregationQueryAsync(
+            It.IsAny<OctoObjectId>(), It.IsAny<StreamDataAggregationQueryOptions>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Aggregation_IntegralWithInvertedWindow_IsRefused()
+    {
+        var result = await StreamDataAggregationTools.QueryAggregation(
+            MockServer.Object, ArchiveRtId,
+            aggregations: [new() { Function = AggregationFunctionDto.integral, AttributePath = "ActivePower" }],
+            from: WindowTo, to: WindowFrom);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("less than");
+    }
+
+    [Fact]
+    public async Task Grouping_Integral_PerGroup()
+    {
+        _mockStreamRepo
+            .Setup(r => r.ExecuteGroupedAggregationQueryAsync(It.IsAny<OctoObjectId>(),
+                It.IsAny<StreamDataGroupedAggregationQueryOptions>()))
+            .ReturnsAsync(Result(
+                Row(values: [("rtId", "a"), ("activepower_integral", 900.0)]),
+                Row(values: [("rtId", "b"), ("activepower_integral", 750.0)])));
+
+        var result = await StreamDataAggregationTools.QueryGrouping(
+            MockServer.Object, ArchiveRtId,
+            groupByAttributePaths: ["rtId"],
+            aggregations: [new() { Function = AggregationFunctionDto.integral, AttributePath = "ActivePower", Alias = "energyWh" }],
+            from: WindowFrom, to: WindowTo);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        result.Rows.Select(r => (r["rtId"], r["energyWh"])).Should().Equal(("a", 900.0), ("b", 750.0));
+    }
+
+    [Fact]
+    public async Task Grouping_IntegralWithoutWindow_IsRefused()
+    {
+        var result = await StreamDataAggregationTools.QueryGrouping(
+            MockServer.Object, ArchiveRtId,
+            groupByAttributePaths: ["rtId"],
+            aggregations: [new() { Function = AggregationFunctionDto.integral, AttributePath = "ActivePower" }]);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("from and to");
+    }
+
+    [Fact]
+    public async Task Downsampling_Integral_IsRefusedWithoutAnEngineCall()
+    {
+        var result = await StreamDataAggregationTools.QueryDownsampling(
+            MockServer.Object, ArchiveRtId,
+            aggregations: [new() { Function = AggregationFunctionDto.integral, AttributePath = "ActivePower" }],
+            from: WindowFrom, to: WindowTo, limit: 4);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("integral");
+        _mockStreamRepo.Verify(r => r.ExecuteDownsamplingQueryAsync(
+            It.IsAny<OctoObjectId>(), It.IsAny<StreamDataDownsamplingQueryOptions>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Aggregation_LegacyEngineKey_IsStillRead()
+    {
+        _mockStreamRepo
+            .Setup(r => r.ExecuteAggregationQueryAsync(It.IsAny<OctoObjectId>(),
+                It.IsAny<StreamDataAggregationQueryOptions>()))
+            .ReturnsAsync(Result(Row(values: [("Sum(Power)", 10.0)])));
+
+        var result = await StreamDataAggregationTools.QueryAggregation(
+            MockServer.Object, ArchiveRtId,
+            aggregations: [new() { Function = AggregationFunctionDto.sum, AttributePath = "Power" }]);
+
+        result.Rows.Single()["sum_Power"].Should().Be(10.0);
+    }
+
+    [Fact]
+    public void ToolDescriptions_StateTheIntegralUnitAndTheRequiredWindow()
+    {
+        foreach (var name in new[] { nameof(StreamDataAggregationTools.QueryAggregation), nameof(StreamDataAggregationTools.QueryGrouping) })
+        {
+            var description = typeof(StreamDataAggregationTools).GetMethod(name)!
+                .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+                .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+            description.Should().Contain("integral").And.Contain("hours").And.Contain("REQUIRED");
+        }
     }
 }

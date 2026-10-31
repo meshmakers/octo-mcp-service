@@ -18,6 +18,7 @@ internal static class AggregationMapper
         AggregationFunctionDto.avg => AggregationFunction.Average,
         AggregationFunctionDto.min => AggregationFunction.Minimum,
         AggregationFunctionDto.max => AggregationFunction.Maximum,
+        AggregationFunctionDto.integral => AggregationFunction.Integral,
         _ => throw new ArgumentOutOfRangeException(nameof(dto), dto, "Unknown aggregation function")
     };
 
@@ -44,7 +45,12 @@ internal static class AggregationMapper
     /// <summary>
     ///     Validates the aggregation column list. Returns null on success or a human-readable error message.
     /// </summary>
-    public static string? Validate(IReadOnlyList<AggregationColumnDto>? aggregations)
+    /// <param name="aggregations">The requested aggregation columns.</param>
+    /// <param name="allowIntegral">
+    ///     True only for the stream-data aggregation and grouping queries, the one place the engine serves
+    ///     <see cref="AggregationFunctionDto.integral"/> (AB#7919). Runtime aggregations and downsampling refuse it.
+    /// </param>
+    public static string? Validate(IReadOnlyList<AggregationColumnDto>? aggregations, bool allowIntegral = false)
     {
         if (aggregations == null || aggregations.Count == 0)
         {
@@ -64,6 +70,14 @@ internal static class AggregationMapper
                     "Only 'count' may omit the path.";
             }
 
+            if (col.Function == AggregationFunctionDto.integral && !allowIntegral)
+            {
+                return
+                    $"aggregations[{i}]: 'integral' is only supported by query_stream_data_aggregation and " +
+                    "query_stream_data_grouping (and persisted stream-data aggregation/grouping queries); " +
+                    "it is not available for runtime aggregations or downsampling.";
+            }
+
             var alias = DeriveAlias(col);
             if (!seenAliases.Add(alias))
             {
@@ -75,6 +89,43 @@ internal static class AggregationMapper
 
         return null;
     }
+
+    /// <summary>
+    ///     The integral is computed over the query window, so a request with an <c>integral</c> column needs both
+    ///     <c>from</c> and <c>to</c> (AB#7919). Returns null on success or a human-readable error message.
+    /// </summary>
+    public static string? ValidateIntegralWindow(IReadOnlyList<AggregationColumnDto> aggregations,
+        DateTime? from, DateTime? to)
+    {
+        if (!aggregations.Any(c => c.Function == AggregationFunctionDto.integral))
+        {
+            return null;
+        }
+
+        if (from is null || to is null)
+        {
+            return "'integral' requires both from and to: it integrates over the query window.";
+        }
+
+        return from < to
+            ? null
+            : $"Invalid time window: from ({from:O}) must be strictly less than to ({to:O}).";
+    }
+
+    /// <summary>
+    ///     The engine's short function token in stream-data result keys (<c>{column}_{token}</c>, e.g.
+    ///     <c>power_avg</c>, <c>power_integral</c>), see <c>CrateDbStreamDataRepository</c>.
+    /// </summary>
+    public static string EngineResultToken(AggregationFunctionDto dto) => dto switch
+    {
+        AggregationFunctionDto.count => "count",
+        AggregationFunctionDto.sum => "sum",
+        AggregationFunctionDto.avg => "avg",
+        AggregationFunctionDto.min => "min",
+        AggregationFunctionDto.max => "max",
+        AggregationFunctionDto.integral => "integral",
+        _ => throw new ArgumentOutOfRangeException(nameof(dto), dto, "Unknown aggregation function")
+    };
 
     /// <summary>Validates group-by attribute paths.</summary>
     public static string? ValidateGroupBy(IReadOnlyList<string>? groupByPaths)
@@ -135,6 +186,11 @@ internal static class AggregationMapper
                 case AggregationFunctionDto.max:
                     input.MaxAttributePaths(col.AttributePath!);
                     break;
+                case AggregationFunctionDto.integral:
+                    // A persisted runtime aggregation query may carry the CK enum value Integral (System 2.8.0);
+                    // runtime entities have no time axis to integrate over.
+                    throw new ArgumentException(
+                        $"'integral' on '{col.AttributePath}' is only supported by stream-data queries, not by runtime aggregations.");
             }
         }
     }
@@ -151,7 +207,7 @@ internal static class AggregationMapper
             .ToList();
 
     /// <summary>
-    ///     Maps the CK <c>AggregationTypes</c> enum name (Count / Minimum / Maximum / Average / Sum, plus the
+    ///     Maps the CK <c>AggregationTypes</c> enum name (Count / Minimum / Maximum / Average / Sum / Integral, plus the
     ///     legacy short forms Min/Max/Avg) to the MCP-side <see cref="AggregationFunctionDto"/>.
     ///     The persisted query columns carry the enum value as a CK enum — we read the name and map.
     /// </summary>
@@ -165,6 +221,7 @@ internal static class AggregationMapper
         "Min" => AggregationFunctionDto.min,
         "Maximum" => AggregationFunctionDto.max,
         "Max" => AggregationFunctionDto.max,
+        "Integral" => AggregationFunctionDto.integral,
         _ => throw new ArgumentOutOfRangeException(nameof(ckEnumName), ckEnumName,
             $"Unknown CK aggregation type: {ckEnumName}")
     };

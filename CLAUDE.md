@@ -345,13 +345,20 @@ The aggregation + stream-data tools (`RuntimeAggregationTools`, `StreamDataAggre
 
 ### Lowercase function strings — `AggregationFunctionDto`
 
-Counter to the rest of the codebase which uses PascalCase enum names, the aggregation enum uses **lowercase short names** (`count`/`sum`/`avg`/`min`/`max`). This is intentional and AI-driven: LLMs construct lowercase strings more reliably than enum-style strings, and lowercase mirrors SQL conventions. The translation to the engine's `AggregationFunction` (which uses `Count/Sum/Average/Minimum/Maximum`) happens in `AggregationMapper.ToEngineFunction`. Do not "fix" the enum to PascalCase.
+Counter to the rest of the codebase which uses PascalCase enum names, the aggregation enum uses **lowercase short names** (`count`/`sum`/`avg`/`min`/`max`/`integral`). This is intentional and AI-driven: LLMs construct lowercase strings more reliably than enum-style strings, and lowercase mirrors SQL conventions. The translation to the engine's `AggregationFunction` (which uses `Count/Sum/Average/Minimum/Maximum/Integral`) happens in `AggregationMapper.ToEngineFunction`. Do not "fix" the enum to PascalCase.
+
+`integral` (AB#7919) is the step integral of the engine (AB#7918): value unit x hours over `[from, to)`, LOCF, carry-in from the
+last row before `from`, rtIds summed, empty window = null, raw archives only. It is accepted **only** by
+`query_stream_data_aggregation`, `query_stream_data_grouping` and persisted stream-data aggregation/grouping queries
+(`Validate(..., allowIntegral: true)`), and needs `from` and `to` (`ValidateIntegralWindow`). Runtime aggregations, downsampling (transient and
+persisted) refuse it up front; a persisted runtime aggregation query carrying the CK value `Integral` fails in `ApplyToAggregationInput`.
 
 ### `AggregationMapper` is the single point of validation + engine mapping
 
 Every aggregation tool routes through `Services/AggregationMapper.cs`:
 
-- `Validate(aggregations)` — at-least-one rule, non-count requires `attributePath`, alias uniqueness
+- `Validate(aggregations, allowIntegral)` — at-least-one rule, non-count requires `attributePath`, alias uniqueness, `integral` only where allowed
+- `ValidateIntegralWindow(aggregations, from, to)` — `integral` needs `from < to`
 - `ValidateGroupBy(paths)` — non-empty list, no blanks, no duplicates
 - `DeriveAlias(column)` — `<function>_<sanitised-path>` when no explicit alias (e.g. `avg_Power`); special-case `"count"` for unparametrised count
 - `ApplyToAggregationInput(input, columns)` — pushes columns into the runtime engine's `AggregationInput` (used by runtime aggregation tools)
@@ -361,7 +368,14 @@ When you add a new aggregation tool, **don't bypass these helpers**. The validat
 
 ### Engine column key convention (stream-data only)
 
-Stream-data aggregation results come back as `StreamDataRow` instances with `Values` keyed by the engine's column name format `{Function}({path})` — the `ToString()` of `AggregationColumn`. The projection layer rebuilds the same key (`EngineColumnKey` helper inside `StreamDataAggregationTools`) to look up each value, then writes it under the MCP-side alias from `AggregationMapper.DeriveAlias`. Group-key columns flow straight from `Values` into the response dict, indexed by the group-by attribute paths the caller supplied.
+Stream-data aggregation results come back as `StreamDataRow` instances with `Values` keyed `{column}_{token}` by the CrateDB repository
+(`power_avg`, `power_integral`; `token` = `AggregationMapper.EngineResultToken`), where `column` is the storage name of the archive's
+`StreamDataFieldResolver` (lower-cased concatenated path for a data-stream attribute, the versioned physical name for a computed column,
+camelCase for built-ins such as `rtId`). `EngineValue` inside `StreamDataAggregationTools` rebuilds that key (resolver from the archive
+snapshot, fallback `EngineColumnName` = the engine's `ColumnNameMapper` rule) and writes the value under the alias from
+`AggregationMapper.DeriveAlias`; group-key columns are read the same way. Before AB#7919 the tools looked up only `{Function}({path})`
+(the `ToString()` of `AggregationColumn`), a key the engine never writes, so every stream-data aggregation value came back null; that key is
+still tried as a fallback.
 
 ### `StreamDataContext` resolves the four-stage cascade
 
