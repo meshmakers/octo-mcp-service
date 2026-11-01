@@ -409,9 +409,9 @@ _High=5 · Low=1 · Medium=2_  ·  **Owner reviewed:** ☐
 | `clear_tenant_cache` | **H** | |
 | `update_system_ck_model` | **M** | |
 
-### TimeSeriesTools (11 tools)
+### TimeSeriesTools (12 tools)
 
-_High=9 · Low=1 · Medium=1_  ·  **Owner reviewed:** ☐
+_High=10 · Low=1 · Medium=1_  ·  **Owner reviewed:** ☐
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
