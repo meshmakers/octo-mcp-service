@@ -95,6 +95,39 @@ public class TimeSeriesToolsTests : ToolTestBase
     }
 
     [Fact]
+    public async Task AddArchiveColumn_HappyPath_CallsSdk()
+    {
+        var result = await TimeSeriesTools.AddArchiveColumn(MockServer.Object, ArchiveRtId, "DischargingPower", indexed: true);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Message.Should().Contain("DischargingPower");
+        MockStreamDataClient.Verify(c => c.AddArchiveColumnAsync(DefaultTenantId, ArchiveRtId, "DischargingPower", true), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("", "DischargingPower")]
+    [InlineData(ArchiveRtId, "")]
+    public async Task AddArchiveColumn_MissingIdOrPath_ReturnsValidationError(string archiveRtId, string path)
+    {
+        var result = await TimeSeriesTools.AddArchiveColumn(MockServer.Object, archiveRtId, path);
+
+        result.IsSuccess.Should().BeFalse();
+        MockStreamDataClient.Verify(c => c.AddArchiveColumnAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AddArchiveColumn_ServerRefusal_IsReported()
+    {
+        MockStreamDataClient.Setup(c => c.AddArchiveColumnAsync(DefaultTenantId, ArchiveRtId, "Nope", false))
+            .ThrowsAsync(new InvalidOperationException("path 'Nope' is invalid"));
+
+        var result = await TimeSeriesTools.AddArchiveColumn(MockServer.Object, ArchiveRtId, "Nope");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("Nope");
+    }
+
+    [Fact]
     public async Task DisableArchive_HappyPath_CallsSdk()
     {
         var result = await TimeSeriesTools.DisableArchive(MockServer.Object, ArchiveRtId);

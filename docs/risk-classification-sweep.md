@@ -418,6 +418,7 @@ _High=9 · Low=1 · Medium=1_  ·  **Owner reviewed:** ☐
 | `enable_stream_data` | **H** | |
 | `disable_stream_data` | **H** | Reversible flag flip; refused (Conflict) while archives are activated; precondition for delete_tenant / detach_tenant (AB#4255) |
 | `activate_archive` | **H** — owner: confirm | |
+| `add_archive_column` | **H** | Additive schema change of an activated archive (nullable column, history kept); idempotent (AB#7997) |
 | `disable_archive` | **H** | |
 | `enable_archive` | **H** | |
 | `retry_archive_activation` | **H** — owner: confirm | |
