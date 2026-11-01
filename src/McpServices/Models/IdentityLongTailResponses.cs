@@ -142,4 +142,16 @@ public class AdminProvisioningResponse : IdentityLongTailResponse
 {
     /// <summary>Target tenant the operation acted on.</summary>
     public string? TargetTenantId { get; set; }
+
+    /// <summary>
+    /// provision_current_user_as_admin: source tenant of the mapping that was written (the home tenant of the
+    /// calling user, also when the session is scoped to an intermediate tenant).
+    /// </summary>
+    public string? SourceTenantId { get; set; }
+
+    /// <summary>provision_current_user_as_admin: source user id of the mapping that was written.</summary>
+    public string? SourceUserId { get; set; }
+
+    /// <summary>provision_current_user_as_admin: source user name of the mapping that was written.</summary>
+    public string? SourceUserName { get; set; }
 }

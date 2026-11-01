@@ -220,6 +220,40 @@ public class AdminProvisioningToolsTests : ToolTestBase
         MockIdentityClient.Verify(c => c.ProvisionCurrentUser("target"), Times.Once);
     }
 
+    /// <summary>AB#8017: the result names the source identity the mapping was written for (the home identity).</summary>
+    [Fact]
+    public async Task ProvisionCurrentUser_ReturnsTheSourceIdentityTheMappingWasWrittenFor()
+    {
+        MockIdentityClient.Setup(c => c.ProvisionCurrentUser("grandchild"))
+            .ReturnsAsync(new ExternalTenantUserMappingDto
+            {
+                SourceTenantId = "octosystem",
+                SourceUserId = "686a6215fd3e5972ff5693fd",
+                SourceUserName = "alice@example.com"
+            });
+
+        var result = await AdminProvisioningTools.ProvisionCurrentUser(MockServer.Object, "grandchild");
+
+        result.IsSuccess.Should().BeTrue();
+        result.SourceTenantId.Should().Be("octosystem");
+        result.SourceUserId.Should().Be("686a6215fd3e5972ff5693fd");
+        result.SourceUserName.Should().Be("alice@example.com");
+        result.Message.Should().Contain("'alice@example.com'").And.Contain("tenant 'octosystem'");
+    }
+
+    [Fact]
+    public async Task ProvisionCurrentUser_WithoutMappingInTheAnswer_StillReportsSuccess()
+    {
+        MockIdentityClient.Setup(c => c.ProvisionCurrentUser("target"))
+            .ReturnsAsync((ExternalTenantUserMappingDto?)null);
+
+        var result = await AdminProvisioningTools.ProvisionCurrentUser(MockServer.Object, "target");
+
+        result.IsSuccess.Should().BeTrue();
+        result.SourceTenantId.Should().BeNull();
+        result.Message.Should().Be("Current user provisioned as admin in tenant 'target'.");
+    }
+
     [Fact]
     public async Task DeleteMapping_WithoutConfirm_Refuses()
     {
