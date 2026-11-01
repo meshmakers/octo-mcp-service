@@ -120,7 +120,8 @@ public sealed class AdminProvisioningTools
     [McpRisk(McpRiskLevel.High)]
     [Description(
         "Provision the calling user as admin in a target tenant via the matching admin-provisioning mapping. " +
-        "Equivalent to octo-cli ProvisionCurrentUser.")]
+        "From a session scoped to an intermediate tenant the mapping is written for the user's home identity; " +
+        "the result names the source tenant and user it was written for. Equivalent to octo-cli ProvisionCurrentUser.")]
     public static async Task<AdminProvisioningResponse> ProvisionCurrentUser(
         McpServer server,
         [Description("Target tenant ID.")] string targetTenantId,
@@ -143,13 +144,24 @@ public sealed class AdminProvisioningTools
 
         try
         {
-            await ctx.Client!.ProvisionCurrentUser(targetTenantId);
+            var mapping = await ctx.Client!.ProvisionCurrentUser(targetTenantId);
+
+            // AB#8017: name the identity the mapping was written for. A session scoped to an intermediate tenant calls
+            // as a cross-tenant shadow user; identity writes the mapping for that user's home identity, which is also
+            // the identity later tool calls exchange from.
+            var hasSource = mapping != null && !string.IsNullOrEmpty(mapping.SourceTenantId);
             return new AdminProvisioningResponse
             {
                 IsSuccess = true,
                 TenantId = ctx.TenantId,
                 TargetTenantId = targetTenantId,
-                Message = $"Current user provisioned as admin in tenant '{targetTenantId}'."
+                SourceTenantId = hasSource ? mapping!.SourceTenantId : null,
+                SourceUserId = hasSource ? mapping!.SourceUserId : null,
+                SourceUserName = hasSource ? mapping!.SourceUserName : null,
+                Message = hasSource
+                    ? $"Current user provisioned as admin in tenant '{targetTenantId}': mapping written for user " +
+                      $"'{mapping!.SourceUserName}' ({mapping.SourceUserId}) of tenant '{mapping.SourceTenantId}'."
+                    : $"Current user provisioned as admin in tenant '{targetTenantId}'."
             };
         }
         catch (Exception ex)

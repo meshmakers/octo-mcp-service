@@ -15,6 +15,12 @@
 
 ### Fixed
 
+- AB#8017: `provision_current_user_as_admin` names the identity the mapping was written for (`SourceTenantId`,
+  `SourceUserId`, `SourceUserName` and the message). From a session scoped to an intermediate tenant the identity
+  service now provisions the home identity of the user (the identity later tool calls exchange from) instead of
+  the cross-tenant shadow user, so a nested (grandchild) tenant is reachable after the call. Needs octo-sdk with
+  the mapping returned by `ProvisionCurrentUser` and identity with AB#8017.
+
 - AB#7282: tenant-management tools (`get_tenants`, `create_tenant`, `delete_tenant`, `clean_tenant`,
   `attach_tenant`, `detach_tenant`, `clear_tenant_cache`, `update_system_ck_model`) and
   `export_runtime_graphql_sdl` now exchange the caller's token for the addressed (route/parent) tenant via
