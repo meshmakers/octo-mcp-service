@@ -216,16 +216,16 @@ public sealed class RuntimeAggregationTools
         }
 
         ckTypeId = CkTypeIdResolver.ToRtCkId(typeResolution.Type);
-        var secretUsage = SecretAttributePaths.FindNotQueryableUsage(ckCacheService, resolvedTenantId, ckTypeId,
-            aggregations!.Select(a => (a.AttributePath, $"aggregation '{a.Function}'"))
-                .Concat((groupByAttributePaths ?? []).Select(g => ((string?)g, "group-by")))
-                .Concat(RuntimeEntityCrudTools.SecretRelevantFilterUsages(filters)));
         // AB#8043: a Hidden attribute is neither aggregated, grouped nor filtered on (group keys and min/max would
-        // return its value, a filter would test it).
-        secretUsage ??= AttributeAccessGuard.FindHiddenUsage(ckCacheService, resolvedTenantId, ckTypeId,
-            aggregations!.Select(a => (a.AttributePath, $"aggregation '{a.Function}'"))
-                .Concat((groupByAttributePaths ?? []).Select(g => ((string?)g, "group-by")))
-                .Concat(RuntimeEntityCrudTools.AllFilterUsages(filters)));
+        // return its value, a filter would test it). Checked before the Secret rule, which covers fewer operators.
+        var secretUsage = AttributeAccessGuard.FindHiddenUsage(ckCacheService, resolvedTenantId, ckTypeId,
+                              aggregations!.Select(a => (a.AttributePath, $"aggregation '{a.Function}'"))
+                                  .Concat((groupByAttributePaths ?? []).Select(g => ((string?)g, "group-by")))
+                                  .Concat(RuntimeEntityCrudTools.AllFilterUsages(filters)))
+                          ?? SecretAttributePaths.FindNotQueryableUsage(ckCacheService, resolvedTenantId, ckTypeId,
+                              aggregations!.Select(a => (a.AttributePath, $"aggregation '{a.Function}'"))
+                                  .Concat((groupByAttributePaths ?? []).Select(g => ((string?)g, "group-by")))
+                                  .Concat(RuntimeEntityCrudTools.SecretRelevantFilterUsages(filters)));
         if (secretUsage != null)
         {
             return new AggregationResultResponse { IsSuccess = false, ErrorMessage = secretUsage };

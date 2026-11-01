@@ -22,6 +22,9 @@ public class HiddenAttributeOutputArchitectureTests
 
         program.Should().Contain("AddTransient<IRtEntityToDtoMapper, AccessAwareRtEntityToDtoMapper>()");
         Regex.IsMatch(program, @"IRtEntityToDtoMapper\s*,\s*RtEntityToDtoMapper\s*>").Should().BeFalse();
+        // No concrete registration of the SDK mapper and no factory registration of the interface either.
+        Regex.IsMatch(program, @"\bRtEntityToDtoMapper\b").Should().BeFalse();
+        Regex.IsMatch(program, @"IRtEntityToDtoMapper\s*>").Should().BeFalse();
     }
 
     [Fact]

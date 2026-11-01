@@ -23,7 +23,7 @@ dotnet build src/McpServices/McpServices.csproj -c DebugL
 # Build the entire solution (server + tests + resources)
 dotnet build Octo.McpServices.sln -c DebugL
 
-# Run all tests (currently 1270, ~2 s)
+# Run all tests (currently 1277, ~2 s)
 dotnet test Octo.McpServices.sln -c DebugL
 
 # Filter tests by class
@@ -235,8 +235,10 @@ equality oracle, and `update_entity` wrote `securityStamp` / `twoFactorEnabled`.
   filters of `execute_runtime_query` are refused with `ATTRIBUTE_NOT_QUERYABLE: Attribute '<path>' of '<type>' is hidden
   and cannot be used for <operation>.` before a session is opened. A path reaches Hidden through any segment or by ending
   at a record that holds a Hidden sub-attribute (engine `ArchiveHiddenColumnGuard.FindHiddenAttribute`); it is checked
-  against the queried type and every derived type; an unknown type is checked by name against all Hidden assignments of
-  the tenant (fail closed). Projection paths (`attributePaths`) are not refused — the output mapper removes Hidden values.
+  against the queried type and every derived type (a full id is converted to the runtime id the cache keys by,
+  `AttributeAccessGuard.ToRuntimeId`); an unknown type is checked by name against all Hidden assignments of the tenant
+  and against record-valued attributes whose record reaches Hidden (fail closed). The Hidden check runs before the Secret
+  check, so an attribute that is both gets `ATTRIBUTE_NOT_QUERYABLE`. Projection paths (`attributePaths`) are not refused — the output mapper removes Hidden values.
 - **Stored queries — `FindHiddenStoredQueryPath`.** A `System/PersistentQuery` (or derived) entity whose `FieldFilter`,
   `Sorting`, `Columns`, `GroupingColumns` or `AttributeSearchFilter` reach a Hidden attribute of its `QueryCkTypeId` is not
   stored by `create_entity` / `update_entity` (checked on the effective entity after the assignment, transaction aborted)
@@ -245,7 +247,9 @@ equality oracle, and `update_entity` wrote `securityStamp` / `twoFactorEnabled`.
   (entity data, secrets and `clearSecretAttributes`) refuse `Hidden` and `MethodOnly`, and `ReadOnly` on update
   (`AttributeAccess.IsGenericallyWritable(access, isCreate)`; every path segment counts), plus the identity-owned
   `System.Identity/User` fields of the engine list `IdentityOwnedWrites` (reason `identity-owned`), with
-  `ATTRIBUTE_NOT_WRITABLE`. No association write exists in these tools, so the identity association list does not apply.
+  `ATTRIBUTE_NOT_WRITABLE`. `update_entity` judges the write again against the entity's actual type after loading it
+  (the caller may name a base type of a derived entity, e.g. a User). No association write exists in these tools, so the
+  identity association list does not apply.
 - **New users.** `create_entity` of a new `System.Identity/User` is refused by the generic-create refusal below (engine
   runtime rule: `User.CreateUser-1` replaces the generic create). That refusal used to look the type up with its full id,
   which the CK cache (keyed by the version-less runtime id) never matched — it now looks up the runtime id.

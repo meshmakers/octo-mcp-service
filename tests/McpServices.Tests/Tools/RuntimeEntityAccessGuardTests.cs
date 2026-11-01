@@ -38,9 +38,11 @@ public class RuntimeEntityAccessGuardTests : TestBase
     private const string DummySecurityStamp = "dummy-security-stamp-value";
     private const string DummyTokenValue = "dummy-authenticator-token-value";
     private const string DummyRecoveryCode = "dummy-recovery-code-value";
+    private const string DummyProviderKey = "dummy-provider-key-value";
 
     private static readonly CkId<CkRecordId> UserTokenRecordId = new("System.Identity-2.30.0/UserToken-1");
     private static readonly CkId<CkRecordId> ProfileRecordId = new("System.Identity-2.30.0/Profile-1");
+    private static readonly CkId<CkRecordId> LoginRecordId = new("System.Identity-2.30.0/Login-1");
 
     private readonly List<CkTypeGraph> _types = [];
     private readonly List<CkRecordGraph> _records = [];
@@ -53,13 +55,18 @@ public class RuntimeEntityAccessGuardTests : TestBase
         _records.Add(CkGraphTestBuilder.BuildRecordWithAccess(ProfileRecordId,
             ("Nickname", AttributeValueTypesDto.String, null, null),
             ("RecoveryCode", AttributeValueTypesDto.String, null, CkAttributeAccessDto.Hidden)));
+        _records.Add(CkGraphTestBuilder.BuildRecordWithAccess(LoginRecordId,
+            ("Provider", AttributeValueTypesDto.String, null, null),
+            ("ProviderKey", AttributeValueTypesDto.String, null, CkAttributeAccessDto.Hidden)));
 
         _types.Add(BuildUserType([]));
         _types.Add(CkGraphTestBuilder.BuildTypeWithAccess(DeviceFullId, [], [], [],
             ("Name", AttributeValueTypesDto.String, null, null),
             ("SerialNumber", AttributeValueTypesDto.String, null, CkAttributeAccessDto.ReadOnly),
             ("Firmware", AttributeValueTypesDto.String, null, CkAttributeAccessDto.MethodOnly),
-            ("PairingKey", AttributeValueTypesDto.String, null, CkAttributeAccessDto.Hidden)));
+            ("PairingKey", AttributeValueTypesDto.String, null, CkAttributeAccessDto.Hidden),
+            ("Passcode", AttributeValueTypesDto.Secret, null, CkAttributeAccessDto.Hidden),
+            ("SecurityStamp", AttributeValueTypesDto.String, null, null)));
         _types.Add(CkGraphTestBuilder.BuildTypeWithAccess(BaseFullId, [], [], [UserFullId],
             ("Name", AttributeValueTypesDto.String, null, null)));
 
@@ -120,7 +127,8 @@ public class RuntimeEntityAccessGuardTests : TestBase
             ("UserTokens", AttributeValueTypesDto.RecordArray, UserTokenRecordId, CkAttributeAccessDto.Hidden),
             ("LockoutEnd", AttributeValueTypesDto.DateTime, null, CkAttributeAccessDto.ReadOnly),
             ("TwoFactorEnabled", AttributeValueTypesDto.Boolean, null, null),
-            ("Profile", AttributeValueTypesDto.Record, ProfileRecordId, null));
+            ("Profile", AttributeValueTypesDto.Record, ProfileRecordId, null),
+            ("Logins", AttributeValueTypesDto.RecordArray, LoginRecordId, null));
 
     private RtEntity GivenStoredUser()
     {
@@ -139,6 +147,10 @@ public class RuntimeEntityAccessGuardTests : TestBase
             NewRecord(UserTokenRecordId, ("Name", "authenticator"), ("Value", DummyTokenValue))
         });
         user.SetAttributeValue("Profile", AttributeValueTypesDto.Record, NewRecord(ProfileRecordId, ("Nickname", "tester"), ("RecoveryCode", DummyRecoveryCode)));
+        user.SetAttributeValue("Logins", AttributeValueTypesDto.RecordArray, new List<object>
+        {
+            NewRecord(LoginRecordId, ("Provider", "dummy-idp"), ("ProviderKey", DummyProviderKey))
+        });
 
         MockTenantRepository
             .Setup(r => r.GetRtEntityByRtIdAsync(It.IsAny<IOctoSession>(), It.IsAny<RtEntityId>()))
@@ -167,9 +179,10 @@ public class RuntimeEntityAccessGuardTests : TestBase
     {
         var json = Json(response);
         json.Should().NotContain(DummyPasswordHash).And.NotContain(DummySecurityStamp)
-            .And.NotContain(DummyTokenValue).And.NotContain(DummyRecoveryCode);
+            .And.NotContain(DummyTokenValue).And.NotContain(DummyRecoveryCode).And.NotContain(DummyProviderKey);
         json.Should().NotContainEquivalentOf("passwordHash").And.NotContainEquivalentOf("securityStamp")
-            .And.NotContainEquivalentOf("userTokens").And.NotContainEquivalentOf("recoveryCode");
+            .And.NotContainEquivalentOf("userTokens").And.NotContainEquivalentOf("recoveryCode")
+            .And.NotContainEquivalentOf("providerKey");
     }
 
     private void VerifyNoSessionOpened() =>
@@ -202,10 +215,25 @@ public class RuntimeEntityAccessGuardTests : TestBase
 
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
         result.Entity!.Attributes!.Select(a => a.AttributeName).Should()
-            .BeEquivalentTo("name", "email", "profile");
+            .BeEquivalentTo("name", "email", "profile", "logins");
         var profile = (RtRecordDto)result.Entity.Attributes!.Single(a => a.AttributeName == "profile").Value!;
         profile.Attributes!.Select(a => a.AttributeName).Should().BeEquivalentTo("nickname");
         ShouldNotLeakHiddenValues(result);
+    }
+
+    [Fact]
+    public async Task GetEntityById_VisibleRecordArrayWithAHiddenChild_ReturnsTheElementsWithoutTheChild()
+    {
+        var user = GivenStoredUser();
+
+        var result = await RuntimeEntityCrudTools.GetEntityById(MockServer.Object, UserFullId, user.RtId.ToString());
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        var logins = ((IEnumerable<object>)result.Entity!.Attributes!.Single(a => a.AttributeName == "logins").Value!)
+            .Cast<RtRecordDto>().ToList();
+        logins.Should().HaveCount(1);
+        logins[0].Attributes!.Select(a => a.AttributeName).Should().BeEquivalentTo("provider");
+        Json(result).Should().NotContain(DummyProviderKey).And.Contain("dummy-idp");
     }
 
     [Fact]
@@ -448,6 +476,96 @@ public class RuntimeEntityAccessGuardTests : TestBase
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be(AttributeAccessGuard.NotQueryableCode);
         result.ErrorMessage.Should().Contain(AttributeAccessGuard.StoredGroupByOperation);
+        VerifyNoWrite();
+    }
+
+    [Fact]
+    public async Task UpdateEntity_StoredQueryWithAHiddenFilterPath_IsRefusedAndNotWritten()
+    {
+        var stored = new RtEntity { RtId = OctoObjectId.GenerateNewId(), RtVersion = 2 };
+        GivenQueryType(stored, "SimpleRtQuery");
+        stored.SetAttributeValue("QueryCkTypeId", AttributeValueTypesDto.String, UserRtId);
+        stored.SetAttributeValue("FieldFilter", AttributeValueTypesDto.RecordArray, new List<object>
+        {
+            NewRecord(new CkId<CkRecordId>("System-2.0.0/FieldFilter-1"), ("AttributePath", "PasswordHash"))
+        });
+        MockTenantRepository
+            .Setup(r => r.GetRtEntityByRtIdAsync(It.IsAny<IOctoSession>(), It.IsAny<RtEntityId>()))
+            .ReturnsAsync(stored);
+
+        var result = await RuntimeEntityCrudTools.UpdateEntity(MockServer.Object, stored.RtId.ToString(),
+            stored.CkTypeId!.ToString(), [Item("Name", "\"renamed\"")]);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().StartWith(AttributeAccessGuard.NotQueryableCode)
+            .And.Contain(AttributeAccessGuard.StoredFilterOperation);
+        VerifyNoWrite();
+    }
+
+    [Fact]
+    public async Task CreateEntity_StoredQueryOnAnUnknownType_GroupingByARecordWithAHiddenChild_IsRefused()
+    {
+        var created = new RtEntity();
+        var queryTypeId = GivenQueryType(created, "GroupingAggregationRtQuery");
+        created.SetAttributeValue("QueryCkTypeId", AttributeValueTypesDto.String, "TestModule/Missing");
+        created.SetAttributeValue("GroupingColumns", AttributeValueTypesDto.StringArray, new List<object> { "profile" });
+        MockTenantRepository.Setup(r => r.CreateTransientRtEntityAsync(It.IsAny<CkId<CkTypeId>>()))
+            .ReturnsAsync(created);
+
+        var result = await RuntimeEntityCrudTools.CreateEntity(MockServer.Object, queryTypeId.ToString(),
+            [Item("Name", "\"oracle\"")]);
+
+        result.IsSuccess.Should().BeFalse("an unknown query type is checked by name, fail closed");
+        result.ErrorCode.Should().Be(AttributeAccessGuard.NotQueryableCode);
+        VerifyNoWrite();
+    }
+
+    [Fact]
+    public async Task QueryEntities_FilterOnAnAttributeThatIsHiddenAndSecret_ReportsTheHiddenCode()
+    {
+        var result = await RuntimeEntityCrudTools.QueryEntities(MockServer.Object, DeviceFullId,
+            Filter("passcode", FilterOperatorDto.Equals, "dummy"));
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().StartWith(AttributeAccessGuard.NotQueryableCode);
+    }
+
+    [Fact]
+    public async Task NavigateAssociations_TargetGivenByFullId_IsCheckedAgainstThatTypeOnly()
+    {
+        // Device declares a visible SecurityStamp; it is Hidden only on User. With the full id the target resolves, so
+        // the filter is allowed (a by-name fallback would refuse it).
+        var result = await RuntimeEntityCrudTools.NavigateAssociations(MockServer.Object, UserRtId,
+            "507f1f77bcf86cd799439011", "System/ParentChild", CkTypeAssociationDirectionDto.Outbound,
+            DeviceFullId, [new SimpleFilterDto { AttributePath = "securityStamp", Value = "x" }]);
+
+        (result.ErrorMessage ?? string.Empty).Should().NotStartWith(AttributeAccessGuard.NotQueryableCode);
+    }
+
+    [Fact]
+    public async Task UpdateEntity_ViaABaseTypeId_OfADerivedUser_RefusesTheDerivedHiddenAttribute()
+    {
+        var user = GivenStoredUser();
+
+        var result = await RuntimeEntityCrudTools.UpdateEntity(MockServer.Object, user.RtId.ToString(), BaseFullId,
+            [Item("passwordHash", "\"dummy-new-value\"")]);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().StartWith(AttributeAccessGuard.NotWritableCode).And.Contain("access: Hidden");
+        VerifyNoWrite();
+    }
+
+    [Fact]
+    public async Task UpdateEntity_ViaABaseTypeId_OfADerivedUser_RefusesAnIdentityOwnedField()
+    {
+        var user = GivenStoredUser();
+
+        var result = await RuntimeEntityCrudTools.UpdateEntity(MockServer.Object, user.RtId.ToString(), BaseFullId,
+            [Item("twoFactorEnabled", "false")]);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().StartWith(AttributeAccessGuard.NotWritableCode)
+            .And.Contain(IdentityOwnedWrites.RefusalReason);
         VerifyNoWrite();
     }
 

@@ -61,12 +61,12 @@ internal static class AttributeAccessGuard
         }
 
         var roots = ResolveRoots(ckCache, tenantId, ckTypeId);
-        HashSet<string>? hiddenNames = null;
+        HiddenNames? hiddenNames = null;
         foreach (var (path, operation) in list)
         {
             var normalized = NormalizePath(path!);
             var hidden = roots.Count == 0
-                ? IsHiddenByName(normalized, hiddenNames ??= HiddenAttributeNames(ckCache, tenantId))
+                ? IsHiddenByName(normalized, hiddenNames ??= ComputeHiddenNames(ckCache, tenantId))
                 : roots.Any(r => ArchiveHiddenColumnGuard.FindHiddenAttribute(ckCache, tenantId, r, normalized) != null);
             if (hidden)
             {
@@ -216,8 +216,25 @@ internal static class AttributeAccessGuard
 
     private static RtCkId<CkTypeId>? TryParse(string ckTypeId)
     {
+        return ToRuntimeId(ckTypeId);
+    }
+
+    /// <summary>
+    ///     The version-less runtime id the CK cache keys types by. A full id (<c>Model-x.y.z/Type-n</c>) is converted
+    ///     (otherwise the cache lookup misses); a runtime id is returned as it is; <c>null</c> when it does not parse.
+    /// </summary>
+    internal static RtCkId<CkTypeId>? ToRuntimeId(string ckTypeId)
+    {
         try
         {
+            var slash = ckTypeId.IndexOf('/');
+            var model = slash > 0 ? ckTypeId[..slash] : ckTypeId;
+            var dash = model.LastIndexOf('-');
+            if (dash > 0 && dash < model.Length - 1 && char.IsDigit(model[dash + 1]))
+            {
+                return new CkId<CkTypeId>(ckTypeId).ToRtCkId();
+            }
+
             return new RtCkId<CkTypeId>(ckTypeId);
         }
         catch (Exception)
@@ -226,16 +243,58 @@ internal static class AttributeAccessGuard
         }
     }
 
-    private static bool IsHiddenByName(string path, IReadOnlySet<string> hiddenNames) =>
-        hiddenNames.Count > 0 && Segments(path).Any(s => hiddenNames.Contains(s.ToPascalCase()));
+    /// <summary>
+    ///     By name, fail closed: any segment is a Hidden attribute name of the tenant, or the path ends at an attribute
+    ///     name that somewhere holds a record which (transitively) contains a Hidden sub-attribute.
+    /// </summary>
+    private static bool IsHiddenByName(string path, HiddenNames names)
+    {
+        var segments = Segments(path).Select(s => s.ToPascalCase()).ToList();
+        return segments.Any(names.Hidden.Contains) ||
+               (segments.Count > 0 && names.RecordsReachingHidden.Contains(segments[^1]));
+    }
 
-    /// <summary>All Hidden attribute names (PascalCase) of the tenant's types and records.</summary>
-    private static HashSet<string> HiddenAttributeNames(ICkCacheService ckCache, string tenantId) =>
-        ckCache.GetCkTypes(tenantId).SelectMany(t => t.AllAttributes.Values)
-            .Concat(ckCache.GetCkRecords(tenantId).SelectMany(r => r.AllAttributes.Values))
-            .Where(a => !AttributeAccess.IsReadableOutsideMethod(a.Access))
-            .Select(a => a.AttributeName)
-            .ToHashSet(StringComparer.Ordinal);
+    private sealed record HiddenNames(HashSet<string> Hidden, HashSet<string> RecordsReachingHidden);
+
+    /// <summary>
+    ///     All Hidden attribute names (PascalCase) of the tenant's types and records, and the names of record-valued
+    ///     attributes whose record (transitively) contains a Hidden sub-attribute.
+    /// </summary>
+    private static HiddenNames ComputeHiddenNames(ICkCacheService ckCache, string tenantId)
+    {
+        var records = ckCache.GetCkRecords(tenantId).ToList();
+        var attributes = ckCache.GetCkTypes(tenantId).SelectMany(t => t.AllAttributes.Values)
+            .Concat(records.SelectMany(r => r.AllAttributes.Values)).ToList();
+        var hidden = attributes.Where(a => !AttributeAccess.IsReadableOutsideMethod(a.Access))
+            .Select(a => a.AttributeName).ToHashSet(StringComparer.Ordinal);
+
+        var reaching = new Dictionary<string, bool>(StringComparer.Ordinal);
+        bool RecordReachesHidden(CkId<CkRecordId> recordId, HashSet<string> visiting)
+        {
+            var key = recordId.ToRtCkId().ToString();
+            if (reaching.TryGetValue(key, out var known))
+            {
+                return known;
+            }
+
+            if (!visiting.Add(key))
+            {
+                return false;
+            }
+
+            var record = records.FirstOrDefault(r => r.CkRecordId.ToRtCkId().ToString() == key);
+            var result = record != null && record.AllAttributes.Values.Any(a =>
+                !AttributeAccess.IsReadableOutsideMethod(a.Access) ||
+                (a.ValueCkRecordId != null && RecordReachesHidden(a.ValueCkRecordId, visiting)));
+            reaching[key] = result;
+            return result;
+        }
+
+        var recordsReachingHidden = attributes
+            .Where(a => a.ValueCkRecordId != null && RecordReachesHidden(a.ValueCkRecordId, []))
+            .Select(a => a.AttributeName).ToHashSet(StringComparer.Ordinal);
+        return new HiddenNames(hidden, recordsReachingHidden);
+    }
 
     /// <summary>Removes array indexes and projections (<c>Endpoints[0].Token</c> becomes <c>Endpoints.Token</c>).</summary>
     private static string NormalizePath(string path) =>

@@ -78,12 +78,12 @@ public sealed class RuntimeEntityCrudTools
         }
 
         var rtTypeId = type.RtCkId;
-        var secretUsage = SecretAttributePaths.FindNotQueryableUsage(
-            ckCacheService, resolvedTenantId,
-            rtTypeId, SecretRelevantFilterUsages(filters));
-        // AB#8043: a Hidden attribute is never filtered on (any operator, IsNull included: it would tell whether it is set).
-        secretUsage ??= AttributeAccessGuard.FindHiddenUsage(ckCacheService, resolvedTenantId, rtTypeId,
-            AllFilterUsages(filters));
+        // AB#8043: a Hidden attribute is never filtered on (any operator, IsNull included: it would tell whether it is
+        // set). Checked first, so an attribute that is both Hidden and Secret gets the Hidden code.
+        var secretUsage = AttributeAccessGuard.FindHiddenUsage(ckCacheService, resolvedTenantId, rtTypeId,
+                              AllFilterUsages(filters))
+                          ?? SecretAttributePaths.FindNotQueryableUsage(ckCacheService, resolvedTenantId, rtTypeId,
+                              SecretRelevantFilterUsages(filters));
         if (secretUsage != null)
         {
             return new QueryEntitiesResponse { IsSuccess = false, ErrorMessage = secretUsage, CkTypeId = ckTypeId };
@@ -200,12 +200,11 @@ public sealed class RuntimeEntityCrudTools
         }
 
         var rtTypeId = type.RtCkId;
-        var secretUsage = SecretAttributePaths.FindNotQueryableUsage(
-            ckCacheService, resolvedTenantId,
-            rtTypeId,
-            (simpleFilters ?? []).Select(f => ((string?)f.AttributePath, "filter operator 'Equals'")));
-        secretUsage ??= AttributeAccessGuard.FindHiddenUsage(ckCacheService, resolvedTenantId, rtTypeId,
-            (simpleFilters ?? []).Select(f => ((string?)f.AttributePath, "filter operator 'Equals'")));
+        var simpleUsages = (simpleFilters ?? [])
+            .Select(f => ((string?)f.AttributePath, "filter operator 'Equals'")).ToList();
+        var secretUsage = AttributeAccessGuard.FindHiddenUsage(ckCacheService, resolvedTenantId, rtTypeId, simpleUsages)
+                          ?? SecretAttributePaths.FindNotQueryableUsage(ckCacheService, resolvedTenantId, rtTypeId,
+                              simpleUsages);
         if (secretUsage != null)
         {
             return new QueryEntitiesResponse { IsSuccess = false, ErrorMessage = secretUsage, CkTypeId = ckTypeId };
@@ -764,6 +763,27 @@ public sealed class RuntimeEntityCrudTools
             {
                 throw new ArgumentException(
                     $"Entity with ID '{rtId}' not found in type '{ckTypeId}'");
+            }
+
+            // AB#8043: the entity may be of a type derived from the requested one; judge the write against its actual type
+            // too (a derived type can declare further protected attributes, and the identity-owned fields are User's).
+            var actualTypeId = existingEntity.CkTypeId?.ToString();
+            if (actualTypeId != null && actualTypeId != rtTypeId)
+            {
+                var actualTypeError = AttributeAccessGuard.FindNotWritable(ckCacheService, tenantRepository.TenantId,
+                    actualTypeId, entityData.Select(i => i.AttributePath).Concat(clearSecretAttributes ?? []),
+                    isCreate: false);
+                if (actualTypeError != null)
+                {
+                    await session.AbortTransactionAsync();
+                    return new UpdateEntityResponse
+                    {
+                        IsSuccess = false,
+                        ErrorMessage = actualTypeError,
+                        TypeId = ckTypeId,
+                        RtId = rtId
+                    };
+                }
             }
 
             // Optimistic-lock gate. Abort *inside* the transaction (so any reads we already
