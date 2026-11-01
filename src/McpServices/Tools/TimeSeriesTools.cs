@@ -155,6 +155,33 @@ public sealed class TimeSeriesTools
             (c, tid, id) => c.RetryArchiveActivationAsync(tid, id),
             successMessage: id => $"Archive '{id}' activation retried.");
 
+    /// <summary>Add an ingested column to an Activated archive without recreating it (AB#7997).</summary>
+    [McpServerTool(Name = "add_archive_column")]
+    [McpRisk(McpRiskLevel.High)]
+    [Description(
+        "Add a column for an existing attribute of the target CK type to an Activated raw or time-range archive " +
+        "without recreating it: the CrateDB table gains a nullable column (existing rows keep their history and read " +
+        "null), then the archive definition names it, and the next ingested rows fill it. Idempotent. Refused on a " +
+        "rollup and for a path that does not resolve. A computed column is not added here. Equivalent to octo-cli " +
+        "AddArchiveColumn.")]
+    public static Task<ArchiveActionResponse> AddArchiveColumn(
+        McpServer server,
+        [Description("Archive runtime ID.")] string archiveRtId,
+        [Description("Attribute path on the archive's target CK type, e.g. 'DischargingPower' or 'Amount.Value'.")] string path,
+        [Description("Whether to index the physical column. Defaults to false.")] bool indexed = false,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return Task.FromResult(new ArchiveActionResponse { IsSuccess = false, ErrorMessage = "path is required." });
+        }
+
+        return ArchiveAction(server, tenantId, archiveRtId,
+            requiredConfirm: false, confirm: true,
+            (c, tid, id) => c.AddArchiveColumnAsync(tid, id, path, indexed),
+            successMessage: id => $"Archive '{id}' has column '{path}'; existing rows read null for it, new rows fill it.");
+    }
+
     /// <summary>Delete a CkArchive. Destructive: drops the table and loses data.</summary>
     [McpServerTool(Name = "delete_archive")]
     [McpRisk(McpRiskLevel.Medium)]
