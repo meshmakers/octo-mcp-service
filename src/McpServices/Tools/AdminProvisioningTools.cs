@@ -145,23 +145,30 @@ public sealed class AdminProvisioningTools
         try
         {
             var mapping = await ctx.Client!.ProvisionCurrentUser(targetTenantId);
+            if (mapping == null || string.IsNullOrEmpty(mapping.SourceTenantId))
+            {
+                return new AdminProvisioningResponse
+                {
+                    IsSuccess = true,
+                    TenantId = ctx.TenantId,
+                    TargetTenantId = targetTenantId,
+                    Message = $"Current user provisioned as admin in tenant '{targetTenantId}'."
+                };
+            }
 
             // AB#8017: name the identity the mapping was written for. A session scoped to an intermediate tenant calls
             // as a cross-tenant shadow user; identity writes the mapping for that user's home identity, which is also
             // the identity later tool calls exchange from.
-            var hasSource = mapping != null && !string.IsNullOrEmpty(mapping.SourceTenantId);
             return new AdminProvisioningResponse
             {
                 IsSuccess = true,
                 TenantId = ctx.TenantId,
                 TargetTenantId = targetTenantId,
-                SourceTenantId = hasSource ? mapping!.SourceTenantId : null,
-                SourceUserId = hasSource ? mapping!.SourceUserId : null,
-                SourceUserName = hasSource ? mapping!.SourceUserName : null,
-                Message = hasSource
-                    ? $"Current user provisioned as admin in tenant '{targetTenantId}': mapping written for user " +
-                      $"'{mapping!.SourceUserName}' ({mapping.SourceUserId}) of tenant '{mapping.SourceTenantId}'."
-                    : $"Current user provisioned as admin in tenant '{targetTenantId}'."
+                SourceTenantId = mapping.SourceTenantId,
+                SourceUserId = mapping.SourceUserId,
+                SourceUserName = mapping.SourceUserName,
+                Message = $"Current user provisioned as admin in tenant '{targetTenantId}': mapping written for user " +
+                          $"'{mapping.SourceUserName}' ({mapping.SourceUserId}) of tenant '{mapping.SourceTenantId}'."
             };
         }
         catch (Exception ex)
