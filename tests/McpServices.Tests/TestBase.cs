@@ -99,7 +99,7 @@ public abstract class TestBase
         TestServiceProvider.RegisterService(MockHttpContextAccessor.Object);
         TestServiceProvider.RegisterService(MockTenantResolution.Object);
         TestServiceProvider.RegisterService(MockCkCacheService.Object);
-        TestServiceProvider.RegisterService<IRtEntityToDtoMapper>(new RtEntityToDtoMapper(MockCkCacheService.Object));
+        TestServiceProvider.RegisterService<IRtEntityToDtoMapper>(new AccessAwareRtEntityToDtoMapper(MockCkCacheService.Object));
 
         // Setup HttpContextAccessor
         MockHttpContextAccessor.Setup(h => h.GetTenantRepositoryAsync())

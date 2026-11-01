@@ -82,6 +82,25 @@ public sealed class RuntimeAggregationTools
                 };
             }
 
+            // AB#8043 (AB#8049 for MCP): a stored query whose filter, sort, columns or group-by reach a Hidden attribute is
+            // not run (it would be an oracle for the hidden value), and neither is an extra filter on one.
+            var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
+            await tenantRepository.LoadCacheForTenantAsync(ckCacheService);
+            var hiddenUsage = AttributeAccessGuard.FindHiddenStoredQueryPath(ckCacheService, resolvedTenantId, rtQuery)
+                              ?? AttributeAccessGuard.FindHiddenUsage(ckCacheService, resolvedTenantId,
+                                  rtQuery.QueryCkTypeId?.ToString(), RuntimeEntityCrudTools.AllFilterUsages(extraFilters));
+            if (hiddenUsage != null)
+            {
+                return new PersistedRuntimeQueryResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = hiddenUsage,
+                    QueryRtId = queryRtId,
+                    QuerySubtype = rtQuery.GetType().Name,
+                    TenantId = resolvedTenantId
+                };
+            }
+
             return rtQuery switch
             {
                 RtSimpleRtQuery simple => await ExecutePersistedSimpleAsync(
@@ -201,6 +220,12 @@ public sealed class RuntimeAggregationTools
             aggregations!.Select(a => (a.AttributePath, $"aggregation '{a.Function}'"))
                 .Concat((groupByAttributePaths ?? []).Select(g => ((string?)g, "group-by")))
                 .Concat(RuntimeEntityCrudTools.SecretRelevantFilterUsages(filters)));
+        // AB#8043: a Hidden attribute is neither aggregated, grouped nor filtered on (group keys and min/max would
+        // return its value, a filter would test it).
+        secretUsage ??= AttributeAccessGuard.FindHiddenUsage(ckCacheService, resolvedTenantId, ckTypeId,
+            aggregations!.Select(a => (a.AttributePath, $"aggregation '{a.Function}'"))
+                .Concat((groupByAttributePaths ?? []).Select(g => ((string?)g, "group-by")))
+                .Concat(RuntimeEntityCrudTools.AllFilterUsages(filters)));
         if (secretUsage != null)
         {
             return new AggregationResultResponse { IsSuccess = false, ErrorMessage = secretUsage };

@@ -102,7 +102,7 @@ try
     // Add new dynamic tool services
     builder.Services.AddSingleton<IDynamicToolService, DynamicToolService>();
     builder.Services.AddScoped<IToolExecutionService, ToolExecutionService>();
-    builder.Services.AddTransient<IRtEntityToDtoMapper, RtEntityToDtoMapper>();
+    builder.Services.AddTransient<IRtEntityToDtoMapper, AccessAwareRtEntityToDtoMapper>(); // AB#8043: never the bare SDK mapper (Hidden values)
 
     // Add MCP authentication and tenant resolution services
     builder.Services.AddSingleton<IMcpSessionTokenStore, McpSessionTokenStore>();

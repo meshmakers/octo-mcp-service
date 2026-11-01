@@ -40,7 +40,20 @@ internal static class GenericCreateRefusal
             return null;
         }
 
-        if (!GenericCreateReplacement.TryGetReplacingMethod(ckCache, tenantId, rtCkTypeId, out var replacing))
+        // AB#8043: the cache keys types by the version-less runtime id (Model/Type). A full id (Model-x.y.z/Type-n, what
+        // create_entity resolves to) has to be looked up by its runtime id; with the full id the lookup missed and the
+        // refusal silently never fired.
+        var lookupId = rtCkTypeId;
+        try
+        {
+            lookupId = new CkId<CkTypeId>(ckTypeId).ToRtCkId();
+        }
+        catch (Exception)
+        {
+            // already a runtime id
+        }
+
+        if (!GenericCreateReplacement.TryGetReplacingMethod(ckCache, tenantId, lookupId, out var replacing))
         {
             return null;
         }

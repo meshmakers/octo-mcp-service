@@ -23,7 +23,7 @@ dotnet build src/McpServices/McpServices.csproj -c DebugL
 # Build the entire solution (server + tests + resources)
 dotnet build Octo.McpServices.sln -c DebugL
 
-# Run all tests (currently 1063, ~1 s)
+# Run all tests (currently 1270, ~2 s)
 dotnet test Octo.McpServices.sln -c DebugL
 
 # Filter tests by class
@@ -214,6 +214,49 @@ caller tried to create) and `methodId` (version-less qualified method id of the 
 not in the CK cache is not refused (the create fails on its own). Tool names, inputs and the happy path are
 unchanged; no type sets the flag today. Tests: `RuntimeEntityCrudToolsGenericCreateTests` (builds type graphs with
 methods via `CkGraphTestBuilder.BuildTypeWithMethods`).
+
+## CK attribute access in the generic tools (AB#8043)
+
+Family-2/3 tools read and write the tenant repository directly, and **the repository does not know CK `access`**
+(CK v2, AB#5668). The asset-repo GraphQL enforces it in its own guards (`AccessQueryGuard`, `IdentityOwnedWriteGuard`,
+`StoredQueryWriteGuard`), so this server must enforce the same rules itself. Before AB#8043 it did not: `get_entity_by_id`
+on a `System.Identity/User` returned `passwordHash`, `securityStamp` and `userTokens`, a filter on `passwordHash` was an
+equality oracle, and `update_entity` wrote `securityStamp` / `twoFactorEnabled`.
+
+- **Output — `Services/AccessAwareRtEntityToDtoMapper`.** The only `IRtEntityToDtoMapper` (Program.cs). It maps with the
+  SDK `RtEntityToDtoMapper` and removes every attribute whose assignment is `Hidden`
+  (`AttributeAccess.IsReadableOutsideMethod`), on the entity and inside records / record arrays. The SDK mapper hands
+  record arrays out as a lazy projection, so the wrapper materialises the list before stripping. Every tool that maps an
+  entity is covered at once (CRUD, query, associations, `execute_runtime_query`, conflict payloads, knowledge resources).
+  🔴 Never register or construct the bare SDK mapper — `Architecture/HiddenAttributeOutputArchitectureTests` pins it.
+- **Queries — `Services/AttributeAccessGuard.FindHiddenUsage`.** Filters (every operator, `IsNull`/`IsNotNull` too: they
+  tell whether a value is set), aggregations and group-by of `query_entities`, `query_entities_simple`,
+  `navigate_associations`, `get_association_tree`, `query_entities_aggregation`, `query_entities_grouping` and the extra
+  filters of `execute_runtime_query` are refused with `ATTRIBUTE_NOT_QUERYABLE: Attribute '<path>' of '<type>' is hidden
+  and cannot be used for <operation>.` before a session is opened. A path reaches Hidden through any segment or by ending
+  at a record that holds a Hidden sub-attribute (engine `ArchiveHiddenColumnGuard.FindHiddenAttribute`); it is checked
+  against the queried type and every derived type; an unknown type is checked by name against all Hidden assignments of
+  the tenant (fail closed). Projection paths (`attributePaths`) are not refused — the output mapper removes Hidden values.
+- **Stored queries — `FindHiddenStoredQueryPath`.** A `System/PersistentQuery` (or derived) entity whose `FieldFilter`,
+  `Sorting`, `Columns`, `GroupingColumns` or `AttributeSearchFilter` reach a Hidden attribute of its `QueryCkTypeId` is not
+  stored by `create_entity` / `update_entity` (checked on the effective entity after the assignment, transaction aborted)
+  and not run by `execute_runtime_query` (AB#8049 parity: the repository applies a stored filter as it is).
+- **Writes — `FindNotWritable`.** `create_entity`, `create_entity_with_secrets`, `update_entity` and `set_entity_secrets`
+  (entity data, secrets and `clearSecretAttributes`) refuse `Hidden` and `MethodOnly`, and `ReadOnly` on update
+  (`AttributeAccess.IsGenericallyWritable(access, isCreate)`; every path segment counts), plus the identity-owned
+  `System.Identity/User` fields of the engine list `IdentityOwnedWrites` (reason `identity-owned`), with
+  `ATTRIBUTE_NOT_WRITABLE`. No association write exists in these tools, so the identity association list does not apply.
+- **New users.** `create_entity` of a new `System.Identity/User` is refused by the generic-create refusal below (engine
+  runtime rule: `User.CreateUser-1` replaces the generic create). That refusal used to look the type up with its full id,
+  which the CK cache (keyed by the version-less runtime id) never matched — it now looks up the runtime id.
+- **No own lists.** All rules come from the engine (`AttributeAccess`, `IdentityOwnedWrites`, `GenericCreateReplacement`,
+  `ArchiveHiddenColumnGuard`). Messages carry paths and type ids, never a value.
+- **Not affected:** family-1 tools (they go through the backend APIs, which guard themselves — e.g. `export_runtime_model_*`
+  runs the asset/bot export, which never emits Hidden values), stream-data tools (archives cannot hold a Hidden column,
+  engine guard on activation). `get_type_schema` still lists Hidden attributes by name (no values).
+- Tests: `Tools/RuntimeEntityAccessGuardTests` (a User-shaped model with Hidden / MethodOnly / ReadOnly attributes, a
+  record with a Hidden sub-attribute, a derived-type case; the cache mock resolves ids like the real cache, by runtime id
+  only) and `Architecture/HiddenAttributeOutputArchitectureTests`.
 
 ## Adapter pool queue tools (AB#4924 §10)
 
@@ -1021,6 +1064,8 @@ src/McpServices/
 │   ├── OctoServiceClientFactory.cs     # Builds per-tenant SDK clients
 │   ├── McpCallerPrincipal.cs           # The validated request principal (single claim reader)
 │   ├── DataPermissionStreamGuard.cs    # Stream-data CK-type Read gate (AB#5038, mirrors asset-repo)
+│   ├── AttributeAccessGuard.cs         # CK access rules for the generic tools (AB#8043)
+│   ├── AccessAwareRtEntityToDtoMapper.cs # The only entity mapper: strips Hidden attributes (AB#8043)
 │   ├── KnowledgeUrlPolicy.cs           # SSRF policy + IHostAddressResolver (AB#5037)
 │   ├── KnowledgeUrlFetcher.cs          # Guarded knowledge-source fetch (AB#5037)
 │   ├── McpSessionContext.cs            # Caller-bound store key + access token resolution (AB#5036)
