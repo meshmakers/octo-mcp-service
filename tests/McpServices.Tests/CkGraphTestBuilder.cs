@@ -51,6 +51,66 @@ internal static class CkGraphTestBuilder
                 m => new CkMethodGraph(new CkId<CkTypeId>(m.DeclaringTypeId), m.Method)));
     }
 
+    /// <summary>
+    ///     AB#8043: a type whose attribute assignments carry a CK v2 <c>access</c>, optionally with base types (for the
+    ///     stored-query check) and derived types (for queries on a base type).
+    /// </summary>
+    public static CkTypeGraph BuildTypeWithAccess(string typeId,
+        IReadOnlyCollection<(string DeclaringTypeId, CkMethodDto Method)> methods,
+        IReadOnlyCollection<string> baseTypeIds,
+        IReadOnlyCollection<string> derivedTypeIds,
+        params (string Name, AttributeValueTypesDto ValueType, CkId<CkRecordId>? RecordId, CkAttributeAccessDto? Access)[]
+            attrs)
+    {
+        var allAttrs = BuildAttributes(attrs);
+        var defined = allAttrs.Values
+            .Select(g => new CkTypeAttributeDto { CkAttributeId = g.CkAttributeId, AttributeName = g.AttributeName })
+            .ToList();
+        var self = new CkId<CkTypeId>(typeId);
+
+        return new CkTypeGraph(
+            ckTypeId: self,
+            isAbstract: false,
+            isFinal: false,
+            isCollectionRoot: true,
+            baseTypes: new ReadOnlyCollection<CkGraphTypeInheritance>(baseTypeIds
+                .Select((b, i) => new CkGraphTypeInheritance(self, new CkId<CkTypeId>(b), i + 1)).ToList()),
+            derivedFromCkTypeId: null,
+            definingCollectionRootCkTypeId: null,
+            derivedTypes: new ReadOnlyCollection<CkGraphTypeInheritance>(derivedTypeIds
+                .Select(d => new CkGraphTypeInheritance(new CkId<CkTypeId>(d), self, 1)).ToList()),
+            definedAttributes: defined,
+            allAttributes: allAttrs,
+            indexes: new ReadOnlyCollection<CkTypeIndexDto>([]),
+            associations: new CkGraphDirectedAssociations(new List<CkTypeAssociationDto>()),
+            description: string.Empty,
+            enableChangeStreamPreAndPostImages: false,
+            allMethods: methods.ToDictionary(m => m.Method.MethodId,
+                m => new CkMethodGraph(new CkId<CkTypeId>(m.DeclaringTypeId), m.Method)));
+    }
+
+    /// <summary>AB#8043: a record whose attribute assignments carry a CK v2 <c>access</c>.</summary>
+    public static CkRecordGraph BuildRecordWithAccess(CkId<CkRecordId> recordId,
+        params (string Name, AttributeValueTypesDto ValueType, CkId<CkRecordId>? RecordId, CkAttributeAccessDto? Access)[]
+            attrs)
+    {
+        var allAttrs = BuildAttributes(attrs);
+        var defined = allAttrs.Values
+            .Select(g => new CkTypeAttributeDto { CkAttributeId = g.CkAttributeId, AttributeName = g.AttributeName })
+            .ToList();
+
+        return new CkRecordGraph(
+            ckRecordId: recordId,
+            isAbstract: false,
+            isFinal: false,
+            baseRecords: new ReadOnlyCollection<CkGraphRecordInheritance>([]),
+            derivedFromCkRecordId: null,
+            derivedRecords: new ReadOnlyCollection<CkGraphRecordInheritance>([]),
+            definedAttributes: defined,
+            allAttributes: allAttrs,
+            description: string.Empty);
+    }
+
     public static CkRecordGraph BuildRecord(CkId<CkRecordId> recordId,
         params (string Name, AttributeValueTypesDto ValueType, CkId<CkRecordId>? RecordId)[] attrs)
     {
@@ -102,10 +162,14 @@ internal static class CkGraphTestBuilder
         out CkRecordGraph? recordGraph);
 
     private static Dictionary<CkId<CkAttributeId>, CkTypeAttributeGraph> BuildAttributes(
-        (string Name, AttributeValueTypesDto ValueType, CkId<CkRecordId>? RecordId)[] attrs)
+        (string Name, AttributeValueTypesDto ValueType, CkId<CkRecordId>? RecordId)[] attrs) =>
+        BuildAttributes(attrs.Select(a => (a.Name, a.ValueType, a.RecordId, (CkAttributeAccessDto?)null)).ToArray());
+
+    private static Dictionary<CkId<CkAttributeId>, CkTypeAttributeGraph> BuildAttributes(
+        (string Name, AttributeValueTypesDto ValueType, CkId<CkRecordId>? RecordId, CkAttributeAccessDto? Access)[] attrs)
     {
         var allAttrs = new Dictionary<CkId<CkAttributeId>, CkTypeAttributeGraph>();
-        foreach (var (name, valueType, recordId) in attrs)
+        foreach (var (name, valueType, recordId, access) in attrs)
         {
             var attrId = new CkId<CkAttributeId>($"TestModule-1/{name}-1");
             var ckAttrDto = new CkAttributeDto
@@ -115,7 +179,7 @@ internal static class CkGraphTestBuilder
                 ValueCkRecordId = recordId
             };
             var ckAttrGraph = new CkAttributeGraph(attrId, ckAttrDto);
-            var ckTypeAttrDto = new CkTypeAttributeDto { CkAttributeId = attrId, AttributeName = name };
+            var ckTypeAttrDto = new CkTypeAttributeDto { CkAttributeId = attrId, AttributeName = name, Access = access };
             allAttrs[attrId] = new CkTypeAttributeGraph(attrId, ckTypeAttrDto, ckAttrGraph);
         }
 

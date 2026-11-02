@@ -78,9 +78,12 @@ public sealed class RuntimeEntityCrudTools
         }
 
         var rtTypeId = type.RtCkId;
-        var secretUsage = SecretAttributePaths.FindNotQueryableUsage(
-            ckCacheService, resolvedTenantId,
-            rtTypeId, SecretRelevantFilterUsages(filters));
+        // AB#8043: a Hidden attribute is never filtered on (any operator, IsNull included: it would tell whether it is
+        // set). Checked first, so an attribute that is both Hidden and Secret gets the Hidden code.
+        var secretUsage = AttributeAccessGuard.FindHiddenUsage(ckCacheService, resolvedTenantId, rtTypeId,
+                              AllFilterUsages(filters))
+                          ?? SecretAttributePaths.FindNotQueryableUsage(ckCacheService, resolvedTenantId, rtTypeId,
+                              SecretRelevantFilterUsages(filters));
         if (secretUsage != null)
         {
             return new QueryEntitiesResponse { IsSuccess = false, ErrorMessage = secretUsage, CkTypeId = ckTypeId };
@@ -197,10 +200,11 @@ public sealed class RuntimeEntityCrudTools
         }
 
         var rtTypeId = type.RtCkId;
-        var secretUsage = SecretAttributePaths.FindNotQueryableUsage(
-            ckCacheService, resolvedTenantId,
-            rtTypeId,
-            (simpleFilters ?? []).Select(f => ((string?)f.AttributePath, "filter operator 'Equals'")));
+        var simpleUsages = (simpleFilters ?? [])
+            .Select(f => ((string?)f.AttributePath, "filter operator 'Equals'")).ToList();
+        var secretUsage = AttributeAccessGuard.FindHiddenUsage(ckCacheService, resolvedTenantId, rtTypeId, simpleUsages)
+                          ?? SecretAttributePaths.FindNotQueryableUsage(ckCacheService, resolvedTenantId, rtTypeId,
+                              simpleUsages);
         if (secretUsage != null)
         {
             return new QueryEntitiesResponse { IsSuccess = false, ErrorMessage = secretUsage, CkTypeId = ckTypeId };
@@ -491,6 +495,21 @@ public sealed class RuntimeEntityCrudTools
             };
         }
 
+        // AB#8043: Hidden / MethodOnly attributes and the identity-owned User fields are never written generically
+        // (ReadOnly is allowed on create). Checked before anything is written, secrets included.
+        var accessError = AttributeAccessGuard.FindNotWritable(ckCacheService, tenantRepository.TenantId, rtTypeId,
+            entityData.Concat(secrets ?? []).Select(i => i.AttributePath), isCreate: true);
+        if (accessError != null)
+        {
+            return new CreateEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = accessError,
+                ErrorCode = AttributeAccessGuard.NotWritableCode,
+                CkTypeId = ckTypeId
+            };
+        }
+
         var secretError = PrepareSecretAwareWrites(ckCacheService, tenantRepository.TenantId,
             rtTypeId, entityData, SecretWritePolicy.RefuseSecretValues,
             out var effectiveData);
@@ -520,6 +539,21 @@ public sealed class RuntimeEntityCrudTools
             var entity = await tenantRepository.CreateTransientRtEntityAsync(new CkId<CkTypeId>(fullCkTypeId));
 
             Assign(entity, ckCacheService, tenantRepository.TenantId, effectiveData);
+
+            // AB#8043 (AB#8049 for MCP): a stored query whose paths reach a Hidden attribute is not stored.
+            var storedQueryError =
+                AttributeAccessGuard.FindHiddenStoredQueryPath(ckCacheService, tenantRepository.TenantId, entity);
+            if (storedQueryError != null)
+            {
+                await session.AbortTransactionAsync();
+                return new CreateEntityResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = storedQueryError,
+                    ErrorCode = AttributeAccessGuard.NotQueryableCode,
+                    CkTypeId = ckTypeId
+                };
+            }
 
             // Insert entity
             await tenantRepository.InsertOneRtEntityAsync(session, new RtCkId<CkTypeId>(rtTypeId), entity);
@@ -682,6 +716,22 @@ public sealed class RuntimeEntityCrudTools
         }
 
         var rtTypeId = type.RtCkId;
+
+        // AB#8043: Hidden / MethodOnly / ReadOnly attributes and the identity-owned User fields are never written by an
+        // update (clearing a secret is a write too). Checked before the session is opened.
+        var accessError = AttributeAccessGuard.FindNotWritable(ckCacheService, tenantRepository.TenantId, rtTypeId,
+            entityData.Select(i => i.AttributePath).Concat(clearSecretAttributes ?? []), isCreate: false);
+        if (accessError != null)
+        {
+            return new UpdateEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = accessError,
+                TypeId = ckTypeId,
+                RtId = rtId
+            };
+        }
+
         var secretError = PrepareSecretAwareWrites(ckCacheService, tenantRepository.TenantId, rtTypeId,
             entityData, policy, out var effectiveData);
         if (secretError != null)
@@ -715,6 +765,27 @@ public sealed class RuntimeEntityCrudTools
                     $"Entity with ID '{rtId}' not found in type '{ckTypeId}'");
             }
 
+            // AB#8043: the entity may be of a type derived from the requested one; judge the write against its actual type
+            // too (a derived type can declare further protected attributes, and the identity-owned fields are User's).
+            var actualTypeId = existingEntity.CkTypeId?.ToString();
+            if (actualTypeId != null && actualTypeId != rtTypeId)
+            {
+                var actualTypeError = AttributeAccessGuard.FindNotWritable(ckCacheService, tenantRepository.TenantId,
+                    actualTypeId, entityData.Select(i => i.AttributePath).Concat(clearSecretAttributes ?? []),
+                    isCreate: false);
+                if (actualTypeError != null)
+                {
+                    await session.AbortTransactionAsync();
+                    return new UpdateEntityResponse
+                    {
+                        IsSuccess = false,
+                        ErrorMessage = actualTypeError,
+                        TypeId = ckTypeId,
+                        RtId = rtId
+                    };
+                }
+            }
+
             // Optimistic-lock gate. Abort *inside* the transaction (so any reads we already
             // did roll back cleanly) and surface the current row to the caller — they get
             // enough to decide retry-with-merge without a second round-trip.
@@ -736,6 +807,22 @@ public sealed class RuntimeEntityCrudTools
             }
 
             Assign(existingEntity, ckCacheService, tenantRepository.TenantId, effectiveData);
+
+            // AB#8043: the effective stored query (update over the stored entity) must not reach a Hidden attribute.
+            var storedQueryError = AttributeAccessGuard.FindHiddenStoredQueryPath(ckCacheService,
+                tenantRepository.TenantId, existingEntity);
+            if (storedQueryError != null)
+            {
+                await session.AbortTransactionAsync();
+                return new UpdateEntityResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = storedQueryError,
+                    TypeId = ckTypeId,
+                    RtId = rtId
+                };
+            }
+
             // Bump RtVersion explicitly — the engine's Mongo layer does not auto-increment
             // it on update_one (auto-bump lives only on the bulk-mutation path). Without
             // this, the next optimistic-locked update would never see a fresh token and
@@ -962,6 +1049,27 @@ public sealed class RuntimeEntityCrudTools
         var resolvedTenantId = tenantRepository.TenantId;
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
+        // AB#8043: no filter on a Hidden attribute of the target type (or a type derived from it).
+        if (filters is { Count: > 0 })
+        {
+            var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
+            await tenantRepository.LoadCacheForTenantAsync(ckCacheService);
+            var hiddenUsage = AttributeAccessGuard.FindHiddenUsage(ckCacheService, resolvedTenantId, targetTypeId,
+                filters.Select(f => ((string?)f.AttributePath, "filter operator 'Equals'")));
+            if (hiddenUsage != null)
+            {
+                return new NavigateAssociationsResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = hiddenUsage,
+                    OriginCkTypeId = ckTypeId,
+                    OriginRtId = rtId,
+                    CkRoleId = ckRoleId,
+                    TargetTypeId = targetTypeId
+                };
+            }
+        }
+
         using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
@@ -1097,6 +1205,21 @@ public sealed class RuntimeEntityCrudTools
         }
 
         rootCkTypeId = CkTypeIdResolver.ToRtCkId(rootResolution.Type);
+
+        // AB#8043: no root filter on a Hidden attribute.
+        var hiddenRootUsage = AttributeAccessGuard.FindHiddenUsage(ckCacheService, resolvedTenantId, rootCkTypeId,
+            (rootFilters ?? []).Select(f => ((string?)f.AttributePath, "filter operator 'Equals'")));
+        if (hiddenRootUsage != null)
+        {
+            return new AssociationTreeResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = hiddenRootUsage,
+                CkRoleId = ckRoleId,
+                Direction = direction.ToString(),
+                MaxDepth = maxDepth
+            };
+        }
 
         using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
@@ -1518,6 +1641,32 @@ public sealed class RuntimeEntityCrudTools
         foreach (var nested in filters.NestedFilters ?? [])
         {
             foreach (var usage in SecretRelevantFilterUsages(nested))
+            {
+                yield return usage;
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Every filter usage (all operators, IsNull / IsNotNull included), recursively through nested filter groups.
+    ///     Used for the Hidden pre-validation of the query and aggregation tools (AB#8043): unlike a Secret attribute, a
+    ///     Hidden one supports no operator at all, because even IsNull tells whether a value is set.
+    /// </summary>
+    internal static IEnumerable<(string? Path, string Operation)> AllFilterUsages(FieldFilterCriteriaDto? filters)
+    {
+        if (filters == null)
+        {
+            yield break;
+        }
+
+        foreach (var field in filters.Fields)
+        {
+            yield return (field.AttributePath, $"filter operator '{field.Operator}'");
+        }
+
+        foreach (var nested in filters.NestedFilters ?? [])
+        {
+            foreach (var usage in AllFilterUsages(nested))
             {
                 yield return usage;
             }

@@ -219,6 +219,11 @@ dotnet run
 - Filters on a secret: only `IsNull` / `IsNotNull`. Other filter operators, aggregations and group-by on a secret are refused with `SecretAttributeNotQueryable`; `get_available_archive_paths` never lists secrets.
 - Identity providers: `clientSecret` is write-only (`clientSecretIsSet` instead; `get_identity_providers` also drops a client secret an older identity service might still return). `update_identity_provider` sends no secret unless a new one is passed. Risk classification and its rationale: `docs/risk-classification-sweep.md`.
 
+### **CK attribute access in the generic tools** (AB#8043)
+- The generic CRUD, query and aggregation tools read and write the tenant database directly, so they apply the CK `access` rules themselves, with the same error codes as the asset-repo GraphQL API.
+- `Hidden` attributes (e.g. `passwordHash`, `securityStamp`, `userTokens` of `System.Identity/User`) are never returned — not by `get_entity_by_id`, `query_entities*`, `navigate_associations`, `get_association_tree`, `execute_runtime_query`, a write response or a conflict payload — and cannot be filtered on (any operator, `IsNull` included), aggregated or grouped by: `ATTRIBUTE_NOT_QUERYABLE`. A stored query whose filter, sort, columns or group-by reach a Hidden attribute is neither stored by `create_entity` / `update_entity` nor run by `execute_runtime_query`.
+- `create_entity` / `update_entity` / `set_entity_secrets` refuse `Hidden` and `MethodOnly` attributes, and `ReadOnly` ones on update (allowed on create): `ATTRIBUTE_NOT_WRITABLE`. The identity-owned fields of `System.Identity/User` (`twoFactorEnabled`, `normalizedUserName`, `emailConfirmed`, lockout fields, …) are refused too (reason `identity-owned`); use the identity tools. A new `System.Identity/User` is refused with `GENERIC_CREATE_REPLACED_BY_METHOD` (create users with the user tools or `User.CreateUser`).
+
 <sup>‡</sup> Destructive — requires `confirm: true`.
 <sup>📁</sup> Uses file-transfer endpoints (see Section *File I/O Flow* below).
 
