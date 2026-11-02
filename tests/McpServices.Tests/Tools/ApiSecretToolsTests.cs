@@ -2,6 +2,7 @@ using FluentAssertions;
 using System.ComponentModel;
 using System.Net;
 using System.Reflection;
+using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.Sdk.ServiceClient;
@@ -185,14 +186,14 @@ public class ApiSecretToolsTests : ToolTestBase
             .ThrowsAsync(exception);
     }
 
-    private async Task<string?[]> CallEveryWrite() =>
+    private async Task<ApiSecretResponse[]> CallEveryWrite() =>
     [
-        (await ApiSecretTools.CreateClientSecret(MockServer.Object, ClientId)).ErrorMessage,
-        (await ApiSecretTools.UpdateClientSecret(MockServer.Object, ClientId, "enc-1")).ErrorMessage,
-        (await ApiSecretTools.DeleteClientSecret(MockServer.Object, ClientId, "enc-1", confirm: true)).ErrorMessage,
-        (await ApiSecretTools.CreateApiResourceSecret(MockServer.Object, ResourceName)).ErrorMessage,
-        (await ApiSecretTools.UpdateApiResourceSecret(MockServer.Object, ResourceName, "enc-1")).ErrorMessage,
-        (await ApiSecretTools.DeleteApiResourceSecret(MockServer.Object, ResourceName, "enc-1", confirm: true)).ErrorMessage
+        await ApiSecretTools.CreateClientSecret(MockServer.Object, ClientId),
+        await ApiSecretTools.UpdateClientSecret(MockServer.Object, ClientId, "enc-1"),
+        await ApiSecretTools.DeleteClientSecret(MockServer.Object, ClientId, "enc-1", confirm: true),
+        await ApiSecretTools.CreateApiResourceSecret(MockServer.Object, ResourceName),
+        await ApiSecretTools.UpdateApiResourceSecret(MockServer.Object, ResourceName, "enc-1"),
+        await ApiSecretTools.DeleteApiResourceSecret(MockServer.Object, ResourceName, "enc-1", confirm: true)
     ];
 
     [Fact]
@@ -202,7 +203,7 @@ public class ApiSecretToolsTests : ToolTestBase
 
         var errors = await CallEveryWrite();
 
-        errors.Should().OnlyContain(e => e == RoleMessage);
+        errors.Should().OnlyContain(e => !e.IsSuccess && e.ErrorMessage == RoleMessage);
     }
 
     [Theory]
@@ -216,8 +217,9 @@ public class ApiSecretToolsTests : ToolTestBase
 
         var errors = await CallEveryWrite();
 
-        errors.Should().OnlyContain(e => e != null && e.StartsWith("Access denied (HTTP 403)") &&
-                                         e.Contains("SecretManagement"));
+        errors.Should().OnlyContain(e => !e.IsSuccess && e.ErrorMessage != null &&
+                                         e.ErrorMessage.StartsWith("Access denied (HTTP 403)") &&
+                                         e.ErrorMessage.Contains("SecretManagement"));
     }
 
     [Fact]
@@ -227,7 +229,7 @@ public class ApiSecretToolsTests : ToolTestBase
 
         var errors = await CallEveryWrite();
 
-        errors.Should().OnlyContain(e => e == "Conflict: boom");
+        errors.Should().OnlyContain(e => !e.IsSuccess && e.ErrorMessage == "Conflict: boom");
     }
 
     [Fact]
