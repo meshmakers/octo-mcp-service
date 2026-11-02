@@ -245,9 +245,10 @@ equality oracle, and `update_entity` wrote `securityStamp` / `twoFactorEnabled`.
   and not run by `execute_runtime_query` (AB#8049 parity: the repository applies a stored filter as it is).
 - **Writes — `FindNotWritable`.** `create_entity`, `create_entity_with_secrets`, `update_entity` and `set_entity_secrets`
   (entity data, secrets and `clearSecretAttributes`) refuse `Hidden` and `MethodOnly`, and `ReadOnly` on update
-  (`AttributeAccess.IsGenericallyWritable(access, isCreate)`; every path segment counts), plus the identity-owned
-  `System.Identity/User` fields of the engine list `IdentityOwnedWrites` (reason `identity-owned`), with
-  `ATTRIBUTE_NOT_WRITABLE`. `update_entity` judges the write again against the entity's actual type after loading it
+  (`AttributeAccess.IsGenericallyWritable(access, isCreate)`; every path segment counts), with `ATTRIBUTE_NOT_WRITABLE`.
+  The identity-owned `System.Identity/User` fields are `MethodOnly` in System.Identity 3.0.0 and refused by this rule (AB#8053; the
+  engine list `IdentityOwnedWrites` holds only the identity associations now, which these tools cannot write; a tenant on 2.x has no
+  protection until the identity service has imported 3.0.0). `update_entity` judges the write again against the entity's actual type after loading it
   (the caller may name a base type of a derived entity, e.g. a User). No association write exists in these tools, so the
   identity association list does not apply.
 - **New users.** `create_entity` of a new `System.Identity/User` is refused by the generic-create refusal below (engine
