@@ -125,8 +125,11 @@ public class RuntimeEntityAccessGuardTests : TestBase
             ("PasswordHash", AttributeValueTypesDto.String, null, CkAttributeAccessDto.Hidden),
             ("SecurityStamp", AttributeValueTypesDto.String, null, CkAttributeAccessDto.Hidden),
             ("UserTokens", AttributeValueTypesDto.RecordArray, UserTokenRecordId, CkAttributeAccessDto.Hidden),
-            ("LockoutEnd", AttributeValueTypesDto.DateTime, null, CkAttributeAccessDto.ReadOnly),
-            ("TwoFactorEnabled", AttributeValueTypesDto.Boolean, null, null),
+            // System.Identity 3.0.0 (AB#8053): the identity-owned user fields are MethodOnly in the model.
+            ("LockoutEnd", AttributeValueTypesDto.DateTime, null, CkAttributeAccessDto.MethodOnly),
+            ("TwoFactorEnabled", AttributeValueTypesDto.Boolean, null, CkAttributeAccessDto.MethodOnly),
+            ("NormalizedUserName", AttributeValueTypesDto.String, null, CkAttributeAccessDto.MethodOnly),
+            ("EmailConfirmed", AttributeValueTypesDto.Boolean, null, CkAttributeAccessDto.MethodOnly),
             ("Profile", AttributeValueTypesDto.Record, ProfileRecordId, null),
             ("Logins", AttributeValueTypesDto.RecordArray, LoginRecordId, null));
 
@@ -565,7 +568,7 @@ public class RuntimeEntityAccessGuardTests : TestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().StartWith(AttributeAccessGuard.NotWritableCode)
-            .And.Contain(IdentityOwnedWrites.RefusalReason);
+            .And.Contain("access: MethodOnly");
         VerifyNoWrite();
     }
 
@@ -592,7 +595,7 @@ public class RuntimeEntityAccessGuardTests : TestBase
     [InlineData("SecurityStamp", "Hidden")]
     [InlineData("userTokens[0].value", "Hidden")]
     [InlineData("email", "MethodOnly")]
-    [InlineData("lockoutEnd", "ReadOnly")]
+    [InlineData("lockoutEnd", "MethodOnly")] // ReadOnly until System.Identity 2.30.0 (AB#8053)
     public async Task UpdateEntity_ProtectedAttribute_IsRefusedWithoutWrite(string path, string access)
     {
         var user = GivenStoredUser();
@@ -633,7 +636,7 @@ public class RuntimeEntityAccessGuardTests : TestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().StartWith(AttributeAccessGuard.NotWritableCode)
-            .And.Contain(IdentityOwnedWrites.RefusalReason);
+            .And.Contain("access: MethodOnly");
         VerifyNoWrite();
     }
 
@@ -710,13 +713,14 @@ public class RuntimeEntityAccessGuardTests : TestBase
     [Fact]
     public async Task CreateEntity_NewSystemIdentityUser_IsRefusedPointingToCreateUser()
     {
-        // System.Identity 2.29+ declares the static User.CreateUser-1; the engine treats it as the replacement of the
-        // generic create of User (runtime rule until the next System.Identity major sets the model flag).
+        // System.Identity 3.0.0 declares the static User.CreateUser-1 with replacesGenericCreate (AB#8053; before, the
+        // engine stood in with a runtime rule).
         _types.RemoveAll(t => t.CkTypeId.ToString() == UserFullId);
         _types.Add(BuildUserType([(UserFullId, new CkMethodDto
         {
-            MethodId = GenericCreateReplacement.IdentityUserCreateMethodId,
-            Kind = CkMethodKindDto.Static
+            MethodId = "CreateUser-1",
+            Kind = CkMethodKindDto.Static,
+            ReplacesGenericCreate = true
         })]));
 
         var result = await RuntimeEntityCrudTools.CreateEntity(MockServer.Object, UserFullId,

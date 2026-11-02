@@ -124,13 +124,6 @@ internal static class AttributeAccessGuard
                            $"mutations (access: {protectedAttribute.Access}).";
                 }
             }
-
-            if (IdentityOwnedWrites.IsIdentityOwnedAttribute(rtCkTypeId, segments[0]))
-            {
-                return $"{NotWritableCode}: '{path}' of '{ckTypeId}' is written only by the identity service " +
-                       $"(identity REST API or identity methods), not via generic mutations (reason: " +
-                       $"{IdentityOwnedWrites.RefusalReason}).";
-            }
         }
 
         return null;
