@@ -16,6 +16,13 @@
 
 ### Changed
 
+- AB#7991: `install_blueprint` and `update_blueprint` return the archive activations of the blueprint seed
+  (`Result.ArchiveActivations`: per archive `Outcome` `Activated` / `SkippedPreExisting` / `SkippedOptOut` /
+  `SkippedStreamDataDisabled` / `Failed`, `Reason`, and for new rollups `Backfill` and `BackfillJobRtId`) and the
+  warnings, and the `Message` summarises them. Before, the SDK result dropped the field; `update_blueprint` also returned
+  no result at all (new `Result` property, the update counts and warnings included). Needs the SDK with
+  `BlueprintArchiveActivationDto` (octo-sdk, AB#7991).
+
 - AB#7119: `create_entity` and `create_entity_with_secrets` refuse a CK type whose static method replaces the
   generic create (`replacesGenericCreate`, own or inherited) with `ErrorCode = GENERIC_CREATE_REPLACED_BY_METHOD`
   and `ErrorParameters` `ckTypeId` / `methodId`, the same contract as the GraphQL create. The check runs before

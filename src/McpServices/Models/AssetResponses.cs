@@ -65,6 +65,12 @@ public class UpdateBlueprintResponse : AssetResponse
 
     /// <summary>Whether the call was a dry run.</summary>
     public bool DryRun { get; set; }
+
+    /// <summary>
+    ///     Update result returned by the asset service (AB#7991): counts, warnings and the archive activations
+    ///     (activated, skipped with a reason, failed, backfill job per new rollup). Null when the call failed.
+    /// </summary>
+    public BlueprintUpdateResultDto? Result { get; set; }
 }
 
 /// <summary>Response of list_blueprint_installations.</summary>

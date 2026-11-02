@@ -53,7 +53,8 @@ public sealed class BlueprintTools
     [McpRisk(McpRiskLevel.High)]
     [Description(
         "Apply a blueprint to the tenant for the first time. With force=true, re-applies seed data via upsert " +
-        "(recovery path). Equivalent to octo-cli InstallBlueprint.")]
+        "(recovery path). The result lists the archives of the blueprint seed (activated, skipped with a reason, " +
+        "failed, backfill job of new rollups) and the warnings. Equivalent to octo-cli InstallBlueprint.")]
     public static async Task<InstallBlueprintResponse> InstallBlueprint(
         McpServer server,
         [Description("Blueprint ID (e.g. 'MyBlueprint-1.0.0').")] string blueprintId,
@@ -81,7 +82,8 @@ public sealed class BlueprintTools
                 Result = result,
                 Message = result.Success
                     ? $"Blueprint '{blueprintId}' applied (mode '{result.ApplicationMode}', " +
-                      $"{result.SeedDataFilesApplied} seed file(s), {result.LoadedCkModels.Count} CK model(s))."
+                      $"{result.SeedDataFilesApplied} seed file(s), {result.LoadedCkModels.Count} CK model(s))." +
+                      DescribeOutcome(result.ArchiveActivations, result.Warnings)
                     : $"Blueprint '{blueprintId}' application reported Success=false."
             };
         }
@@ -212,8 +214,9 @@ public sealed class BlueprintTools
     [McpServerTool(Name = "update_blueprint")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
-        "Apply a blueprint update. DESTRUCTIVE — requires confirm=true unless dryRun is also true. Equivalent to " +
-        "octo-cli UpdateBlueprint.")]
+        "Apply a blueprint update. DESTRUCTIVE — requires confirm=true unless dryRun is also true. The result lists " +
+        "the archives the update activated or skipped (with backfill job ids of new rollups) and the warnings. " +
+        "Equivalent to octo-cli UpdateBlueprint.")]
     public static async Task<UpdateBlueprintResponse> UpdateBlueprint(
         McpServer server,
         [Description("Target blueprint version.")] string targetVersion,
@@ -244,7 +247,7 @@ public sealed class BlueprintTools
 
         try
         {
-            await ctx.Client!.ApplyBlueprintUpdateAsync(ctx.TenantId!, new BlueprintUpdateRequestDto
+            var result = await ctx.Client!.ApplyBlueprintUpdateAsync(ctx.TenantId!, new BlueprintUpdateRequestDto
             {
                 TargetVersion = targetVersion,
                 UpdateMode = updateMode,
@@ -257,15 +260,52 @@ public sealed class BlueprintTools
                 TenantId = ctx.TenantId,
                 TargetVersion = targetVersion,
                 DryRun = dryRun,
+                Result = result,
                 Message = dryRun
                     ? $"Dry run completed for target '{targetVersion}' (mode '{updateMode}')."
-                    : $"Blueprint updated to '{targetVersion}' (mode '{updateMode}')."
+                    : $"Blueprint updated to '{targetVersion}' (mode '{updateMode}')." +
+                      DescribeOutcome(result?.ArchiveActivations, result?.Warnings)
             };
         }
         catch (Exception ex)
         {
             return new UpdateBlueprintResponse { IsSuccess = false, ErrorMessage = ex.Message };
         }
+    }
+
+    /// <summary>
+    ///     AB#7991: one-sentence summary of what an install or update did with the archives of the seed and how many
+    ///     warnings it carries; empty when there is nothing to report. The full per-archive list is in <c>Result</c>.
+    /// </summary>
+    internal static string DescribeOutcome(
+        IReadOnlyCollection<BlueprintArchiveActivationDto>? activations, IReadOnlyCollection<string>? warnings)
+    {
+        var parts = new List<string>();
+        if (activations is { Count: > 0 })
+        {
+            var byOutcome = activations
+                .GroupBy(a => a.Outcome)
+                .Select(g => $"{g.Count()} {g.Key}")
+                .ToList();
+            var queued = activations
+                .Where(a => a.Backfill == "Queued")
+                .Select(a => $"{a.WellKnownName ?? a.ArchiveRtId}: job {a.BackfillJobRtId}")
+                .ToList();
+            var text = $"Archives: {string.Join(", ", byOutcome)}";
+            if (queued.Count > 0)
+            {
+                text += $"; {queued.Count} rollup backfill(s) queued ({string.Join(", ", queued)})";
+            }
+
+            parts.Add(text + ".");
+        }
+
+        if (warnings is { Count: > 0 })
+        {
+            parts.Add($"{warnings.Count} warning(s), see Result.Warnings.");
+        }
+
+        return parts.Count == 0 ? string.Empty : " " + string.Join(" ", parts);
     }
 
     /// <summary>List blueprints currently installed on the tenant.</summary>
