@@ -58,6 +58,77 @@ public class BlueprintToolsTests : ToolTestBase
         result.Result.SeedDataFilesApplied.Should().Be(3);
     }
 
+    private static BlueprintArchiveActivationDto[] SampleActivations() =>
+    [
+        new()
+        {
+            ArchiveRtId = "6a4aa4cc22664f2b26c67e6b", WellKnownName = "GridConnectionRollup1h",
+            CkTypeId = "System.StreamData/RollupArchive", BlueprintId = "B-1.1.0", IsRollup = true,
+            Outcome = "Activated", Backfill = "Queued", BackfillJobRtId = "6ae5b33b2a27b45f5568bee8"
+        },
+        new()
+        {
+            ArchiveRtId = "6a0e000000000000000a0007", CkTypeId = "System.StreamData/RawArchive",
+            BlueprintId = "B-1.1.0", Outcome = "SkippedStreamDataDisabled", Reason = "Stream data is not enabled",
+            Backfill = "NotApplicable"
+        }
+    ];
+
+    [Fact]
+    public async Task InstallBlueprint_SurfacesTheArchiveActivationsAndWarnings()
+    {
+        MockAssetClient.Setup(c => c.ApplyBlueprintAsync(DefaultTenantId, "B-1.1.0", false))
+            .ReturnsAsync(new BlueprintApplyResultDto
+            {
+                Success = true,
+                ApplicationMode = "Install",
+                Warnings = ["Stream data is not enabled"],
+                ArchiveActivations = [.. SampleActivations()]
+            });
+
+        var result = await BlueprintTools.InstallBlueprint(MockServer.Object, "B-1.1.0");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Result!.ArchiveActivations.Should().HaveCount(2);
+        result.Result.ArchiveActivations[0].BackfillJobRtId.Should().Be("6ae5b33b2a27b45f5568bee8");
+        result.Message.Should().Contain("1 Activated").And.Contain("1 SkippedStreamDataDisabled")
+            .And.Contain("GridConnectionRollup1h: job 6ae5b33b2a27b45f5568bee8")
+            .And.Contain("1 warning(s)");
+    }
+
+    [Fact]
+    public async Task InstallBlueprint_WithoutArchives_KeepsTheMessageUnchanged()
+    {
+        MockAssetClient.Setup(c => c.ApplyBlueprintAsync(DefaultTenantId, "B-1.0.0", false))
+            .ReturnsAsync(new BlueprintApplyResultDto { Success = true, ApplicationMode = "Install" });
+
+        var result = await BlueprintTools.InstallBlueprint(MockServer.Object, "B-1.0.0");
+
+        result.Message.Should().NotContain("Archives:").And.NotContain("warning");
+    }
+
+    [Fact]
+    public async Task UpdateBlueprint_SurfacesTheResultWithArchiveActivations()
+    {
+        MockAssetClient.Setup(c => c.ApplyBlueprintUpdateAsync(DefaultTenantId,
+                It.Is<BlueprintUpdateRequestDto>(r => r.TargetVersion == "B-1.1.0")))
+            .ReturnsAsync(new BlueprintUpdateResultDto
+            {
+                Success = true,
+                EntitiesAdded = 4,
+                Warnings = ["w1", "w2"],
+                ArchiveActivations = [.. SampleActivations()]
+            });
+
+        var result = await BlueprintTools.UpdateBlueprint(MockServer.Object, "B-1.1.0", confirm: true);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Result!.EntitiesAdded.Should().Be(4);
+        result.Result.ArchiveActivations.Should().HaveCount(2);
+        result.Message.Should().Contain("1 Activated").And.Contain("job 6ae5b33b2a27b45f5568bee8")
+            .And.Contain("2 warning(s)");
+    }
+
     [Fact]
     public async Task InstallBlueprint_ForceTrue_PassesFlag()
     {
