@@ -1174,3 +1174,11 @@ An agent can work in and clean up the scratch tenants it creates without a human
   never deleted. A client-credentials session cannot exchange its token for a child (the exchange needs a user); it gets a clear error and uses the child's
   own session (a client-credentials token for the child) or octo-cli `Delete --disable-features`.
 - Tests: `ScratchTenantToolsTests` (create flag, disableFeatures order, archives, no child token, enable/disable AI).
+
+## API secret writes: 403 names the missing role (AB#8094)
+
+The write tools of `ApiSecretTools` (create/update/delete for client and API resource) return `IdentityForbiddenMessage.Describe(ex)` as
+`errorMessage`: for a `403` the `message` of the identity body verbatim (`{"message": "...requires the role 'SecretManagement'..."}`, AB#5861;
+the SDK keeps the body in the exception text), for a 403 without body or `message` a generic access-denied text that names
+`SecretManagement`, for every other error the exception text. The tool descriptions state that writes need the tenant role `SecretManagement`
+(`TenantManagement`/`UserManagement` only while the cluster runs `SecretManagementRoleEnforcement=Warn`). Tests: `ApiSecretToolsTests`.

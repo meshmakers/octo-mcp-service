@@ -1,6 +1,11 @@
 using FluentAssertions;
+using System.ComponentModel;
+using System.Net;
+using System.Reflection;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.Sdk.ServiceClient;
+using ModelContextProtocol.Server;
 using Moq;
 using Xunit;
 
@@ -154,5 +159,92 @@ public class ApiSecretToolsTests : ToolTestBase
             ResourceName, "enc-1", confirm: true);
         result.IsSuccess.Should().BeTrue();
         MockIdentityClient.Verify(c => c.DeleteApiSecretApiResource(ResourceName, "enc-1"), Times.Once);
+    }
+
+    // ── 403 names the missing role (AB#8094) ────────────────────────────────
+
+    private const string RoleMessage =
+        "Access denied: the endpoint requires the role 'SecretManagement' (the caller holds: TenantManagement).";
+
+    private static ServiceClientResultException Forbidden(string? body) =>
+        new(body, HttpStatusCode.Forbidden);
+
+    private void GivenEveryWriteIsRefused(ServiceClientResultException exception)
+    {
+        MockIdentityClient.Setup(c => c.CreateApiSecretForClient(It.IsAny<string>(), It.IsAny<ApiSecretDto>()))
+            .ThrowsAsync(exception);
+        MockIdentityClient.Setup(c => c.UpdateApiSecretClient(It.IsAny<string>(), It.IsAny<ApiSecretDto>()))
+            .ThrowsAsync(exception);
+        MockIdentityClient.Setup(c => c.DeleteApiSecretClient(It.IsAny<string>(), It.IsAny<string>()))
+            .ThrowsAsync(exception);
+        MockIdentityClient.Setup(c => c.CreateApiSecretForApiResource(It.IsAny<string>(), It.IsAny<ApiSecretDto>()))
+            .ThrowsAsync(exception);
+        MockIdentityClient.Setup(c => c.UpdateApiSecretApiResource(It.IsAny<string>(), It.IsAny<ApiSecretDto>()))
+            .ThrowsAsync(exception);
+        MockIdentityClient.Setup(c => c.DeleteApiSecretApiResource(It.IsAny<string>(), It.IsAny<string>()))
+            .ThrowsAsync(exception);
+    }
+
+    private async Task<string?[]> CallEveryWrite() =>
+    [
+        (await ApiSecretTools.CreateClientSecret(MockServer.Object, ClientId)).ErrorMessage,
+        (await ApiSecretTools.UpdateClientSecret(MockServer.Object, ClientId, "enc-1")).ErrorMessage,
+        (await ApiSecretTools.DeleteClientSecret(MockServer.Object, ClientId, "enc-1", confirm: true)).ErrorMessage,
+        (await ApiSecretTools.CreateApiResourceSecret(MockServer.Object, ResourceName)).ErrorMessage,
+        (await ApiSecretTools.UpdateApiResourceSecret(MockServer.Object, ResourceName, "enc-1")).ErrorMessage,
+        (await ApiSecretTools.DeleteApiResourceSecret(MockServer.Object, ResourceName, "enc-1", confirm: true)).ErrorMessage
+    ];
+
+    [Fact]
+    public async Task Writes_Forbidden_WithMessageBody_ReturnTheMessageOfIdentity()
+    {
+        GivenEveryWriteIsRefused(Forbidden("{\"message\":\"" + RoleMessage + "\"}"));
+
+        var errors = await CallEveryWrite();
+
+        errors.Should().OnlyContain(e => e == RoleMessage);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("{\"title\":\"Forbidden\",\"status\":403}")]
+    [InlineData("{\"message\":\"\"}")]
+    [InlineData("not json at all {")]
+    public async Task Writes_Forbidden_WithoutUsableMessage_ReturnAGenericAccessDeniedText(string? body)
+    {
+        GivenEveryWriteIsRefused(Forbidden(body));
+
+        var errors = await CallEveryWrite();
+
+        errors.Should().OnlyContain(e => e != null && e.StartsWith("Access denied (HTTP 403)") &&
+                                         e.Contains("SecretManagement"));
+    }
+
+    [Fact]
+    public async Task Writes_OtherErrors_KeepTheExceptionText()
+    {
+        GivenEveryWriteIsRefused(new ServiceClientResultException("boom", HttpStatusCode.Conflict));
+
+        var errors = await CallEveryWrite();
+
+        errors.Should().OnlyContain(e => e == "Conflict: boom");
+    }
+
+    [Fact]
+    public void WriteToolDescriptions_NameTheSecretManagementRole()
+    {
+        var writeTools = new[]
+        {
+            nameof(ApiSecretTools.CreateClientSecret), nameof(ApiSecretTools.UpdateClientSecret),
+            nameof(ApiSecretTools.DeleteClientSecret), nameof(ApiSecretTools.CreateApiResourceSecret),
+            nameof(ApiSecretTools.UpdateApiResourceSecret), nameof(ApiSecretTools.DeleteApiResourceSecret)
+        };
+
+        foreach (var name in writeTools)
+        {
+            var method = typeof(ApiSecretTools).GetMethod(name)!;
+            method.GetCustomAttribute<McpServerToolAttribute>().Should().NotBeNull();
+            method.GetCustomAttribute<DescriptionAttribute>()!.Description.Should().Contain("SecretManagement", name);
+        }
     }
 }

@@ -64,7 +64,8 @@ public sealed class ApiSecretTools
     [Description(
         "Create a new API secret on a client. Equivalent to octo-cli CreateApiSecretClient. The server generates " +
         "the secret (256 bit); the response carries the clear text ONCE in clearTextSecret - capture it, it cannot " +
-        "be retrieved again. secretValue is the stored hash that identifies the secret for update/delete.")]
+        "be retrieved again. secretValue is the stored hash that identifies the secret for update/delete. " +
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
     public static async Task<ApiSecretResponse> CreateClientSecret(
         McpServer server,
         [Description("Client ID.")] string clientId,
@@ -103,14 +104,16 @@ public sealed class ApiSecretTools
         }
         catch (Exception ex)
         {
-            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityForbiddenMessage.Describe(ex) };
         }
     }
 
     /// <summary>Update a client secret.</summary>
     [McpServerTool(Name = "update_client_secret")]
     [McpRisk(McpRiskLevel.High)]
-    [Description("Update a client secret. Equivalent to octo-cli UpdateApiSecretClient.")]
+    [Description(
+        "Update a client secret. Equivalent to octo-cli UpdateApiSecretClient. " +
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
     public static async Task<ApiSecretResponse> UpdateClientSecret(
         McpServer server,
         [Description("Client ID.")] string clientId,
@@ -153,7 +156,7 @@ public sealed class ApiSecretTools
         }
         catch (Exception ex)
         {
-            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityForbiddenMessage.Describe(ex) };
         }
     }
 
@@ -162,7 +165,8 @@ public sealed class ApiSecretTools
     [McpRisk(McpRiskLevel.High)]
     [Description(
         "Delete a client secret. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli " +
-        "DeleteApiSecretClient.")]
+        "DeleteApiSecretClient. " +
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
     public static async Task<ApiSecretResponse> DeleteClientSecret(
         McpServer server,
         [Description("Client ID.")] string clientId,
@@ -208,7 +212,7 @@ public sealed class ApiSecretTools
         }
         catch (Exception ex)
         {
-            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityForbiddenMessage.Describe(ex) };
         }
     }
 
@@ -259,7 +263,8 @@ public sealed class ApiSecretTools
         "Create a new API secret on an API resource. Equivalent to octo-cli CreateApiSecretApiResource. The " +
         "server generates the secret (256 bit); the response carries the clear text ONCE in clearTextSecret - " +
         "capture it, it cannot be retrieved again. secretValue is the stored hash that identifies the secret " +
-        "for update/delete.")]
+        "for update/delete. " +
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
     public static async Task<ApiSecretResponse> CreateApiResourceSecret(
         McpServer server,
         [Description("API resource name.")] string apiResourceName,
@@ -298,14 +303,16 @@ public sealed class ApiSecretTools
         }
         catch (Exception ex)
         {
-            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityForbiddenMessage.Describe(ex) };
         }
     }
 
     /// <summary>Update an API resource secret.</summary>
     [McpServerTool(Name = "update_api_resource_secret")]
     [McpRisk(McpRiskLevel.High)]
-    [Description("Update an API resource secret. Equivalent to octo-cli UpdateApiSecretApiResource.")]
+    [Description(
+        "Update an API resource secret. Equivalent to octo-cli UpdateApiSecretApiResource. " +
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
     public static async Task<ApiSecretResponse> UpdateApiResourceSecret(
         McpServer server,
         [Description("API resource name.")] string apiResourceName,
@@ -348,7 +355,7 @@ public sealed class ApiSecretTools
         }
         catch (Exception ex)
         {
-            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityForbiddenMessage.Describe(ex) };
         }
     }
 
@@ -357,7 +364,8 @@ public sealed class ApiSecretTools
     [McpRisk(McpRiskLevel.High)]
     [Description(
         "Delete an API resource secret. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli " +
-        "DeleteApiSecretApiResource.")]
+        "DeleteApiSecretApiResource. " +
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
     public static async Task<ApiSecretResponse> DeleteApiResourceSecret(
         McpServer server,
         [Description("API resource name.")] string apiResourceName,
@@ -404,7 +412,7 @@ public sealed class ApiSecretTools
         }
         catch (Exception ex)
         {
-            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityForbiddenMessage.Describe(ex) };
         }
     }
 }
