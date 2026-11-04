@@ -547,8 +547,8 @@ public sealed class StreamDataAggregationTools
     private static object? EngineValue(StreamDataRow row, AggregationColumnDto col,
         StreamDataFieldResolver? fieldResolver)
     {
-        // Stream-data validation refuses a column without a path (ValidateStreamDataColumns); a persisted
-        // query carries one per column. Nothing to read without it.
+        // Every caller validates the columns first (ValidateStreamDataColumns), ad-hoc and persisted queries
+        // alike, so a column without a path does not reach this point; the guard only keeps the lookup safe.
         if (string.IsNullOrWhiteSpace(col.AttributePath))
         {
             return null;
@@ -631,14 +631,17 @@ public sealed class StreamDataAggregationTools
         StreamDataFieldResolver? fieldResolver)
     {
         var columns = RuntimeAggregationTools.MapPersistedAggregationColumns(query.Columns);
-        var windowError = AggregationMapper.ValidateIntegralWindow(
-            columns, fromOverride ?? query.From, toOverride ?? query.To);
-        if (windowError != null)
+        // A persisted query written via generic CRUD may carry a column without a path: refuse it here with
+        // the actionable message instead of letting the engine fail on it.
+        var columnError = AggregationMapper.ValidateStreamDataColumns(columns)
+                          ?? AggregationMapper.ValidateIntegralWindow(
+                              columns, fromOverride ?? query.From, toOverride ?? query.To);
+        if (columnError != null)
         {
             return new PersistedStreamDataQueryResponse
             {
                 IsSuccess = false,
-                ErrorMessage = windowError,
+                ErrorMessage = columnError,
                 QueryRtId = queryRtId,
                 QuerySubtype = nameof(RtAggregationSdQuery),
                 ArchiveRtId = archiveRtId.ToString(),
@@ -702,14 +705,17 @@ public sealed class StreamDataAggregationTools
         }
 
         var columns = RuntimeAggregationTools.MapPersistedAggregationColumns(query.Columns);
-        var windowError = AggregationMapper.ValidateIntegralWindow(
-            columns, fromOverride ?? query.From, toOverride ?? query.To);
-        if (windowError != null)
+        // A persisted query written via generic CRUD may carry a column without a path: refuse it here with
+        // the actionable message instead of letting the engine fail on it.
+        var columnError = AggregationMapper.ValidateStreamDataColumns(columns)
+                          ?? AggregationMapper.ValidateIntegralWindow(
+                              columns, fromOverride ?? query.From, toOverride ?? query.To);
+        if (columnError != null)
         {
             return new PersistedStreamDataQueryResponse
             {
                 IsSuccess = false,
-                ErrorMessage = windowError,
+                ErrorMessage = columnError,
                 QueryRtId = queryRtId,
                 QuerySubtype = nameof(RtGroupingAggregationSdQuery),
                 ArchiveRtId = archiveRtId.ToString(),
@@ -795,14 +801,19 @@ public sealed class StreamDataAggregationTools
         }
 
         var columns = RuntimeAggregationTools.MapPersistedAggregationColumns(query.Columns);
-        // Only the integral is checked here: the other persisted columns keep the engine's own validation.
-        if (columns.Any(c => c.Function == AggregationFunctionDto.integral))
+        // A column without a path is refused like in the ad-hoc tools; of the functions only the integral is
+        // checked here, the others keep the engine's own validation.
+        var columnError = AggregationMapper.ValidateStreamDataColumns(columns)
+                          ?? (columns.Any(c => c.Function == AggregationFunctionDto.integral)
+                              ? "'integral' is not supported in downsampling queries; use a persisted aggregation " +
+                                "or grouping query with from and to."
+                              : null);
+        if (columnError != null)
         {
             return new PersistedStreamDataQueryResponse
             {
                 IsSuccess = false,
-                ErrorMessage = "'integral' is not supported in downsampling queries; use a persisted aggregation or " +
-                               "grouping query with from and to.",
+                ErrorMessage = columnError,
                 QueryRtId = queryRtId,
                 QuerySubtype = nameof(RtDownsamplingSdQuery),
                 ArchiveRtId = archiveRtId.ToString(),
