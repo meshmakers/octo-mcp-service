@@ -593,6 +593,7 @@ public class StreamDataAggregationToolsTests : TestBase
             from: from, to: from.AddDays(1), limit: 24);
 
         result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        _capturedOptions.Should().NotBeNull();
         var options = _capturedOptions!;
         options.HasLocalDayBins.Should().BeFalse();
         options.TimeZone.Should().BeNull();
@@ -613,6 +614,7 @@ public class StreamDataAggregationToolsTests : TestBase
             from: from, to: from.AddDays(2), binOrigin: "6:00");
 
         result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        _capturedOptions.Should().NotBeNull();
         var options = _capturedOptions!;
         options.HasLocalDayBins.Should().BeTrue();
         options.TimeZone.Should().BeNull();
@@ -656,6 +658,7 @@ public class StreamDataAggregationToolsTests : TestBase
             from: from, to: from.AddDays(3), limit: 0, timeZone: "Europe/Vienna");
 
         result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        _capturedOptions.Should().NotBeNull();
         _capturedOptions!.Limit.Should().BeNull();
     }
 
