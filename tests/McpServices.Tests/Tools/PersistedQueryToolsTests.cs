@@ -705,4 +705,59 @@ public class PersistedQueryToolsTests : TestBase
         result.Rows![0]["count_rtId"].Should().Be(96L);
         result.Rows[0]["sum_Amount_Value"].Should().Be(12.5);
     }
+
+    // CodeRabbit on #44: a persisted query written via generic CRUD can carry a column without a path. Every
+    // persisted stream-data executor refuses it with the attributePath message before the engine is called.
+    [Theory]
+    [InlineData(nameof(RtAggregationSdQuery))]
+    [InlineData(nameof(RtGroupingAggregationSdQuery))]
+    [InlineData(nameof(RtDownsamplingSdQuery))]
+    public async Task ExecuteStreamDataQuery_PathlessCountColumn_IsRejectedBeforeTheEngine(string subtype)
+    {
+        WireStreamDataMocks();
+        // COUNT with an empty path: what generic CRUD can persist (the CK record refuses null, not ""); the
+        // ad-hoc tools refuse the same shape.
+        var pathless = new RtAggregationQueryColumnRecord
+        {
+            AttributePath = "",
+            AggregationType = RtAggregationTypesEnum.Count
+        };
+        RtStreamDataQuery query = subtype switch
+        {
+            nameof(RtAggregationSdQuery) => new RtAggregationSdQuery
+            {
+                QueryCkTypeId = SensorCkType.ToString(), ArchiveRtId = ArchiveRtId, Columns = { pathless }
+            },
+            nameof(RtGroupingAggregationSdQuery) => new RtGroupingAggregationSdQuery
+            {
+                QueryCkTypeId = SensorCkType.ToString(), ArchiveRtId = ArchiveRtId, Columns = { pathless },
+                GroupingColumns = new AttributeStringValueList(["obisCode"])
+            },
+            _ => new RtDownsamplingSdQuery
+            {
+                QueryCkTypeId = SensorCkType.ToString(), ArchiveRtId = ArchiveRtId, Columns = { pathless }
+            }
+        };
+
+        MockTenantRepository
+            .Setup(r => r.GetRtEntityByRtIdAsync<RtStreamDataQuery>(
+                It.IsAny<IOctoSession>(), It.IsAny<OctoObjectId>()))
+            .ReturnsAsync(query);
+
+        var result = await StreamDataAggregationTools.ExecuteStreamDataQuery(
+            MockServer.Object, QueryRtId,
+            fromOverride: new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            toOverride: new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc),
+            limitOverride: 24);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("aggregations[0].attributePath is required");
+        result.QuerySubtype.Should().Be(subtype);
+        _streamRepo.Verify(r => r.ExecuteAggregationQueryAsync(
+            It.IsAny<OctoObjectId>(), It.IsAny<StreamDataAggregationQueryOptions>()), Times.Never);
+        _streamRepo.Verify(r => r.ExecuteGroupedAggregationQueryAsync(
+            It.IsAny<OctoObjectId>(), It.IsAny<StreamDataGroupedAggregationQueryOptions>()), Times.Never);
+        _streamRepo.Verify(r => r.ExecuteDownsamplingQueryAsync(
+            It.IsAny<OctoObjectId>(), It.IsAny<StreamDataDownsamplingQueryOptions>()), Times.Never);
+    }
 }
