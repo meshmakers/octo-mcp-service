@@ -656,4 +656,53 @@ public class PersistedQueryToolsTests : TestBase
         result.Rows[0]["amount.unit"].Should().Be("KWh");
         result.Rows[0]["sum_amount_value"].Should().Be(3341.56);
     }
+
+    // CodeRabbit on #44: without an archive snapshot (a persisted query on a rollup) the tool has no field
+    // resolver. The engine's storage name of the built-in rtId is lower-case (Constants.RtId = "rtid"), so the
+    // fallback's lower-casing matches and COUNT on rtId is read from "rtid_count".
+    [Fact]
+    public async Task ExecuteStreamDataQuery_AggregationSubtype_WithoutResolver_ReadsBuiltInFieldKey()
+    {
+        WireStreamDataMocks();
+        var aggregation = new RtAggregationSdQuery
+        {
+            QueryCkTypeId = SensorCkType.ToString(),
+            ArchiveRtId = ArchiveRtId
+        };
+        aggregation.Columns.Add(new RtAggregationQueryColumnRecord
+        {
+            AttributePath = "rtId",
+            AggregationType = RtAggregationTypesEnum.Count
+        });
+        aggregation.Columns.Add(new RtAggregationQueryColumnRecord
+        {
+            AttributePath = "Amount.Value",
+            AggregationType = RtAggregationTypesEnum.Sum
+        });
+
+        MockTenantRepository
+            .Setup(r => r.GetRtEntityByRtIdAsync<RtStreamDataQuery>(
+                It.IsAny<IOctoSession>(), It.IsAny<OctoObjectId>()))
+            .ReturnsAsync(aggregation);
+        _streamRepo
+            .Setup(r => r.ExecuteAggregationQueryAsync(It.IsAny<OctoObjectId>(),
+                It.IsAny<StreamDataAggregationQueryOptions>()))
+            .ReturnsAsync(new StreamDataQueryResult
+            {
+                Rows =
+                [
+                    new StreamDataRow
+                    {
+                        Values = new Dictionary<string, object?> { ["rtid_count"] = 96L, ["amountvalue_sum"] = 12.5 }
+                    }
+                ],
+                TotalCount = 1
+            });
+
+        var result = await StreamDataAggregationTools.ExecuteStreamDataQuery(MockServer.Object, QueryRtId);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        result.Rows![0]["count_rtId"].Should().Be(96L);
+        result.Rows[0]["sum_Amount_Value"].Should().Be(12.5);
+    }
 }
