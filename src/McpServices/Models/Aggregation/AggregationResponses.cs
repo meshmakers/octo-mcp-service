@@ -178,6 +178,30 @@ public class RollupQueryMetadataResponse : AggregationResponse
     /// <summary>Bucket size in milliseconds.</summary>
     public long BucketSizeMs { get; set; }
 
+    /// <summary>
+    ///     Bucket-boundary alignment of the rollup: <c>FixedSize</c> or a calendar alignment such as
+    ///     <c>CalendarDay</c> (AB#7362).
+    /// </summary>
+    public string? BucketAlignment { get; set; }
+
+    /// <summary>
+    ///     IANA time zone the calendar buckets are cut in (e.g. <c>Europe/Vienna</c>); null for a fixed-size
+    ///     rollup or a calendar rollup in UTC (AB#7362).
+    /// </summary>
+    public string? ReferenceTimeZone { get; set; }
+
+    /// <summary>
+    ///     Local time of day at which a <c>CalendarDay</c> bucket starts, <c>HH:mm</c> (e.g. <c>06:00</c> for a gas
+    ///     day); null when the days start at local midnight or the rollup is not day-aligned (AB#7362).
+    /// </summary>
+    public string? DayStartOffset { get; set; }
+
+    /// <summary>
+    ///     <see cref="DayStartOffset" /> in milliseconds after local midnight (e.g. <c>21600000</c>), as stored on the
+    ///     rollup and returned by GraphQL <c>rollupsForArchive.dayStartOffsetMs</c>; null for midnight days (AB#7362).
+    /// </summary>
+    public long? DayStartOffsetMs { get; set; }
+
     /// <summary>Logical CK-attribute paths the rollup aggregates over.</summary>
     public List<string> LogicalSourcePaths { get; set; } = [];
 

@@ -537,6 +537,140 @@ public class StreamDataAggregationToolsTests : TestBase
             It.IsAny<OctoObjectId>(), It.IsAny<StreamDataDownsamplingQueryOptions>()), Times.Never);
     }
 
+    // -- AB#7362: local-day bins ---------------------------------------------
+
+    private StreamDataDownsamplingQueryOptions? _capturedOptions;
+
+    private void CaptureDownsampling(params StreamDataRow[] rows) =>
+        _mockStreamRepo
+            .Setup(r => r.ExecuteDownsamplingQueryAsync(It.IsAny<OctoObjectId>(),
+                It.IsAny<StreamDataDownsamplingQueryOptions>()))
+            .Callback<OctoObjectId, StreamDataDownsamplingQueryOptions>((_, o) => _capturedOptions = o)
+            .ReturnsAsync(Result(rows));
+
+    [Fact]
+    public async Task Downsampling_GasDayBins_PassesZoneIntervalOriginAndReturnsTheLocalDays()
+    {
+        // Gas days 2026-03-27/28/29 06:00 Vienna: 06:00 CET = 05:00Z, the 03-29 day starts after the DST change
+        // (06:00 CEST = 04:00Z). The 03-28 gas day spans the change and has 23 hours.
+        GivenMeterArchive();
+        var d1 = new DateTime(2026, 3, 27, 5, 0, 0, DateTimeKind.Utc);
+        var d2 = new DateTime(2026, 3, 28, 5, 0, 0, DateTimeKind.Utc);
+        var d3 = new DateTime(2026, 3, 29, 4, 0, 0, DateTimeKind.Utc);
+        CaptureDownsampling(
+            Row(d1, ("amountvalue_count", 24L)),
+            Row(d2, ("amountvalue_count", 23L)),
+            Row(d3, ("amountvalue_count", 24L)));
+
+        var result = await StreamDataAggregationTools.QueryDownsampling(
+            MockServer.Object, ArchiveRtId,
+            aggregations: [new() { Function = AggregationFunctionDto.count, AttributePath = "Amount.Value", Alias = "n" }],
+            from: d1, to: new DateTime(2026, 3, 30, 4, 0, 0, DateTimeKind.Utc),
+            timeZone: "Europe/Vienna", binIntervalDays: 1, binOrigin: "06:00");
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        result.Rows.Select(r => r["bucketStart"]).Should().Equal(d1, d2, d3);
+        result.Rows.Select(r => r["n"]).Should().Equal(24L, 23L, 24L);
+
+        var options = _capturedOptions;
+        options.Should().NotBeNull();
+        options!.HasLocalDayBins.Should().BeTrue();
+        options.TimeZone.Should().Be("Europe/Vienna");
+        options.BinInterval.Should().Be(TimeSpan.FromDays(1));
+        options.BinOrigin.Should().Be(TimeSpan.FromHours(6));
+        options.Limit.Should().BeNull("the engine sizes local-day bins from the range");
+    }
+
+    [Fact]
+    public async Task Downsampling_WithoutLocalDayParameters_KeepsTheFixedWidthOptions()
+    {
+        CaptureDownsampling(Row(new DateTime(2026, 6, 6, 0, 0, 0, DateTimeKind.Utc), ("power_avg", 1.0)));
+        var from = new DateTime(2026, 6, 6, 0, 0, 0, DateTimeKind.Utc);
+
+        var result = await StreamDataAggregationTools.QueryDownsampling(
+            MockServer.Object, ArchiveRtId,
+            aggregations: [new() { Function = AggregationFunctionDto.avg, AttributePath = "Power" }],
+            from: from, to: from.AddDays(1), limit: 24);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        var options = _capturedOptions!;
+        options.HasLocalDayBins.Should().BeFalse();
+        options.TimeZone.Should().BeNull();
+        options.BinInterval.Should().BeNull();
+        options.BinOrigin.Should().BeNull();
+        options.Limit.Should().Be(24);
+    }
+
+    [Fact]
+    public async Task Downsampling_OnlyBinOrigin_CutsUtcDays()
+    {
+        CaptureDownsampling();
+        var from = new DateTime(2026, 6, 1, 6, 0, 0, DateTimeKind.Utc);
+
+        var result = await StreamDataAggregationTools.QueryDownsampling(
+            MockServer.Object, ArchiveRtId,
+            aggregations: [new() { Function = AggregationFunctionDto.avg, AttributePath = "Power" }],
+            from: from, to: from.AddDays(2), binOrigin: "6:00");
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        var options = _capturedOptions!;
+        options.HasLocalDayBins.Should().BeTrue();
+        options.TimeZone.Should().BeNull();
+        options.BinOrigin.Should().Be(TimeSpan.FromHours(6));
+    }
+
+    [Theory]
+    [InlineData(null, null, "24:00", "binOrigin '24:00' is invalid")]
+    [InlineData(null, null, "06:00:30", "binOrigin '06:00:30' is invalid")]
+    [InlineData(null, null, "6", "binOrigin '6' is invalid")]
+    [InlineData(null, 0, null, "binIntervalDays 0 is invalid")]
+    [InlineData(null, 10_001, null, "binIntervalDays 10001 is invalid")]
+    [InlineData("Mars/Olympus_Mons", null, null, "Mars/Olympus_Mons")]
+    public async Task Downsampling_InvalidLocalDayArguments_AreRefusedWithoutAnEngineCall(
+        string? timeZone, int? binIntervalDays, string? binOrigin, string expected)
+    {
+        var from = new DateTime(2026, 3, 27, 5, 0, 0, DateTimeKind.Utc);
+
+        var result = await StreamDataAggregationTools.QueryDownsampling(
+            MockServer.Object, ArchiveRtId,
+            aggregations: [new() { Function = AggregationFunctionDto.avg, AttributePath = "Power" }],
+            from: from, to: from.AddDays(3),
+            timeZone: timeZone, binIntervalDays: binIntervalDays, binOrigin: binOrigin);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain(expected);
+        _mockStreamRepo.Verify(r => r.ExecuteDownsamplingQueryAsync(
+            It.IsAny<OctoObjectId>(), It.IsAny<StreamDataDownsamplingQueryOptions>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Downsampling_EngineRefusesTheBins_ReturnsTheEngineMessage()
+    {
+        _mockStreamRepo
+            .Setup(r => r.ExecuteDownsamplingQueryAsync(It.IsAny<OctoObjectId>(),
+                It.IsAny<StreamDataDownsamplingQueryOptions>()))
+            .ThrowsAsync(new DownsamplingBinOptionsInvalidException(
+                "the time range needs more than 10000 bins. Ask for a shorter range or a longer BinInterval."));
+        var from = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var result = await StreamDataAggregationTools.QueryDownsampling(
+            MockServer.Object, ArchiveRtId,
+            aggregations: [new() { Function = AggregationFunctionDto.avg, AttributePath = "Power" }],
+            from: from, to: from.AddYears(40), timeZone: "Europe/Vienna");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("more than 10000 bins");
+    }
+
+    [Fact]
+    public void ToolDescription_Downsampling_NamesTheGasDayExample()
+    {
+        var description = typeof(StreamDataAggregationTools).GetMethod(nameof(StreamDataAggregationTools.QueryDownsampling))!
+            .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+            .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+        description.Should().Contain("Europe/Vienna").And.Contain("06:00").And.Contain("binIntervalDays");
+    }
+
     [Fact]
     public void ToolDescriptions_StateTheIntegralUnitAndTheRequiredWindow()
     {
