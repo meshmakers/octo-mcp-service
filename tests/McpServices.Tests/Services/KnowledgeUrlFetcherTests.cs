@@ -63,9 +63,15 @@ public class KnowledgeUrlFetcherTests
     [Fact]
     public async Task Fetch_AbsoluteLocalPath_RefusedAsFileScheme()
     {
+        // AB#8277 — the refusal step is OS-specific: on Linux and macOS "/etc/passwd" parses as an
+        // absolute file:// URI and the scheme check refuses it ("not allowed"); on Windows it does not
+        // parse as an absolute URI and the first check refuses it ("not an absolute URL"). What must
+        // hold on every OS: the request is refused and nothing reaches the network.
         var result = await FetchAsync("/etc/passwd");
 
-        result.Error.Should().Contain("not allowed");
+        result.Body.Should().BeNull();
+        result.Error.Should().NotBeNullOrEmpty();
+        result.Error.Should().ContainAny("not allowed", "not an absolute URL");
         _handler.Requests.Should().BeEmpty();
     }
 

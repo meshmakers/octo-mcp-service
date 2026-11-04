@@ -44,6 +44,11 @@
 
 ### Fixed
 
+- AB#8277: `KnowledgeUrlFetcherTests.Fetch_AbsoluteLocalPath_RefusedAsFileScheme` passes on Windows. `/etc/passwd` is
+  refused by the scheme check on Linux/macOS (parses as `file://`) and by the absolute-URL check on Windows; the test
+  now accepts either refusal message and still asserts that no body is returned and no HTTP request is sent. Test-only,
+  `KnowledgeUrlPolicy` is unchanged.
+
 - AB#5346: the stream-data aggregation tools (`query_stream_data_aggregation`, `_grouping`, `_downsampling` and
   `execute_stream_data_query`) read only the engine's real result keys: group columns by storage name (`obiscode`,
   `amountunit`), aggregations as `{column}_{function}` (`amountvalue_sum`, `amountvalue_count`). The values themselves
