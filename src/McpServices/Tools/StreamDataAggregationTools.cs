@@ -11,7 +11,9 @@ using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Runtime.Contracts.StreamData;
 using Meshmakers.Octo.Runtime.Engine.CrateDb;
+using Meshmakers.Octo.Runtime.Engine.StreamData;
 using ModelContextProtocol.Server;
+using System.Globalization;
 
 // ReSharper disable UnusedMember.Global
 
@@ -378,6 +380,11 @@ public sealed class StreamDataAggregationTools
         "carries the aggregation aliases for that bucket — the server picks the bucket size. " +
         "Functions: count, sum, avg, min, max ('integral' is not supported per bucket; use " +
         "query_stream_data_aggregation or _grouping). " +
+        "Local-day bins (AB#7362): with timeZone, binIntervalDays or binOrigin the bins are local calendar days " +
+        "instead of equal-width UTC buckets - each bin starts at binOrigin (HH:mm, default 00:00) local time in " +
+        "timeZone (IANA id, default UTC) and spans binIntervalDays days (default 1), so a bin is 23, 24 or 25 hours " +
+        "across DST changes; limit is then ignored. Gas day example: timeZone 'Europe/Vienna', binOrigin '06:00', " +
+        "binIntervalDays 1. A day without values is returned with count 0. " +
         "Equivalent to GraphQL StreamData.TransientStreamDataQuery.Downsampling.")]
     public static async Task<DownsamplingResultResponse> QueryDownsampling(
         McpServer server,
@@ -385,14 +392,26 @@ public sealed class StreamDataAggregationTools
         List<AggregationColumnDto> aggregations,
         [Description("Start of time range (UTC), required.")] DateTime from,
         [Description("End of time range (UTC), required.")] DateTime to,
-        [Description("Maximum number of output buckets; server picks bin size from this.")] int limit = 100,
+        [Description("Maximum number of output buckets; server picks bin size from this. Ignored with local-day bins.")] int limit = 100,
         FieldFilterCriteriaDto? filters = null,
         List<string>? sourceRtIds = null,
+        [Description("Optional IANA time zone the bins are cut in, e.g. 'Europe/Vienna'. Turns on local-day bins (default UTC when only binIntervalDays or binOrigin is given).")]
+        string? timeZone = null,
+        [Description("Optional width of one local-day bin in whole days (1 to 10000, default 1). Turns on local-day bins.")]
+        int? binIntervalDays = null,
+        [Description("Optional local time of day at which a bin starts, HH:mm from 00:00 to 23:59 (e.g. '06:00' for a gas day, default 00:00). Turns on local-day bins.")]
+        string? binOrigin = null,
         string? tenantId = null)
     {
         if (string.IsNullOrWhiteSpace(archiveRtId))
         {
             return new DownsamplingResultResponse { IsSuccess = false, ErrorMessage = "archiveRtId is required." };
+        }
+
+        var bins = ParseLocalDayBins(timeZone, binIntervalDays, binOrigin);
+        if (bins.Error != null)
+        {
+            return new DownsamplingResultResponse { IsSuccess = false, ErrorMessage = bins.Error };
         }
 
         var aggError = AggregationMapper.Validate(aggregations)
@@ -411,7 +430,8 @@ public sealed class StreamDataAggregationTools
             };
         }
 
-        if (limit <= 0)
+        // Local-day bins ignore limit (the engine sizes them from the range), so it is only checked without them.
+        if (!bins.HasLocalDayBins && limit <= 0)
         {
             return new DownsamplingResultResponse
             {
@@ -435,6 +455,12 @@ public sealed class StreamDataAggregationTools
                 .WithLimit(limit)
                 .WithRtIds(MapRtIds(sourceRtIds))
                 .WithFieldFilters(MapFieldFilters(filters));
+            if (bins.HasLocalDayBins)
+            {
+                // The engine sizes local-day bins from the range; limit does not decide their number (AB#7360).
+                options.WithTimeZone(bins.TimeZone).WithBinInterval(bins.Interval).WithBinOrigin(bins.Origin)
+                    .WithLimit(null);
+            }
 
             var result = await ctx.Repo!.ExecuteDownsamplingQueryAsync(
                 new OctoObjectId(archiveRtId), options);
@@ -454,6 +480,73 @@ public sealed class StreamDataAggregationTools
         {
             return new DownsamplingResultResponse { IsSuccess = false, ErrorMessage = SecretErrors.Describe(ex) };
         }
+    }
+
+    // ── Local-day bins (AB#7362) ─────────────────────────────────────────────
+
+    private static readonly string[] BinOriginFormats = [@"hh\:mm", @"h\:mm"];
+
+    /// <summary>Parsed local-day bin arguments of <c>query_stream_data_downsampling</c>, or the validation error.</summary>
+    internal sealed record LocalDayBinArgs(string? TimeZone, TimeSpan? Interval, TimeSpan? Origin, string? Error)
+    {
+        /// <summary>True when a time zone, an interval or an origin was given.</summary>
+        public bool HasLocalDayBins => TimeZone != null || Interval != null || Origin != null;
+    }
+
+    /// <summary>
+    ///     Parses and validates <c>timeZone</c>, <c>binIntervalDays</c> and <c>binOrigin</c> the way the GraphQL
+    ///     downsampling arguments are (AB#7361): <c>binOrigin</c> is <c>HH:mm</c> in <c>[00:00, 23:59]</c>, the interval
+    ///     is 1 to <see cref="DownsamplingBinAxis.MaxBins"/> whole days, and the engine's own rules (unknown time zone)
+    ///     run through <see cref="DownsamplingBinAxis.Resolve"/> before any query. All null means no local-day bins.
+    /// </summary>
+    internal static LocalDayBinArgs ParseLocalDayBins(string? timeZone, int? binIntervalDays, string? binOrigin)
+    {
+        var zone = string.IsNullOrWhiteSpace(timeZone) ? null : timeZone.Trim();
+
+        TimeSpan? interval = null;
+        if (binIntervalDays is { } days)
+        {
+            if (days < 1 || days > DownsamplingBinAxis.MaxBins)
+            {
+                return new LocalDayBinArgs(null, null, null,
+                    $"binIntervalDays {days} is invalid. It is the width of one bin in whole local days and must be " +
+                    $"between 1 and {DownsamplingBinAxis.MaxBins}.");
+            }
+
+            interval = TimeSpan.FromDays(days);
+        }
+
+        TimeSpan? origin = null;
+        if (!string.IsNullOrWhiteSpace(binOrigin))
+        {
+            if (!TimeSpan.TryParseExact(binOrigin.Trim(), BinOriginFormats, CultureInfo.InvariantCulture, out var parsed)
+                || parsed < TimeSpan.Zero || parsed >= TimeSpan.FromDays(1))
+            {
+                return new LocalDayBinArgs(null, null, null,
+                    $"binOrigin '{binOrigin}' is invalid. It is the local time of day at which a bin starts, written " +
+                    "HH:mm from 00:00 to 23:59 (e.g. '06:00' for a gas day).");
+            }
+
+            origin = parsed;
+        }
+
+        var args = new LocalDayBinArgs(zone, interval, origin, null);
+        if (!args.HasLocalDayBins)
+        {
+            return args;
+        }
+
+        try
+        {
+            DownsamplingBinAxis.Resolve(StreamDataDownsamplingQueryOptions.Create()
+                .WithTimeZone(zone).WithBinInterval(interval).WithBinOrigin(origin));
+        }
+        catch (DownsamplingBinOptionsInvalidException ex)
+        {
+            return args with { Error = ex.Message };
+        }
+
+        return args;
     }
 
     // ── Shared validation + projection helpers ──────────────────────────────

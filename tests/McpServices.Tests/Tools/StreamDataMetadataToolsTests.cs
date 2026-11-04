@@ -175,6 +175,77 @@ public class StreamDataMetadataToolsTests : TestBase
         result.Sources[0].ValidTo.Should().BeNull();
     }
 
+    // AB#7362: the day start of a gas-day rollup is part of the query metadata.
+    private void GivenDailyRollup(string? referenceTimeZone, long? dayStartOffsetMs,
+        BucketAlignment alignment = BucketAlignment.CalendarDay)
+    {
+        var snapshot = new RollupArchiveSnapshot(
+            RtId: new OctoObjectId(RollupId),
+            TargetCkTypeId: SensorCkType,
+            Status: CkArchiveStatus.Activated,
+            RtWellKnownName: "gasday",
+            Sources: [new RollupSourceReference(new OctoObjectId(SourceArchive))],
+            BucketSize: TimeSpan.FromDays(1),
+            WatermarkLag: TimeSpan.FromMinutes(1),
+            LastAggregatedBucketEnd: null,
+            Aggregations: [new CkRollupAggregationSpec("Amount.Value", CkRollupFunction.Count, null)],
+            FrozenUntil: null)
+        {
+            BucketAlignment = alignment,
+            ReferenceTimeZone = referenceTimeZone,
+            DayStartOffsetMs = dayStartOffsetMs
+        };
+        _rollupStore.Setup(s => s.GetAsync(It.IsAny<OctoObjectId>())).ReturnsAsync(snapshot);
+        _archiveStore.Setup(s => s.GetAsync(It.IsAny<OctoObjectId>())).ReturnsAsync(new ArchiveSnapshot(
+            new OctoObjectId(SourceArchive), SensorCkType, CkArchiveStatus.Activated,
+            RtWellKnownName: null, Columns: []));
+    }
+
+    [Fact]
+    public async Task GetRollupMetadata_GasDayRollup_ReturnsTimeZoneAndDayStart()
+    {
+        GivenDailyRollup("Europe/Vienna", 21_600_000);
+
+        var result = await StreamDataMetadataTools.GetRollupQueryMetadata(MockServer.Object, RollupId);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        result.BucketAlignment.Should().Be("CalendarDay");
+        result.ReferenceTimeZone.Should().Be("Europe/Vienna");
+        result.DayStartOffset.Should().Be("06:00");
+        result.DayStartOffsetMs.Should().Be(21_600_000);
+        result.Message.Should().Contain("CalendarDay in Europe/Vienna starting 06:00");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0L)]
+    public async Task GetRollupMetadata_MidnightDays_HaveNoDayStart(long? dayStartOffsetMs)
+    {
+        GivenDailyRollup("Europe/Vienna", dayStartOffsetMs);
+
+        var result = await StreamDataMetadataTools.GetRollupQueryMetadata(MockServer.Object, RollupId);
+
+        result.ReferenceTimeZone.Should().Be("Europe/Vienna");
+        result.DayStartOffset.Should().BeNull();
+        result.DayStartOffsetMs.Should().BeNull();
+        result.Message.Should().Contain("CalendarDay in Europe/Vienna").And.NotContain("starting");
+    }
+
+    [Fact]
+    public async Task GetRollupMetadata_FixedSizeRollup_HasNoDayStart_AndReportsTheZoneAsStored()
+    {
+        // Like GraphQL rollupsForArchive: the stored zone is reported; bucketAlignment says it has no effect.
+        GivenDailyRollup("Europe/Vienna", null, BucketAlignment.FixedSize);
+
+        var result = await StreamDataMetadataTools.GetRollupQueryMetadata(MockServer.Object, RollupId);
+
+        result.BucketAlignment.Should().Be("FixedSize");
+        result.ReferenceTimeZone.Should().Be("Europe/Vienna");
+        result.Message.Should().NotContain("Europe/Vienna");
+        result.DayStartOffset.Should().BeNull();
+        result.DayStartOffsetMs.Should().BeNull();
+    }
+
     [Fact]
     public async Task GetRollupMetadata_TwoSources_ProjectsBothSpans()
     {

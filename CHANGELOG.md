@@ -16,6 +16,16 @@
 
 ### Changed
 
+- AB#7362: `query_stream_data_downsampling` cuts local-day bins: optional `timeZone` (IANA id), `binIntervalDays`
+  (1 to 10,000 whole days) and `binOrigin` (`HH:mm`, local time a bin starts). With any of them the bins are local
+  calendar days of the zone (UTC when only interval or origin is given), 23, 24 or 25 hours across DST changes, and
+  `limit` is ignored; a day without values comes back with count 0 (engine AB#7360). Gas day: `Europe/Vienna`,
+  `06:00`, 1 day. An invalid origin, interval or time zone returns `IsSuccess=false` with the validation message
+  before any query; calls without the new parameters send the same engine options as before.
+  `get_rollup_query_metadata` returns `bucketAlignment`, `referenceTimeZone` (as stored, like GraphQL
+  `rollupsForArchive`; only effective with a calendar alignment), `dayStartOffset` (`HH:mm`) and `dayStartOffsetMs`
+  (both null for midnight days).
+
 - AB#7991: `install_blueprint` and `update_blueprint` return the archive activations of the blueprint seed
   (`Result.ArchiveActivations`: per archive `Outcome` `Activated` / `SkippedPreExisting` / `SkippedOptOut` /
   `SkippedStreamDataDisabled` / `Failed`, `Reason`, and for new rollups `Backfill` and `BackfillJobRtId`) and the

@@ -350,6 +350,11 @@ public sealed class StreamDataMetadataTools
                 TenantId = ctx.TenantId,
                 RollupRtId = rollupRtId,
                 BucketSizeMs = (long)rollup.BucketSize.TotalMilliseconds,
+                // AB#7362: the day start of a gas-day rollup (CalendarDay, Europe/Vienna, 06:00).
+                BucketAlignment = rollup.BucketAlignment.ToString(),
+                ReferenceTimeZone = rollup.ReferenceTimeZone,
+                DayStartOffsetMs = rollup.DayStartOffsetMs is > 0 ? rollup.DayStartOffsetMs : null,
+                DayStartOffset = FormatDayStart(rollup.DayStartOffsetMs),
                 LogicalSourcePaths = paths.ToList(),
                 // AB#5157: a rollup can be fed by several sources, each authoritative for a half-open
                 // span. A rollup still on the deprecated single-source form normalises to exactly one
@@ -361,13 +366,36 @@ public sealed class StreamDataMetadataTools
                     ValidTo = src.ValidTo
                 }).ToList(),
                 Resolved = true,
-                Message = $"Rollup '{rollupRtId}' resolved: {paths.Count} logical path(s), {rollup.BucketSize}."
+                Message = $"Rollup '{rollupRtId}' resolved: {paths.Count} logical path(s), {rollup.BucketSize}"
+                          + DescribeDayStart(rollup) + "."
             };
         }
         catch (Exception ex)
         {
             return new RollupQueryMetadataResponse { IsSuccess = false, ErrorMessage = ex.Message };
         }
+    }
+
+    /// <summary>
+    ///     Formats a rollup's day start (milliseconds after local midnight) as <c>HH:mm</c>; null for midnight or none.
+    /// </summary>
+    internal static string? FormatDayStart(long? dayStartOffsetMs) =>
+        dayStartOffsetMs is > 0 and var ms
+            ? TimeSpan.FromMilliseconds(ms).ToString(@"hh\:mm", System.Globalization.CultureInfo.InvariantCulture)
+            : null;
+
+    private static string DescribeDayStart(RollupArchiveSnapshot rollup)
+    {
+        if (rollup.BucketAlignment == BucketAlignment.FixedSize)
+        {
+            return string.Empty;
+        }
+
+        var zone = rollup.ReferenceTimeZone ?? "UTC";
+        var dayStart = FormatDayStart(rollup.DayStartOffsetMs);
+        return dayStart == null
+            ? $", {rollup.BucketAlignment} in {zone}"
+            : $", {rollup.BucketAlignment} in {zone} starting {dayStart}";
     }
 
     /// <summary>Resolution-aware series routing: pick the archive/rollup to query for a target point count.</summary>

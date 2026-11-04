@@ -368,6 +368,24 @@ Reservations and downloads expire after **30 minutes**; a background sweeper pur
 // Response: rows = one bucket per hour, columns: bucketStart, avg_Power, peak
 ```
 
+### **Count gas days (06:00 to 06:00 Vienna, local-day bins)**
+```json
+{
+  "tool": "query_stream_data_downsampling",
+  "parameters": {
+    "archiveRtId": "69fda707d47638c68edc7fea",
+    "aggregations": [ { "function": "count", "attributePath": "Amount.Value", "alias": "n" } ],
+    "from": "2026-03-27T05:00:00Z",
+    "to":   "2026-03-30T04:00:00Z",
+    "timeZone": "Europe/Vienna",
+    "binOrigin": "06:00",
+    "binIntervalDays": 1
+  }
+}
+// Response: one row per gas day, bucketStart 2026-03-27T05:00Z, 2026-03-28T05:00Z, 2026-03-29T04:00Z;
+// with complete hourly data n = 24, 23 (DST change), 24. A day without values has n = 0. limit is ignored.
+```
+
 ## 🏗️ Architecture
 
 ### **Service Architecture**
