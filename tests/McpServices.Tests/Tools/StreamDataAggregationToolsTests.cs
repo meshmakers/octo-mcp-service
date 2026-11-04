@@ -363,9 +363,126 @@ public class StreamDataAggregationToolsTests : TestBase
             It.IsAny<OctoObjectId>(), It.IsAny<StreamDataDownsamplingQueryOptions>()), Times.Never);
     }
 
-    [Fact]
-    public async Task Aggregation_LegacyEngineKey_IsStillRead()
+    // -- AB#5346: the engine's real key format ---------------------------------
+    // CrateDbStreamDataRepository keys group columns by storage name (concatenated, lower-cased path) and
+    // aggregations by "{column}_{function}". The archive below has the mixed-case dotted attributes of the
+    // h24 / voestalpine repro, so the archive's real field resolver is used, not the fallback.
+
+    private void GivenMeterArchive()
     {
+        var snapshot = new ArchiveSnapshot(
+            RtId: new OctoObjectId(ArchiveRtId),
+            TargetCkTypeId: SensorCkType,
+            Status: CkArchiveStatus.Activated,
+            RtWellKnownName: "MeterArchive",
+            Columns:
+            [
+                new CkArchiveColumnSpec("ObisCode", Indexed: true, Required: false),
+                new CkArchiveColumnSpec("Amount.Value", Indexed: false, Required: false),
+                new CkArchiveColumnSpec("Amount.Unit", Indexed: false, Required: false)
+            ]);
+        _mockArchiveStore
+            .Setup(s => s.GetAsync(It.IsAny<OctoObjectId>()))
+            .ReturnsAsync(snapshot);
+    }
+
+    [Fact]
+    public async Task Grouping_DottedMixedCasePaths_ReadsStorageGroupKeysAndCountKey()
+    {
+        GivenMeterArchive();
+        _mockStreamRepo
+            .Setup(r => r.ExecuteGroupedAggregationQueryAsync(It.IsAny<OctoObjectId>(),
+                It.IsAny<StreamDataGroupedAggregationQueryOptions>()))
+            .ReturnsAsync(Result(
+                Row(values:
+                [
+                    ("obiscode", "1-1:2.9.0 G.01T"),
+                    ("amountunit", "KWh"),
+                    ("amountvalue_sum", 3341.56),
+                    ("amountvalue_count", 2976L)
+                ]),
+                Row(values:
+                [
+                    ("obiscode", "1-1:1.9.0 G.01T"),
+                    ("amountunit", "KWh"),
+                    ("amountvalue_sum", 12.5),
+                    ("amountvalue_count", 96L)
+                ])));
+
+        var result = await StreamDataAggregationTools.QueryGrouping(
+            MockServer.Object, ArchiveRtId,
+            groupByAttributePaths: ["ObisCode", "Amount.Unit"],
+            aggregations:
+            [
+                new() { Function = AggregationFunctionDto.sum, AttributePath = "Amount.Value", Alias = "s" },
+                new() { Function = AggregationFunctionDto.count, AttributePath = "Amount.Value" }
+            ]);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        result.Rows.Should().HaveCount(2);
+        result.Rows[0]["ObisCode"].Should().Be("1-1:2.9.0 G.01T");
+        result.Rows[0]["Amount.Unit"].Should().Be("KWh");
+        result.Rows[0]["s"].Should().Be(3341.56);
+        result.Rows[0]["count_Amount_Value"].Should().Be(2976L);
+        result.Rows[1]["ObisCode"].Should().Be("1-1:1.9.0 G.01T");
+        result.Rows[1]["count_Amount_Value"].Should().Be(96L);
+        result.Rows.SelectMany(r => r.Values).Should().NotContainNulls();
+    }
+
+    [Fact]
+    public async Task Aggregation_CountOnDottedMixedCasePath_ReadsEngineKey()
+    {
+        GivenMeterArchive();
+        _mockStreamRepo
+            .Setup(r => r.ExecuteAggregationQueryAsync(It.IsAny<OctoObjectId>(),
+                It.IsAny<StreamDataAggregationQueryOptions>()))
+            .ReturnsAsync(Result(Row(values: [("amountvalue_count", 2976L), ("amountvalue_max", 4.2)])));
+
+        var result = await StreamDataAggregationTools.QueryAggregation(
+            MockServer.Object, ArchiveRtId,
+            aggregations:
+            [
+                new() { Function = AggregationFunctionDto.count, AttributePath = "Amount.Value" },
+                new() { Function = AggregationFunctionDto.max, AttributePath = "Amount.Value", Alias = "peak" }
+            ]);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        result.Rows.Single()["count_Amount_Value"].Should().Be(2976L);
+        result.Rows.Single()["peak"].Should().Be(4.2);
+    }
+
+    [Fact]
+    public async Task Downsampling_CountOnDottedMixedCasePath_ReadsEngineKeyPerBucket()
+    {
+        GivenMeterArchive();
+        var b1 = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        _mockStreamRepo
+            .Setup(r => r.ExecuteDownsamplingQueryAsync(It.IsAny<OctoObjectId>(),
+                It.IsAny<StreamDataDownsamplingQueryOptions>()))
+            .ReturnsAsync(Result(
+                Row(b1, ("amountvalue_count", 96L), ("amountvalue_sum", 10.0)),
+                Row(b1.AddDays(1), ("amountvalue_count", 0L), ("amountvalue_sum", null))));
+
+        var result = await StreamDataAggregationTools.QueryDownsampling(
+            MockServer.Object, ArchiveRtId,
+            aggregations:
+            [
+                new() { Function = AggregationFunctionDto.count, AttributePath = "Amount.Value", Alias = "n" },
+                new() { Function = AggregationFunctionDto.sum, AttributePath = "Amount.Value", Alias = "s" }
+            ],
+            from: b1, to: b1.AddDays(2), limit: 2);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        result.Rows[0]["n"].Should().Be(96L);
+        result.Rows[0]["s"].Should().Be(10.0);
+        result.Rows[1]["n"].Should().Be(0L);
+        result.Rows[1]["s"].Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Aggregation_LegacyFunctionKey_IsNotTheContract()
+    {
+        // The engine never writes "{Function}({path})"; a row carrying only that key has no value for the column.
         _mockStreamRepo
             .Setup(r => r.ExecuteAggregationQueryAsync(It.IsAny<OctoObjectId>(),
                 It.IsAny<StreamDataAggregationQueryOptions>()))
@@ -375,7 +492,49 @@ public class StreamDataAggregationToolsTests : TestBase
             MockServer.Object, ArchiveRtId,
             aggregations: [new() { Function = AggregationFunctionDto.sum, AttributePath = "Power" }]);
 
-        result.Rows.Single()["sum_Power"].Should().Be(10.0);
+        result.Rows.Single()["sum_Power"].Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Aggregation_CountWithoutPath_IsRefusedWithoutAnEngineCall()
+    {
+        var result = await StreamDataAggregationTools.QueryAggregation(
+            MockServer.Object, ArchiveRtId,
+            aggregations: [new() { Function = AggregationFunctionDto.count }]);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("attributePath is required").And.Contain("rtId");
+        _mockStreamRepo.Verify(r => r.ExecuteAggregationQueryAsync(
+            It.IsAny<OctoObjectId>(), It.IsAny<StreamDataAggregationQueryOptions>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Grouping_CountWithoutPath_IsRefusedWithoutAnEngineCall()
+    {
+        var result = await StreamDataAggregationTools.QueryGrouping(
+            MockServer.Object, ArchiveRtId,
+            groupByAttributePaths: ["FacilityId"],
+            aggregations: [new() { Function = AggregationFunctionDto.count }]);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("attributePath is required");
+        _mockStreamRepo.Verify(r => r.ExecuteGroupedAggregationQueryAsync(
+            It.IsAny<OctoObjectId>(), It.IsAny<StreamDataGroupedAggregationQueryOptions>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Downsampling_CountWithoutPath_IsRefusedWithoutAnEngineCall()
+    {
+        var from = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var result = await StreamDataAggregationTools.QueryDownsampling(
+            MockServer.Object, ArchiveRtId,
+            aggregations: [new() { Function = AggregationFunctionDto.count }],
+            from: from, to: from.AddDays(1), limit: 24);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("attributePath is required");
+        _mockStreamRepo.Verify(r => r.ExecuteDownsamplingQueryAsync(
+            It.IsAny<OctoObjectId>(), It.IsAny<StreamDataDownsamplingQueryOptions>()), Times.Never);
     }
 
     [Fact]

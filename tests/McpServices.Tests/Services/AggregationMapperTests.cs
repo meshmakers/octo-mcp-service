@@ -240,4 +240,26 @@ public class AggregationMapperTests
 
         act.Should().Throw<ArgumentException>().WithMessage("*only supported by stream-data queries*");
     }
+
+    [Fact]
+    public void ValidateStreamDataColumns_CountWithoutPath_NamesTheIndexAndTheAlternative()
+    {
+        var error = AggregationMapper.ValidateStreamDataColumns(
+        [
+            new AggregationColumnDto { Function = AggregationFunctionDto.count, AttributePath = "Amount.Value" },
+            new AggregationColumnDto { Function = AggregationFunctionDto.count }
+        ]);
+
+        error.Should().StartWith("aggregations[1].attributePath is required").And.Contain("rtId");
+    }
+
+    [Fact]
+    public void ValidateStreamDataColumns_EveryColumnWithPath_IsValid()
+    {
+        AggregationMapper.ValidateStreamDataColumns(
+        [
+            new AggregationColumnDto { Function = AggregationFunctionDto.count, AttributePath = "Amount.Value" },
+            new AggregationColumnDto { Function = AggregationFunctionDto.sum, AttributePath = "Amount.Value" }
+        ]).Should().BeNull();
+    }
 }

@@ -395,7 +395,8 @@ public sealed class StreamDataAggregationTools
             return new DownsamplingResultResponse { IsSuccess = false, ErrorMessage = "archiveRtId is required." };
         }
 
-        var aggError = AggregationMapper.Validate(aggregations);
+        var aggError = AggregationMapper.Validate(aggregations)
+                       ?? AggregationMapper.ValidateStreamDataColumns(aggregations);
         if (aggError != null)
         {
             return new DownsamplingResultResponse { IsSuccess = false, ErrorMessage = aggError };
@@ -467,7 +468,8 @@ public sealed class StreamDataAggregationTools
         }
 
         // Stream-data aggregation and grouping are where the engine serves 'integral' (AB#7919).
-        var aggError = AggregationMapper.Validate(aggregations, allowIntegral: true);
+        var aggError = AggregationMapper.Validate(aggregations, allowIntegral: true)
+                       ?? AggregationMapper.ValidateStreamDataColumns(aggregations!);
         if (aggError != null)
         {
             return aggError;
@@ -488,9 +490,9 @@ public sealed class StreamDataAggregationTools
         StreamDataFieldResolver? fieldResolver)
     {
         // For stream-data aggregations the engine returns one StreamDataRow per group (or one row
-        // total for non-grouped). The values dictionary is keyed by the engine's column name
-        // (`{Function}({path})` — see AggregationColumn.ToString). Look up by that key, write under
-        // the MCP alias. Group keys are projected into the row from groupByPaths.
+        // total for non-grouped). Group columns are keyed by their storage name (`obiscode`,
+        // `amountunit`), aggregation values by `{column}_{token}` (`amountvalue_sum`), see EngineValue.
+        // The MCP response keys them by the logical path and the MCP alias (AB#5346).
 
         return result.Rows.Select(row =>
         {
@@ -536,26 +538,27 @@ public sealed class StreamDataAggregationTools
 
     /// <summary>
     ///     Reads one aggregation value from an engine row. The CrateDB repository keys aggregation results
-    ///     <c>{column}_{token}</c> (e.g. <c>power_avg</c>, <c>power_integral</c>), where <c>column</c> is the
+    ///     <c>{column}_{token}</c> (e.g. <c>power_avg</c>, <c>amountvalue_count</c>), where <c>column</c> is the
     ///     storage name the archive's field resolver gives (lower-cased concatenated path for a data-stream
-    ///     attribute, the versioned physical name for a computed column). AB#7919: the tools used to look up
-    ///     only <c>{Function}({path})</c>, a key the engine never writes, so every aggregation value came back
-    ///     null; that key is kept as a fallback.
+    ///     attribute, the versioned physical name for a computed column); the rollup chain path writes the same
+    ///     shape. AB#7919 / AB#5346: the tools used to look up <c>{Function}({path})</c>, a key the engine never
+    ///     writes, so every value came back null. That key is no longer read: no engine version writes it.
     /// </summary>
     private static object? EngineValue(StreamDataRow row, AggregationColumnDto col,
         StreamDataFieldResolver? fieldResolver)
     {
-        if (!string.IsNullOrWhiteSpace(col.AttributePath))
+        // Stream-data validation refuses a column without a path (ValidateStreamDataColumns); a persisted
+        // query carries one per column. Nothing to read without it.
+        if (string.IsNullOrWhiteSpace(col.AttributePath))
         {
-            var column = fieldResolver?.Resolve(col.AttributePath!)?.CrateDbName
-                         ?? EngineColumnName(col.AttributePath!);
-            if (row.Values.TryGetValue($"{column}_{AggregationMapper.EngineResultToken(col.Function)}", out var value))
-            {
-                return value;
-            }
+            return null;
         }
 
-        return row.Values.TryGetValue(EngineColumnKey(col), out var legacy) ? legacy : null;
+        var column = fieldResolver?.Resolve(col.AttributePath!)?.CrateDbName
+                     ?? EngineColumnName(col.AttributePath!);
+        return row.Values.TryGetValue($"{column}_{AggregationMapper.EngineResultToken(col.Function)}", out var value)
+            ? value
+            : null;
     }
 
     /// <summary>
@@ -565,17 +568,6 @@ public sealed class StreamDataAggregationTools
     /// </summary>
     internal static string EngineColumnName(string attributePath) =>
         attributePath.Replace(".", string.Empty, StringComparison.Ordinal).ToLowerInvariant();
-
-    /// <summary>
-    ///     Engine column naming convention: <c>{Function}({attributePath})</c> from
-    ///     <see cref="AggregationColumn.ToString" />. Substitute placeholder <c>*</c> for count without path.
-    /// </summary>
-    private static string EngineColumnKey(AggregationColumnDto col)
-    {
-        var fn = AggregationMapper.ToEngineFunction(col.Function);
-        var path = string.IsNullOrWhiteSpace(col.AttributePath) ? "*" : col.AttributePath;
-        return $"{fn}({path})";
-    }
 
     // ── Persisted stream-data executors ──────────────────────────────────────────────────────
 

@@ -375,7 +375,7 @@ public class PersistedQueryToolsTests : TestBase
             [
                 new StreamDataRow
                 {
-                    Values = new Dictionary<string, object?> { ["Sum(Power)"] = 500.0 }
+                    Values = new Dictionary<string, object?> { ["power_sum"] = 500.0 }
                 }
             ],
             TotalCount = 1
@@ -580,7 +580,7 @@ public class PersistedQueryToolsTests : TestBase
                 new StreamDataRow
                 {
                     Timestamp = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
-                    Values = new Dictionary<string, object?> { ["Average(Power)"] = 50.0 }
+                    Values = new Dictionary<string, object?> { ["power_avg"] = 50.0 }
                 }
             ],
             TotalCount = 1
@@ -600,5 +600,60 @@ public class PersistedQueryToolsTests : TestBase
         result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
         result.QuerySubtype.Should().Be(nameof(RtDownsamplingSdQuery));
         result.Rows.Should().NotBeNull().And.HaveCount(1);
+        result.Rows![0]["avg_Power"].Should().Be(50.0);
+    }
+
+    // AB#5346 repro shape (h24, GroupingAggregationSdQuery ec0000000000000000000a22): group by obisCode and
+    // amount.unit, SUM amount.value. The engine keys group columns by storage name and the sum by
+    // "{column}_sum"; the response keys them by the logical paths and the alias.
+    [Fact]
+    public async Task ExecuteStreamDataQuery_GroupingSubtype_ReadsTheEngineKeys()
+    {
+        WireStreamDataMocks();
+        var grouping = new RtGroupingAggregationSdQuery
+        {
+            QueryCkTypeId = SensorCkType.ToString(),
+            ArchiveRtId = ArchiveRtId
+        };
+        grouping.GroupingColumns = new AttributeStringValueList(["obisCode", "amount.unit"]);
+        grouping.Columns.Add(new RtAggregationQueryColumnRecord
+        {
+            AttributePath = "amount.value",
+            AggregationType = RtAggregationTypesEnum.Sum
+        });
+
+        MockTenantRepository
+            .Setup(r => r.GetRtEntityByRtIdAsync<RtStreamDataQuery>(
+                It.IsAny<IOctoSession>(), It.IsAny<OctoObjectId>()))
+            .ReturnsAsync(grouping);
+
+        _streamRepo
+            .Setup(r => r.ExecuteGroupedAggregationQueryAsync(It.IsAny<OctoObjectId>(),
+                It.IsAny<StreamDataGroupedAggregationQueryOptions>()))
+            .ReturnsAsync(new StreamDataQueryResult
+            {
+                Rows =
+                [
+                    new StreamDataRow
+                    {
+                        Values = new Dictionary<string, object?>
+                        {
+                            ["obiscode"] = "1-1:2.9.0 G.01T",
+                            ["amountunit"] = "KWh",
+                            ["amountvalue_sum"] = 3341.56
+                        }
+                    }
+                ],
+                TotalCount = 1
+            });
+
+        var result = await StreamDataAggregationTools.ExecuteStreamDataQuery(
+            MockServer.Object, QueryRtId);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        result.Rows.Should().NotBeNull().And.HaveCount(1);
+        result.Rows![0]["obisCode"].Should().Be("1-1:2.9.0 G.01T");
+        result.Rows[0]["amount.unit"].Should().Be("KWh");
+        result.Rows[0]["sum_amount_value"].Should().Be(3341.56);
     }
 }
