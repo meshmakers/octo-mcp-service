@@ -91,6 +91,27 @@ internal static class AggregationMapper
     }
 
     /// <summary>
+    ///     Stream-data queries count the non-null values of a column; the archive has no row-count without a
+    ///     column, and the engine refuses a blank path as an unknown column ('*'). AB#5346: refuse it here with a
+    ///     message that says what to do instead. Runtime aggregations keep 'count' without a path.
+    /// </summary>
+    public static string? ValidateStreamDataColumns(IReadOnlyList<AggregationColumnDto> aggregations)
+    {
+        for (var i = 0; i < aggregations.Count; i++)
+        {
+            if (string.IsNullOrWhiteSpace(aggregations[i].AttributePath))
+            {
+                return
+                    $"aggregations[{i}].attributePath is required: stream-data 'count' counts the non-null values " +
+                    "of a column. Count the measured attribute (e.g. 'Amount.Value'), or 'rtId' to count rows " +
+                    "of a raw archive.";
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     ///     The integral is computed over the query window, so a request with an <c>integral</c> column needs both
     ///     <c>from</c> and <c>to</c> (AB#7919). Returns null on success or a human-readable error message.
     /// </summary>

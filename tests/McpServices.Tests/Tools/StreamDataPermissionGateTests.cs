@@ -179,7 +179,7 @@ public class StreamDataPermissionGateTests : TestBase
 
         var result = await StreamDataAggregationTools.QueryAggregation(
             MockServer.Object, ArchiveRtId,
-            [new() { Function = AggregationFunctionDto.count }]);
+            [new() { Function = AggregationFunctionDto.count, AttributePath = "Power" }]);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Be(ExpectedRefusal);

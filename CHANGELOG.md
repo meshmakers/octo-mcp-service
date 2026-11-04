@@ -34,6 +34,15 @@
 
 ### Fixed
 
+- AB#5346: the stream-data aggregation tools (`query_stream_data_aggregation`, `_grouping`, `_downsampling` and
+  `execute_stream_data_query`) read only the engine's real result keys: group columns by storage name (`obiscode`,
+  `amountunit`), aggregations as `{column}_{function}` (`amountvalue_sum`, `amountvalue_count`). The values themselves
+  were fixed with AB#7919; the `{Function}({path})` fallback, a key no engine version writes, is removed. A stream-data
+  `count` without `attributePath` is refused up front with a message naming the alternative (count the measured
+  attribute, or `rtId` for raw rows); before, the engine refused it as the unknown column `'*'`. Runtime aggregations
+  keep `count` without a path. Tests mock the real engine keys, including COUNT on the dotted mixed-case path
+  `Amount.Value`.
+
 - AB#8043: the generic-create refusal (AB#7119) looked the type up with its full id (`Model-x.y.z/Type-n`), which
   the CK cache does not key by, so it never fired; it now looks up the runtime id. With it, `create_entity` refuses a
   new `System.Identity/User` (`GENERIC_CREATE_REPLACED_BY_METHOD`, method `User.CreateUser-1`).

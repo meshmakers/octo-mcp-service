@@ -422,8 +422,10 @@ Stream-data aggregation results come back as `StreamDataRow` instances with `Val
 camelCase for built-ins such as `rtId`). `EngineValue` inside `StreamDataAggregationTools` rebuilds that key (resolver from the archive
 snapshot, fallback `EngineColumnName` = the engine's `ColumnNameMapper` rule) and writes the value under the alias from
 `AggregationMapper.DeriveAlias`; group-key columns are read the same way. Before AB#7919 the tools looked up only `{Function}({path})`
-(the `ToString()` of `AggregationColumn`), a key the engine never writes, so every stream-data aggregation value came back null; that key is
-still tried as a fallback.
+(the `ToString()` of `AggregationColumn`), a key the engine never writes, so every stream-data aggregation value came back null; AB#5346
+removed that fallback, test mocks use the real keys (`obiscode`, `amountvalue_count`). Stream-data `count` needs an `attributePath`
+(`AggregationMapper.ValidateStreamDataColumns`): the archive counts non-null values of a column and the engine refuses a blank path as the
+unknown column `'*'`; runtime aggregations keep `count` without a path.
 
 ### `StreamDataContext` resolves the four-stage cascade
 

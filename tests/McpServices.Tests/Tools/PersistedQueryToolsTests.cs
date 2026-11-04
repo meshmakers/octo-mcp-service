@@ -375,7 +375,7 @@ public class PersistedQueryToolsTests : TestBase
             [
                 new StreamDataRow
                 {
-                    Values = new Dictionary<string, object?> { ["Sum(Power)"] = 500.0 }
+                    Values = new Dictionary<string, object?> { ["power_sum"] = 500.0 }
                 }
             ],
             TotalCount = 1
@@ -580,7 +580,7 @@ public class PersistedQueryToolsTests : TestBase
                 new StreamDataRow
                 {
                     Timestamp = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
-                    Values = new Dictionary<string, object?> { ["Average(Power)"] = 50.0 }
+                    Values = new Dictionary<string, object?> { ["power_avg"] = 50.0 }
                 }
             ],
             TotalCount = 1
@@ -600,5 +600,164 @@ public class PersistedQueryToolsTests : TestBase
         result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
         result.QuerySubtype.Should().Be(nameof(RtDownsamplingSdQuery));
         result.Rows.Should().NotBeNull().And.HaveCount(1);
+        result.Rows![0]["avg_Power"].Should().Be(50.0);
+    }
+
+    // AB#5346 repro shape (h24, GroupingAggregationSdQuery ec0000000000000000000a22): group by obisCode and
+    // amount.unit, SUM amount.value. The engine keys group columns by storage name and the sum by
+    // "{column}_sum"; the response keys them by the logical paths and the alias.
+    [Fact]
+    public async Task ExecuteStreamDataQuery_GroupingSubtype_ReadsTheEngineKeys()
+    {
+        WireStreamDataMocks();
+        var grouping = new RtGroupingAggregationSdQuery
+        {
+            QueryCkTypeId = SensorCkType.ToString(),
+            ArchiveRtId = ArchiveRtId
+        };
+        grouping.GroupingColumns = new AttributeStringValueList(["obisCode", "amount.unit"]);
+        grouping.Columns.Add(new RtAggregationQueryColumnRecord
+        {
+            AttributePath = "amount.value",
+            AggregationType = RtAggregationTypesEnum.Sum
+        });
+
+        MockTenantRepository
+            .Setup(r => r.GetRtEntityByRtIdAsync<RtStreamDataQuery>(
+                It.IsAny<IOctoSession>(), It.IsAny<OctoObjectId>()))
+            .ReturnsAsync(grouping);
+
+        _streamRepo
+            .Setup(r => r.ExecuteGroupedAggregationQueryAsync(It.IsAny<OctoObjectId>(),
+                It.IsAny<StreamDataGroupedAggregationQueryOptions>()))
+            .ReturnsAsync(new StreamDataQueryResult
+            {
+                Rows =
+                [
+                    new StreamDataRow
+                    {
+                        Values = new Dictionary<string, object?>
+                        {
+                            ["obiscode"] = "1-1:2.9.0 G.01T",
+                            ["amountunit"] = "KWh",
+                            ["amountvalue_sum"] = 3341.56
+                        }
+                    }
+                ],
+                TotalCount = 1
+            });
+
+        var result = await StreamDataAggregationTools.ExecuteStreamDataQuery(
+            MockServer.Object, QueryRtId);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        result.Rows.Should().NotBeNull().And.HaveCount(1);
+        result.Rows![0]["obisCode"].Should().Be("1-1:2.9.0 G.01T");
+        result.Rows[0]["amount.unit"].Should().Be("KWh");
+        result.Rows[0]["sum_amount_value"].Should().Be(3341.56);
+    }
+
+    // CodeRabbit on #44: without an archive snapshot (a persisted query on a rollup) the tool has no field
+    // resolver. The engine's storage name of the built-in rtId is lower-case (Constants.RtId = "rtid"), so the
+    // fallback's lower-casing matches and COUNT on rtId is read from "rtid_count".
+    [Fact]
+    public async Task ExecuteStreamDataQuery_AggregationSubtype_WithoutResolver_ReadsBuiltInFieldKey()
+    {
+        WireStreamDataMocks();
+        var aggregation = new RtAggregationSdQuery
+        {
+            QueryCkTypeId = SensorCkType.ToString(),
+            ArchiveRtId = ArchiveRtId
+        };
+        aggregation.Columns.Add(new RtAggregationQueryColumnRecord
+        {
+            AttributePath = "rtId",
+            AggregationType = RtAggregationTypesEnum.Count
+        });
+        aggregation.Columns.Add(new RtAggregationQueryColumnRecord
+        {
+            AttributePath = "Amount.Value",
+            AggregationType = RtAggregationTypesEnum.Sum
+        });
+
+        MockTenantRepository
+            .Setup(r => r.GetRtEntityByRtIdAsync<RtStreamDataQuery>(
+                It.IsAny<IOctoSession>(), It.IsAny<OctoObjectId>()))
+            .ReturnsAsync(aggregation);
+        _streamRepo
+            .Setup(r => r.ExecuteAggregationQueryAsync(It.IsAny<OctoObjectId>(),
+                It.IsAny<StreamDataAggregationQueryOptions>()))
+            .ReturnsAsync(new StreamDataQueryResult
+            {
+                Rows =
+                [
+                    new StreamDataRow
+                    {
+                        Values = new Dictionary<string, object?> { ["rtid_count"] = 96L, ["amountvalue_sum"] = 12.5 }
+                    }
+                ],
+                TotalCount = 1
+            });
+
+        var result = await StreamDataAggregationTools.ExecuteStreamDataQuery(MockServer.Object, QueryRtId);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        result.Rows![0]["count_rtId"].Should().Be(96L);
+        result.Rows[0]["sum_Amount_Value"].Should().Be(12.5);
+    }
+
+    // CodeRabbit on #44: a persisted query written via generic CRUD can carry a column without a path. Every
+    // persisted stream-data executor refuses it with the attributePath message before the engine is called.
+    [Theory]
+    [InlineData(nameof(RtAggregationSdQuery))]
+    [InlineData(nameof(RtGroupingAggregationSdQuery))]
+    [InlineData(nameof(RtDownsamplingSdQuery))]
+    public async Task ExecuteStreamDataQuery_PathlessCountColumn_IsRejectedBeforeTheEngine(string subtype)
+    {
+        WireStreamDataMocks();
+        // COUNT with an empty path: what generic CRUD can persist (the CK record refuses null, not ""); the
+        // ad-hoc tools refuse the same shape.
+        var pathless = new RtAggregationQueryColumnRecord
+        {
+            AttributePath = "",
+            AggregationType = RtAggregationTypesEnum.Count
+        };
+        RtStreamDataQuery query = subtype switch
+        {
+            nameof(RtAggregationSdQuery) => new RtAggregationSdQuery
+            {
+                QueryCkTypeId = SensorCkType.ToString(), ArchiveRtId = ArchiveRtId, Columns = { pathless }
+            },
+            nameof(RtGroupingAggregationSdQuery) => new RtGroupingAggregationSdQuery
+            {
+                QueryCkTypeId = SensorCkType.ToString(), ArchiveRtId = ArchiveRtId, Columns = { pathless },
+                GroupingColumns = new AttributeStringValueList(["obisCode"])
+            },
+            _ => new RtDownsamplingSdQuery
+            {
+                QueryCkTypeId = SensorCkType.ToString(), ArchiveRtId = ArchiveRtId, Columns = { pathless }
+            }
+        };
+
+        MockTenantRepository
+            .Setup(r => r.GetRtEntityByRtIdAsync<RtStreamDataQuery>(
+                It.IsAny<IOctoSession>(), It.IsAny<OctoObjectId>()))
+            .ReturnsAsync(query);
+
+        var result = await StreamDataAggregationTools.ExecuteStreamDataQuery(
+            MockServer.Object, QueryRtId,
+            fromOverride: new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            toOverride: new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc),
+            limitOverride: 24);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("aggregations[0].attributePath is required");
+        result.QuerySubtype.Should().Be(subtype);
+        _streamRepo.Verify(r => r.ExecuteAggregationQueryAsync(
+            It.IsAny<OctoObjectId>(), It.IsAny<StreamDataAggregationQueryOptions>()), Times.Never);
+        _streamRepo.Verify(r => r.ExecuteGroupedAggregationQueryAsync(
+            It.IsAny<OctoObjectId>(), It.IsAny<StreamDataGroupedAggregationQueryOptions>()), Times.Never);
+        _streamRepo.Verify(r => r.ExecuteDownsamplingQueryAsync(
+            It.IsAny<OctoObjectId>(), It.IsAny<StreamDataDownsamplingQueryOptions>()), Times.Never);
     }
 }
