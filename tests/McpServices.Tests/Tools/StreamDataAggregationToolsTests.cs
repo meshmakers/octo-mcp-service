@@ -644,6 +644,22 @@ public class StreamDataAggregationToolsTests : TestBase
     }
 
     [Fact]
+    public async Task Downsampling_LocalDayBins_IgnoreLimit()
+    {
+        // CodeRabbit on #45: limit is ignored with local-day bins, so limit 0 must not be refused.
+        CaptureDownsampling();
+        var from = new DateTime(2026, 3, 27, 5, 0, 0, DateTimeKind.Utc);
+
+        var result = await StreamDataAggregationTools.QueryDownsampling(
+            MockServer.Object, ArchiveRtId,
+            aggregations: [new() { Function = AggregationFunctionDto.avg, AttributePath = "Power" }],
+            from: from, to: from.AddDays(3), limit: 0, timeZone: "Europe/Vienna");
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
+        _capturedOptions!.Limit.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Downsampling_EngineRefusesTheBins_ReturnsTheEngineMessage()
     {
         _mockStreamRepo

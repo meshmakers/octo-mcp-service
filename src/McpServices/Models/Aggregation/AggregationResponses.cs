@@ -185,8 +185,9 @@ public class RollupQueryMetadataResponse : AggregationResponse
     public string? BucketAlignment { get; set; }
 
     /// <summary>
-    ///     IANA time zone the calendar buckets are cut in (e.g. <c>Europe/Vienna</c>); null for a fixed-size
-    ///     rollup or a calendar rollup in UTC (AB#7362).
+    ///     IANA time zone the calendar buckets are cut in (e.g. <c>Europe/Vienna</c>), as stored on the rollup and
+    ///     returned by GraphQL <c>rollupsForArchive.referenceTimeZone</c>; null means UTC. It only takes effect with a
+    ///     calendar <see cref="BucketAlignment" />, a <c>FixedSize</c> rollup ignores it (AB#7362).
     /// </summary>
     public string? ReferenceTimeZone { get; set; }
 

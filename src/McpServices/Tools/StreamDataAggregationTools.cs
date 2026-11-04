@@ -430,7 +430,8 @@ public sealed class StreamDataAggregationTools
             };
         }
 
-        if (limit <= 0)
+        // Local-day bins ignore limit (the engine sizes them from the range), so it is only checked without them.
+        if (!bins.HasLocalDayBins && limit <= 0)
         {
             return new DownsamplingResultResponse
             {

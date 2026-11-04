@@ -232,14 +232,16 @@ public class StreamDataMetadataToolsTests : TestBase
     }
 
     [Fact]
-    public async Task GetRollupMetadata_FixedSizeRollup_HasNoZoneAndNoDayStart()
+    public async Task GetRollupMetadata_FixedSizeRollup_HasNoDayStart_AndReportsTheZoneAsStored()
     {
-        GivenDailyRollup(null, null, BucketAlignment.FixedSize);
+        // Like GraphQL rollupsForArchive: the stored zone is reported; bucketAlignment says it has no effect.
+        GivenDailyRollup("Europe/Vienna", null, BucketAlignment.FixedSize);
 
         var result = await StreamDataMetadataTools.GetRollupQueryMetadata(MockServer.Object, RollupId);
 
         result.BucketAlignment.Should().Be("FixedSize");
-        result.ReferenceTimeZone.Should().BeNull();
+        result.ReferenceTimeZone.Should().Be("Europe/Vienna");
+        result.Message.Should().NotContain("Europe/Vienna");
         result.DayStartOffset.Should().BeNull();
         result.DayStartOffsetMs.Should().BeNull();
     }

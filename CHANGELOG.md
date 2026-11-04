@@ -22,8 +22,9 @@
   `limit` is ignored; a day without values comes back with count 0 (engine AB#7360). Gas day: `Europe/Vienna`,
   `06:00`, 1 day. An invalid origin, interval or time zone returns `IsSuccess=false` with the validation message
   before any query; calls without the new parameters send the same engine options as before.
-  `get_rollup_query_metadata` returns `bucketAlignment`, `referenceTimeZone`, `dayStartOffset` (`HH:mm`) and
-  `dayStartOffsetMs` of the rollup (null for midnight days and fixed-size rollups).
+  `get_rollup_query_metadata` returns `bucketAlignment`, `referenceTimeZone` (as stored, like GraphQL
+  `rollupsForArchive`; only effective with a calendar alignment), `dayStartOffset` (`HH:mm`) and `dayStartOffsetMs`
+  (both null for midnight days).
 
 - AB#7991: `install_blueprint` and `update_blueprint` return the archive activations of the blueprint seed
   (`Result.ArchiveActivations`: per archive `Outcome` `Activated` / `SkippedPreExisting` / `SkippedOptOut` /
