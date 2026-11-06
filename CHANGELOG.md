@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- AB#8355: `execute_runtime_query` and `execute_stream_data_query` answer "not found" for a deleted persisted query.
+  The default delete archives the query (`rtState = Archived`) and the lookup by id still returned it, so a deleted
+  query kept running. Both tools now load the query with the engine's `GetActiveRtEntityByRtIdAsync`.
+
 ### Security
 
 - AB#8043: the generic CRUD, query and aggregation tools enforce the CK attribute access rules, like the asset-repo

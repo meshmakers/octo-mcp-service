@@ -8,6 +8,7 @@ using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.ConstructionKit.Models.System.Generated.System.v2;
 using Meshmakers.Octo.Runtime.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
+using Meshmakers.Octo.Runtime.Contracts.Repositories;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using ModelContextProtocol.Server;
 
@@ -70,7 +71,8 @@ public sealed class RuntimeAggregationTools
         try
         {
             var queryId = new OctoObjectId(queryRtId);
-            var rtQuery = await tenantRepository.GetRtEntityByRtIdAsync<RtPersistentQuery>(session, queryId);
+            // AB#8355: a deleted (archived) query is not found; the plain lookup by id returns archived entities too.
+            var rtQuery = await tenantRepository.GetActiveRtEntityByRtIdAsync<RtPersistentQuery>(session, queryId);
             if (rtQuery == null)
             {
                 return new PersistedRuntimeQueryResponse

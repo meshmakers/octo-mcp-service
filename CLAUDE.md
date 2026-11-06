@@ -243,6 +243,8 @@ equality oracle, and `update_entity` wrote `securityStamp` / `twoFactorEnabled`.
   `Sorting`, `Columns`, `GroupingColumns` or `AttributeSearchFilter` reach a Hidden attribute of its `QueryCkTypeId` is not
   stored by `create_entity` / `update_entity` (checked on the effective entity after the assignment, transaction aborted)
   and not run by `execute_runtime_query` (AB#8049 parity: the repository applies a stored filter as it is).
+- **Deleted stored queries (AB#8355).** `execute_runtime_query` and `execute_stream_data_query` load the query with the
+  engine's `GetActiveRtEntityByRtIdAsync`: a deleted (archived) query answers "not found" like a missing one.
 - **Writes — `FindNotWritable`.** `create_entity`, `create_entity_with_secrets`, `update_entity` and `set_entity_secrets`
   (entity data, secrets and `clearSecretAttributes`) refuse `Hidden` and `MethodOnly`, and `ReadOnly` on update
   (`AttributeAccess.IsGenericallyWritable(access, isCreate)`; every path segment counts), with `ATTRIBUTE_NOT_WRITABLE`.
@@ -488,13 +490,13 @@ When adding a new engine operator, extend the DTO + both switches + add a `[Theo
 
 These two tools execute a *stored* query entity by RtId. The pattern is: load the entity, dispatch on its CK subtype, build the engine-side query options from the persisted state, optionally merge in runtime overrides, execute, project the result.
 
-- **Loading**: `ITenantRepository.GetRtEntityByRtIdAsync<RtPersistentQuery>` / `<RtStreamDataQuery>` — the generic GetRtEntity overload uses the entity's CK type from its base, so callers don't have to thread a `ckTypeId` separately.
+- **Loading**: `tenantRepository.GetActiveRtEntityByRtIdAsync<RtPersistentQuery>` / `<RtStreamDataQuery>` (engine extension, AB#8355) — returns `null` for a missing or deleted (archived) query; the generic overload uses the entity's CK type from its base, so callers don't have to thread a `ckTypeId` separately.
 - **Dispatch on CK subtype** (using `switch` on runtime type, mirroring the GraphQL resolver):
   - Runtime side: `RtSimpleRtQuery` → entity DTOs filtered to the persisted `Columns` list (reuses `RuntimeEntityCrudTools.FilterAttributes` for nested record/sub-path support); `RtAggregationRtQuery` → scalar projection via `AggregationInput.AggregateResult`; `RtGroupingAggregationRtQuery` → grouped projection via `AggregateFieldGroupBy`.
   - Stream side: `RtSimpleSdQuery` / `RtAggregationSdQuery` / `RtGroupingAggregationSdQuery` / `RtDownsamplingSdQuery` map to the four `IStreamDataRepository.Execute*Async` methods. The persisted `ArchiveRtId` is read off the entity — no separate argument.
 - **CK enum → MCP enum**: `AggregationMapper.MapCkAggregationName` translates the CK `AggregationTypes` enum string names (`Count`/`Sum`/`Average`/`Minimum`/`Maximum`, plus the short forms `Avg`/`Min`/`Max`) to `AggregationFunctionDto`. The persisted aggregation columns then go through the same `ApplyToAggregationInput` / `ToEngineColumns` helpers as the transient tools — the projection layer doesn't need to know whether the columns came from a runtime arg or a persisted entity.
 - **Runtime overrides**: `extraFilters` is AND-combined with the persisted `FieldFilter` for both tools. Stream-data adds `fromOverride` / `toOverride` / `limitOverride` / `sourceRtIdsOverride` — each falls back to the persisted value when omitted. The merge semantics (extra AND persisted) mirror `StreamDataQueryDtoType.MergeFilters` in asset-repo-services so the studio's runtime-arg behavior is preserved across both APIs.
-- **Pre-SDK validation**: empty queryRtId, entity not found, missing ArchiveRtId on stream queries, empty `GroupingColumns` on grouped subtypes, and downsampling-specific `from < to` + positive `limit` requirements all surface as `IsSuccess=false` with an actionable message.
+- **Pre-SDK validation**: empty queryRtId, entity not found (a deleted query included), missing ArchiveRtId on stream queries, empty `GroupingColumns` on grouped subtypes, and downsampling-specific `from < to` + positive `limit` requirements all surface as `IsSuccess=false` with an actionable message.
 
 The response envelope `PersistedRuntimeQueryResponse` / `PersistedStreamDataQueryResponse` discriminates by `QuerySubtype` so the AI client knows whether `Entities` (simple) or `Rows` (aggregation) carries the payload.
 
