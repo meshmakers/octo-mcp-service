@@ -243,6 +243,8 @@ equality oracle, and `update_entity` wrote `securityStamp` / `twoFactorEnabled`.
   `Sorting`, `Columns`, `GroupingColumns` or `AttributeSearchFilter` reach a Hidden attribute of its `QueryCkTypeId` is not
   stored by `create_entity` / `update_entity` (checked on the effective entity after the assignment, transaction aborted)
   and not run by `execute_runtime_query` (AB#8049 parity: the repository applies a stored filter as it is).
+- **Deleted stored queries (AB#8355).** `execute_runtime_query` and `execute_stream_data_query` load the query with the
+  engine's `GetActiveRtEntityByRtIdAsync`: a deleted (archived) query answers "not found" like a missing one.
 - **Writes — `FindNotWritable`.** `create_entity`, `create_entity_with_secrets`, `update_entity` and `set_entity_secrets`
   (entity data, secrets and `clearSecretAttributes`) refuse `Hidden` and `MethodOnly`, and `ReadOnly` on update
   (`AttributeAccess.IsGenericallyWritable(access, isCreate)`; every path segment counts), with `ATTRIBUTE_NOT_WRITABLE`.

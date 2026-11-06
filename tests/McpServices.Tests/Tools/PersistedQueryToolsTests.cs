@@ -56,6 +56,33 @@ public class PersistedQueryToolsTests : TestBase
         result.QueryRtId.Should().Be(QueryRtId);
     }
 
+    /// <summary>
+    ///     AB#8355: the default delete archives a query (rtState = Archived); the lookup by id still returns it.
+    ///     The tool must report it as not found and must not execute it.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteRuntimeQuery_DeletedQuery_ReturnsNotFound_AndDoesNotExecuteIt()
+    {
+        var deleted = new RtSimpleRtQuery { QueryCkTypeId = SensorCkType.ToString(), RtState = RtState.Archived };
+        deleted.Columns.Add("Power");
+        MockTenantRepository
+            .Setup(r => r.GetRtEntityByRtIdAsync<RtPersistentQuery>(
+                It.IsAny<IOctoSession>(), It.IsAny<OctoObjectId>()))
+            .ReturnsAsync(deleted);
+
+        var result = await RuntimeAggregationTools.ExecuteRuntimeQuery(
+            MockServer.Object, QueryRtId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be($"Persisted query '{QueryRtId}' not found.");
+        MockTenantRepository.Verify(r => r.GetRtEntitiesByTypeAsync(
+            It.IsAny<IOctoSession>(),
+            It.IsAny<RtCkId<CkTypeId>>(),
+            It.IsAny<RtEntityQueryOptions>(),
+            It.IsAny<int?>(),
+            It.IsAny<int?>()), Times.Never);
+    }
+
     [Fact]
     public async Task ExecuteRuntimeQuery_SimpleSubtype_ReturnsEntitiesProjectedToColumns()
     {
@@ -283,6 +310,34 @@ public class PersistedQueryToolsTests : TestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("not found");
+    }
+
+    /// <summary>
+    ///     AB#8355: a deleted (archived) stream-data query is not found and the archive is never queried.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteStreamDataQuery_DeletedQuery_ReturnsNotFound_AndDoesNotQueryTheArchive()
+    {
+        WireStreamDataMocks();
+        var deleted = new RtSimpleSdQuery
+        {
+            QueryCkTypeId = SensorCkType.ToString(),
+            ArchiveRtId = ArchiveRtId,
+            RtState = RtState.Archived
+        };
+        deleted.Columns.Add("Power");
+        MockTenantRepository
+            .Setup(r => r.GetRtEntityByRtIdAsync<RtStreamDataQuery>(
+                It.IsAny<IOctoSession>(), It.IsAny<OctoObjectId>()))
+            .ReturnsAsync(deleted);
+
+        var result = await StreamDataAggregationTools.ExecuteStreamDataQuery(
+            MockServer.Object, QueryRtId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be($"Persisted stream-data query '{QueryRtId}' not found.");
+        _streamRepo.Verify(r => r.ExecuteQueryAsync(It.IsAny<OctoObjectId>(),
+            It.IsAny<StreamDataQueryOptions>()), Times.Never);
     }
 
     [Fact]
