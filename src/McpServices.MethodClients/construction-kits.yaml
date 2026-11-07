@@ -1,0 +1,7 @@
+"$schema": "https://schemas.meshmakers.cloud/construction-kit-meta.schema.json"
+# AB#8440: the source generator (Meshmakers.Octo.Sdk.SourceGeneration) emits the System.Identity DTOs and the CK method
+# client RtUserMethodClient from this range; the role tools call User.AddRole / User.RemoveRole through it.
+# 3.2.0 is the first System.Identity version with all User methods of identity wave 1 (octo-sdk
+# docs/method-client-migration-guide.md, "Identity wave 1").
+imports:
+  - System.Identity-[3.2,4.0)
