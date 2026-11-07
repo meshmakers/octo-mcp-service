@@ -1140,6 +1140,7 @@ src/McpServices/
     ├── ClientManagementTools.cs / IdentityProviderTools.cs
     ├── ApiResourceTools.cs / ApiScopeTools.cs / ApiSecretTools.cs
     ├── EmailDomainGroupRuleTools.cs / ExternalTenantUserMappingTools.cs / AdminProvisioningTools.cs
+    ├── CrossTenantGrantPermissionTools.cs (AB#8346: source-tenant allow-list)
     ├── BlueprintTools.cs / CkModelLibraryTools.cs
     ├── CommunicationLifecycleTools.cs / AdapterTools.cs / PipelineTools.cs
     ├── DataFlowTriggerPoolTools.cs / WorkloadTools.cs
