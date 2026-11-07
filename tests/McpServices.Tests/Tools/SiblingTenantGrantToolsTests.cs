@@ -289,6 +289,7 @@ public class SiblingTenantGrantToolsTests : ToolTestBase
     [Theory]
     [InlineData("lookup_source_tenant_user", McpRiskLevel.Medium)]
     [InlineData("create_external_tenant_user_mapping", McpRiskLevel.High)]
+    [InlineData("update_external_tenant_user_mapping", McpRiskLevel.High)]
     [InlineData("delete_external_tenant_user_mapping", McpRiskLevel.High)]
     [InlineData("set_cross_tenant_grant_permissions", McpRiskLevel.High)]
     [InlineData("get_cross_tenant_grant_permissions", McpRiskLevel.Low)]

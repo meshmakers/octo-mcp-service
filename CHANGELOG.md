@@ -15,8 +15,9 @@
 
 ### Changed
 
-- AB#8346: `create_external_tenant_user_mapping` and `delete_external_tenant_user_mapping` are **High** risk (were
-  Medium): they grant and remove access of users of other tenants. Workers that cached the risk registry pick it up at
+- AB#8346: `create_external_tenant_user_mapping`, `update_external_tenant_user_mapping` and
+  `delete_external_tenant_user_mapping` are **High** risk (were Medium): they grant, change the roles of and remove
+  access of users of other tenants. Workers that cached the risk registry pick it up at
   the next session start.
 - AB#8440: `add_user_to_role` and `remove_user_from_role` call the CK methods `System.Identity/User.AddRole-1` and
   `User.RemoveRole-1` through the generated `RtUserMethodClient` instead of the REST methods `AddRoleToUser` /

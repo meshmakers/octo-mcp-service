@@ -201,7 +201,7 @@ _Low=2 · Medium=3_  ·  **Owner reviewed:** ☐
 
 ### ExternalTenantUserMappingTools (6 tools)
 
-_High=2 · Low=2 · Medium=2_  ·  **Owner reviewed:** ☑ (AB#8346)
+_High=3 · Low=2 · Medium=1_  ·  **Owner reviewed:** ☑ (AB#8346)
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
@@ -209,7 +209,7 @@ _High=2 · Low=2 · Medium=2_  ·  **Owner reviewed:** ☑ (AB#8346)
 | `get_external_tenant_user_mapping` | **L** | |
 | `lookup_source_tenant_user` | **M** | AB#8346: reveals that an identity exists in another tenant (exact match only, rate-limited, audited) |
 | `create_external_tenant_user_mapping` | **H** | AB#8346: grants a user of another tenant (sibling tenants included) access with groups; raised from M |
-| `update_external_tenant_user_mapping` | **M** | |
+| `update_external_tenant_user_mapping` | **H** | AB#8346: changes the roles a user of another tenant holds (privilege change, same blast radius as create/delete); raised from M |
 | `delete_external_tenant_user_mapping` | **H** | AB#8346: removes a grant (revocation at the next exchange); raised from M, keeps `confirm=true` |
 
 ### CrossTenantGrantPermissionTools (2 tools)

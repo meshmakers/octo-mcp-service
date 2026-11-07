@@ -234,7 +234,7 @@ public sealed class ExternalTenantUserMappingTools
 
     /// <summary>Update the role assignments on a mapping.</summary>
     [McpServerTool(Name = "update_external_tenant_user_mapping")]
-    [McpRisk(McpRiskLevel.Medium)]
+    [McpRisk(McpRiskLevel.High)]
     [Description("Update the role assignments on an external tenant user mapping. Equivalent to octo-cli UpdateExternalTenantUserMapping.")]
     public static async Task<ExternalTenantUserMappingResponse> UpdateMapping(
         McpServer server,
