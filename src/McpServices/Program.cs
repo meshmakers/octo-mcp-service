@@ -136,6 +136,9 @@ try
     builder.Services.AddSingleton<IHostAddressResolver, SystemDnsResolver>();
     builder.Services.AddSingleton<KnowledgeUrlPolicy>();
     builder.Services.AddSingleton<IKnowledgeUrlFetcher, KnowledgeUrlFetcher>();
+    // AB#8475: content guard of knowledge page writes (credentials, PEM, JWT, high-entropy tokens, tenant secrets).
+    builder.Services.AddSingleton<Meshmakers.Octo.Backend.McpServices.ContentGuard.IContentGuard,
+        Meshmakers.Octo.Backend.McpServices.ContentGuard.ContentGuard>();
     builder.Services.AddSingleton<IGitHubRepoApiClient, GitHubRepoApiClient>();
     // M3 B-2c-schema-availability — runtime GraphQL introspection client. Uses the
     // existing "identity" named HttpClient (already configured for the self-signed
