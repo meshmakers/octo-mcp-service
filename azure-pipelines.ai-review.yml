@@ -3,9 +3,8 @@
 # request diff through the GitHub API, runs a fresh review model session and posts ONE COMMENT review with inline findings
 # as the GitHub App meshmakers-review-bot, plus a "would approve / would not approve" verdict. It never approves.
 #
-# STATE: file only. The Azure DevOps pipeline definition for this file is NOT created yet and stays disabled until the
-# credentials exist (AB#8504: GitHub App + Vault paths + variable group "ai-review"); a maintainer creates/enables it
-# (steps: octo-pipeline-templates README, section "AI review", "Enable"). The template tag below is the planned one.
+# Enablement: the Azure DevOps pipeline definition for this file needs the credentials of AB#8504 (GitHub App, Vault paths,
+# variable group "ai-review"); a maintainer creates/enables it (octo-pipeline-templates README, section "AI review", "Enable").
 #
 # Kill switch without a PR: variable AI_REVIEW_MODE=off (global) or AI_REVIEW_MODE_OCTO_MCP_SERVICE=off in the group "ai-review".
 
@@ -26,7 +25,7 @@ resources:
       type: github
       name: meshmakers/octo-pipeline-templates
       endpoint: meshmakers-access-token
-      ref: refs/tags/tpl-v1.14.0     # planned tag of AB#8506; the file is inert until the tag exists
+      ref: refs/tags/tpl-v1.14.0     # template tag of AB#8506
 
 variables:
   - group: ai-review                 # AiReviewVaultAddr, AiReviewVaultRoleId, AiReviewVaultSecretId, kill-switch variables
