@@ -187,9 +187,10 @@ dotnet run
 - AI Services (2): `enable_ai` · `disable_ai`<sup>‡</sup> (AB#7192)
 - Diagnostics (1): `reconfigure_log_level` (dispatches to Identity/AssetRepository/Communication/Reporting/Bot)
 
-### **File I/O** (16 tools + 2 HTTP endpoints)
+### **File I/O** (17 tools + 2 HTTP endpoints)
 - Foundation: `prepare_file_upload` · `cancel_file_transfer`
 - CK Model Imports: `import_ck_model` · `import_runtime_model`
+- CK Model Validation: `validate_ck_model` (AB#8492, Risk Low: a zipped source `ConstructionKit/` folder or a compiled model is compiled and checked against the tenant's installed models; returns `isValid` or errors with `messageNumber`, `file`, `elementPath`; nothing is imported, the upload is kept)
 - CK Model Exports: `export_runtime_model_by_query` · `export_runtime_model_by_deep_graph`
 - Tenant Backup: `dump_tenant` · `restore_tenant`<sup>‡</sup>
 - Archive Data: `export_archive_data` · `import_archive_data`
