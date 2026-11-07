@@ -6,6 +6,11 @@
 # Enablement: the Azure DevOps pipeline definition for this file needs the credentials of AB#8504 (GitHub App, Vault paths,
 # variable group "ai-review"); a maintainer creates/enables it (octo-pipeline-templates README, section "AI review", "Enable").
 #
+#
+# CI convention exception (granted by design, Odin/CPO, Feature AB#8503, concept docs/CONCEPT-AI-REVIEW-BOT.md in
+# meshmakers-infrastructure): unlike the CI pipelines this one is PR-only, runs on the dedicated "ai-review" pool so it never
+# takes a CI slot, and produces no artefacts or releases. Hence: no CI trigger, no release parameter block and its own
+# build-number format (ai-review-<date>).
 # Kill switch without a PR: variable AI_REVIEW_MODE=off (global) or AI_REVIEW_MODE_OCTO_MCP_SERVICE=off in the group "ai-review".
 
 name: ai-review-$(Date:yyyyMMdd)$(Rev:.r)
