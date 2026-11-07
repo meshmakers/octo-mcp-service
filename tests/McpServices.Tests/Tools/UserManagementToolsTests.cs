@@ -174,7 +174,16 @@ public class UserManagementToolsTests : ToolTestBase
             .Throws(new QlQueryErrorException(message, [error]));
     }
 
-    private string SentVariables() => JsonSerializer.Serialize(_methodRequests.Single().Variables);
+    /// <summary>
+    ///     Asserts the variables of the single method call field by field: <c>$rtId</c> is the target user and
+    ///     <c>$input.roleName</c> the role (wire names of the generated documents, <c>rtId: $rtId, input: $input</c>).
+    /// </summary>
+    private void AssertSentTarget(string expectedRtId, string expectedRoleName)
+    {
+        var variables = JsonSerializer.SerializeToElement(_methodRequests.Single().Variables);
+        variables.GetProperty("rtId").GetString().Should().Be(expectedRtId);
+        variables.GetProperty("input").GetProperty("roleName").GetString().Should().Be(expectedRoleName);
+    }
 
     [Fact]
     public async Task AddUserToRole_HappyPath_CallsUserAddRoleMethod()
@@ -191,8 +200,8 @@ public class UserManagementToolsTests : ToolTestBase
         MockIdentityClient.Verify(c => c.GetUserByNameEmailOrId("alice"), Times.Once);
         MockClientFactory.Verify(f => f.CreateTenantClient(DefaultTenantId, It.IsAny<string>()), Times.Once);
         var request = _methodRequests.Single();
-        request.Query.Should().Be(RtUserMethodClient.AddRoleDocument);
-        SentVariables().Should().Contain(AliceRtId).And.Contain("\"Admins\"");
+        request.Query.Should().Be(RtUserMethodClient.AddRoleDocument).And.Contain("rtId: $rtId").And.Contain("input: $input");
+        AssertSentTarget(AliceRtId, "Admins");
     }
 
     [Fact]
@@ -294,7 +303,7 @@ public class UserManagementToolsTests : ToolTestBase
         result.User.Should().Be("alice");
         result.Message.Should().Be("User 'alice' removed from role 'Admins'.");
         _methodRequests.Single().Query.Should().Be(RtUserMethodClient.RemoveRoleDocument);
-        SentVariables().Should().Contain(AliceRtId).And.Contain("\"Admins\"");
+        AssertSentTarget(AliceRtId, "Admins");
     }
 
     [Theory]
