@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- AB#8440: generated CK method clients of the MCP service. The CK restore (MsBuildTasks) loads the models named in
+         construction-kits.yaml, and the SDK source generator emits their DTOs and CK method clients (RtUserMethodClient)
+         into Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.*. A project of its own because the
+         generated public types carry no XML documentation and McpServices builds its documentation file with warnings
+         as errors. Same pattern as octo-cli src/GraphQlDtos. -->
+    <PropertyGroup>
+        <AssemblyName>Meshmakers.Octo.Backend.McpServices.MethodClients</AssemblyName>
+        <RootNamespace>Meshmakers.Octo.Backend.McpServices.MethodClients</RootNamespace>
+        <Configurations>Debug;Release;DebugL</Configurations>
+        <Platforms>AnyCPU</Platforms>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Meshmakers.Octo.ConstructionKit.MsBuildTasks" Version="$(OctoCoreLibVersion)" PrivateAssets="all"/>
+        <PackageReference Include="Meshmakers.Octo.Sdk.SourceGeneration" Version="$(OctoCoreLibVersion)" OutputItemType="Analyzer" ReferenceOutputAssembly="false" PrivateAssets="all"/>
+        <PackageReference Include="Meshmakers.Octo.Sdk.ServiceClient" Version="$(OctoCoreLibVersion)"/>
+    </ItemGroup>
+</Project>

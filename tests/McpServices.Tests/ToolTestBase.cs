@@ -2,6 +2,7 @@ using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Sdk.ServiceClient.AiServices;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.StreamData;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.System;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants;
 using Meshmakers.Octo.Sdk.ServiceClient.BotServices;
 using Meshmakers.Octo.Sdk.ServiceClient.CommunicationControllerServices;
 using Meshmakers.Octo.Sdk.ServiceClient.IdentityServices;
@@ -50,6 +51,12 @@ public abstract class ToolTestBase : TestBase
     /// <summary>Mocked Bot SDK client returned by the factory for the current test.</summary>
     protected Mock<IBotServicesClient> MockBotClient { get; }
 
+    /// <summary>
+    ///     Mocked tenant GraphQL client returned by the factory for the current test; CK method clients (AB#8440) send
+    ///     their mutations through it.
+    /// </summary>
+    protected Mock<ITenantClient> MockTenantClient { get; }
+
     /// <summary>File-transfer store — real instance, in-memory. Internal because the store type is internal.</summary>
     internal FileTransferStore FileTransferStore { get; }
 
@@ -71,6 +78,7 @@ public abstract class ToolTestBase : TestBase
         MockReportingClient = new Mock<IReportingServicesClient>();
         MockBotClient = new Mock<IBotServicesClient>();
         MockAiClient = new Mock<IAiServicesClient>();
+        MockTenantClient = new Mock<ITenantClient>();
         FileTransferStore = new FileTransferStore();
 
         // Factory hands out the per-test mocks regardless of which tenant the tool requests.
@@ -95,6 +103,9 @@ public abstract class ToolTestBase : TestBase
         MockClientFactory
             .Setup(f => f.CreateAiClient(It.IsAny<string>(), It.IsAny<string>()))
             .Returns(MockAiClient.Object);
+        MockClientFactory
+            .Setup(f => f.CreateTenantClient(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(MockTenantClient.Object);
 
         // Default cross-tenant exchange (AB#4338): hands back the SAME token for any target tenant. The
         // default session token is a JWT homed in DefaultTenantId (see GivenAuthenticated), so any test

@@ -34,6 +34,19 @@ internal sealed class OctoServiceClientFactory : IOctoServiceClientFactory
         return new AssetServicesClient(options, MakeToken(accessToken));
     }
 
+    public ITenantClient CreateTenantClient(string tenantId, string accessToken)
+    {
+        var endpoint = RequireUrl(_urlOptions.Value.AssetServiceUrl, nameof(OctoServiceUrlOptions.AssetServiceUrl));
+
+        var options = new TenantClientOptions
+        {
+            EndpointUri = endpoint,
+            TenantId = tenantId
+        };
+
+        return new TenantClient(options, MakeToken(accessToken));
+    }
+
     public IIdentityServicesClient CreateIdentityClient(string tenantId, string accessToken)
     {
         var endpoint = RequireUrl(_urlOptions.Value.IdentityServiceUrl, nameof(OctoServiceUrlOptions.IdentityServiceUrl));

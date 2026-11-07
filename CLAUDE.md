@@ -23,7 +23,7 @@ dotnet build src/McpServices/McpServices.csproj -c DebugL
 # Build the entire solution (server + tests + resources)
 dotnet build Octo.McpServices.sln -c DebugL
 
-# Run all tests (currently 1277, ~2 s)
+# Run all tests (currently 1329, ~2 s)
 dotnet test Octo.McpServices.sln -c DebugL
 
 # Filter tests by class
@@ -74,6 +74,33 @@ Six context helpers exist in `src/McpServices/Services/`:
 | `StreamDataClientContext` | `IStreamDataServicesClient` | per-tenant (`{tenantId}/v1`) — AB#4287, was `api/v1` |
 | `ReportingClientContext` | `IReportingServicesClient` | per-tenant (`{tenantId}/v1`) — AB#4287, no system fallback |
 | `BotClientContext` | `IBotServicesClient` | system-scoped |
+
+### 2a. CK method calls (generated method clients, AB#8440)
+
+Operations that moved from REST to CK methods (CK v2 Phase 5, octo-sdk `docs/method-client-migration-guide.md`) are
+called through a **generated CK method client**, not through a REST method marked `[Obsolete]` (`CS0618` breaks the build).
+
+- The clients are generated in `src/McpServices.MethodClients` (namespace
+  `Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.*`): `construction-kits.yaml` imports the model
+  range (today `System.Identity-[3.2,4.0)`), `Meshmakers.Octo.ConstructionKit.MsBuildTasks` restores it and
+  `Meshmakers.Octo.Sdk.SourceGeneration` emits the DTOs and `Rt{Type}MethodClient`. A project of its own because the
+  generated public types carry no XML docs (CS1591 in `McpServices`). Add a model range there, never in `McpServices`.
+- Build the tenant GraphQL client with `IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true)`
+  (`ctx.TenantClient`, same token as `ctx.Client`; factory method `IOctoServiceClientFactory.CreateTenantClient`, asset
+  repository endpoint `tenants/{tenantId}/GraphQL`).
+- Methods address an entity by **rtId**; tools that take a user name or e-mail resolve it first
+  (`GetUserByNameEmailOrId` → `UserDto.UserId`).
+- Declared errors come back as the result (`!result.IsSuccess`, codes in `Rt{Type}MethodClient.{Method}Errors`): map them
+  to a readable `ErrorMessage`. Platform errors (`METHOD_FORBIDDEN`, `METHOD_TARGET_NOT_FOUND`, …) are thrown as
+  `CkMethodCallException`; report `"{Code}: {service message}"`.
+- Tests mock `ToolTestBase.MockTenantClient` (`SendMutationAsync<It.IsAnyType>`): success answer, every declared error,
+  one platform error — see `UserManagementToolsTests` (role tools).
+
+| Tool | CK method | Still REST |
+|------|-----------|------------|
+| `add_user_to_role` | `System.Identity/User.AddRole-1` | — |
+| `remove_user_from_role` | `System.Identity/User.RemoveRole-1` | — |
+| `create_user`, `reset_user_password` | — | until the password methods run on every cluster (AB#8418) |
 
 For `Bot` system-scoped one-offs (e.g., `reconfigure_log_level` dispatch), grab it via `server.Services.GetRequiredService<IOctoServiceClientFactory>()` directly — there is no helper because the call sites are too few.
 

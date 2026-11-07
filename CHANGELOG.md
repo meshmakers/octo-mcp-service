@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Changed
+
+- AB#8440: `add_user_to_role` and `remove_user_from_role` call the CK methods `System.Identity/User.AddRole-1` and
+  `User.RemoveRole-1` through the generated `RtUserMethodClient` instead of the REST methods `AddRoleToUser` /
+  `RemoveRoleFromUser`, which octo-sdk marks `[Obsolete]` (AB#8416). Tool names, parameters and success output are
+  unchanged. The client is generated in the new project `src/McpServices.MethodClients` from
+  `System.Identity-[3.2,4.0)` (`construction-kits.yaml`); the tools resolve the user name or e-mail to the user's rtId
+  first (so an e-mail address now works for both tools). Error texts: `Role with name '…' not found.`,
+  `User '…' already has role '…'.`, `User '…' doesn't have role '…' as a direct role.` (a role held only through a group
+  is reported, before the REST call answered success without a change), platform errors as `{Code}: {message}`
+  (e.g. `METHOD_FORBIDDEN: …`). `create_user` and `reset_user_password` stay on REST until AB#8418. Needs octo-sdk with
+  AB#8416 (ee83237) and an asset repository and identity service with the User role methods (System.Identity 3.2.0).
+
 ### Fixed
 
 - AB#8355: `execute_runtime_query` and `execute_stream_data_query` answer "not found" for a deleted persisted query.

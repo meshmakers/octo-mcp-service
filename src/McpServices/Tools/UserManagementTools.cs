@@ -1,7 +1,9 @@
 using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants.Methods;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -11,6 +13,14 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 /// <summary>
 ///     User-management tools backed by the Identity service. Mirrors the octo-cli users commands.
 /// </summary>
+/// <remarks>
+///     The role tools (<c>add_user_to_role</c>, <c>remove_user_from_role</c>) call the CK methods
+///     <c>System.Identity/User.AddRole-1</c> / <c>User.RemoveRole-1</c> through the generated
+///     <see cref="RtUserMethodClient" /> (AB#8440, generated from <c>System.Identity-[3.2,4.0)</c> in
+///     <c>construction-kits.yaml</c>); the REST methods <c>AddRoleToUser</c> / <c>RemoveRoleFromUser</c> are obsolete
+///     (AB#8416). <c>create_user</c> and <c>reset_user_password</c> stay on REST until the password methods are
+///     enabled on every cluster (AB#8418).
+/// </remarks>
 [McpServerToolType]
 public sealed class UserManagementTools
 {
@@ -269,7 +279,7 @@ public sealed class UserManagementTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new UserResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -278,7 +288,19 @@ public sealed class UserManagementTools
         try
         {
             var identifier = userNameOrEmail.ToLowerInvariant();
-            await ctx.Client!.AddRoleToUser(identifier, roleName);
+            var userRtId = await ResolveUserRtIdAsync(ctx, identifier);
+            var result = await new RtUserMethodClient(ctx.TenantClient!).AddRoleAsync(userRtId, roleName);
+            if (!result.IsSuccess)
+            {
+                return new UserResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    User = identifier,
+                    ErrorMessage = DescribeRoleError(result.Error!, identifier, roleName)
+                };
+            }
+
             return new UserResponse
             {
                 IsSuccess = true,
@@ -286,6 +308,10 @@ public sealed class UserManagementTools
                 User = identifier,
                 Message = $"User '{identifier}' assigned to role '{roleName}'."
             };
+        }
+        catch (CkMethodCallException ex)
+        {
+            return new UserResponse { IsSuccess = false, ErrorMessage = DescribeMethodCallError(ex) };
         }
         catch (Exception ex)
         {
@@ -323,7 +349,7 @@ public sealed class UserManagementTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new UserResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -332,7 +358,19 @@ public sealed class UserManagementTools
         try
         {
             var identifier = userNameOrEmail.ToLowerInvariant();
-            await ctx.Client!.RemoveRoleFromUser(identifier, roleName);
+            var userRtId = await ResolveUserRtIdAsync(ctx, identifier);
+            var result = await new RtUserMethodClient(ctx.TenantClient!).RemoveRoleAsync(userRtId, roleName);
+            if (!result.IsSuccess)
+            {
+                return new UserResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    User = identifier,
+                    ErrorMessage = DescribeRoleError(result.Error!, identifier, roleName)
+                };
+            }
+
             return new UserResponse
             {
                 IsSuccess = true,
@@ -341,9 +379,51 @@ public sealed class UserManagementTools
                 Message = $"User '{identifier}' removed from role '{roleName}'."
             };
         }
+        catch (CkMethodCallException ex)
+        {
+            return new UserResponse { IsSuccess = false, ErrorMessage = DescribeMethodCallError(ex) };
+        }
         catch (Exception ex)
         {
             return new UserResponse { IsSuccess = false, ErrorMessage = ex.Message };
         }
     }
+
+    /// <summary>
+    ///     The CK methods address the user by runtime id; the tools take a user name or e-mail address. The Identity
+    ///     REST lookup accepts both and returns the runtime id in <see cref="UserDto.UserId" />.
+    /// </summary>
+    private static async Task<string> ResolveUserRtIdAsync(IdentityClientContext ctx, string identifier)
+    {
+        var user = await ctx.Client!.GetUserByNameEmailOrId(identifier);
+        if (string.IsNullOrWhiteSpace(user?.UserId))
+        {
+            throw new InvalidOperationException($"User '{identifier}' not found.");
+        }
+
+        return user.UserId;
+    }
+
+    /// <summary>
+    ///     Text of a declared error of <c>User.AddRole-1</c> / <c>User.RemoveRole-1</c>. The texts follow the former REST
+    ///     answers; platform errors (<c>METHOD_FORBIDDEN</c>, <c>METHOD_TARGET_NOT_FOUND</c>, …) are thrown by the client
+    ///     and reported with the exception message.
+    /// </summary>
+    internal static string DescribeRoleError(CkMethodError error, string user, string roleName) => error.Code switch
+    {
+        RtUserMethodClient.AddRoleErrors.RoleNotFound => $"Role with name '{roleName}' not found.",
+        RtUserMethodClient.AddRoleErrors.RoleAlreadyAssigned => $"User '{user}' already has role '{roleName}'.",
+        RtUserMethodClient.RemoveRoleErrors.RoleNotAssigned => $"User '{user}' doesn't have role '{roleName}' as a direct role.",
+        _ => WithCode(error)
+    };
+
+    /// <summary>
+    ///     Text of a platform error the method client throws (<c>METHOD_FORBIDDEN</c>, <c>METHOD_TARGET_NOT_FOUND</c>,
+    ///     <c>METHOD_VALIDATION_FAILED</c>, …): the code and the service's message, e.g.
+    ///     <c>METHOD_FORBIDDEN: The caller needs the role UserManagement.</c>
+    /// </summary>
+    internal static string DescribeMethodCallError(CkMethodCallException exception) => WithCode(exception.Error);
+
+    private static string WithCode(CkMethodError error) =>
+        string.IsNullOrWhiteSpace(error.Message) ? error.Code : $"{error.Code}: {error.Message}";
 }

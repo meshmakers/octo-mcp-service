@@ -1,6 +1,12 @@
+using System.Text.Json;
 using FluentAssertions;
+using GraphQL;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.Sdk.ServiceClient;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants.Methods;
 using Moq;
 using Xunit;
 
@@ -124,13 +130,144 @@ public class UserManagementToolsTests : ToolTestBase
         MockIdentityClient.Verify(c => c.ResetPassword("alice", "new-pwd"), Times.Once);
     }
 
-    [Fact]
-    public async Task AddUserToRole_HappyPath_CallsSdk()
+    // ── Role tools: CK methods User.AddRole-1 / User.RemoveRole-1 (AB#8440) ──────────────────────────────────
+
+    private const string AliceRtId = "65f1c0ffee0000000000abcd";
+
+    /// <summary>The GraphQL requests the generated RtUserMethodClient sent through the tenant client.</summary>
+    private readonly List<GraphQLRequest> _methodRequests = [];
+
+    private void GivenUser(string identifier = "alice", string? rtId = AliceRtId)
     {
+        MockIdentityClient
+            .Setup(c => c.GetUserByNameEmailOrId(identifier))
+            .ReturnsAsync(new UserDto { Name = identifier, UserId = rtId });
+    }
+
+    /// <summary>The method call succeeds (answer <c>{ invocationId }</c>).</summary>
+    private void GivenMethodSucceeds()
+    {
+        MockTenantClient
+            .Setup(c => c.SendMutationAsync<It.IsAnyType>(It.IsAny<GraphQLRequest>()))
+            .Returns(new InvocationFunc(invocation =>
+            {
+                _methodRequests.Add((GraphQLRequest)invocation.Arguments[0]);
+                var responseType = invocation.Method.GetGenericArguments()[0];
+                var response = (CkMethodCallResponse)Activator.CreateInstance(responseType, nonPublic: true)!;
+                response.InvocationId = "inv-1";
+                return typeof(Task).GetMethod(nameof(Task.FromResult))!.MakeGenericMethod(responseType)
+                    .Invoke(null, [response])!;
+            }));
+    }
+
+    /// <summary>The asset repository answers the method call with a GraphQL error carrying <paramref name="code"/>.</summary>
+    private void GivenMethodFails(string code, string message = "refused")
+    {
+        var error = new GraphQLError
+        {
+            Message = message,
+            Extensions = new Map { ["code"] = code }
+        };
+        MockTenantClient
+            .Setup(c => c.SendMutationAsync<It.IsAnyType>(It.IsAny<GraphQLRequest>()))
+            .Callback(new InvocationAction(invocation => _methodRequests.Add((GraphQLRequest)invocation.Arguments[0])))
+            .Throws(new QlQueryErrorException(message, [error]));
+    }
+
+    private string SentVariables() => JsonSerializer.Serialize(_methodRequests.Single().Variables);
+
+    [Fact]
+    public async Task AddUserToRole_HappyPath_CallsUserAddRoleMethod()
+    {
+        GivenUser();
+        GivenMethodSucceeds();
+
         var result = await UserManagementTools.AddUserToRole(MockServer.Object, "Alice", "Admins");
 
         result.IsSuccess.Should().BeTrue();
-        MockIdentityClient.Verify(c => c.AddRoleToUser("alice", "Admins"), Times.Once);
+        result.User.Should().Be("alice");
+        result.TenantId.Should().Be(DefaultTenantId);
+        result.Message.Should().Be("User 'alice' assigned to role 'Admins'.");
+        MockIdentityClient.Verify(c => c.GetUserByNameEmailOrId("alice"), Times.Once);
+        MockClientFactory.Verify(f => f.CreateTenantClient(DefaultTenantId, It.IsAny<string>()), Times.Once);
+        var request = _methodRequests.Single();
+        request.Query.Should().Be(RtUserMethodClient.AddRoleDocument);
+        SentVariables().Should().Contain(AliceRtId).And.Contain("\"Admins\"");
+    }
+
+    [Fact]
+    public async Task AddUserToRole_MissingFields_ReturnsValidationError_WithoutCalls()
+    {
+        var result = await UserManagementTools.AddUserToRole(MockServer.Object, "", "Admins");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be("userNameOrEmail and roleName are required.");
+        MockClientFactory.Verify(f => f.CreateTenantClient(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AddUserToRole_Unauthenticated_ReturnsAuthError()
+    {
+        GivenUnauthenticated();
+
+        var result = await UserManagementTools.AddUserToRole(MockServer.Object, "alice", "Admins");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("Not authenticated");
+    }
+
+    [Theory]
+    [InlineData(RtUserMethodClient.AddRoleErrors.RoleNotFound, "Role with name 'Admins' not found.")]
+    [InlineData(RtUserMethodClient.AddRoleErrors.RoleAlreadyAssigned, "User 'alice' already has role 'Admins'.")]
+    public async Task AddUserToRole_DeclaredError_ReturnsFailureWithText(string code, string expected)
+    {
+        GivenUser();
+        GivenMethodFails(code);
+
+        var result = await UserManagementTools.AddUserToRole(MockServer.Object, "alice", "Admins");
+
+        result.IsSuccess.Should().BeFalse();
+        result.User.Should().Be("alice");
+        result.ErrorMessage.Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task AddUserToRole_Forbidden_ReturnsPlatformError()
+    {
+        GivenUser();
+        GivenMethodFails("METHOD_FORBIDDEN", "The caller may not run User.AddRole.");
+
+        var result = await UserManagementTools.AddUserToRole(MockServer.Object, "alice", "Admins");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be("METHOD_FORBIDDEN: The caller may not run User.AddRole.");
+    }
+
+    [Fact]
+    public async Task AddUserToRole_UnknownUser_ReturnsLookupError_WithoutMethodCall()
+    {
+        MockIdentityClient
+            .Setup(c => c.GetUserByNameEmailOrId("ghost"))
+            .ThrowsAsync(new ServiceClientException("User 'ghost' not found."));
+
+        var result = await UserManagementTools.AddUserToRole(MockServer.Object, "ghost", "Admins");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("ghost");
+        _methodRequests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AddUserToRole_UserWithoutRtId_ReturnsNotFound_WithoutMethodCall()
+    {
+        GivenUser(rtId: null);
+        GivenMethodSucceeds();
+
+        var result = await UserManagementTools.AddUserToRole(MockServer.Object, "alice", "Admins");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be("User 'alice' not found.");
+        _methodRequests.Should().BeEmpty();
     }
 
     [Fact]
@@ -139,16 +276,60 @@ public class UserManagementToolsTests : ToolTestBase
         var result = await UserManagementTools.RemoveUserFromRole(MockServer.Object, "alice", "Admins");
 
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.RemoveRoleFromUser(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        result.ErrorMessage.Should().Be("Refusing to remove role 'Admins' from 'alice' without confirm=true.");
+        MockClientFactory.Verify(f => f.CreateTenantClient(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        MockIdentityClient.Verify(c => c.GetUserByNameEmailOrId(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
-    public async Task RemoveUserFromRole_WithConfirm_CallsSdk()
+    public async Task RemoveUserFromRole_WithConfirm_CallsUserRemoveRoleMethod()
     {
+        GivenUser();
+        GivenMethodSucceeds();
+
         var result = await UserManagementTools.RemoveUserFromRole(MockServer.Object,
             "Alice", "Admins", confirm: true);
 
         result.IsSuccess.Should().BeTrue();
-        MockIdentityClient.Verify(c => c.RemoveRoleFromUser("alice", "Admins"), Times.Once);
+        result.User.Should().Be("alice");
+        result.Message.Should().Be("User 'alice' removed from role 'Admins'.");
+        _methodRequests.Single().Query.Should().Be(RtUserMethodClient.RemoveRoleDocument);
+        SentVariables().Should().Contain(AliceRtId).And.Contain("\"Admins\"");
+    }
+
+    [Theory]
+    [InlineData(RtUserMethodClient.RemoveRoleErrors.RoleNotFound, "Role with name 'Admins' not found.")]
+    [InlineData(RtUserMethodClient.RemoveRoleErrors.RoleNotAssigned,
+        "User 'alice' doesn't have role 'Admins' as a direct role.")]
+    public async Task RemoveUserFromRole_DeclaredError_ReturnsFailureWithText(string code, string expected)
+    {
+        GivenUser();
+        GivenMethodFails(code);
+
+        var result = await UserManagementTools.RemoveUserFromRole(MockServer.Object, "alice", "Admins", confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task RemoveUserFromRole_TargetNotFound_ReturnsPlatformError()
+    {
+        GivenUser();
+        GivenMethodFails("METHOD_TARGET_NOT_FOUND", "User not found.");
+
+        var result = await UserManagementTools.RemoveUserFromRole(MockServer.Object, "alice", "Admins", confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be("METHOD_TARGET_NOT_FOUND: User not found.");
+    }
+
+    [Fact]
+    public void DescribeRoleError_UnknownDeclaredCode_FallsBackToCodeAndMessage()
+    {
+        var error = new CkMethodError("SOMETHING_NEW", "Something new happened.", new Dictionary<string, string>(), []);
+
+        UserManagementTools.DescribeRoleError(error, "alice", "Admins")
+            .Should().Be("SOMETHING_NEW: Something new happened.");
     }
 }

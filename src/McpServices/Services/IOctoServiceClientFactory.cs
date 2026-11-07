@@ -1,6 +1,7 @@
 using Meshmakers.Octo.Sdk.ServiceClient.AiServices;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.StreamData;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.System;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants;
 using Meshmakers.Octo.Sdk.ServiceClient.BotServices;
 using Meshmakers.Octo.Sdk.ServiceClient.CommunicationControllerServices;
 using Meshmakers.Octo.Sdk.ServiceClient.IdentityServices;
@@ -22,6 +23,15 @@ public interface IOctoServiceClientFactory
     /// <param name="tenantId">Parent tenant whose child tenants this client manages.</param>
     /// <param name="accessToken">OAuth access token for the bearer header.</param>
     IAssetServicesClient CreateAssetClient(string tenantId, string accessToken);
+
+    /// <summary>
+    ///     Builds a fresh <see cref="ITenantClient" /> (the tenant's GraphQL endpoint on the Asset Repository) bound to
+    ///     the given tenant and access token. CK method clients (e.g. the generated <c>RtUserMethodClient</c>, AB#8440)
+    ///     send their calls through it.
+    /// </summary>
+    /// <param name="tenantId">Tenant whose GraphQL endpoint the client calls.</param>
+    /// <param name="accessToken">OAuth access token for the bearer header.</param>
+    ITenantClient CreateTenantClient(string tenantId, string accessToken);
 
     /// <summary>
     ///     Builds a fresh <see cref="IIdentityServicesClient" /> bound to the given tenant and access token.

@@ -54,6 +54,7 @@
         <PackageReference Include="Meshmakers.Octo.Runtime.Engine.CrateDb" Version="$(OctoCoreLibVersion)"/>
         <PackageReference Include="Meshmakers.Octo.Services.Swagger" Version="$(OctoCoreLibVersion)"/>
         <ProjectReference Include="..\McpServices.Resources\McpServices.Resources.csproj"/>
+        <ProjectReference Include="..\McpServices.MethodClients\McpServices.MethodClients.csproj"/>
 
     </ItemGroup>
 
