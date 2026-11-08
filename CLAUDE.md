@@ -1034,6 +1034,38 @@ Rules to keep:
   `Corpus_FromEnvironment_PassesTheGuard` runs the guard over real files when `OCTO_CONTENT_GUARD_CORPUS` lists
   directories (skipped in CI), e.g. the octo-claude-skills `skills` folder and a Claude Code memory folder.
 
+## Knowledge base tools (AB#8484)
+
+`Tools/KnowledgeTools.cs` (family 2, caller session) + `Services/Knowledge/KnowledgePages.cs` (model ids, content read/write,
+markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.7.0 (octo-ai-services AB#8483,
+`src/SystemAiCkModel/README.md`); a tenant without them gets a clear error naming System.Ai 4.7.0.
+
+- **Every page write goes through `KnowledgePages.BuildWrite`**: page insert/update plus a new `KnowledgePageVersion`
+  (`rtWellKnownName` `<slug>@<n>`, full content, `Author` = `user:<sub>` or `client:<client_id>`, `AuthoredAt`, `ChangeNote`,
+  run metadata) and the `VersionOf` association, in one transaction. The page's `CurrentVersion` points at it. A restore writes
+  a new version with `RestoredFromVersion`; nothing is ever deleted. Links (`LinksTo`) are not content and make no version.
+- **Content guard first** (`IContentGuard`, AB#8475): every tool that writes text (upsert, restore, set_status) checks title,
+  summary, sections, citations (all four fields), flags, the slug and the free-text extras (`changeNote`, `promptName`, `modelId`) before anything
+  is written; tenant secrets come in as fingerprints read with the caller's session. No guard registered = refusal.
+  `knowledge_link` writes only an association between two existing, slug-validated pages and carries no text.
+- **Status**: every content write (upsert, restore) sets `Draft`; `knowledge_set_status` moves Draft/InReview/Verified/Rejected
+  and refuses `Verified` unless the caller is a user principal (`VerifiedRequiresPerson`; fail closed for a client-credentials
+  token or no principal).
+- **Prototype JSON**: `KnowledgeSectionDto` / `KnowledgeCitationDto` / `KnowledgeHallucinationFlagDto` carry the JSON names of the
+  KnowledgeCapture prompts (`heading`, `sectionContent`, `sortOrder`, `sectionRef`, `sourceQuote`, `sourceAnchor`, `sourceRtId`,
+  `claim`, `reason`); cited `sourceRtId`s that are SourceArtifacts are linked with `GeneratedFrom`, others are reported in
+  `UnresolvedSources`.
+- **Search**: the engine text index (title, summary, section content) preselects up to 200 pages; the tool ranks them by
+  term hits (title 3, summary 2, body 1, capped). Without a query it is the index of all pages.
+- **Optimistic locking**: `expectedVersion` (the page's `CurrentVersion`) on upsert and restore; stale = `VersionConflict`, nothing
+  written. Independent of it, every page write re-reads the page inside its transaction (`ApplyAsync`): a page that moved on
+  since the tool read it, or a MongoDB write conflict with a writer that commits later, is `VersionConflict` as well, so two
+  writers never both write version `n + 1` of an existing page. Not covered: two concurrent **creates** of the same new slug
+  (no unique index on `rtWellKnownName`); the second one leaves a duplicate page.
+- **Risk**: `knowledge_upsert_page`, `knowledge_restore_version` and `knowledge_set_status` are Medium (audit matters, a status
+  change decides what answers may use); `knowledge_search`, `knowledge_get` and `knowledge_link` are Low.
+- Tests: `Tools/KnowledgeToolsTests` (in-memory repository that applies inserts, updates and associations like the engine).
+
 ## Test Infrastructure
 
 `tests/McpServices.Tests/` uses xUnit + Moq + FluentAssertions.
