@@ -2,6 +2,7 @@ using System.Net;
 using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Sdk.ServiceClient;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Blueprints;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.CkModelCatalog;
 using Moq;
 using Xunit;
@@ -11,7 +12,7 @@ namespace McpServices.Tests.Tools;
 /// <summary>
 ///     AB#8529: the asset repository refuses a model-changing call of a caller without the tenant role
 ///     <c>DataModelManagement</c> with <c>403</c> and <c>{"message", "code": "DataModelManagementRequired"}</c>. The
-///     code and the reason reach the tool result of every model-changing tool.
+///     code and the reason reach the tool result of every model-changing tool (all seven).
 /// </summary>
 public class DataModelManagementRequiredTests : ToolTestBase
 {
@@ -96,6 +97,45 @@ public class DataModelManagementRequiredTests : ToolTestBase
             .ThrowsAsync(Forbidden());
 
         var result = await CkModelLibraryTools.ImportFromCatalog(MockServer.Object, "Public", "Basic-2.5.0");
+
+        AssertRefused(result.IsSuccess, result.ErrorCode, result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task UpdateBlueprint_WithoutTheRole_ReportsTheCode()
+    {
+        MockAssetClient.Setup(c => c.ApplyBlueprintUpdateAsync(DefaultTenantId, It.IsAny<BlueprintUpdateRequestDto>()))
+            .ThrowsAsync(Forbidden());
+
+        var result = await BlueprintTools.UpdateBlueprint(MockServer.Object, "B-2.0.0", confirm: true);
+
+        AssertRefused(result.IsSuccess, result.ErrorCode, result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task FixAllModels_WithoutTheRole_ReportsTheCode()
+    {
+        MockAssetClient.Setup(c => c.GetLibraryStatusAsync(DefaultTenantId))
+            .ReturnsAsync(new CkModelLibraryStatusResponseDto
+            {
+                Items =
+                [
+                    new CkModelLibraryStatusItemDto
+                    {
+                        Name = "Energy", NeedsAction = true, IsServiceManaged = false, IsCompatible = true,
+                        CatalogName = "cat", FullModelId = "Energy-2.0.0"
+                    }
+                ],
+                ModelsNeedingActionCount = 1
+            });
+        MockAssetClient.Setup(c => c.ResolveDependenciesBatchAsync(DefaultTenantId,
+                It.IsAny<List<ImportFromCatalogRequestDto>>()))
+            .ReturnsAsync(new BatchDependencyResolutionResponseDto { ModelsToImport = ["Energy-2.0.0"] });
+        MockAssetClient.Setup(c => c.ImportFromCatalogBatchAsync(DefaultTenantId,
+                It.IsAny<ImportFromCatalogBatchRequestDto>()))
+            .ThrowsAsync(Forbidden());
+
+        var result = await CkModelLibraryTools.FixAllModels(MockServer.Object, confirm: true);
 
         AssertRefused(result.IsSuccess, result.ErrorCode, result.ErrorMessage);
     }
