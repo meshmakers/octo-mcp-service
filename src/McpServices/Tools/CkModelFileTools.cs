@@ -52,7 +52,9 @@ public sealed class CkModelFileTools
         "model YAML (with `$schema: https://schemas.meshmakers.cloud/runtime-model.schema.json` and an " +
         "`entities:` list), the equivalent JSON, or a zip containing one such file. importStrategy " +
         "controls whether existing entities are replaced ('Upsert') or rejected ('InsertOnly'). Equivalent " +
-        "to octo-cli ImportRuntimeModel.")]
+        "to octo-cli ImportRuntimeModel. A file that references System.Ai KnowledgePage, KnowledgePageVersion or the " +
+        "knowledge associations (LinksTo, GeneratedFrom, VersionOf) is refused with error code " +
+        "GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL and nothing is imported: write knowledge pages with the knowledge tools.")]
     public static async Task<JobStartedResponse> ImportRuntimeModel(
         McpServer server,
         [Description("Transfer id from prepare_file_upload.")] string transferId,
@@ -61,7 +63,16 @@ public sealed class CkModelFileTools
         [Description("Wait timeout in minutes (default 10).")] int waitTimeoutMinutes = 10)
         => await RunImport(server, transferId, tenantId, waitTimeoutMinutes,
             (asset, tid, path) => asset.ImportRtModelAsync(tid, importStrategy, path),
-            opName: $"Runtime model import ({importStrategy})");
+            opName: $"Runtime model import ({importStrategy})",
+            // AB#8568: knowledge pages, versions and their links are written only through the knowledge tools.
+            precheck: path => KnowledgeWriteRefusal.TryGetImportRefusal(path) is { } refusal
+                ? new JobStartedResponse
+                {
+                    IsSuccess = false,
+                    ErrorCode = KnowledgeWriteRefusal.Code,
+                    ErrorMessage = refusal.Message
+                }
+                : null);
 
     /// <summary>Export runtime entities matched by a query. Returns a downloadable file via downloadId.</summary>
     [McpServerTool(Name = "export_runtime_model_by_query")]
@@ -164,7 +175,7 @@ public sealed class CkModelFileTools
     private static async Task<JobStartedResponse> RunImport(
         McpServer server, string transferId, string? tenantId, int waitTimeoutMinutes,
         Func<Sdk.ServiceClient.AssetRepositoryServices.System.IAssetServicesClient, string, string, Task<string>> sdkCall,
-        string opName)
+        string opName, Func<string, JobStartedResponse?>? precheck = null)
     {
         if (string.IsNullOrWhiteSpace(transferId))
         {
@@ -180,6 +191,14 @@ public sealed class CkModelFileTools
                 IsSuccess = false,
                 ErrorMessage = $"Upload '{transferId}' not found or expired."
             };
+        }
+
+        // The precheck reads the uploaded file before any service is called; a refusal keeps the upload (the caller
+        // may fix and re-upload, the buffer expires on its own).
+        var refusal = precheck?.Invoke(upload.FilePath);
+        if (refusal != null)
+        {
+            return refusal;
         }
 
         var asset = await AssetClientContext.TryBuildAsync(server, tenantId);

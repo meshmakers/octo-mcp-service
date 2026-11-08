@@ -57,6 +57,15 @@
 
 ### Security
 
+- **AB#8568** — the generic entity tools no longer write System.Ai knowledge pages past versioning and the content
+  guard. `create_entity`, `create_entity_with_secrets`, `update_entity`, `set_entity_secrets` and `delete_entity` refuse
+  `System.Ai/KnowledgePage`, `System.Ai/KnowledgePageVersion` and types derived from them with `errorCode`
+  `GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL` (`errorParameters` `ckTypeId`, `tool`), checked on the requested type before
+  a session is opened and again on the actual type of the stored entity; `import_runtime_model` refuses a file (YAML,
+  JSON or zip) that references a knowledge type or the knowledge associations `LinksTo`, `GeneratedFrom`, `VersionOf`
+  before it reaches the asset repository. Nothing is written. Delete is refused too (CPO decision 2026-11-08): agents set
+  an unwanted page to `Rejected` with `knowledge_set_status`; a person deletes pages outside MCP (GraphQL or octo-cli).
+  Reads are unchanged. Tests `Tools/KnowledgeGenericWriteRefusalTests`.
 - AB#8043: the generic CRUD, query and aggregation tools enforce the CK attribute access rules, like the asset-repo
   GraphQL guards. Before, they returned `Hidden` values (password hash, security stamp, authenticator tokens of
   `System.Identity/User`), accepted filters and group-by on them and wrote `Hidden` / `MethodOnly` / `ReadOnly` and

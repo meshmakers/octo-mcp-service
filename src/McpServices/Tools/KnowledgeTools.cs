@@ -452,7 +452,8 @@ public static class KnowledgeTools
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Set the verification status of a knowledge page: Draft, InReview, Verified or Rejected. Only a person (a user " +
-        "token) may set Verified; a service account is refused. Each change is a new version with the same content.")]
+        "token) may set Verified; a service account is refused. Each change is a new version with the same content. Pages are " +
+        "not deleted over MCP: set an unwanted page to Rejected; a person deletes pages outside MCP (GraphQL or octo-cli).")]
     public static async Task<KnowledgeWriteResponse> KnowledgeSetStatus(
         McpServer server,
         [Description("Slug of the page.")] string slug,

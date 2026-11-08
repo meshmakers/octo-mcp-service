@@ -13,6 +13,18 @@ public sealed class DeleteEntityResponse : ErrorResponse
     public required string CkTypeId { get; init; }
 
     /// <summary>
+    ///     Machine-readable error code, set for refusals with a contract. <c>GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL</c>
+    ///     (AB#8568): the type is a System.Ai knowledge type and is written only through the knowledge tools.
+    /// </summary>
+    public string? ErrorCode { get; init; }
+
+    /// <summary>
+    ///     Language-neutral parameters of <see cref="ErrorCode" /> (for <c>GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL</c>:
+    ///     <c>ckTypeId</c> and <c>tool</c>).
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? ErrorParameters { get; init; }
+
+    /// <summary>
     ///     Runtime ID of the deleted entity
     /// </summary>
     public required string RtId { get; init; }

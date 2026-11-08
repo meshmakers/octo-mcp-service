@@ -217,7 +217,7 @@ dotnet run
 - `get_secret_inventory` (read-only, low risk): the asset-repo secrets overview (`secrets { inventory, summary }`, handover §7) with the caller's token — per slot entity, `attributePath`, `form` (NOT_SET / PLAINTEXT / ENC_V1 / ENC_V2 / KEY_MISSING / CORRUPT), `keyId`, `setAt`, `needsReEntry`; filters `ckTypeId`, `forms`, `needsReEntry`, `search`; paging `first` (default 50, max 200) / `after`; `summary: true` adds the counts, `usedBy: true` the revealing pipelines (heavier). Needs role `AdminPanelManagement` in the tenant (otherwise a clear Forbidden message). Never returns values.
 - Attributes with value type `SECRET` are write-only. Every tool that returns entities shows `value: null` plus `secretIsSet: true|false` — never the value or the ciphertext (an architecture test forbids decryption in this assembly).
 - `create_entity` / `update_entity` (medium risk) refuse non-empty secret values; `null`, `""` or an echoed `{ "isSet": … }` leave the stored secret unchanged. `update_entity` takes `clearSecretAttributes` (camelCase or PascalCase names) to clear optional secrets.
-- `create_entity` / `create_entity_with_secrets` refuse a CK type whose static method replaces the generic create (`replacesGenericCreate`) with `errorCode` `GENERIC_CREATE_REPLACED_BY_METHOD` and `errorParameters` `ckTypeId` / `methodId`; nothing is written. Create such entities by calling that method.
+- `create_entity` / `create_entity_with_secrets` refuse a CK type whose static method replaces the generic create (`replacesGenericCreate`) with `errorCode` `GENERIC_CREATE_REPLACED_BY_METHOD` and `errorParameters` `ckTypeId` / `methodId`; nothing is written. Create such entities by calling that method. System.Ai knowledge pages and versions are refused by every generic write tool with `GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL` (see *Knowledge base*).
 - `set_entity_secrets` (**high risk**) sets, rotates or clears secrets of an existing entity; `create_entity_with_secrets` (**high risk**) creates an entity together with its secrets (needed for types with a required secret, which `create_entity` cannot create). These are the only entity tools that write a secret value; an empty value is refused, any non-empty string (including `<…>` or `TODO_SET_*`) is an ordinary value.
 - Filters on a secret: only `IsNull` / `IsNotNull`. Other filter operators, aggregations and group-by on a secret are refused with `SecretAttributeNotQueryable`; `get_available_archive_paths` never lists secrets.
 - Identity providers: `clientSecret` is write-only (`clientSecretIsSet` instead; `get_identity_providers` also drops a client secret an older identity service might still return). `update_identity_provider` sends no secret unless a new one is passed. Risk classification and its rationale: `docs/risk-classification-sweep.md`.
@@ -227,6 +227,12 @@ dotnet run
 and the resource template `knowledge-page://{tenantId}/{slug}`. Pages are System.Ai `KnowledgePage` entities (System.Ai 4.7.0);
 every content or status write is a new `KnowledgePageVersion` and passes the content guard (credentials and tenant secret values are refused with
 `ContentRejected`). Start with the conventions page `knowledge-schema`.
+- The knowledge tools are the **only** write path (AB#8568): `create_entity`, `create_entity_with_secrets`, `update_entity`,
+  `set_entity_secrets`, `delete_entity` and `import_runtime_model` refuse `System.Ai/KnowledgePage`, `System.Ai/KnowledgePageVersion`
+  (and derived types; for the import also the associations `LinksTo`, `GeneratedFrom`, `VersionOf`) with `errorCode`
+  `GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL` (`errorParameters` `ckTypeId`, `tool`); nothing is written. Generic reads work as before.
+- **No delete over MCP**: pages and versions keep their history. Set an unwanted page to `Rejected` with `knowledge_set_status`;
+  a person deletes pages outside MCP (GraphQL `runtimeEntities.delete` or octo-cli).
 
 ### **CK attribute access in the generic tools** (AB#8043)
 - The generic CRUD, query and aggregation tools read and write the tenant database directly, so they apply the CK `access` rules themselves, with the same error codes as the asset-repo GraphQL API.

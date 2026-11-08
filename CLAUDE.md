@@ -242,6 +242,30 @@ not in the CK cache is not refused (the create fails on its own). Tool names, in
 unchanged; no type sets the flag today. Tests: `RuntimeEntityCrudToolsGenericCreateTests` (builds type graphs with
 methods via `CkGraphTestBuilder.BuildTypeWithMethods`).
 
+### Knowledge types are written only by the knowledge tools (AB#8568)
+
+`Services/KnowledgeWriteRefusal.cs` keeps the generic write tools off the System.Ai knowledge types
+(`KnowledgePage`, `KnowledgePageVersion`, and any type whose `GetBaseTypes(true)` contains one of them): a generic write
+would skip the content guard (AB#8475) and the `KnowledgePageVersion` with author and time (AB#8484). Same contract shape
+as the generic-create refusal: `ErrorCode = GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL`, `ErrorParameters` = `ckTypeId`
+(runtime id) and `tool` (the knowledge tools to use, comma-separated, or `none` for a delete); the message carries ids
+only. Where it runs:
+
+- `CreateCoreAsync` (create_entity, create_entity_with_secrets): after type resolution, before the generic-create
+  refusal, secret handling or any session.
+- `UpdateCoreAsync` (update_entity, set_entity_secrets) and `delete_entity`: on the requested type before the session is
+  opened, and again on `existingEntity.CkTypeId` inside the transaction (a base type such as `System/Entity` can name a
+  page), which aborts the transaction.
+- `import_runtime_model`: `RunImport` takes a `precheck`; `TryGetImportRefusal` scans the uploaded file (YAML/JSON, or every
+  entry of a zip) by text for the runtime or full ids of the two types and of the roles `LinksTo`, `GeneratedFrom`,
+  `VersionOf`, fail closed, before the asset repository is called. The upload buffer stays (expires on its own).
+
+**Delete is ruled out over MCP** (CPO decision 2026-11-08): deleting a knowledge page is not a knowledge operation in M1.
+Agents set `Rejected` with `knowledge_set_status`; a person deletes pages outside MCP (GraphQL or octo-cli). There is no
+generic association write tool, so the knowledge associations are reachable only through the import (refused) and the
+knowledge tools. Reads (`get_entity_by_id`, `query_entities*`, `navigate_associations`, …) are unchanged.
+Tests: `Tools/KnowledgeGenericWriteRefusalTests` (incl. `KnowledgeRuntimeImportRefusalTests`).
+
 ## CK attribute access in the generic tools (AB#8043)
 
 Family-2/3 tools read and write the tenant repository directly, and **the repository does not know CK `access`**
@@ -1064,6 +1088,8 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   (no unique index on `rtWellKnownName`); the second one leaves a duplicate page.
 - **Risk**: `knowledge_upsert_page`, `knowledge_restore_version` and `knowledge_set_status` are Medium (audit matters, a status
   change decides what answers may use); `knowledge_search`, `knowledge_get` and `knowledge_link` are Low.
+- **Only write path**: the generic entity tools and `import_runtime_model` refuse the knowledge types (AB#8568, see
+  "Knowledge types are written only by the knowledge tools"). There is no knowledge delete tool; pages are set to `Rejected`.
 - Tests: `Tools/KnowledgeToolsTests` (in-memory repository that applies inserts, updates and associations like the engine).
 
 ## Test Infrastructure
