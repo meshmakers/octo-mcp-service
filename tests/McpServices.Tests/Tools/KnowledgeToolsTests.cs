@@ -421,15 +421,63 @@ public class KnowledgeToolsTests : TestBase
         MockSecureSessionFactory.Verify(f => f.GetSessionAsync(It.IsAny<RtSecurityContext>()), Times.Never);
     }
 
-    [Fact]
-    public async Task Unauthenticated_IsRefused()
+    public static TheoryData<string> AllTools =>
+        ["search", "get", "upsert", "link", "restore", "set_status"];
+
+    private Task<KnowledgeResponse> CallAsync(string tool) => tool switch
+    {
+        "search" => Cast(KnowledgeTools.KnowledgeSearch(MockServer.Object)),
+        "get" => Cast(KnowledgeTools.KnowledgeGet(MockServer.Object, "page-a")),
+        "upsert" => Cast(UpsertAsync("page-a", "Page A", "text")),
+        "link" => Cast(KnowledgeTools.KnowledgeLink(MockServer.Object, "page-a", "page-b")),
+        "restore" => Cast(KnowledgeTools.KnowledgeRestoreVersion(MockServer.Object, "page-a", 1, cancellationToken: Ct)),
+        "set_status" => Cast(KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "InReview",
+            cancellationToken: Ct)),
+        _ => throw new ArgumentOutOfRangeException(nameof(tool))
+    };
+
+    private static async Task<KnowledgeResponse> Cast<T>(Task<T> task) where T : KnowledgeResponse => await task;
+
+    [Theory]
+    [MemberData(nameof(AllTools))]
+    public async Task Unauthenticated_IsRefused_ByEveryTool(string tool)
     {
         GivenUnauthenticatedCaller();
 
-        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
+        var result = await CallAsync(tool);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("Not authenticated");
+        MockTenantRepository.Verify(r => r.ApplyChangesAsync(It.IsAny<IOctoSession>(),
+            It.IsAny<IReadOnlyList<IEntityUpdateInfo<RtEntity>>>(), It.IsAny<IReadOnlyList<AssociationUpdateInfo>>(),
+            It.IsAny<OperationResult>()), Times.Never);
+    }
+
+    public static TheoryData<string> MissingArguments =>
+        ["search-limit", "get-slug", "upsert-title", "upsert-sections", "link-same", "restore-version", "status-unknown"];
+
+    [Theory]
+    [MemberData(nameof(MissingArguments))]
+    public async Task MissingOrInvalidArguments_AreRefused_BeforeAnySession(string variant)
+    {
+        KnowledgeResponse result = variant switch
+        {
+            "search-limit" => await KnowledgeTools.KnowledgeSearch(MockServer.Object, limit: 0),
+            "get-slug" => await KnowledgeTools.KnowledgeGet(MockServer.Object, ""),
+            "upsert-title" => await UpsertAsync("page-a", " ", "text"),
+            "upsert-sections" => await KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, "page-a", "Page A", [],
+                cancellationToken: Ct),
+            "link-same" => await KnowledgeTools.KnowledgeLink(MockServer.Object, "page-a", "page-a"),
+            "restore-version" => await KnowledgeTools.KnowledgeRestoreVersion(MockServer.Object, "page-a", 0,
+                cancellationToken: Ct),
+            "status-unknown" => await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Approved",
+                cancellationToken: Ct),
+            _ => throw new ArgumentOutOfRangeException(nameof(variant))
+        };
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().NotBeNullOrEmpty();
+        MockSecureSessionFactory.Verify(f => f.GetSessionAsync(It.IsAny<RtSecurityContext>()), Times.Never);
     }
 
     [Fact]
