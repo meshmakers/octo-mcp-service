@@ -1001,6 +1001,39 @@ The fetch now goes through `Services/KnowledgeUrlFetcher` (`IKnowledgeUrlFetcher
 `GetService`; when it is not registered the source renders as "fetcher is not configured", it is never
 fetched raw. Don't reintroduce a direct `HttpClient` call on this path.
 
+## Content guard of knowledge writes (AB#8475)
+
+`src/McpServices.ContentGuard` (library without OctoMesh dependencies, registered as `IContentGuard` in `Program.cs`) checks
+the text of a write before it is stored. Every knowledge page write (AB#8484) calls it; the memory writes of the agent
+runtime (AB#8473) are meant to use the same library (move it into a shared package then). Concept: octo-ai-services
+`docs/concepts/tenant-builder-agent-concept.md` §3.9.
+
+| Detector | Rule (`ContentDetectors`) |
+|---|---|
+| `AnthropicKey` | `sk-ant-` + key type + dash (`sk-ant-api03-`, `sk-ant-admin01-`). A bare mention of `sk-ant-` passes. |
+| `PemBlock` | `-----BEGIN …-----`, a body of 16+ base64 characters and `-----END …-----`. A mention of the header alone passes. |
+| `Jwt` | `eyJ….eyJ….…` (three base64url parts). |
+| `HighEntropyToken` | a run of 32+ base64/base64url characters (`=` only as padding) that mixes upper case, lower case and digits, is not hex, has an entropy of at least 4.2 bits per character, switches character class on at least 30 % of the positions and is covered by runs of four or more lower-case letters to less than 30 %. Never scanned: the scheme/host/path of URLs (share-link ids) and Teams thread ids (`…@thread.`); URL query strings are scanned. A heuristic: it misses about 3 % of random keys and must not be weakened for convenience. |
+| `TenantSecret` | a word of the text (or the value of a `key=value` pair, or the whole text) whose SHA-256 equals the fingerprint of a Secret attribute value of the tenant. Values shorter than 8 characters are not compared. |
+
+Rules to keep:
+
+- **Never log or return the content.** A refusal (`ContentGuardResult.Message`, error code `ContentRejected`) and the
+  Warning log line carry tenant, caller, operation, detectors and field names only. Once ActionRecords exist (AB#8467)
+  the caller records the refusal there with status `Refused`.
+- **Tenant secrets only as fingerprints.** `Services/ContentGuard/TenantSecretFingerprints.ReadAsync` reads the top-level
+  `Secret` attributes of every entity of every non-abstract type (paged, `PageSize` 2000, no cap: a cap would let a
+  secret beyond it pass) **with the caller's session** (what the caller could reveal), reveals
+  them through the engine's `ISecretAttributeProtector` (service name `mcp-content-guard` in the decrypt metric) and
+  hands only SHA-256 fingerprints to the guard. Nothing is cached. Without a configured key ring
+  (`SecretEncryption:*`) the set is empty and the detector is off; the other detectors still run. Secret members inside
+  records are not read yet.
+- **Fail closed.** When the fingerprint read throws, the write is refused (`TenantSecret` on every non-empty field).
+- **False positives**: `ContentGuardTests.KnowledgeTextOfThePlatform_IsAccepted` pins the shapes our knowledge is full
+  of (ids, hashes, GUIDs, paths, branch names, URLs, env variable names, documentation naming a prefix).
+  `Corpus_FromEnvironment_PassesTheGuard` runs the guard over real files when `OCTO_CONTENT_GUARD_CORPUS` lists
+  directories (skipped in CI), e.g. the octo-claude-skills `skills` folder and a Claude Code memory folder.
+
 ## Test Infrastructure
 
 `tests/McpServices.Tests/` uses xUnit + Moq + FluentAssertions.

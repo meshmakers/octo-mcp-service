@@ -4,6 +4,12 @@
 
 ### Added
 
+- AB#8475: content guard for knowledge writes (new library `src/McpServices.ContentGuard`, registered as `IContentGuard`).
+  It refuses text with an Anthropic API key (`sk-ant-<type>-`), a PEM block, a JWT, a high-entropy token or a value
+  equal to a Secret attribute value the caller could reveal in the tenant, with the error code `ContentRejected`; the
+  refusal names detectors and fields, never the content, and is logged with tenant, caller and operation. Tenant
+  secrets reach the guard only as SHA-256 fingerprints (`Services/ContentGuard/TenantSecretFingerprints`, read with the
+  caller's session from every entity, paged without a cap, needs the key ring). The knowledge tools of AB#8484 are its first caller; no tool uses it yet.
 - AB#8346: sibling-tenant grants. `lookup_source_tenant_user` (Medium) finds one user of a source tenant by exact user
   name or e-mail (identity AB#8341); the identifier is passed to the service only and never echoed; every miss answers
   `errorCode: SourceUserNotFound`, a rate-limited call `SourceUserLookupRateLimited` with `retryAfterSeconds`.
