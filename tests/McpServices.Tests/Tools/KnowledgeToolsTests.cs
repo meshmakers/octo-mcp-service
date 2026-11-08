@@ -213,6 +213,44 @@ public class KnowledgeToolsTests : TestBase
         Versions("page-a").Should().ContainSingle();
     }
 
+    [Fact]
+    public async Task WriteConflictReportedInTheOperationResult_IsAVersionConflict()
+    {
+        await UpsertAsync("page-a", "Page A", "text");
+        MockTenantRepository
+            .Setup(r => r.ApplyChangesAsync(It.IsAny<IOctoSession>(), It.IsAny<IReadOnlyList<IEntityUpdateInfo<RtEntity>>>(),
+                It.IsAny<IReadOnlyList<AssociationUpdateInfo>>(), It.IsAny<OperationResult>()))
+            .Callback((IOctoSession _, IReadOnlyList<IEntityUpdateInfo<RtEntity>> _,
+                IReadOnlyList<AssociationUpdateInfo> _, OperationResult result) =>
+                result.AddMessage(new Meshmakers.Octo.ConstructionKit.Contracts.Messages.OperationMessage(
+                    Meshmakers.Octo.ConstructionKit.Contracts.Messages.MessageLevel.Error, null, 0,
+                    "WriteConflict error: this operation conflicted with another operation.")))
+            .Returns(Task.CompletedTask);
+
+        var result = await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "InReview",
+            cancellationToken: Ct);
+
+        result.ErrorCode.Should().Be("VersionConflict");
+        MockSession.Verify(s => s.CommitTransactionAsync(), Times.Once); // only the setup upsert committed
+    }
+
+    [Fact]
+    public async Task WriteConflictOnCommit_IsAVersionConflict_AndAFailingAbortDoesNotHideIt()
+    {
+        await UpsertAsync("page-a", "Page A", "text");
+        MockSession.Setup(s => s.CommitTransactionAsync())
+            .ThrowsAsync(new InvalidOperationException("Commit failed: WriteConflict"));
+        MockSession.Setup(s => s.AbortTransactionAsync())
+            .ThrowsAsync(new InvalidOperationException("Cannot call abortTransaction after calling commitTransaction."));
+
+        var result = await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "InReview",
+            cancellationToken: Ct);
+
+        result.IsConflict.Should().BeTrue();
+        result.ErrorCode.Should().Be("VersionConflict");
+        MockSession.Verify(s => s.AbortTransactionAsync(), Times.Once);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
