@@ -30,7 +30,7 @@ resources:
       type: github
       name: meshmakers/octo-pipeline-templates
       endpoint: meshmakers-access-token
-      ref: refs/tags/tpl-v1.14.0     # template tag of AB#8506
+      ref: refs/tags/tpl-v1.14.1     # template tag of AB#8506 (credential whitespace fix)
 
 variables:
   - group: ai-review                 # AiReviewVaultAddr, AiReviewVaultRoleId, AiReviewVaultSecretId, kill-switch variables
