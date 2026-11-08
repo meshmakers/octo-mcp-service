@@ -120,6 +120,14 @@ _Low=2 · Medium=2_  ·  **Owner reviewed:** ☐
 | `export_runtime_model_by_query` | **L** | |
 | `export_runtime_model_by_deep_graph` | **L** | |
 
+### CkModelValidationTools (1 tool)
+
+_Low=1_  ·  **Owner reviewed:** ☐
+
+| Tool | Current | Notes for review |
+|------|---------|------------------|
+| `validate_ck_model` | **L** | AB#8492: read-only validation of a CK model draft, nothing imported or written |
+
 ### CkModelLibraryTools (8 tools)
 
 _High=1 · Low=5 · Medium=2_  ·  **Owner reviewed:** ☐
@@ -199,17 +207,27 @@ _Low=2 · Medium=3_  ·  **Owner reviewed:** ☐
 | `update_email_domain_group_rule` | **M** | |
 | `delete_email_domain_group_rule` | **M** | |
 
-### ExternalTenantUserMappingTools (5 tools)
+### ExternalTenantUserMappingTools (6 tools)
 
-_Low=2 · Medium=3_  ·  **Owner reviewed:** ☐
+_High=3 · Low=2 · Medium=1_  ·  **Owner reviewed:** ☑ (AB#8346)
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
 | `get_external_tenant_user_mappings` | **L** | |
 | `get_external_tenant_user_mapping` | **L** | |
-| `create_external_tenant_user_mapping` | **M** | |
-| `update_external_tenant_user_mapping` | **M** | |
-| `delete_external_tenant_user_mapping` | **M** | |
+| `lookup_source_tenant_user` | **M** | AB#8346: reveals that an identity exists in another tenant (exact match only, rate-limited, audited) |
+| `create_external_tenant_user_mapping` | **H** | AB#8346: grants a user of another tenant (sibling tenants included) access with groups; raised from M |
+| `update_external_tenant_user_mapping` | **H** | AB#8346: changes the roles a user of another tenant holds (privilege change, same blast radius as create/delete); raised from M |
+| `delete_external_tenant_user_mapping` | **H** | AB#8346: removes a grant (revocation at the next exchange); raised from M, keeps `confirm=true` |
+
+### CrossTenantGrantPermissionTools (2 tools)
+
+_High=1 · Low=1_  ·  **Owner reviewed:** ☑ (AB#8346)
+
+| Tool | Current | Notes for review |
+|------|---------|------------------|
+| `get_cross_tenant_grant_permissions` | **L** | read-only; only the tenant's own administrators may read it |
+| `set_cross_tenant_grant_permissions` | **H** | AB#8346: decides which tenants may look up and grant this tenant's users; `confirm=true` |
 
 ### FileTransferTools (3 tools)
 

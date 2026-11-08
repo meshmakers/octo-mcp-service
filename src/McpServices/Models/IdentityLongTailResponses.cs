@@ -120,8 +120,43 @@ public class ExternalTenantUserMappingResponse : IdentityLongTailResponse
     /// <summary>Runtime id of the mapping that was operated on.</summary>
     public string? RtId { get; set; }
 
-    /// <summary>Full mapping payload when applicable.</summary>
+    /// <summary>Full mapping payload when applicable (create: the mapping as stored, with group names).</summary>
     public ExternalTenantUserMappingDto? Mapping { get; set; }
+
+    /// <summary>
+    ///     Problem code of a refused call (AB#8346), e.g. <c>SourceTenantNotPermitted</c>, <c>UnknownGroup</c>,
+    ///     <c>ExternalTenantUserMappingAlreadyExists</c>; <c>null</c> on success or for errors without a code.
+    /// </summary>
+    public string? ErrorCode { get; set; }
+}
+
+/// <summary>Result of <c>lookup_source_tenant_user</c> (AB#8346).</summary>
+public class SourceUserLookupResponse : IdentityLongTailResponse
+{
+    /// <summary>The user found (no e-mail address); <c>null</c> when nothing was found or the call failed.</summary>
+    public SourceUserLookupResultDto? User { get; set; }
+
+    /// <summary>
+    ///     Problem code of an unsuccessful lookup: <c>SourceUserNotFound</c> for every negative case,
+    ///     <c>SourceUserLookupRateLimited</c> when the lookup limit is exceeded.
+    /// </summary>
+    public string? ErrorCode { get; set; }
+
+    /// <summary>Seconds to wait before the next lookup, when rate-limited.</summary>
+    public int? RetryAfterSeconds { get; set; }
+}
+
+/// <summary>Allow-list of a tenant as a source of sibling-tenant grants (AB#8346, identity AB#8345).</summary>
+public class CrossTenantGrantPermissionsResponse : IdentityLongTailResponse
+{
+    /// <summary>The permitted target tenant ids as stored; empty means nobody.</summary>
+    public List<string> TargetTenantIds { get; set; } = [];
+
+    /// <summary>Set only: tenants added by the call.</summary>
+    public List<string>? Added { get; set; }
+
+    /// <summary>Set only: tenants removed by the call.</summary>
+    public List<string>? Removed { get; set; }
 }
 
 /// <summary>List of admin-provisioning mappings response.</summary>

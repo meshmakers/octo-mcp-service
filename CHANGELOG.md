@@ -15,10 +15,22 @@
   equal to a Secret attribute value the caller could reveal in the tenant, with the error code `ContentRejected`; the
   refusal names detectors and fields, never the content, and is logged with tenant, caller and operation. Tenant
   secrets reach the guard only as SHA-256 fingerprints (`Services/ContentGuard/TenantSecretFingerprints`, read with the
-  caller's session, needs the key ring). The knowledge tools of AB#8484 are its first caller; no tool uses it yet.
+  caller's session from every entity, paged without a cap, needs the key ring). The knowledge tools of AB#8484 are its first caller.
+- AB#8346: sibling-tenant grants. `lookup_source_tenant_user` (Medium) finds one user of a source tenant by exact user
+  name or e-mail (identity AB#8341); the identifier is passed to the service only and never echoed; every miss answers
+  `errorCode: SourceUserNotFound`, a rate-limited call `SourceUserLookupRateLimited` with `retryAfterSeconds`.
+  `create_external_tenant_user_mapping` takes `groupIds` (target-tenant groups, AB#8343) and returns the mapping as
+  stored (user name from the source tenant, group names) with its `rtId`; refusals carry `errorCode`
+  (`SourceTenantNotPermitted`, `UnknownGroup`, `ExternalTenantUserMappingAlreadyExists`) and one readable message.
+  `get_cross_tenant_grant_permissions` (Low) and `set_cross_tenant_grant_permissions` (High, `confirm=true`, reports
+  added/removed tenants) manage the source tenant's allow-list (AB#8345). Needs octo-sdk with AB#8346.
 
 ### Changed
 
+- AB#8346: `create_external_tenant_user_mapping`, `update_external_tenant_user_mapping` and
+  `delete_external_tenant_user_mapping` are **High** risk (were Medium): they grant, change the roles of and remove
+  access of users of other tenants. Workers that cached the risk registry pick it up at
+  the next session start.
 - AB#8440: `add_user_to_role` and `remove_user_from_role` call the CK methods `System.Identity/User.AddRole-1` and
   `User.RemoveRole-1` through the generated `RtUserMethodClient` instead of the REST methods `AddRoleToUser` /
   `RemoveRoleFromUser`, which octo-sdk marks `[Obsolete]` (AB#8416). Tool names, parameters and success output are

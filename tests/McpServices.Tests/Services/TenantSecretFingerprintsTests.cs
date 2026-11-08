@@ -59,6 +59,37 @@ public class TenantSecretFingerprintsTests : TestBase
     }
 
     [Fact]
+    public async Task ReadAsync_ReadsEveryPage_SoASecretBeyondTheFirstPageIsFingerprinted()
+    {
+        const string secondPagePlaintext = "secret-on-the-second-page-8475";
+        var secondPageEntity = new RtEntity { RtId = OctoObjectId.GenerateNewId(), CkTypeId = _entity.CkTypeId };
+        var secondPageSecret = RtSecretValue.Pending("second-page-value-the-protector-mock-reveals");
+        secondPageEntity.SetAttributeRawValue("Password", secondPageSecret);
+        var total = TenantSecretFingerprints.PageSize + 1;
+        MockTenantRepository
+            .Setup(r => r.GetRtEntitiesByTypeAsync(It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(), 0, TenantSecretFingerprints.PageSize))
+            .ReturnsAsync(new ResultSet<RtEntity>(Enumerable.Repeat(_entity, TenantSecretFingerprints.PageSize).ToList(),
+                total, null, null));
+        MockTenantRepository
+            .Setup(r => r.GetRtEntitiesByTypeAsync(It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(), TenantSecretFingerprints.PageSize, TenantSecretFingerprints.PageSize))
+            .ReturnsAsync(new ResultSet<RtEntity>([secondPageEntity], total, null, null));
+        _protector.Setup(p => p.RevealOrNull(It.Is<RtSecretValue?>(v => ReferenceEquals(v, secondPageSecret)),
+                It.IsAny<SecretAccessContext?>()))
+            .Returns(secondPagePlaintext);
+
+        var fingerprints = await TenantSecretFingerprints.ReadAsync(MockTenantRepository.Object, MockSession.Object,
+            MockCkCacheService.Object, _protector.Object, TestContext.Current.CancellationToken);
+
+        fingerprints.Should().BeEquivalentTo([SecretFingerprint.Compute(Plaintext),
+            SecretFingerprint.Compute(secondPagePlaintext)]);
+        MockTenantRepository.Verify(r => r.GetRtEntitiesByTypeAsync(MockSession.Object,
+            It.IsAny<RtCkId<CkTypeId>>(), It.IsAny<RtEntityQueryOptions>(), It.IsAny<int?>(), It.IsAny<int?>()),
+            Times.Exactly(2));
+    }
+
+    [Fact]
     public async Task ReadAsync_WithoutKeyRing_ReadsNothing()
     {
         _protector.SetupGet(p => p.IsConfigured).Returns(false);

@@ -19,16 +19,19 @@ namespace Meshmakers.Octo.Backend.McpServices.Services.ContentGuard;
 ///         compares against what the caller could reveal.</item>
 ///         <item>Only fingerprints leave this class (<see cref="SecretFingerprint.Compute" />); plaintexts live only for
 ///         the duration of the hash. Nothing is cached.</item>
-///         <item>Scope: top-level <c>Secret</c> attributes of every non-abstract CK type of the tenant. Secret members
-///         inside records are not read yet.</item>
+///         <item>Scope: top-level <c>Secret</c> attributes of every entity (all pages) of every non-abstract CK type of
+///         the tenant. Secret members inside records are not read yet.</item>
 ///         <item>Without a configured key ring (<see cref="ISecretAttributeProtector.IsConfigured" /> false, or no
 ///         protector) nothing can be revealed and the set is empty: the detector is off, the others still run.</item>
 ///     </list>
 /// </remarks>
 public static class TenantSecretFingerprints
 {
-    /// <summary>Upper bound of entities read per CK type.</summary>
-    public const int MaxEntitiesPerType = 2000;
+    /// <summary>
+    ///     Page size of the entity reads. Every entity of a type is read, page by page: a cap would let a page that
+    ///     quotes a secret beyond the cap pass the detector.
+    /// </summary>
+    public const int PageSize = 2000;
 
     /// <summary>Name of the service in the <see cref="SecretAccessContext" /> of the reveal (decrypt metric).</summary>
     public const string ServiceName = "mcp-content-guard";
@@ -68,18 +71,31 @@ public static class TenantSecretFingerprints
             }
 
             var rtCkTypeId = type.CkTypeId.ToRtCkId();
-            var entities = await tenantRepository.GetRtEntitiesByTypeAsync(callerSession, rtCkTypeId,
-                RtEntityQueryOptions.Create(), 0, MaxEntitiesPerType);
-            foreach (var entity in entities.Items)
+            var skip = 0;
+            while (true)
             {
-                foreach (var attributeName in secretAttributes)
+                cancellationToken.ThrowIfCancellationRequested();
+                var page = await tenantRepository.GetRtEntitiesByTypeAsync(callerSession, rtCkTypeId,
+                    RtEntityQueryOptions.Create(), skip, PageSize);
+                var read = 0;
+                foreach (var entity in page.Items)
                 {
-                    var plaintext = protector.RevealOrNull(entity.GetAttributeSecretValueOrDefault(attributeName),
-                        new SecretAccessContext(tenantId, rtCkTypeId.ToString(), attributeName, ServiceName));
-                    if (!string.IsNullOrEmpty(plaintext) && plaintext.Length >= ContentDetectors.MinSecretLength)
+                    read++;
+                    foreach (var attributeName in secretAttributes)
                     {
-                        fingerprints.Add(SecretFingerprint.Compute(plaintext));
+                        var plaintext = protector.RevealOrNull(entity.GetAttributeSecretValueOrDefault(attributeName),
+                            new SecretAccessContext(tenantId, rtCkTypeId.ToString(), attributeName, ServiceName));
+                        if (!string.IsNullOrEmpty(plaintext) && plaintext.Length >= ContentDetectors.MinSecretLength)
+                        {
+                            fingerprints.Add(SecretFingerprint.Compute(plaintext));
+                        }
                     }
+                }
+
+                skip += read;
+                if (read == 0 || skip >= page.TotalCount)
+                {
+                    break;
                 }
             }
         }
