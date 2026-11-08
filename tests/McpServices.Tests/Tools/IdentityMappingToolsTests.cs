@@ -119,16 +119,19 @@ public class ExternalTenantUserMappingToolsTests : ToolTestBase
     [Fact]
     public async Task CreateMapping_HappyPath_PassesAllFields()
     {
+        MockIdentityClient.Setup(c => c.GrantExternalTenantUser(It.IsAny<CreateExternalTenantUserMappingDto>()))
+            .ReturnsAsync(new ExternalTenantUserMappingDto { SourceTenantId = "src-tenant", SourceUserName = "alice" });
+
         await ExternalTenantUserMappingTools.CreateMapping(MockServer.Object,
             sourceTenantId: "src-tenant",
             sourceUserId: "u1",
             sourceUserName: "alice",
             roleIds: ["r1", "r2"]);
 
-        MockIdentityClient.Verify(c => c.CreateExternalTenantUserMapping(
+        MockIdentityClient.Verify(c => c.GrantExternalTenantUser(
             It.Is<CreateExternalTenantUserMappingDto>(d =>
                 d.SourceTenantId == "src-tenant" && d.SourceUserId == "u1" &&
-                d.SourceUserName == "alice" && d.RoleIds!.Count == 2)), Times.Once);
+                d.SourceUserName == "alice" && d.RoleIds!.Count == 2 && d.GroupIds == null)), Times.Once);
     }
 
     [Fact]

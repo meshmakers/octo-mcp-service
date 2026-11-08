@@ -163,9 +163,11 @@ dotnet run
 - API Scopes (4): `get_api_scopes` · `create_api_scope` · `update_api_scope` · `delete_api_scope`<sup>‡</sup>
 - API Secrets (8): `get_client_secrets` · `create_client_secret` · `update_client_secret` · `delete_client_secret`<sup>‡</sup> · `get_api_resource_secrets` · `create_api_resource_secret` · `update_api_resource_secret` · `delete_api_resource_secret`<sup>‡</sup>
 
-### **Identity — Cross-Tenant Mappings + Admin Provisioning** (14)
+### **Identity — Cross-Tenant Mappings + Admin Provisioning** (17)
 - Email-Domain Group Rules (5): `get_email_domain_group_rules` · `get_email_domain_group_rule` · `create_email_domain_group_rule` · `update_email_domain_group_rule` · `delete_email_domain_group_rule`<sup>‡</sup>
-- External-Tenant User Mappings (5): `get_external_tenant_user_mappings` · `get_external_tenant_user_mapping` · `create_external_tenant_user_mapping` · `update_external_tenant_user_mapping` · `delete_external_tenant_user_mapping`<sup>‡</sup>
+- External-Tenant User Mappings (6): `get_external_tenant_user_mappings` · `get_external_tenant_user_mapping` · `lookup_source_tenant_user` · `create_external_tenant_user_mapping` (`groupIds`) · `update_external_tenant_user_mapping` · `delete_external_tenant_user_mapping`<sup>‡</sup>
+- Cross-Tenant Grant Permissions (2, AB#8346): `get_cross_tenant_grant_permissions` · `set_cross_tenant_grant_permissions`<sup>‡</sup>
+- Sibling-tenant grants (AB#8346, identity AB#8341/8343/8345): `lookup_source_tenant_user` finds one user of a source tenant by exact user name or e-mail (no e-mail in the result; every miss is `errorCode: SourceUserNotFound`; `SourceUserLookupRateLimited` with `retryAfterSeconds`), `create_external_tenant_user_mapping` grants it with `groupIds` of the target tenant and returns the stored mapping; refusals carry `errorCode` (`SourceTenantNotPermitted`, `UnknownGroup`, `ExternalTenantUserMappingAlreadyExists`). The source tenant's administrators manage which tenants may do this with the two permission tools. Guide: octo-documentation, "Cross-tenant access".
 - Admin Provisioning (4): `get_admin_provisioning_mappings` · `create_admin_provisioning_mapping` · `provision_current_user_as_admin` · `delete_admin_provisioning_mapping`<sup>‡</sup>
 
 ### **Asset Repository — Blueprints** (8)
@@ -187,9 +189,10 @@ dotnet run
 - AI Services (2): `enable_ai` · `disable_ai`<sup>‡</sup> (AB#7192)
 - Diagnostics (1): `reconfigure_log_level` (dispatches to Identity/AssetRepository/Communication/Reporting/Bot)
 
-### **File I/O** (16 tools + 2 HTTP endpoints)
+### **File I/O** (17 tools + 2 HTTP endpoints)
 - Foundation: `prepare_file_upload` · `cancel_file_transfer`
 - CK Model Imports: `import_ck_model` · `import_runtime_model`
+- CK Model Validation: `validate_ck_model` (AB#8492, Risk Low: a zipped source `ConstructionKit/` folder or a compiled model is compiled and checked against the tenant's installed models; returns `isValid` or errors with `messageNumber`, `file`, `elementPath`; nothing is imported, the upload is kept)
 - CK Model Exports: `export_runtime_model_by_query` · `export_runtime_model_by_deep_graph`
 - Tenant Backup: `dump_tenant` · `restore_tenant`<sup>‡</sup>
 - Archive Data: `export_archive_data` · `import_archive_data`
