@@ -173,7 +173,8 @@ internal static class KnowledgePages
         for (var i = 0; i < content.Citations.Count; i++)
         {
             fields.Add(new ContentGuardField($"citations[{i}]",
-                content.Citations[i].SourceQuote + "\n" + content.Citations[i].SourceAnchor));
+                string.Join("\n", content.Citations[i].SectionRef, content.Citations[i].SourceQuote,
+                    content.Citations[i].SourceAnchor, content.Citations[i].SourceRtId)));
         }
 
         for (var i = 0; i < content.HallucinationFlags.Count; i++)

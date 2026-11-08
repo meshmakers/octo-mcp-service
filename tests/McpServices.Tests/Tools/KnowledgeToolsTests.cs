@@ -177,6 +177,65 @@ public class KnowledgeToolsTests : TestBase
     }
 
     [Fact]
+    public async Task PageMovedOnBeforeTheTransaction_IsAConflict_AndWritesNothing()
+    {
+        await UpsertAsync("page-a", "Page A", "text");
+        var page = _entities.Values.Single(e => Equals(e.CkTypeId, KnowledgePages.PageTypeId));
+        // Another writer commits version 2 after this call read the page and before its transaction starts.
+        MockSession.Setup(s => s.StartTransaction()).Callback(() =>
+            page.SetAttributeValue("CurrentVersion",
+                Meshmakers.Octo.ConstructionKit.Contracts.DataTransferObjects.AttributeValueTypesDto.Int, 2));
+
+        var result = await UpsertAsync("page-a", "Page A", "my change");
+
+        result.IsSuccess.Should().BeFalse();
+        result.IsConflict.Should().BeTrue();
+        result.ErrorCode.Should().Be("VersionConflict");
+        Versions("page-a").Should().ContainSingle();
+        MockSession.Verify(s => s.AbortTransactionAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task WriteConflictOfTheEngine_IsAVersionConflict()
+    {
+        await UpsertAsync("page-a", "Page A", "text");
+        MockTenantRepository
+            .Setup(r => r.ApplyChangesAsync(It.IsAny<IOctoSession>(), It.IsAny<IReadOnlyList<IEntityUpdateInfo<RtEntity>>>(),
+                It.IsAny<IReadOnlyList<AssociationUpdateInfo>>(), It.IsAny<OperationResult>()))
+            .ThrowsAsync(new InvalidOperationException("Command update failed: WriteConflict error: this operation " +
+                                                       "conflicted with another operation."));
+
+        var result = await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "InReview",
+            cancellationToken: Ct);
+
+        result.IsConflict.Should().BeTrue();
+        result.ErrorCode.Should().Be("VersionConflict");
+        Versions("page-a").Should().ContainSingle();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CredentialInACitationReference_IsRejected(bool inSectionRef)
+    {
+        const string key = "sk-ant-api03-AbCdEf123456";
+        var citation = new KnowledgeCitationDto
+        {
+            SectionRef = inSectionRef ? key : "Summary",
+            SourceQuote = "quote",
+            SourceRtId = inSectionRef ? null : key
+        };
+
+        var result = await KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, "page-a", "Page A",
+            [new KnowledgeSectionDto { Heading = "Summary", SectionContent = "harmless" }], [citation],
+            cancellationToken: Ct);
+
+        result.ErrorCode.Should().Be(ContentGuardResult.ErrorCode);
+        result.ErrorMessage.Should().Contain("citations[0]").And.NotContain("AbCdEf123456");
+        _entities.Values.Should().NotContain(e => Equals(e.CkTypeId, KnowledgePages.PageTypeId));
+    }
+
+    [Fact]
     public async Task CredentialLikeContent_IsRejected_WithContentRejected_AndNothingIsWritten()
     {
         var result = await UpsertAsync("leaky-page", "Keys", "Use sk-ant-api03-AbCdEf123456 for the calls.");

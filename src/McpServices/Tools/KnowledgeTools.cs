@@ -287,10 +287,10 @@ public static class KnowledgeTools
                 return Invalid($"Linked page(s) not found: {string.Join(", ", missingLinks)}.");
             }
 
-            var error = await ApplyAsync(ctx.Repo, session, write.Updates, associations);
-            if (error != null)
+            var failure = await ApplyAsync(ctx.Repo, session, ctx.TenantId!, write.Updates, associations, slug, existing);
+            if (failure != null)
             {
-                return new KnowledgeWriteResponse { TenantId = ctx.TenantId, ErrorMessage = error };
+                return failure;
             }
 
             response.IsSuccess = true;
@@ -357,17 +357,15 @@ public static class KnowledgeTools
             var origin = new RtEntityId(KnowledgePages.PageTypeId, from.RtId);
             var target = new RtEntityId(KnowledgePages.PageTypeId, to.RtId);
             var role = new RtCkId<CkAssociationRoleId>(KnowledgePages.LinksToRole);
-            var error = await ApplyAsync(ctx.Repo, session, [],
+            var failure = await ApplyAsync(ctx.Repo, session, ctx.TenantId!, [],
                 [remove ? AssociationUpdateInfo.CreateDelete(origin, target, role) : AssociationUpdateInfo.CreateInsert(origin, target, role)]);
-            return error != null
-                ? new KnowledgeWriteResponse { TenantId = ctx.TenantId, ErrorMessage = error }
-                : new KnowledgeWriteResponse
-                {
-                    IsSuccess = true,
-                    TenantId = ctx.TenantId,
-                    Page = KnowledgePages.Summarize(ctx.TenantId!, from),
-                    Message = remove ? $"Removed link '{fromSlug}' -> '{toSlug}'." : $"Linked '{fromSlug}' -> '{toSlug}'."
-                };
+            return failure ?? new KnowledgeWriteResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                Page = KnowledgePages.Summarize(ctx.TenantId!, from),
+                Message = remove ? $"Removed link '{fromSlug}' -> '{toSlug}'." : $"Linked '{fromSlug}' -> '{toSlug}'."
+            };
         }
         catch (Exception ex)
         {
@@ -433,17 +431,15 @@ public static class KnowledgeTools
 
             var write = KnowledgePages.BuildWrite(page, slug, content, 0, ctx.Author!, $"restore of version {version}",
                 version, null, DateTime.UtcNow);
-            var error = await ApplyAsync(ctx.Repo, session, write.Updates,
-                [KnowledgePages.VersionOf(write.Version, write.Page)]);
-            return error != null
-                ? new KnowledgeWriteResponse { TenantId = ctx.TenantId, ErrorMessage = error }
-                : new KnowledgeWriteResponse
-                {
-                    IsSuccess = true,
-                    TenantId = ctx.TenantId,
-                    Page = KnowledgePages.Summarize(ctx.TenantId!, write.Page),
-                    Message = $"Restored version {version} of '{slug}' as version {write.VersionNumber} (Draft)."
-                };
+            var failure = await ApplyAsync(ctx.Repo, session, ctx.TenantId!, write.Updates,
+                [KnowledgePages.VersionOf(write.Version, write.Page)], slug, page);
+            return failure ?? new KnowledgeWriteResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                Page = KnowledgePages.Summarize(ctx.TenantId!, write.Page),
+                Message = $"Restored version {version} of '{slug}' as version {write.VersionNumber} (Draft)."
+            };
         }
         catch (Exception ex)
         {
@@ -508,17 +504,15 @@ public static class KnowledgeTools
             var write = KnowledgePages.BuildWrite(page, slug, content, 0, ctx.Author!,
                 changeNote ?? $"status {KnowledgePages.Name(KnowledgePages.StatusNames, statusValue.Value)}", null, null,
                 DateTime.UtcNow);
-            var error = await ApplyAsync(ctx.Repo, session, write.Updates,
-                [KnowledgePages.VersionOf(write.Version, write.Page)]);
-            return error != null
-                ? new KnowledgeWriteResponse { TenantId = ctx.TenantId, ErrorMessage = error }
-                : new KnowledgeWriteResponse
-                {
-                    IsSuccess = true,
-                    TenantId = ctx.TenantId,
-                    Page = KnowledgePages.Summarize(ctx.TenantId!, write.Page),
-                    Message = $"'{slug}' is {KnowledgePages.Name(KnowledgePages.StatusNames, statusValue.Value)} (version {write.VersionNumber})."
-                };
+            var failure = await ApplyAsync(ctx.Repo, session, ctx.TenantId!, write.Updates,
+                [KnowledgePages.VersionOf(write.Version, write.Page)], slug, page);
+            return failure ?? new KnowledgeWriteResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                Page = KnowledgePages.Summarize(ctx.TenantId!, write.Page),
+                Message = $"'{slug}' is {KnowledgePages.Name(KnowledgePages.StatusNames, statusValue.Value)} (version {write.VersionNumber})."
+            };
         }
         catch (Exception ex)
         {
@@ -670,27 +664,100 @@ public static class KnowledgeTools
         return missing;
     }
 
-    private static async Task<string?> ApplyAsync(ITenantRepository repository, IOctoSession session,
-        IReadOnlyList<IEntityUpdateInfo<RtEntity>> updates, IReadOnlyList<AssociationUpdateInfo> associations)
+    /// <summary>
+    ///     Applies one write in a transaction. For a page write (<paramref name="slug" /> set) the page is read again
+    ///     inside the transaction first: when it moved on since <paramref name="readPage" /> was read (another writer
+    ///     committed in between) nothing is written and the result is <c>VersionConflict</c>. A writer that commits
+    ///     after that re-read makes this transaction's page update a MongoDB write conflict, which maps to
+    ///     <c>VersionConflict</c> as well, so two writers can never both write version <c>n + 1</c> of an existing page.
+    /// </summary>
+    /// <returns>The failure response, or <c>null</c> when the write was committed.</returns>
+    private static async Task<KnowledgeWriteResponse?> ApplyAsync(ITenantRepository repository, IOctoSession session,
+        string tenantId, IReadOnlyList<IEntityUpdateInfo<RtEntity>> updates,
+        IReadOnlyList<AssociationUpdateInfo> associations, string? slug = null, RtEntity? readPage = null)
     {
+        var readVersion = readPage == null ? 0 : KnowledgePages.CurrentVersion(readPage);
         session.StartTransaction();
         var result = new OperationResult();
         try
         {
+            if (slug != null)
+            {
+                var current = await KnowledgePages.FindBySlugAsync(repository, session, KnowledgePages.PageType, slug);
+                var currentVersion = current == null ? 0 : KnowledgePages.CurrentVersion(current);
+                if ((current == null) != (readPage == null) || currentVersion != readVersion)
+                {
+                    await session.AbortTransactionAsync();
+                    return Conflict(tenantId, current, readVersion);
+                }
+            }
+
             await repository.ApplyChangesAsync(session, updates, associations, result);
             if (result.HasErrors || result.HasFatalErrors)
             {
                 await session.AbortTransactionAsync();
-                return $"The write failed: {result.GetMessages()}";
+                var messages = result.GetMessages();
+                return IsWriteConflict(messages)
+                    ? Conflict(tenantId, null, readVersion)
+                    : new KnowledgeWriteResponse { TenantId = tenantId, ErrorMessage = $"The write failed: {messages}" };
             }
 
             await session.CommitTransactionAsync();
             return null;
         }
+        catch (Exception ex) when (IsWriteConflict(ex))
+        {
+            await TryAbortAsync(session);
+            return Conflict(tenantId, null, readVersion);
+        }
         catch
         {
-            await session.AbortTransactionAsync();
+            await TryAbortAsync(session);
             throw;
+        }
+    }
+
+    private static KnowledgeWriteResponse Conflict(string tenantId, RtEntity? current, int readVersion) => new()
+    {
+        TenantId = tenantId,
+        IsConflict = true,
+        ErrorCode = "VersionConflict",
+        Page = current == null ? null : KnowledgePages.Summarize(tenantId, current),
+        ErrorMessage = $"The page changed while this write ran (it was at version {readVersion}); nothing was written. " +
+                       "Read it again and rebase the change."
+    };
+
+    /// <summary>
+    ///     A MongoDB write conflict (server error 112, label <c>TransientTransactionError</c>). The engine passes the
+    ///     driver exception through (or wraps it), and the driver message names the error.
+    /// </summary>
+    internal static bool IsWriteConflict(Exception? ex)
+    {
+        for (var e = ex; e != null; e = e.InnerException)
+        {
+            if (IsWriteConflict(e.Message))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsWriteConflict(string? message) =>
+        message != null && (message.Contains("WriteConflict", StringComparison.OrdinalIgnoreCase) ||
+                            message.Contains("TransientTransactionError", StringComparison.Ordinal));
+
+    private static async Task TryAbortAsync(IOctoSession session)
+    {
+        try
+        {
+            await session.AbortTransactionAsync();
+        }
+        catch (Exception)
+        {
+            // Already committed or aborted (e.g. a commit that failed with a write conflict); the caller reports the
+            // original failure, an abort error must not replace it.
         }
     }
 
