@@ -1022,7 +1022,8 @@ Rules to keep:
   Warning log line carry tenant, caller, operation, detectors and field names only. Once ActionRecords exist (AB#8467)
   the caller records the refusal there with status `Refused`.
 - **Tenant secrets only as fingerprints.** `Services/ContentGuard/TenantSecretFingerprints.ReadAsync` reads the top-level
-  `Secret` attributes of every non-abstract type **with the caller's session** (what the caller could reveal), reveals
+  `Secret` attributes of every entity of every non-abstract type (paged, `PageSize` 2000, no cap: a cap would let a
+  secret beyond it pass) **with the caller's session** (what the caller could reveal), reveals
   them through the engine's `ISecretAttributeProtector` (service name `mcp-content-guard` in the decrypt metric) and
   hands only SHA-256 fingerprints to the guard. Nothing is cached. Without a configured key ring
   (`SecretEncryption:*`) the set is empty and the detector is off; the other detectors still run. Secret members inside
