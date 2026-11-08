@@ -1116,6 +1116,11 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   `SetKnowledgePageStatus` recomputes it with a port of `Render`; both repos pin the same golden hash
   (`Services/Knowledge/KnowledgeContentHashGoldenTests` here). Changing `Render` means changing the octo-cli port in the same step.
   `Render` ends every line with an explicit `\n` (never `AppendLine`/`Environment.NewLine`), so the hash is the same on Windows.
+- **Update = omitted means unchanged** (AB#8567): on `knowledge_upsert_page` for an existing page, title and sections are
+  required and replace; `kind`, `summary`, `citations`, `hallucinationFlags` keep the current value when omitted (null)
+  and are cleared by an explicit empty value (`""` / `[]`). Deliberate exceptions, named in the tool description:
+  `origin` applies to new pages only; `linksTo` / `sourceRtIds` only add links (removal is `knowledge_link remove=true`);
+  `changeNote` and the run metadata belong to the new version only.
 - **Prototype JSON**: `KnowledgeSectionDto` / `KnowledgeCitationDto` / `KnowledgeHallucinationFlagDto` carry the JSON names of the
   KnowledgeCapture prompts (`heading`, `sectionContent`, `sortOrder`, `sectionRef`, `sourceQuote`, `sourceAnchor`, `sourceRtId`,
   `claim`, `reason`); cited `sourceRtId`s that are SourceArtifacts are linked with `GeneratedFrom`, others are reported in

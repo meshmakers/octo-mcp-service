@@ -51,6 +51,11 @@
 
 ### Fixed
 
+- **AB#8567** — `knowledge_upsert_page` keeps the summary when it is omitted on an update (it was cleared, while `kind` was
+  kept). Same rule for every optional content parameter: an omitted `kind`, `summary`, `citations` or `hallucinationFlags`
+  keeps the current value, an explicit `""` / `[]` clears it; before, omitted citations and flags were cleared as well.
+  The tool description names the exceptions (`origin` only for new pages, `linksTo` / `sourceRtIds` only add,
+  `changeNote` and run metadata per version).
 - **AB#8566** — `knowledge_search` with a query no longer returns pages that contain none of its words (score 0). A query
   that matches nothing returns 0 pages, `isSuccess: true` and the "No knowledge page matches" message, also with a status
   or kind filter (the hand test returned `knowledge-schema` for "Zebrafisch" + Verified). Words shorter than 3 characters
