@@ -258,7 +258,10 @@ only. Where it runs:
   page), which aborts the transaction.
 - `import_runtime_model`: `RunImport` takes a `precheck`; `TryGetImportRefusal` scans the uploaded file (YAML/JSON, or every
   entry of a zip) by text for the runtime or full ids of the two types and of the roles `LinksTo`, `GeneratedFrom`,
-  `VersionOf`, fail closed, before the asset repository is called. The upload buffer stays (expires on its own).
+  `VersionOf`, fail closed, before the asset repository is called. It reads in 64 KiB chunks with a 128-character overlap
+  (bounded memory for 5 GiB uploads and zip bombs) and never throws: a file it cannot read (corrupt zip, I/O error) is
+  refused with the reason. The import response carries `ErrorCode` and the message only (`JobStartedResponse` has no
+  `ErrorParameters`). The upload buffer stays (expires on its own).
 
 **Delete is ruled out over MCP** (CPO decision 2026-11-08): deleting a knowledge page is not a knowledge operation in M1.
 Agents set `Rejected` with `knowledge_set_status`; a person deletes pages outside MCP (GraphQL or octo-cli). There is no

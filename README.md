@@ -230,7 +230,8 @@ every content or status write is a new `KnowledgePageVersion` and passes the con
 - The knowledge tools are the **only** write path (AB#8568): `create_entity`, `create_entity_with_secrets`, `update_entity`,
   `set_entity_secrets`, `delete_entity` and `import_runtime_model` refuse `System.Ai/KnowledgePage`, `System.Ai/KnowledgePageVersion`
   (and derived types; for the import also the associations `LinksTo`, `GeneratedFrom`, `VersionOf`) with `errorCode`
-  `GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL` (`errorParameters` `ckTypeId`, `tool`); nothing is written. Generic reads work as before.
+  `GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL`; the entity tools also return `errorParameters` `ckTypeId` and `tool`, the import
+  names the reference in the message (a file it cannot read is refused too). Nothing is written. Generic reads work as before.
 - **No delete over MCP**: pages and versions keep their history. Set an unwanted page to `Rejected` with `knowledge_set_status`;
   a person deletes pages outside MCP (GraphQL `runtimeEntities.delete` or octo-cli).
 

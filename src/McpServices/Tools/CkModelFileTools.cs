@@ -70,7 +70,7 @@ public sealed class CkModelFileTools
                 {
                     IsSuccess = false,
                     ErrorCode = KnowledgeWriteRefusal.Code,
-                    ErrorMessage = refusal.Message
+                    ErrorMessage = refusal
                 }
                 : null);
 

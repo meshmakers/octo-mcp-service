@@ -77,17 +77,26 @@ internal static partial class KnowledgeWriteRefusal
     }
 
     /// <summary>
-    ///     The refusal for a runtime-model import whose file (YAML, JSON, or a zip of them) mentions a knowledge type or
-    ///     a knowledge association role, or <c>null</c>. The check is by text, fail closed: any occurrence of the type
-    ///     or role id refuses the whole import, before the file reaches the asset repository.
+    ///     The refusal message for a runtime-model import whose file (YAML, JSON, or a zip of them) mentions a knowledge
+    ///     type or a knowledge association role, or <c>null</c>. The check is by text, fail closed: any occurrence of the
+    ///     type or role id refuses the whole import, before the file reaches the asset repository. A file that cannot be
+    ///     read (e.g. a corrupt zip) is refused as well, with the reason; this method never throws.
     /// </summary>
-    public static (string Message, IReadOnlyDictionary<string, string> Parameters)? TryGetImportRefusal(string filePath)
+    public static string? TryGetImportRefusal(string filePath)
     {
-        var hit = FindKnowledgeReference(filePath);
-        return hit == null ? null : Build(hit, Operation.Import);
+        try
+        {
+            var hit = FindKnowledgeReference(filePath);
+            return hit == null ? null : Build(hit, Operation.Import).Message;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            return $"The uploaded runtime model could not be checked for knowledge types ({ex.GetType().Name}: " +
+                   $"{ex.Message}). Nothing was imported.";
+        }
     }
 
-    /// <summary>The first knowledge type or role id found in the file, or <c>null</c>.</summary>
+    /// <summary>The first knowledge type or role id found in the file, or <c>null</c>. Reads in bounded chunks.</summary>
     internal static string? FindKnowledgeReference(string filePath)
     {
         if (!File.Exists(filePath))
@@ -100,8 +109,8 @@ internal static partial class KnowledgeWriteRefusal
             using var archive = ZipFile.OpenRead(filePath);
             foreach (var entry in archive.Entries.Where(e => e.Length > 0))
             {
-                using var reader = new StreamReader(entry.Open(), Encoding.UTF8);
-                var hit = Find(reader.ReadToEnd());
+                using var entryStream = entry.Open();
+                var hit = Scan(entryStream);
                 if (hit != null)
                 {
                     return hit;
@@ -111,14 +120,41 @@ internal static partial class KnowledgeWriteRefusal
             return null;
         }
 
-        return Find(File.ReadAllText(filePath, Encoding.UTF8));
+        using var stream = File.OpenRead(filePath);
+        return Scan(stream);
     }
 
-    private static string? Find(string text)
+    /// <summary>
+    ///     Scans a stream in chunks of <see cref="ChunkSize" /> characters; the last <see cref="Overlap" /> characters
+    ///     of a chunk are carried into the next one, so an id across a chunk boundary is still found. Memory stays bounded
+    ///     however large the upload or a decompressed zip entry is.
+    /// </summary>
+    internal static string? Scan(Stream stream)
     {
-        var match = KnowledgeIdPattern().Match(text);
-        return match.Success ? $"System.Ai/{match.Groups["name"].Value}" : null;
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true,
+            bufferSize: ChunkSize, leaveOpen: true);
+        var buffer = new char[ChunkSize];
+        var carry = string.Empty;
+        int read;
+        while ((read = reader.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            var text = carry + new string(buffer, 0, read);
+            var match = KnowledgeIdPattern().Match(text);
+            if (match.Success)
+            {
+                return $"System.Ai/{match.Groups["name"].Value}";
+            }
+
+            carry = text.Length > Overlap ? text[^Overlap..] : text;
+        }
+
+        return null;
     }
+
+    internal const int ChunkSize = 64 * 1024;
+
+    // Longer than the longest id the pattern matches (System.Ai-<version>/KnowledgePageVersion plus the boundary char).
+    internal const int Overlap = 128;
 
     private static bool IsZip(string filePath)
     {

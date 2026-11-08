@@ -385,6 +385,39 @@ public class KnowledgeRuntimeImportRefusalTests : ToolTestBase
     }
 
     [Fact]
+    public async Task ImportRuntimeModel_CorruptZip_IsRefusedWithTheReason_AndDoesNotThrow()
+    {
+        var (id, path) = FileTransferStore.ReserveUpload(CallerSession, "model.zip");
+        File.WriteAllBytes(path, [(byte)'P', (byte)'K', 3, 4, 0, 1, 2, 3, 4, 5, 6, 7]);
+        FileTransferStore.CompleteUpload(id, 12);
+
+        var result = await CkModelFileTools.ImportRuntimeModel(MockServer.Object, id);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(Code);
+        result.ErrorMessage.Should().Contain("could not be checked").And.Contain("Nothing was imported");
+        MockAssetClient.Verify(c => c.ImportRtModelAsync(It.IsAny<string>(),
+            It.IsAny<Meshmakers.Octo.Communication.Contracts.DataTransferObjects.ImportStrategyDto>(),
+            It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void Scan_FindsAnIdAcrossAChunkBoundary_AndInALargeFile()
+    {
+        var chunk = Meshmakers.Octo.Backend.McpServices.Services.KnowledgeWriteRefusal.ChunkSize;
+        // The id starts 10 characters before the end of the first chunk.
+        var text = new string('x', chunk - 10) + " ckTypeId: System.Ai/KnowledgePageVersion\n" + new string('y', 3 * chunk);
+        using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(text));
+
+        Meshmakers.Octo.Backend.McpServices.Services.KnowledgeWriteRefusal.Scan(stream)
+            .Should().StartWith("System.Ai/KnowledgePage");
+
+        var clean = new string('z', 5 * chunk) + " System.Ai/SourceArtifact";
+        using var cleanStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(clean));
+        Meshmakers.Octo.Backend.McpServices.Services.KnowledgeWriteRefusal.Scan(cleanStream).Should().BeNull();
+    }
+
+    [Fact]
     public async Task ImportRuntimeModel_WithoutKnowledgeReference_IsImported()
     {
         var transferId = StageUpload("""
