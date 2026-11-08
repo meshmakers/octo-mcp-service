@@ -85,7 +85,9 @@ public sealed class CkModelLibraryTools
     /// <summary>Refresh catalog caches (specific catalog or all).</summary>
     [McpServerTool(Name = "refresh_ck_catalogs")]
     [McpRisk(McpRiskLevel.Medium)]
-    [Description("Refresh CK model catalog caches. Equivalent to octo-cli RefreshCatalogs.")]
+    [Description("Refresh CK model catalog caches. Equivalent to octo-cli RefreshCatalogs. " +
+        "Requires the tenant role DataModelManagement (AB#8529); without it the call fails with ErrorCode " +
+        "DataModelManagementRequired.")]
     public static async Task<RefreshCkCatalogsResponse> RefreshCatalogs(
         McpServer server,
         [Description("Optional catalog name. If omitted, all catalogs are refreshed.")] string? catalogName = null,
@@ -112,7 +114,8 @@ public sealed class CkModelLibraryTools
         }
         catch (Exception ex)
         {
-            return new RefreshCkCatalogsResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            var problem = ServiceProblemMessage.From(ex);
+            return new RefreshCkCatalogsResponse { IsSuccess = false, ErrorMessage = problem.Message, ErrorCode = problem.Code };
         }
     }
 
@@ -250,7 +253,9 @@ public sealed class CkModelLibraryTools
     [Description(
         "Import a CK model from a catalog including all dependencies (in dependency order). Returns the ID of the " +
         "enqueued batch import job — poll it separately to track completion. Equivalent to octo-cli ImportFromCatalog " +
-        "without the -w wait flag.")]
+        "without the -w wait flag. " +
+        "Requires the tenant role DataModelManagement (AB#8529); without it the call fails with ErrorCode " +
+        "DataModelManagementRequired.")]
     public static async Task<CkImportResponse> ImportFromCatalog(
         McpServer server,
         [Description("Catalog name.")] string catalogName,
@@ -302,7 +307,8 @@ public sealed class CkModelLibraryTools
         }
         catch (Exception ex)
         {
-            return new CkImportResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            var problem = ServiceProblemMessage.From(ex);
+            return new CkImportResponse { IsSuccess = false, ErrorMessage = problem.Message, ErrorCode = problem.Code };
         }
     }
 
@@ -312,7 +318,9 @@ public sealed class CkModelLibraryTools
     [Description(
         "Find every installed CK model that needs an update or fix, resolve dependencies, and enqueue imports. " +
         "DESTRUCTIVE — modifies the installed model set. Requires confirm=true. Equivalent to octo-cli FixAll " +
-        "without the -w wait flag.")]
+        "without the -w wait flag. " +
+        "Requires the tenant role DataModelManagement (AB#8529); without it the call fails with ErrorCode " +
+        "DataModelManagementRequired.")]
     public static async Task<CkImportResponse> FixAllModels(
         McpServer server,
         [Description("Must be true to actually enqueue imports.")] bool confirm = false,
@@ -396,7 +404,8 @@ public sealed class CkModelLibraryTools
         }
         catch (Exception ex)
         {
-            return new CkImportResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            var problem = ServiceProblemMessage.From(ex);
+            return new CkImportResponse { IsSuccess = false, ErrorMessage = problem.Message, ErrorCode = problem.Code };
         }
     }
 }
