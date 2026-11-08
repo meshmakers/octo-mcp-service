@@ -18,7 +18,7 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 [McpServerToolType]
 public sealed class CkModelFileTools
 {
-    /// <summary>Import a Construction Kit model file (compiled YAML, JSON, or zipped variant). Caller must prepare_file_upload first.</summary>
+    /// <summary>Import a compiled Construction Kit model file (YAML, JSON, or zipped variant; no source zips yet, AB#8501). Caller must prepare_file_upload first.</summary>
     [McpServerTool(Name = "import_ck_model")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
@@ -27,8 +27,8 @@ public sealed class CkModelFileTools
         "YAML built by the CK MSBuild task (typically at bin/<config>/net10.0/octo-ck-libraries/<Project>/" +
         "out/ck-<modelname>-<major>.yaml) — this is the easiest path from a `dotnet build` of a CK project; " +
         "(2) a single compiled JSON in the same catalog format as ~/.octo/local-catalog files; (3) a zip " +
-        "containing the source ConstructionKit/ folder with ckModel.yaml + types/enums/attributes/" +
-        "associations/records subfolders. The model's `dependencies` must already be loaded in the target " +
+        "of such a compiled model. Compiled models only (source zips: validate with validate_ck_model; " +
+        "import support follows AB#8501). The model's `dependencies` must already be loaded in the target " +
         "tenant or the job fails — for service-managed deps (System.Communication / StreamData / Reporting " +
         "/ UI / Ai) use enable_<feature> tools, for catalog deps use import_ck_from_catalog. " +
         "Equivalent to octo-cli ImportConstructionKitModel.")]
