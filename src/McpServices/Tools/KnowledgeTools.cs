@@ -447,17 +447,27 @@ public static class KnowledgeTools
         }
     }
 
-    /// <summary>Moves a page through the review states; only a person sets Verified.</summary>
+    /// <summary>The octo-cli command a person uses to set a status outside MCP (named in descriptions and refusals).</summary>
+    internal const string HumanStatusCommand = "octo-cli -c SetKnowledgePageStatus -s <slug> -st Verified";
+
+    /// <summary>
+    ///     Moves a page through the review states Draft, InReview and Rejected. Verified is never set over MCP (decision
+    ///     G2a, AB#8565): MCP callers are always AI clients, also with a user's token; a person sets Verified outside MCP.
+    /// </summary>
     [McpServerTool(Name = "knowledge_set_status")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
-        "Set the verification status of a knowledge page: Draft, InReview, Verified or Rejected. Only a person (a user " +
-        "token) may set Verified; a service account is refused. Each change is a new version with the same content. Pages are " +
-        "not deleted over MCP: set an unwanted page to Rejected; a person deletes pages outside MCP (GraphQL or octo-cli).")]
+        "Set the verification status of a knowledge page: Draft, InReview or Rejected. Verified is never set over MCP, " +
+        "for any caller (error VerifiedNotAllowedOverMcp): a person verifies a page outside MCP with octo-cli " +
+        "(SetKnowledgePageStatus -s <slug> -st Verified) or GraphQL. Each change is a new version with the same content. " +
+        "Pages are not deleted over MCP: set an unwanted page to Rejected; a person deletes pages outside MCP (GraphQL or " +
+        "octo-cli).")]
     public static async Task<KnowledgeWriteResponse> KnowledgeSetStatus(
         McpServer server,
         [Description("Slug of the page.")] string slug,
-        [Description("Draft, InReview, Verified or Rejected.")] string status,
+        [Description("Draft, InReview or Rejected. Verified is refused over MCP; a person sets it with octo-cli " +
+                     "SetKnowledgePageStatus or GraphQL.")]
+        string status,
         [Description("Why, e.g. 'checked against the runbook'.")] string? changeNote = null,
         [Description("Tenant to write to. Falls back to URL route.")] string? tenantId = null,
         CancellationToken cancellationToken = default)
@@ -465,17 +475,18 @@ public static class KnowledgeTools
         var statusValue = KnowledgePages.ParseEnum(status, KnowledgePages.StatusNames);
         if (!KnowledgePages.IsValidSlug(slug) || statusValue == null)
         {
-            return Invalid("A valid slug and a status (Draft, InReview, Verified, Rejected) are required.");
+            return Invalid("A valid slug and a status (Draft, InReview, Rejected) are required.");
         }
 
-        var principal = McpCallerPrincipal.FromServer(server);
-        // Fail closed: without a user principal (service account, or no principal at all) Verified is refused.
-        if (statusValue == KnowledgePages.StatusVerified && principal is not { IsUserPrincipal: true })
+        // G2a: refused for every caller (user token, client token, no principal), before the tenant is opened.
+        if (statusValue == KnowledgePages.StatusVerified)
         {
             return new KnowledgeWriteResponse
             {
-                ErrorCode = "VerifiedRequiresPerson",
-                ErrorMessage = "Only a person may set Verified; service accounts and agents leave pages in Draft or InReview."
+                ErrorCode = "VerifiedNotAllowedOverMcp",
+                ErrorMessage = "Verified is never set over MCP: MCP callers are AI clients, also in a user's session. " +
+                               "Leave the page in Draft or InReview; a person verifies it outside MCP with " +
+                               $"'{HumanStatusCommand}' or a GraphQL client."
             };
         }
 

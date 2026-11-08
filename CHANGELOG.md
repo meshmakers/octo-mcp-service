@@ -57,6 +57,12 @@
 
 ### Security
 
+- **AB#8565** — `knowledge_set_status` refuses `Verified` for every MCP caller (user token, client-credentials token, no
+  principal) with `errorCode` `VerifiedNotAllowedOverMcp`, before the tenant is opened; nothing is written (decision G2a:
+  MCP callers are always AI clients, also in a user's session). Draft, InReview and Rejected work as before. The tool and
+  `status` parameter descriptions list only those three and name the human path: octo-cli `SetKnowledgePageStatus`
+  (octo-cli AB#8565) or GraphQL. Replaces the user-principal check and its code `VerifiedRequiresPerson`. New test
+  `Services/Knowledge/KnowledgeContentHashGoldenTests` pins the content hash octo-cli recomputes.
 - **AB#8568** — the generic entity tools no longer write System.Ai knowledge pages past versioning and the content
   guard. `create_entity`, `create_entity_with_secrets`, `update_entity`, `set_entity_secrets` and `delete_entity` refuse
   `System.Ai/KnowledgePage`, `System.Ai/KnowledgePageVersion` and types derived from them with `errorCode`
