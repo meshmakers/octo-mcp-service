@@ -476,6 +476,75 @@ public class KnowledgeToolsTests : TestBase
         result.Pages[0].Uri.Should().Be("knowledge-page://test-tenant/energyiq-fixall");
     }
 
+    // AB#8566: the in-memory repository ignores the text-search option and returns every page, like the engine did for
+    // knowledge-schema in the hand test; the tool must drop pages without any query word.
+    private async Task GivenSchemaAndZebrafischPagesAsync()
+    {
+        await UpsertAsync("knowledge-schema", "Knowledge base conventions", "How pages are written.");
+        await UpsertAsync("zebrafisch-pipeline", "Pipeline schedule", "Die Zebrafisch-Pipeline läuft nachts.");
+    }
+
+    [Fact]
+    public async Task Search_WithAQuery_ReturnsOnlyMatchingPages()
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-pipeline");
+        result.Pages.Should().OnlyContain(p => p.Score > 0);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Verified")]
+    [InlineData("Draft")]
+    public async Task Search_WithAQueryThatMatchesNothing_IsEmpty_WithTheNoMatchMessage(string? status)
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+        var page = _entities.Values.Single(e => e.RtWellKnownName == "knowledge-schema");
+        page.SetAttributeValue("VerificationStatus", AttributeValueTypesDto.Enum, KnowledgePages.StatusVerified);
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Okapi", status: status);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Pages.Should().BeEmpty();
+        result.Message.Should().StartWith("No knowledge page matches");
+    }
+
+    [Fact]
+    public async Task Search_ForZebrafischWithStatusVerified_IsEmpty_WhenOnlyTheSchemaPageIsVerified()
+    {
+        // The hand-test case: knowledge-schema (Verified) used to come back with score 0.
+        await GivenSchemaAndZebrafischPagesAsync();
+        var page = _entities.Values.Single(e => e.RtWellKnownName == "knowledge-schema");
+        page.SetAttributeValue("VerificationStatus", AttributeValueTypesDto.Enum, KnowledgePages.StatusVerified);
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch", status: "Verified");
+
+        result.Pages.Should().BeEmpty();
+        result.Message.Should().StartWith("No knowledge page matches");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("a of")]
+    public async Task Search_WithoutAWordOfThreeCharacters_ReturnsTheIndexOfAllPages(string? query)
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, query);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Pages.Select(p => p.Slug).Should().Equal("knowledge-schema", "zebrafisch-pipeline");
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            result.Message.Should().Contain("index of all pages, not a match");
+        }
+    }
+
     [Fact]
     public async Task Link_AddsAndRemovesLinksTo_WithoutAVersion()
     {

@@ -29,12 +29,14 @@ public static class KnowledgeTools
     [McpServerTool(Name = "knowledge_search")]
     [Description(
         "Search the tenant's knowledge base (knowledge pages). Returns pages best first with slug, title, kind, " +
-        "verification status, summary, current version and the resource URI. Without a query it returns the index of all " +
-        "pages (sorted by title). Read the conventions page 'knowledge-schema' first; answer questions from pages and cite " +
-        "them by slug.")]
+        "verification status, summary, current version and the resource URI. With a query only pages that contain at least " +
+        "one of its words are returned; no match is an empty result with the message to say so. Words shorter than 3 " +
+        "characters are ignored; a query without a longer word returns the index of all pages, like no query (sorted by " +
+        "title). Read the conventions page 'knowledge-schema' first; answer questions from pages and cite them by slug.")]
     public static async Task<KnowledgeSearchResponse> KnowledgeSearch(
         McpServer server,
-        [Description("Words to search for (full-text over title, summary and section content). Empty: list all pages.")]
+        [Description("Words to search for (title, summary and section content; words of 3 or more characters). Empty: " +
+                     "list all pages.")]
         string? query = null,
         [Description("Only pages of this kind: Concept, Entity, HowTo, Summary, Skill, Schema.")]
         string? kind = null,
@@ -70,17 +72,23 @@ public static class KnowledgeTools
         try
         {
             using var session = await ctx.Repo.GetSessionAsync(ctx.Security!);
-            var candidates = await KnowledgePages.ListPagesAsync(ctx.Repo, session, query, MaxSearchCandidates);
+            // AB#8566: a query searches only when it has a word of 3+ characters; otherwise it is the index (no query).
             var terms = Terms(query);
+            var isSearch = terms.Length > 0;
+            var candidates = await KnowledgePages.ListPagesAsync(ctx.Repo, session, isSearch ? query : null,
+                MaxSearchCandidates);
             var pages = candidates
                 .Select(p => (Page: p, Content: KnowledgePages.ReadContent(p)))
                 .Where(x => kindFilter == null || x.Content.Kind == kindFilter)
                 .Where(x => statusFilter == null || x.Content.Status == statusFilter)
                 .Select(x => KnowledgePages.Summarize(ctx.TenantId!, x.Page, Score(x.Content, terms)))
+                // A page without any query word (score 0) does not match, whatever the text index preselected.
+                .Where(p => !isSearch || p.Score > 0)
                 .OrderByDescending(p => p.Score).ThenBy(p => p.Title, StringComparer.OrdinalIgnoreCase)
                 .Take(limit)
                 .ToList();
 
+            var ignoredQuery = !isSearch && !string.IsNullOrWhiteSpace(query);
             return new KnowledgeSearchResponse
             {
                 IsSuccess = true,
@@ -88,7 +96,9 @@ public static class KnowledgeTools
                 Pages = pages,
                 Message = pages.Count == 0
                     ? "No knowledge page matches. Say so instead of answering from general knowledge."
-                    : $"{pages.Count} page(s)."
+                    : ignoredQuery
+                        ? $"The query has no word of 3 or more characters, so this is the index of all pages, not a match: {pages.Count} page(s)."
+                        : $"{pages.Count} page(s)."
             };
         }
         catch (Exception ex)

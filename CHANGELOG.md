@@ -51,6 +51,10 @@
 
 ### Fixed
 
+- **AB#8566** — `knowledge_search` with a query no longer returns pages that contain none of its words (score 0). A query
+  that matches nothing returns 0 pages, `isSuccess: true` and the "No knowledge page matches" message, also with a status
+  or kind filter (the hand test returned `knowledge-schema` for "Zebrafisch" + Verified). Words shorter than 3 characters
+  are ignored; a query without a longer word returns the index of all pages, and the message says it is not a match.
 - AB#8355: `execute_runtime_query` and `execute_stream_data_query` answer "not found" for a deleted persisted query.
   The default delete archives the query (`rtState = Archived`) and the lookup by id still returned it, so a deleted
   query kept running. Both tools now load the query with the engine's `GetActiveRtEntityByRtIdAsync`.
