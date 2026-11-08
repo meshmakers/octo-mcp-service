@@ -33,7 +33,7 @@ resources:
       ref: refs/tags/tpl-v1.14.0     # template tag of AB#8506
 
 variables:
-  - group: ai-review                 # AiReviewVaultAddr, AiReviewVaultRoleId, AiReviewVaultSecretId, kill-switch variables
+  - group: ai-review                 # AiReviewVaultAddr, VAULT_ROLE_ID, VAULT_SECRET_ID (secret), kill-switch variables
 
 pool:
   name: ai-review                    # dedicated pool (concept section 4; AB#8504/Odysseus); no CI slot is used
