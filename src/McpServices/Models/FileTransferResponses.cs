@@ -9,6 +9,12 @@ public class FileTransferResponse
     /// <summary>Error message when <see cref="IsSuccess"/> is false.</summary>
     public string? ErrorMessage { get; set; }
 
+    /// <summary>
+    ///     Stable error code of the service answer when <see cref="IsSuccess"/> is false, e.g.
+    ///     <c>DataModelManagementRequired</c> (AB#8529: the caller lacks the tenant role <c>DataModelManagement</c>).
+    /// </summary>
+    public string? ErrorCode { get; set; }
+
     /// <summary>Optional human-readable status message.</summary>
     public string? Message { get; set; }
 

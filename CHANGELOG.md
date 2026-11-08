@@ -4,6 +4,12 @@
 
 ### Added
 
+- **AB#8529** — the model-changing tools `import_ck_model`, `install_blueprint`, `update_blueprint`, `uninstall_blueprint`,
+  `refresh_ck_catalogs`, `import_ck_from_catalog` and `fix_all_ck_models` name the required tenant role `DataModelManagement` in
+  their descriptions and return the service's problem code in the new `errorCode` member (all asset and file-transfer tool
+  responses), e.g. `DataModelManagementRequired` when the asset repository refuses the caller (r3.5.67). The error message
+  is the service's reason plus status and code. Test `Tools/DataModelManagementRequiredTests`.
+
 - AB#8484: knowledge base tools `knowledge_search`, `knowledge_get`, `knowledge_upsert_page`, `knowledge_link`,
   `knowledge_restore_version`, `knowledge_set_status` and the resource template `knowledge-page://{tenantId}/{slug}` over
   the System.Ai 4.7.0 knowledge types (needs octo-ai-services AB#8483). Every page write appends a `KnowledgePageVersion`

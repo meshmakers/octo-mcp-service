@@ -3,10 +3,9 @@ using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Files;
 namespace Meshmakers.Octo.Backend.McpServices.Models;
 
 /// <summary>Response of the platform file system tools (System.Files).</summary>
+/// <remarks>The stable file API error code (e.g. NAME_CONFLICT, PATH_NOT_FOUND) is the inherited ErrorCode.</remarks>
 public class PlatformFileResponse : FileTransferResponse
 {
-    /// <summary>Stable file API error code (e.g. NAME_CONFLICT, PATH_NOT_FOUND) when the call failed.</summary>
-    public string? ErrorCode { get; set; }
 }
 
 /// <summary>Response of list_files.</summary>
@@ -35,9 +34,6 @@ public class FileEntryResponse : PlatformFileResponse
 /// <summary>Response of download_file: the entry plus the file-transfer download.</summary>
 public class DownloadPlatformFileResponse : FileDownloadResponse
 {
-    /// <summary>Stable file API error code when the call failed.</summary>
-    public string? ErrorCode { get; set; }
-
     /// <summary>Content type reported by the server.</summary>
     public string? ContentType { get; set; }
 }

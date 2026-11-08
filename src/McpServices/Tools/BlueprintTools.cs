@@ -54,7 +54,9 @@ public sealed class BlueprintTools
     [Description(
         "Apply a blueprint to the tenant for the first time. With force=true, re-applies seed data via upsert " +
         "(recovery path). The result lists the archives of the blueprint seed (activated, skipped with a reason, " +
-        "failed, backfill job of new rollups) and the warnings. Equivalent to octo-cli InstallBlueprint.")]
+        "failed, backfill job of new rollups) and the warnings. Equivalent to octo-cli InstallBlueprint. " +
+        "Requires the tenant role DataModelManagement (AB#8529); without it the call fails with ErrorCode " +
+        "DataModelManagementRequired.")]
     public static async Task<InstallBlueprintResponse> InstallBlueprint(
         McpServer server,
         [Description("Blueprint ID (e.g. 'MyBlueprint-1.0.0').")] string blueprintId,
@@ -89,7 +91,8 @@ public sealed class BlueprintTools
         }
         catch (Exception ex)
         {
-            return new InstallBlueprintResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            var problem = ServiceProblemMessage.From(ex);
+            return new InstallBlueprintResponse { IsSuccess = false, ErrorMessage = problem.Message, ErrorCode = problem.Code };
         }
     }
 
@@ -216,7 +219,9 @@ public sealed class BlueprintTools
     [Description(
         "Apply a blueprint update. DESTRUCTIVE — requires confirm=true unless dryRun is also true. The result lists " +
         "the archives the update activated or skipped (with backfill job ids of new rollups) and the warnings. " +
-        "Equivalent to octo-cli UpdateBlueprint.")]
+        "Equivalent to octo-cli UpdateBlueprint. " +
+        "Requires the tenant role DataModelManagement (AB#8529); without it the call fails with ErrorCode " +
+        "DataModelManagementRequired.")]
     public static async Task<UpdateBlueprintResponse> UpdateBlueprint(
         McpServer server,
         [Description("Target blueprint version.")] string targetVersion,
@@ -269,7 +274,8 @@ public sealed class BlueprintTools
         }
         catch (Exception ex)
         {
-            return new UpdateBlueprintResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            var problem = ServiceProblemMessage.From(ex);
+            return new UpdateBlueprintResponse { IsSuccess = false, ErrorMessage = problem.Message, ErrorCode = problem.Code };
         }
     }
 
@@ -347,7 +353,9 @@ public sealed class BlueprintTools
     [Description(
         "Remove a blueprint from the tenant. DESTRUCTIVE — locked owned entities are erased. With cascade=true, " +
         "dependents are uninstalled first and orphaned dependencies are auto-cleaned. Requires confirm=true. " +
-        "Equivalent to octo-cli UninstallBlueprint.")]
+        "Equivalent to octo-cli UninstallBlueprint. " +
+        "Requires the tenant role DataModelManagement (AB#8529); without it the call fails with ErrorCode " +
+        "DataModelManagementRequired.")]
     public static async Task<UninstallBlueprintResponse> UninstallBlueprint(
         McpServer server,
         [Description("Blueprint name to uninstall.")] string blueprintName,
@@ -394,7 +402,8 @@ public sealed class BlueprintTools
         }
         catch (Exception ex)
         {
-            return new UninstallBlueprintResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            var problem = ServiceProblemMessage.From(ex);
+            return new UninstallBlueprintResponse { IsSuccess = false, ErrorMessage = problem.Message, ErrorCode = problem.Code };
         }
     }
 }

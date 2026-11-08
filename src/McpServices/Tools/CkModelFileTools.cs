@@ -31,7 +31,9 @@ public sealed class CkModelFileTools
         "import support follows AB#8501). The model's `dependencies` must already be loaded in the target " +
         "tenant or the job fails — for service-managed deps (System.Communication / StreamData / Reporting " +
         "/ UI / Ai) use enable_<feature> tools, for catalog deps use import_ck_from_catalog. " +
-        "Equivalent to octo-cli ImportConstructionKitModel.")]
+        "Equivalent to octo-cli ImportConstructionKitModel. " +
+        "Requires the tenant role DataModelManagement (AB#8529); without it the call fails with ErrorCode " +
+        "DataModelManagementRequired.")]
     public static async Task<JobStartedResponse> ImportCkModel(
         McpServer server,
         [Description("Transfer id from prepare_file_upload.")] string transferId,
@@ -211,7 +213,8 @@ public sealed class CkModelFileTools
         }
         catch (Exception ex)
         {
-            return new JobStartedResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            var problem = ServiceProblemMessage.From(ex);
+            return new JobStartedResponse { IsSuccess = false, ErrorMessage = problem.Message, ErrorCode = problem.Code };
         }
     }
 
