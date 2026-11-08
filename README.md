@@ -225,7 +225,7 @@ dotnet run
 ### **Knowledge base** (6 tools + 1 resource template, AB#8484)
 `knowledge_search`, `knowledge_get`, `knowledge_upsert_page`, `knowledge_link`, `knowledge_restore_version`, `knowledge_set_status`
 and the resource template `knowledge-page://{tenantId}/{slug}`. Pages are System.Ai `KnowledgePage` entities (System.Ai 4.7.0);
-every write is a new `KnowledgePageVersion` and passes the content guard (credentials and tenant secret values are refused with
+every content or status write is a new `KnowledgePageVersion` and passes the content guard (credentials and tenant secret values are refused with
 `ContentRejected`). Start with the conventions page `knowledge-schema`.
 
 ### **CK attribute access in the generic tools** (AB#8043)

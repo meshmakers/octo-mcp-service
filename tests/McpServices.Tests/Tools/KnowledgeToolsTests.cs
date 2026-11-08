@@ -205,6 +205,41 @@ public class KnowledgeToolsTests : TestBase
     }
 
     [Fact]
+    public async Task CredentialInTheChangeNote_IsRejected_AndNothingIsWritten()
+    {
+        var result = await KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, "page-a", "Page A",
+            [new KnowledgeSectionDto { Heading = "Summary", SectionContent = "harmless" }],
+            changeNote: "copied from the run with sk-ant-api03-AbCdEf123456", cancellationToken: Ct);
+
+        result.ErrorCode.Should().Be(ContentGuardResult.ErrorCode);
+        result.ErrorMessage.Should().Contain("changeNote").And.NotContain("AbCdEf123456");
+        _entities.Values.Should().NotContain(e => Equals(e.CkTypeId, KnowledgePages.PageTypeId));
+    }
+
+    [Fact]
+    public async Task SetStatus_RunsTheContentGuard_OnTheChangeNote()
+    {
+        await UpsertAsync("page-a", "Page A", "text");
+
+        var result = await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "InReview",
+            changeNote: "token sk-ant-api03-AbCdEf123456", cancellationToken: Ct);
+
+        result.ErrorCode.Should().Be(ContentGuardResult.ErrorCode);
+        Versions("page-a").Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task SetStatus_Verified_IsRefusedWithoutAnyPrincipal()
+    {
+        GivenUnauthenticatedCaller();
+
+        var result = await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Verified",
+            cancellationToken: Ct);
+
+        result.ErrorCode.Should().Be("VerifiedRequiresPerson");
+    }
+
+    [Fact]
     public async Task Upsert_AcceptsThePrototypeGenerationJson_AndLinksGeneratedFrom()
     {
         var generation = JsonDocument.Parse(PrototypeGenerationJson).RootElement;
@@ -233,18 +268,18 @@ public class KnowledgeToolsTests : TestBase
     {
         await UpsertAsync("page-a", "Page A", "text");
 
-        (await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "InReview")).Page!.Status
+        (await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "InReview", cancellationToken: Ct)).Page!.Status
             .Should().Be("InReview");
-        (await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Verified")).Page!.Status
+        (await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Verified", cancellationToken: Ct)).Page!.Status
             .Should().Be("Verified");
-        (await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Rejected")).Page!.Status
+        (await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Rejected", cancellationToken: Ct)).Page!.Status
             .Should().Be("Rejected");
-        (await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Draft")).Page!.Status
+        (await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Draft", cancellationToken: Ct)).Page!.Status
             .Should().Be("Draft");
         Versions("page-a").Should().HaveCount(5);
 
         GivenServicePrincipalCaller();
-        var refused = await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Verified");
+        var refused = await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Verified", cancellationToken: Ct);
 
         refused.IsSuccess.Should().BeFalse();
         refused.ErrorCode.Should().Be("VerifiedRequiresPerson");
@@ -255,7 +290,7 @@ public class KnowledgeToolsTests : TestBase
     public async Task ContentWrite_PutsAVerifiedPageBackToDraft()
     {
         await UpsertAsync("page-a", "Page A", "text");
-        await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Verified");
+        await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Verified", cancellationToken: Ct);
 
         var result = await UpsertAsync("page-a", "Page A", "changed text");
 

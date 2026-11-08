@@ -264,7 +264,9 @@ public static class KnowledgeTools
                 summary, sections.OrderBy(s => s.SortOrder).ToList(), citations ?? [], hallucinationFlags ?? [],
                 KnowledgePages.StatusDraft);
 
-            var refusal = await GuardAsync(server, ctx, session, content, slug, "knowledge_upsert_page", cancellationToken);
+            var refusal = await GuardAsync(server, ctx, session, content, slug, "knowledge_upsert_page", cancellationToken,
+                new ContentGuardField("changeNote", changeNote), new ContentGuardField("promptName", promptName),
+                new ContentGuardField("modelId", modelId));
             if (refusal != null)
             {
                 return refusal;
@@ -451,6 +453,7 @@ public static class KnowledgeTools
 
     /// <summary>Moves a page through the review states; only a person sets Verified.</summary>
     [McpServerTool(Name = "knowledge_set_status")]
+    [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Set the verification status of a knowledge page: Draft, InReview, Verified or Rejected. Only a person (a user " +
         "token) may set Verified; a service account is refused. Each change is a new version with the same content.")]
@@ -459,7 +462,8 @@ public static class KnowledgeTools
         [Description("Slug of the page.")] string slug,
         [Description("Draft, InReview, Verified or Rejected.")] string status,
         [Description("Why, e.g. 'checked against the runbook'.")] string? changeNote = null,
-        [Description("Tenant to write to. Falls back to URL route.")] string? tenantId = null)
+        [Description("Tenant to write to. Falls back to URL route.")] string? tenantId = null,
+        CancellationToken cancellationToken = default)
     {
         var statusValue = KnowledgePages.ParseEnum(status, KnowledgePages.StatusNames);
         if (!KnowledgePages.IsValidSlug(slug) || statusValue == null)
@@ -468,7 +472,8 @@ public static class KnowledgeTools
         }
 
         var principal = McpCallerPrincipal.FromServer(server);
-        if (statusValue == KnowledgePages.StatusVerified && principal is { IsUserPrincipal: false })
+        // Fail closed: without a user principal (service account, or no principal at all) Verified is refused.
+        if (statusValue == KnowledgePages.StatusVerified && principal is not { IsUserPrincipal: true })
         {
             return new KnowledgeWriteResponse
             {
@@ -493,6 +498,13 @@ public static class KnowledgeTools
             }
 
             var content = KnowledgePages.ReadContent(page) with { Status = statusValue.Value };
+            var refusal = await GuardAsync(server, ctx, session, content, slug, "knowledge_set_status", cancellationToken,
+                new ContentGuardField("changeNote", changeNote));
+            if (refusal != null)
+            {
+                return refusal;
+            }
+
             var write = KnowledgePages.BuildWrite(page, slug, content, 0, ctx.Author!,
                 changeNote ?? $"status {KnowledgePages.Name(KnowledgePages.StatusNames, statusValue.Value)}", null, null,
                 DateTime.UtcNow);
@@ -552,7 +564,8 @@ public static class KnowledgeTools
     }
 
     private static async Task<KnowledgeWriteResponse?> GuardAsync(McpServer server, KnowledgeContext ctx,
-        IOctoSession session, KnowledgeContent content, string slug, string operation, CancellationToken ct)
+        IOctoSession session, KnowledgeContent content, string slug, string operation, CancellationToken ct,
+        params ContentGuardField[] extraFields)
     {
         var guard = server.Services!.GetService<IContentGuard>();
         if (guard == null)
@@ -570,7 +583,8 @@ public static class KnowledgeTools
         var protector = server.Services!.GetService<ISecretAttributeProtector>();
         var context = new ContentGuardContext(ctx.TenantId!, ctx.Author!, operation,
             token => TenantSecretFingerprints.ReadAsync(ctx.Repo, session, ckCache, protector, token));
-        var result = await guard.CheckAsync(context, KnowledgePages.GuardFields(content, slug), ct);
+        var fields = KnowledgePages.GuardFields(content, slug).Concat(extraFields.Where(f => f.Text != null)).ToList();
+        var result = await guard.CheckAsync(context, fields, ct);
         return result.IsRejected
             ? new KnowledgeWriteResponse
             {

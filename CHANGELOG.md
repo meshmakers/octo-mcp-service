@@ -9,7 +9,8 @@
   the System.Ai 4.7.0 knowledge types (needs octo-ai-services AB#8483). Every page write appends a `KnowledgePageVersion`
   (author, time, change note, run metadata) and runs the content guard; `knowledge_upsert_page` takes the generation JSON
   of the KnowledgeCapture prototype unchanged and links cited SourceArtifacts with `GeneratedFrom`; content writes set the
-  page back to Draft; only a user principal may set Verified.
+  page back to Draft; only a user principal may set Verified. The guard also checks the change note and run metadata,
+  and `knowledge_set_status` runs it as well.
 - AB#8475: content guard for knowledge writes (new library `src/McpServices.ContentGuard`, registered as `IContentGuard`).
   It refuses text with an Anthropic API key (`sk-ant-<type>-`), a PEM block, a JWT, a high-entropy token or a value
   equal to a Secret attribute value the caller could reveal in the tenant, with the error code `ContentRejected`; the

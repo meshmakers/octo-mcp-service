@@ -1044,10 +1044,13 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   (`rtWellKnownName` `<slug>@<n>`, full content, `Author` = `user:<sub>` or `client:<client_id>`, `AuthoredAt`, `ChangeNote`,
   run metadata) and the `VersionOf` association, in one transaction. The page's `CurrentVersion` points at it. A restore writes
   a new version with `RestoredFromVersion`; nothing is ever deleted. Links (`LinksTo`) are not content and make no version.
-- **Content guard first** (`IContentGuard`, AB#8475): title, summary, sections, citations, flags and the slug are checked before
-  anything is written; tenant secrets come in as fingerprints read with the caller's session. No guard registered = refusal.
+- **Content guard first** (`IContentGuard`, AB#8475): every tool that writes text (upsert, restore, set_status) checks title,
+  summary, sections, citations, flags, the slug and the free-text extras (`changeNote`, `promptName`, `modelId`) before anything
+  is written; tenant secrets come in as fingerprints read with the caller's session. No guard registered = refusal.
+  `knowledge_link` writes only an association between two existing, slug-validated pages and carries no text.
 - **Status**: every content write (upsert, restore) sets `Draft`; `knowledge_set_status` moves Draft/InReview/Verified/Rejected
-  and refuses `Verified` for a client-credentials principal (`VerifiedRequiresPerson`).
+  and refuses `Verified` unless the caller is a user principal (`VerifiedRequiresPerson`; fail closed for a client-credentials
+  token or no principal).
 - **Prototype JSON**: `KnowledgeSectionDto` / `KnowledgeCitationDto` / `KnowledgeHallucinationFlagDto` carry the JSON names of the
   KnowledgeCapture prompts (`heading`, `sectionContent`, `sortOrder`, `sectionRef`, `sourceQuote`, `sourceAnchor`, `sourceRtId`,
   `claim`, `reason`); cited `sourceRtId`s that are SourceArtifacts are linked with `GeneratedFrom`, others are reported in
@@ -1056,6 +1059,8 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   term hits (title 3, summary 2, body 1, capped). Without a query it is the index of all pages.
 - **Optimistic locking**: `expectedVersion` (the page's `CurrentVersion`) on upsert and restore; stale = `VersionConflict`, nothing
   written.
+- **Risk**: `knowledge_upsert_page`, `knowledge_restore_version` and `knowledge_set_status` are Medium (audit matters, a status
+  change decides what answers may use); `knowledge_search`, `knowledge_get` and `knowledge_link` are Low.
 - Tests: `Tools/KnowledgeToolsTests` (in-memory repository that applies inserts, updates and associations like the engine).
 
 ## Test Infrastructure
