@@ -120,6 +120,14 @@ _Low=2 · Medium=2_  ·  **Owner reviewed:** ☐
 | `export_runtime_model_by_query` | **L** | |
 | `export_runtime_model_by_deep_graph` | **L** | |
 
+### CkModelValidationTools (1 tool)
+
+_Low=1_  ·  **Owner reviewed:** ☐
+
+| Tool | Current | Notes for review |
+|------|---------|------------------|
+| `validate_ck_model` | **L** | AB#8492: read-only validation of a CK model draft, nothing imported or written |
+
 ### CkModelLibraryTools (8 tools)
 
 _High=1 · Low=5 · Medium=2_  ·  **Owner reviewed:** ☐

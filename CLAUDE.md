@@ -393,10 +393,26 @@ no `enable_*` call; `GET {tenant}/v1/files/capabilities` reports `available:fals
 
 - **Single compiled YAML** from the CK MSBuild output at `bin/<config>/net10.0/octo-ck-libraries/<Project>/out/ck-<name>-<major>.yaml`. Easiest path after a `dotnet build`.
 - **Single compiled JSON** in the same shape as files under `~/.octo/local-catalog/ck-models/v2/<letter>/<Model>/<major>/ck-<name>-<version>.json`.
-- **Zip containing the source ConstructionKit/ folder** (ckModel.yaml + types/ + enums/ + attributes/ + associations/ + records/).
+- **Zip of a compiled model** (the first `.json`, else the first `.yaml` entry is read as the compiled model).
+- **Not** a zip of the source `ConstructionKit/` folder: `ImportCk` does not compile (checked against the asset repository's
+  `ModelsController.ImportCk` and the bot import job, AB#8492). Compile with `dotnet build` / `octo-ckc` first, or use
+  `validate_ck_model`, which does compile a source zip.
 - For runtime models: a single YAML/JSON conforming to `runtime-model.schema.json` (an `entities:` list keyed by `rtId` + `ckTypeId`), or a zip thereof.
 
 The tool description says "PUT the file to the returned URL" — historically said "PUT the JSON/zip" which was misleading. Asset-services accepts all of the above; schema validation happens server-side after the file lands in the file-transfer store.
+
+### validate_ck_model (AB#8492, `CkModelValidationTools`)
+
+Validates a CK model draft against the tenant **without importing it**: `prepare_file_upload` → PUT → `validate_ck_model(transferId)`.
+Family 1 (`AssetClientContext`, SDK `IAssetServicesClient.ValidateCkModelAsync`, asset repository `POST {tenantId}/v1/Models/ValidateCk`,
+read-only scope). Accepts a zip of the source `ConstructionKit/` folder (the folder holding `ckModel.yaml`; compiled on the server,
+dependencies from the server's catalogs) or a compiled model (yaml, json or a zip of one). The compiled model then runs through the
+import's own pre-write checks against the tenant (engine `ITenantContext.ValidateCkModelAsync`: CK language 91, `minEngineVersion` 126,
+system reference / dependency resolution 8492 with `parameters.reason`) and, without errors, the tenant upgrade guard (`isBlocked`,
+`blockers`). Result: `isValid`, `modelId`, `sourceKind` (`Source`/`Compiled`), `errors`/`warnings` with `messageNumber`, `level`,
+`file` (relative to `ConstructionKit/`, never a server path), `elementPath`, `message`, `parameters`. A missing dependency is an error
+in the list, never a failed call. Risk **Low** (nothing is written). The upload is **kept** (unlike the import tools), so an agent can fix
+and validate again. Tests: `CkModelValidationToolsTests`.
 
 ### Service-managed CK models — don't use import_ck_from_catalog
 
