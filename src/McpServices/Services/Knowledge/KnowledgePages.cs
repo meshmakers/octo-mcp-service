@@ -22,12 +22,20 @@ internal sealed record KnowledgeContent(
     IReadOnlyList<KnowledgeHallucinationFlagDto> HallucinationFlags,
     int Status);
 
-/// <summary>Run metadata of a write (prototype WikiEntry run metadata, stored on the version).</summary>
+/// <summary>
+///     Run metadata of a write (prototype WikiEntry run metadata, stored on the version). AB#8657 adds the run data the
+///     ingest pipeline passes: tokens (<c>PromptTokens</c>, <c>CompletionTokens</c>), cost (<c>CostUsd</c>), reviewer
+///     rounds (<c>ReviewerIterations</c>) and the run reference (<c>RunRef</c>). A <c>null</c> value is not written.
+/// </summary>
 internal sealed record KnowledgeRunMetadata(
     string? PromptName = null,
     int? PromptVersion = null,
     string? ModelId = null,
-    string? RunRef = null);
+    string? RunRef = null,
+    int? InputTokens = null,
+    int? OutputTokens = null,
+    double? CostUsd = null,
+    int? ReviewerRounds = null);
 
 /// <summary>
 ///     The knowledge base model of System.Ai 4.7.0 (AB#8483) as the knowledge tools use it (AB#8484): ids, enum names,
@@ -316,6 +324,26 @@ internal static class KnowledgePages
         if (run?.RunRef != null)
         {
             version.SetAttributeValue("RunRef", AttributeValueTypesDto.String, run.RunRef);
+        }
+
+        if (run?.InputTokens != null)
+        {
+            version.SetAttributeValue("PromptTokens", AttributeValueTypesDto.Int, run.InputTokens.Value);
+        }
+
+        if (run?.OutputTokens != null)
+        {
+            version.SetAttributeValue("CompletionTokens", AttributeValueTypesDto.Int, run.OutputTokens.Value);
+        }
+
+        if (run?.CostUsd != null)
+        {
+            version.SetAttributeValue("CostUsd", AttributeValueTypesDto.Double, run.CostUsd.Value);
+        }
+
+        if (run?.ReviewerRounds != null)
+        {
+            version.SetAttributeValue("ReviewerIterations", AttributeValueTypesDto.Int, run.ReviewerRounds.Value);
         }
 
         var pageId = new RtEntityId(PageTypeId, page.RtId);

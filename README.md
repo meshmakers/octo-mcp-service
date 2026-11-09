@@ -230,6 +230,11 @@ every content or status write is a new `KnowledgePageVersion` and passes the con
 - `knowledge_upsert_page` on an existing page: title and sections replace; an omitted `kind`, `summary`, `citations` or
   `hallucinationFlags` keeps the current value, an explicit `""` / `[]` clears it (AB#8567). `origin` applies to new pages only,
   `linksTo` / `sourceRtIds` only add links, `changeNote` and run metadata belong to the new version.
+- Run metadata on `knowledge_upsert_page` (all optional, stored on the new `KnowledgePageVersion`): `promptName`, `promptVersion`,
+  `modelId` and, for the ingest pipeline (AB#8657), `inputTokens` (→ `PromptTokens`), `outputTokens` (→ `CompletionTokens`),
+  `cost` in USD (→ `CostUsd`), `reviewerRounds` (→ `ReviewerIterations`) and `runRef`, the pipeline execution id (→ `RunRef`,
+  up to 200 characters). An omitted value is not stored; a negative or non-finite number or a blank `runRef` is refused with
+  `InvalidArgument` and nothing is written.
 - `knowledge_search` with a query returns only pages that contain at least one of its words (3+ characters) or an inflected
   form of it ("pipelines" finds "pipeline"); no match is an empty
   result with the message to say so (AB#8566). A query without such a word returns the index of all pages, like no query.

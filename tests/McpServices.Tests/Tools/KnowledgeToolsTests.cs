@@ -327,6 +327,174 @@ public class KnowledgeToolsTests : TestBase
         _entities.Values.Should().NotContain(e => Equals(e.CkTypeId, KnowledgePages.PageTypeId));
     }
 
+    // AB#8657: run data of the ingest pipeline (tokens, cost, reviewer rounds, run reference) on the new version.
+    private static readonly string[] RunDataAttributes =
+        ["PromptTokens", "CompletionTokens", "CostUsd", "ReviewerIterations", "RunRef"];
+
+    private Task<KnowledgeWriteResponse> UpsertWithRunDataAsync(string slug, int? inputTokens = null,
+        int? outputTokens = null, double? cost = null, int? reviewerRounds = null, string? runRef = null) =>
+        KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, slug, "Page " + slug,
+            [new KnowledgeSectionDto { Heading = "Summary", SectionContent = "text" }],
+            inputTokens: inputTokens, outputTokens: outputTokens, cost: cost, reviewerRounds: reviewerRounds,
+            runRef: runRef, cancellationToken: Ct);
+
+    [Fact]
+    public async Task Upsert_WithAllRunData_StoresEachValueOnTheNewVersion()
+    {
+        var result = await KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, "page-a", "Page A",
+            [new KnowledgeSectionDto { Heading = "Summary", SectionContent = "text" }], origin: "Ingest",
+            promptName: "wiki-prompt-agentic", promptVersion: 3, modelId: "claude-sonnet-4-6", inputTokens: 12345,
+            outputTokens: 2100, cost: 0.0532, reviewerRounds: 2, runRef: "exec-6731a2f0", cancellationToken: Ct);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        var version = Versions("page-a").Single();
+        version.GetAttributeValueOrDefault("PromptTokens").Should().Be(12345);
+        version.GetAttributeValueOrDefault("CompletionTokens").Should().Be(2100);
+        version.GetAttributeValueOrDefault("CostUsd").Should().Be(0.0532);
+        version.GetAttributeValueOrDefault("ReviewerIterations").Should().Be(2);
+        version.GetAttributeStringValueOrDefault("RunRef").Should().Be("exec-6731a2f0");
+        version.GetAttributeStringValueOrDefault("PromptName").Should().Be("wiki-prompt-agentic");
+        version.GetAttributeValueOrDefault("PromptVersion").Should().Be(3);
+        version.GetAttributeStringValueOrDefault("ModelId").Should().Be("claude-sonnet-4-6");
+        Page("page-a").Attributes.Keys.Should().NotContain(RunDataAttributes,
+            "run data belongs to the version, not to the page");
+    }
+
+    [Fact]
+    public async Task Upsert_WithZeroRunData_StoresTheZeros()
+    {
+        var result = await UpsertWithRunDataAsync("page-a", 0, 0, 0d, 0);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        var version = Versions("page-a").Single();
+        version.GetAttributeValueOrDefault("PromptTokens").Should().Be(0);
+        version.GetAttributeValueOrDefault("CostUsd").Should().Be(0d);
+        version.GetAttributeValueOrDefault("ReviewerIterations").Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Upsert_WithPromptMetadataOnly_BehavesAsBefore_AndStoresNoRunData()
+    {
+        var result = await KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, "page-a", "Page A",
+            [new KnowledgeSectionDto { Heading = "Summary", SectionContent = "text" }],
+            promptName: "wiki-prompt-structured", promptVersion: 3, modelId: "claude-sonnet-4-6", cancellationToken: Ct);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Message.Should().Be("Created 'page-a' as version 1 (Draft).");
+        var version = Versions("page-a").Single();
+        version.GetAttributeStringValueOrDefault("PromptName").Should().Be("wiki-prompt-structured");
+        version.GetAttributeValueOrDefault("PromptVersion").Should().Be(3);
+        version.GetAttributeStringValueOrDefault("ModelId").Should().Be("claude-sonnet-4-6");
+        version.Attributes.Keys.Should().NotContain(RunDataAttributes);
+    }
+
+    [Fact]
+    public async Task Upsert_UpdateWithoutRunData_WritesAVersionWithoutRunData_AndKeepsTheEarlierVersion()
+    {
+        await UpsertWithRunDataAsync("page-a", 100, 50, 0.01, 1, "exec-1");
+
+        var result = await UpsertAsync("page-a", "Page A", "edited by hand");
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        var versions = Versions("page-a").ToDictionary(v => v.RtWellKnownName!);
+        versions["page-a@2"].Attributes.Keys.Should().NotContain(RunDataAttributes);
+        versions["page-a@1"].GetAttributeValueOrDefault("PromptTokens").Should().Be(100);
+        versions["page-a@1"].GetAttributeStringValueOrDefault("RunRef").Should().Be("exec-1");
+    }
+
+    [Theory]
+    [InlineData(-1, null, null, null, "inputTokens (-1)")]
+    [InlineData(null, -5, null, null, "outputTokens (-5)")]
+    [InlineData(null, null, -0.01, null, "cost (-0.01)")]
+    [InlineData(null, null, null, -1, "reviewerRounds (-1)")]
+    public async Task Upsert_WithNegativeRunData_IsRejected_AndNothingIsWritten(int? inputTokens, int? outputTokens,
+        double? cost, int? reviewerRounds, string expected)
+    {
+        var result = await UpsertWithRunDataAsync("page-a", inputTokens, outputTokens, cost, reviewerRounds);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("InvalidArgument");
+        result.ErrorMessage.Should().Be($"Run data must not be negative: {expected}.");
+        _entities.Values.Should().NotContain(e => Equals(e.CkTypeId, KnowledgePages.PageTypeId));
+        MockTenantRepository.Verify(r => r.ApplyChangesAsync(It.IsAny<IOctoSession>(),
+            It.IsAny<IReadOnlyList<IEntityUpdateInfo<RtEntity>>>(), It.IsAny<IReadOnlyList<AssociationUpdateInfo>>(),
+            It.IsAny<OperationResult>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Upsert_WithSeveralNegativeValues_NamesEachOfThem()
+    {
+        var result = await UpsertWithRunDataAsync("page-a", -1, -2, -3d, -4);
+
+        result.ErrorMessage.Should().Contain("inputTokens (-1)").And.Contain("outputTokens (-2)")
+            .And.Contain("cost (-3)").And.Contain("reviewerRounds (-4)");
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public async Task Upsert_WithANonFiniteCost_IsRejected(double cost)
+    {
+        var result = await UpsertWithRunDataAsync("page-a", cost: cost);
+
+        result.ErrorCode.Should().Be("InvalidArgument");
+        result.ErrorMessage.Should().Be("cost must be a finite number of USD.");
+        _entities.Values.Should().NotContain(e => Equals(e.CkTypeId, KnowledgePages.PageTypeId));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null, 201)]
+    public async Task Upsert_WithAnInvalidRunRef_IsRejected(string? runRef, int length = 0)
+    {
+        var result = await UpsertWithRunDataAsync("page-a", runRef: runRef ?? new string('x', length));
+
+        result.ErrorCode.Should().Be("InvalidArgument");
+        result.ErrorMessage.Should().Contain("runRef");
+        _entities.Values.Should().NotContain(e => Equals(e.CkTypeId, KnowledgePages.PageTypeId));
+    }
+
+    [Theory]
+    [InlineData("3f2b8c1e-9d4a-4e7b-a6c5-0f1e2d3c4b5a")] // pipeline execution id: Guid ("D"), as the mesh adapter leases it
+    [InlineData("3F2B8C1E9D4A4E7BA6C50F1E2D3C4B5A")] // Guid without dashes, upper case
+    [InlineData("672000000000000000000abc")] // 24-hex rtId of a future agent Run (AB#8453)
+    public async Task Upsert_WithARealExecutionIdAsRunRef_PassesTheContentGuard_AndIsStored(string runRef)
+    {
+        var result = await UpsertWithRunDataAsync("page-a", runRef: runRef);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        Versions("page-a").Single().GetAttributeStringValueOrDefault("RunRef").Should().Be(runRef);
+    }
+
+    [Fact]
+    public async Task Upsert_WithACredentialInTheRunRef_IsRejected_ByTheContentGuard()
+    {
+        var result = await UpsertWithRunDataAsync("page-a", runRef: "sk-ant-api03-AbCdEf123456");
+
+        result.ErrorCode.Should().Be(ContentGuardResult.ErrorCode);
+        result.ErrorMessage.Should().Contain("runRef").And.NotContain("AbCdEf123456");
+        _entities.Values.Should().NotContain(e => Equals(e.CkTypeId, KnowledgePages.PageTypeId));
+    }
+
+    [Fact]
+    public void Upsert_DescriptionsList_TheRunDataParameters()
+    {
+        var method = typeof(KnowledgeTools).GetMethod(nameof(KnowledgeTools.KnowledgeUpsertPage))!;
+        var description = method.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+            .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+        description.Should().Contain("inputTokens, outputTokens, cost (USD), reviewerRounds and runRef");
+
+        string[] parameters = ["inputTokens", "outputTokens", "cost", "reviewerRounds", "runRef"];
+        foreach (var name in parameters)
+        {
+            var parameter = method.GetParameters().Single(p => p.Name == name);
+            parameter.IsOptional.Should().BeTrue();
+            parameter.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+                .Should().ContainSingle(name);
+        }
+    }
+
     [Fact]
     public async Task SetStatus_RunsTheContentGuard_OnTheChangeNote()
     {
