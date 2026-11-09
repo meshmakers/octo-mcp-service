@@ -42,6 +42,15 @@ internal sealed class KnowledgeImportCheck(
     /// <summary>Anchored YAML scalars kept for alias resolution at most; above it the file is refused.</summary>
     internal const int MaxYamlAnchors = 10_000;
 
+    /// <summary>Nested YAML mappings and sequences at most; deeper files are refused (DoS).</summary>
+    internal const int MaxYamlDepth = 64;
+
+    /// <summary>
+    ///     Memory (UTF-16 bytes) of the anchored YAML scalar values kept for alias resolution at most, over all anchors of
+    ///     one document stream; above it the file is refused (DoS). A redefined anchor releases its previous value.
+    /// </summary>
+    internal const long MaxYamlAnchorBytes = 16L * 1024 * 1024;
+
     private const string ProtectedModel = "System.Ai";
 
     private static readonly string[] ProtectedTypeNames = ["KnowledgePage", "KnowledgePageVersion"];
@@ -52,10 +61,19 @@ internal sealed class KnowledgeImportCheck(
 
     private long _entryBytesLimit = MaxEntryBytes;
 
+    private long _yamlAnchorBytesLimit = MaxYamlAnchorBytes;
+
     /// <summary>Lowers the per-entry cap; tests only.</summary>
     internal KnowledgeImportCheck WithEntryBytesLimit(long limit)
     {
         _entryBytesLimit = limit;
+        return this;
+    }
+
+    /// <summary>Lowers the budget of retained anchored YAML scalars; tests only.</summary>
+    internal KnowledgeImportCheck WithYamlAnchorBytesLimit(long limit)
+    {
+        _yamlAnchorBytesLimit = limit;
         return this;
     }
 
@@ -153,13 +171,16 @@ internal sealed class KnowledgeImportCheck(
     ///     Streams the YAML events. A scalar under a key <c>ckTypeId</c> or <c>targetCkTypeId</c> gets the full type check
     ///     (protected, derived via the CK type hierarchy, unknown in a tenant with knowledge types); a scalar under
     ///     <c>roleId</c> the role check; every other scalar is refused when it is a protected type or role id itself.
-    ///     Keys are compared case-insensitively, a superset of the deserializer.
+    ///     Keys are compared case-insensitively, a superset of the deserializer. Bounded against hostile input: more than
+    ///     <see cref="MaxYamlDepth" /> nested containers, more than <see cref="MaxYamlAnchors" /> anchored scalars or more
+    ///     than <see cref="MaxYamlAnchorBytes" /> of retained anchored values throw, and the caller refuses the import.
     /// </summary>
     private string? CheckYaml(Stream stream, CancellationToken cancellationToken)
     {
         using var reader = new StreamReader(stream, leaveOpen: true);
         var parser = new Parser(reader);
         var anchors = new Dictionary<string, string>(StringComparer.Ordinal);
+        long anchorBytes = 0;
         var frames = new Stack<YamlFrame>();
 
         while (parser.MoveNext())
@@ -170,9 +191,16 @@ internal sealed class KnowledgeImportCheck(
                 case Scalar scalar:
                     if (!scalar.Anchor.IsEmpty)
                     {
-                        if (anchors.Count >= MaxYamlAnchors)
+                        var previous = anchors.TryGetValue(scalar.Anchor.Value, out var replaced) ? replaced : null;
+                        if (previous == null && anchors.Count >= MaxYamlAnchors)
                         {
                             throw new InvalidDataException("Too many YAML anchors.");
+                        }
+
+                        anchorBytes += ((long)scalar.Value.Length - (previous?.Length ?? 0)) * sizeof(char);
+                        if (anchorBytes > _yamlAnchorBytesLimit)
+                        {
+                            throw new InvalidDataException("The anchored YAML values are larger than the check keeps.");
                         }
 
                         anchors[scalar.Anchor.Value] = scalar.Value;
@@ -197,10 +225,10 @@ internal sealed class KnowledgeImportCheck(
 
                     break;
                 case MappingStart:
-                    frames.Push(new YamlFrame(true));
+                    PushFrame(frames, true);
                     break;
                 case SequenceStart:
-                    frames.Push(new YamlFrame(false));
+                    PushFrame(frames, false);
                     break;
                 case MappingEnd or SequenceEnd:
                     frames.Pop();
@@ -211,6 +239,16 @@ internal sealed class KnowledgeImportCheck(
         }
 
         return null;
+    }
+
+    private static void PushFrame(Stack<YamlFrame> frames, bool isMapping)
+    {
+        if (frames.Count >= MaxYamlDepth)
+        {
+            throw new InvalidDataException("The YAML is nested deeper than the check reads.");
+        }
+
+        frames.Push(new YamlFrame(isMapping));
     }
 
     private string? OnYamlValue(Stack<YamlFrame> frames, string? value)

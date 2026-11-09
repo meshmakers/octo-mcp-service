@@ -258,8 +258,11 @@ only. Where it runs:
   page), which aborts the transaction.
 - `import_runtime_model`: `RunImport` takes a `precheck` that runs after the target tenant is resolved and before the file
   is sent: `CkModelFileTools.KnowledgeImportPrecheckAsync` -> `Services/KnowledgeImportCheck.cs`. Check and import read
-  the same private snapshot (`CheckAndImportSnapshotAsync`: copy to `ImportSnapshotDirectory`, Guid name, the upload's
-  extension, mode 0600 in a 0700 directory, deleted in `finally`), never the upload slot: a PUT that started before the
+  the same private snapshot (`CheckAndImportSnapshotAsync`: a fresh per-import directory
+  `octo-mcp-import-<random>` from `PrivateTempDirectory.Create` - `Directory.CreateTempSubdirectory`, atomic, mode 0700,
+  never a shared fixed path in `/tmp`; on Unix verified after creation by `lstat`: real directory, owned by the effective
+  uid, no group/other bits, else refused with `ImportCheckFailedMessage`; file `snapshot<ext>` mode 0600; the whole
+  directory deleted in `finally`), never the upload slot: a PUT that started before the
   upload completed can still write the slot (CWE-367). A copy that fails is refused with `ImportCheckFailedMessage`. It judges the **decoded
   ids**, never the raw text (a text scan was bypassed by `System.Ai\/KnowledgePage`, `\u002F`, YAML escapes or casing):
   - format by the upload's extension, case-insensitive: `.zip`, `.json`, `.yaml` and `.yml` (both YAML). Any other
@@ -273,7 +276,9 @@ only. Where it runs:
     fails there as in the import);
   - YAML: YamlDotNet `Parser` events (the library the importer's deserializer uses), no document in memory. The importer's
     YAML reader is not used because its schema validation copies the whole file into memory. Scalars are decoded by the
-    parser; aliases of scalars are resolved (also as keys); keys are compared case-insensitively;
+    parser; aliases of scalars are resolved (also as keys); keys are compared case-insensitively; bounded against
+    hostile input: more than 64 nested containers (`MaxYamlDepth`), 10,000 anchored scalars (`MaxYamlAnchors`) or
+    16 MiB of retained anchored values (`MaxYamlAnchorBytes`, UTF-16) refuse the file, also inside a zip;
   - per entity: `ckTypeId` and each association's `targetCkTypeId` -> protected type (runtime or full id, any casing,
     version suffixes stripped), a type the CK cache knows that derives from one (`KnowledgeWriteRefusal.IsKnowledgeType`,
     the same rule as the CRUD tools), or - in a tenant that has `KnowledgePage` - a type the cache does not know (it

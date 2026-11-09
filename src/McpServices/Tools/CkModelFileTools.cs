@@ -292,28 +292,30 @@ public sealed class CkModelFileTools
         }
     }
 
-    /// <summary>Directory of the import snapshots; only the service user can list or open it.</summary>
-    internal static readonly string ImportSnapshotDirectory =
-        Path.Combine(Path.GetTempPath(), "octo-mcp-import-snapshots");
+    /// <summary>Name prefix of the per-import snapshot directories in the temp path.</summary>
+    internal const string ImportSnapshotDirectoryPrefix = "octo-mcp-import-";
 
     /// <summary>
-    ///     AB#8568 (CWE-367): copies the completed upload to a private snapshot with an unguessable name and the upload's
-    ///     extension (the readers pick the format by it), runs <paramref name="check" /> and then
-    ///     <paramref name="import" /> on that same snapshot, and deletes the snapshot on every exit path. A refusal keeps
-    ///     the upload (the caller may fix and re-upload; the buffer expires on its own). A copy that fails is refused
-    ///     through <paramref name="snapshotFailed" />, never imported unchecked.
+    ///     AB#8568 (CWE-367): copies the completed upload to a private snapshot, runs <paramref name="check" /> and then
+    ///     <paramref name="import" /> on that same snapshot. The snapshot lives in a fresh directory of its own with an
+    ///     unpredictable name, created atomically and owner-only (<see cref="PrivateTempDirectory" />), and keeps the
+    ///     upload's extension (the readers pick the format by it). The whole directory is deleted on every exit path. A
+    ///     refusal keeps the upload (the caller may fix and re-upload; the buffer expires on its own). A directory that
+    ///     cannot be created or verified, or a copy that fails, is refused through <paramref name="snapshotFailed" />,
+    ///     never imported unchecked. <paramref name="createDirectory" /> replaces the directory creation; tests only.
     /// </summary>
     internal static async Task<JobStartedResponse> CheckAndImportSnapshotAsync(string uploadPath, string uploadFileName,
         Func<string, Task<JobStartedResponse?>> check, Func<string, Task<JobStartedResponse>> import,
-        Func<Exception, JobStartedResponse> snapshotFailed)
+        Func<Exception, JobStartedResponse> snapshotFailed, Func<DirectoryInfo>? createDirectory = null)
     {
-        var snapshot = Path.Combine(ImportSnapshotDirectory,
-            Guid.NewGuid().ToString("N") + Path.GetExtension(uploadFileName));
+        DirectoryInfo? directory = null;
         try
         {
+            string snapshot;
             try
             {
-                CreatePrivateDirectory(ImportSnapshotDirectory);
+                directory = createDirectory?.Invoke() ?? PrivateTempDirectory.Create(ImportSnapshotDirectoryPrefix);
+                snapshot = Path.Combine(directory.FullName, "snapshot" + Path.GetExtension(uploadFileName));
                 await using var source = new FileStream(uploadPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                 await using var target = new FileStream(snapshot, SnapshotFileOptions());
                 await source.CopyToAsync(target);
@@ -333,13 +335,9 @@ public sealed class CkModelFileTools
         }
         finally
         {
-            try
+            if (directory != null)
             {
-                File.Delete(snapshot);
-            }
-            catch
-            {
-                // Best effort: the snapshot lives in the temp directory and holds nothing the caller did not upload.
+                PrivateTempDirectory.TryDelete(directory.FullName);
             }
         }
     }
@@ -353,18 +351,6 @@ public sealed class CkModelFileTools
         }
 
         return options;
-    }
-
-    private static void CreatePrivateDirectory(string path)
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            Directory.CreateDirectory(path);
-        }
-        else
-        {
-            Directory.CreateDirectory(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        }
     }
 
     private static async Task<FileDownloadResponse> PublishJobDownload(

@@ -671,8 +671,10 @@ public class KnowledgeRuntimeImportRefusalTests : ToolTestBase
         importedContent.Should().Be(clean);
         importedPath.Should().NotBe(uploadPath);
         Path.GetExtension(importedPath).Should().Be(".yaml");
-        Path.GetDirectoryName(importedPath).Should().Be(CkModelFileTools.ImportSnapshotDirectory);
+        var snapshotDirectory = Path.GetDirectoryName(importedPath)!;
+        Path.GetFileName(snapshotDirectory).Should().StartWith(CkModelFileTools.ImportSnapshotDirectoryPrefix);
         File.Exists(importedPath).Should().BeFalse("the snapshot is deleted after the import");
+        Directory.Exists(snapshotDirectory).Should().BeFalse("the snapshot directory is deleted after the import");
     }
 
     [Fact]
@@ -816,6 +818,282 @@ public class KnowledgeRuntimeImportRefusalTests : ToolTestBase
         }
 
         var transferId = StageUpload(content, fileName);
+        GivenImportSucceeds();
+
+        var result = await CkModelFileTools.ImportRuntimeModel(MockServer.Object, transferId);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task CheckAndImportSnapshot_UsesAFreshPrivateDirectoryPerImport_AndDeletesIt()
+    {
+        var upload = Path.Combine(Path.GetTempPath(), $"ab8568-{Guid.NewGuid():N}_model.yaml");
+        File.WriteAllText(upload, "content");
+        var directories = new List<string>();
+        try
+        {
+            for (var i = 0; i < 2; i++)
+            {
+                await CkModelFileTools.CheckAndImportSnapshotAsync(upload, "model.yaml",
+                    path =>
+                    {
+                        var directory = Path.GetDirectoryName(path)!;
+                        directories.Add(directory);
+                        Path.GetFileName(directory).Should().StartWith(CkModelFileTools.ImportSnapshotDirectoryPrefix);
+                        Path.GetFileName(directory).Should().NotBe(CkModelFileTools.ImportSnapshotDirectoryPrefix);
+                        Directory.GetFileSystemEntries(directory).Should().ContainSingle();
+                        if (!OperatingSystem.IsWindows())
+                        {
+                            File.GetUnixFileMode(directory).Should().Be(
+                                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                            File.GetUnixFileMode(path).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                        }
+
+                        return Task.FromResult<JobStartedResponse?>(null);
+                    },
+                    _ => Task.FromResult(new JobStartedResponse { IsSuccess = true }),
+                    _ => throw new InvalidOperationException("snapshot must be created"));
+            }
+
+            directories.Should().HaveCount(2).And.OnlyHaveUniqueItems();
+            directories.Should().OnlyContain(d => !Directory.Exists(d));
+        }
+        finally
+        {
+            File.Delete(upload);
+        }
+    }
+
+    [Fact]
+    public async Task CheckAndImportSnapshot_ImportThrows_DeletesTheWholeDirectory_EvenWithExtraFiles()
+    {
+        var upload = Path.Combine(Path.GetTempPath(), $"ab8568-{Guid.NewGuid():N}_model.yaml");
+        File.WriteAllText(upload, "content");
+        string? directory = null;
+        try
+        {
+            var act = () => CkModelFileTools.CheckAndImportSnapshotAsync(upload, "model.yaml",
+                path =>
+                {
+                    directory = Path.GetDirectoryName(path)!;
+                    File.WriteAllText(Path.Combine(directory, "left-over.tmp"), "x");
+                    return Task.FromResult<JobStartedResponse?>(null);
+                },
+                _ => throw new IOException("service down"),
+                _ => throw new InvalidOperationException("snapshot must be created"));
+
+            await act.Should().ThrowAsync<IOException>();
+            directory.Should().NotBeNull();
+            Directory.Exists(directory).Should().BeFalse();
+        }
+        finally
+        {
+            File.Delete(upload);
+        }
+    }
+
+    [Fact]
+    public async Task CheckAndImportSnapshot_DirectoryOpenToOthers_IsRefusedThroughSnapshotFailed_NeverChecked()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var upload = Path.Combine(Path.GetTempPath(), $"ab8568-{Guid.NewGuid():N}_model.yaml");
+        File.WriteAllText(upload, "content");
+        var shared = Directory.CreateTempSubdirectory("ab8568-shared-");
+        try
+        {
+            File.SetUnixFileMode(shared.FullName,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                UnixFileMode.GroupWrite | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute);
+
+            var result = await CkModelFileTools.CheckAndImportSnapshotAsync(upload, "model.yaml",
+                _ => throw new InvalidOperationException("never checked"),
+                _ => throw new InvalidOperationException("never imported"),
+                ex => new JobStartedResponse
+                {
+                    ErrorCode = Code, ErrorMessage = KnowledgeWriteRefusal.ImportCheckFailedMessage,
+                    JobId = ex.GetType().Name
+                },
+                () =>
+                {
+                    PrivateTempDirectory.EnsurePrivate(shared.FullName);
+                    return shared;
+                });
+
+            result.ErrorCode.Should().Be(Code);
+            result.ErrorMessage.Should().Be(KnowledgeWriteRefusal.ImportCheckFailedMessage);
+            result.JobId.Should().Be(nameof(UnauthorizedAccessException));
+            Directory.GetFileSystemEntries(shared.FullName).Should().BeEmpty("nothing is copied into it");
+        }
+        finally
+        {
+            File.Delete(upload);
+            if (shared.Exists)
+            {
+                shared.Delete(true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ImportRuntimeModel_SharedTmpDirectoryOfTheOldFixedName_IsNeverUsed()
+    {
+        // The former fixed path in the shared temp directory; another user may have prepared it.
+        var legacy = Path.Combine(Path.GetTempPath(), "octo-mcp-import-snapshots");
+        var createdHere = !Directory.Exists(legacy);
+        Directory.CreateDirectory(legacy);
+        try
+        {
+            var before = Directory.GetFileSystemEntries(legacy).Length;
+            string? importedPath = null;
+            MockAssetClient.Setup(c => c.ImportRtModelAsync(DefaultTenantId,
+                    Meshmakers.Octo.Communication.Contracts.DataTransferObjects.ImportStrategyDto.InsertOnly,
+                    It.IsAny<string>()))
+                .Callback((string _, Meshmakers.Octo.Communication.Contracts.DataTransferObjects.ImportStrategyDto _,
+                    string path) => importedPath = path)
+                .ReturnsAsync("job-ok");
+            MockBotClient.Setup(c => c.GetImportJobStatus("job-ok"))
+                .ReturnsAsync(new Meshmakers.Octo.Communication.Contracts.DataTransferObjects.JobDto
+                {
+                    Id = "job-ok", Status = "Succeeded"
+                });
+            var transferId = StageUpload("entities:\n  - ckTypeId: Basic/Asset\n");
+
+            var result = await CkModelFileTools.ImportRuntimeModel(MockServer.Object, transferId);
+
+            result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+            Path.GetDirectoryName(importedPath).Should().NotBe(legacy);
+            Directory.GetFileSystemEntries(legacy).Length.Should().Be(before);
+        }
+        finally
+        {
+            if (createdHere)
+            {
+                Directory.Delete(legacy, true);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ImportRuntimeModel_YamlNestedDeeperThanTheLimit_IsRefusedWithAGenericMessage(bool zipped)
+    {
+        const int depth = KnowledgeImportCheck.MaxYamlDepth + 1;
+        var content = "entities: " + new string('[', depth) + new string(']', depth) + "\n";
+        var transferId = zipped ? StageZipUpload("rt-model.yaml", content) : StageUpload(content);
+        GivenImportSucceeds();
+
+        var result = await CkModelFileTools.ImportRuntimeModel(MockServer.Object, transferId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(Code);
+        result.ErrorMessage.Should().Be(KnowledgeWriteRefusal.ImportCheckFailedMessage);
+        VerifyNothingImported();
+    }
+
+    [Fact]
+    public async Task ImportRuntimeModel_YamlBlockMappingsDeeperThanTheLimit_AreRefused()
+    {
+        var builder = new System.Text.StringBuilder();
+        for (var i = 0; i < KnowledgeImportCheck.MaxYamlDepth + 1; i++)
+        {
+            builder.Append(' ', i * 2).Append("a:\n");
+        }
+
+        builder.Append(' ', (KnowledgeImportCheck.MaxYamlDepth + 1) * 2).Append("b: c\n");
+        var transferId = StageUpload(builder.ToString());
+        GivenImportSucceeds();
+
+        var result = await CkModelFileTools.ImportRuntimeModel(MockServer.Object, transferId);
+
+        result.ErrorMessage.Should().Be(KnowledgeWriteRefusal.ImportCheckFailedMessage);
+        VerifyNothingImported();
+    }
+
+    [Fact]
+    public async Task ImportRuntimeModel_YamlNestedExactlyAtTheLimit_PassesTheCheck()
+    {
+        // The root mapping is level 1; "entities" opens 63 more sequences.
+        const int depth = KnowledgeImportCheck.MaxYamlDepth - 1;
+        var content = "entities: " + new string('[', depth) + new string(']', depth) + "\n";
+        var transferId = StageUpload(content);
+        GivenImportSucceeds();
+
+        var result = await CkModelFileTools.ImportRuntimeModel(MockServer.Object, transferId);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ImportRuntimeModel_AnchoredValuesAboveTheBudget_AreRefusedWithAGenericMessage(bool zipped)
+    {
+        // 9 anchored scalars of 1 Mi characters retain 18 MiB (UTF-16), above the 16 MiB budget; few anchors, so the
+        // anchor count cap does not apply.
+        var value = new string('x', 1024 * 1024);
+        var builder = new System.Text.StringBuilder("notes:\n");
+        for (var i = 0; i < 9; i++)
+        {
+            builder.Append("  - &a").Append(i).Append(' ').Append(value).Append('\n');
+        }
+
+        builder.Append("entities:\n  - ckTypeId: Basic/Asset\n");
+        var content = builder.ToString();
+        var transferId = zipped ? StageZipUpload("rt-model.yaml", content) : StageUpload(content);
+        GivenImportSucceeds();
+
+        var result = await CkModelFileTools.ImportRuntimeModel(MockServer.Object, transferId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(Code);
+        result.ErrorMessage.Should().Be(KnowledgeWriteRefusal.ImportCheckFailedMessage);
+        VerifyNothingImported();
+    }
+
+    [Fact]
+    public async Task Check_AnchorBudget_CountsRetainedValues_AndARedefinedAnchorReleasesItsOldValue()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"ab8568-{Guid.NewGuid():N}.yaml");
+        var check = new KnowledgeImportCheck(
+                new ServiceCollection().AddRuntimeEngine().Services.BuildServiceProvider()
+                    .GetRequiredService<IRtJsonSerializer>(), MockCkCacheService.Object, DefaultTenantId)
+            .WithYamlAnchorBytesLimit(1000);
+        try
+        {
+            // The same anchor redefined 100 times with 400 characters (800 bytes each): 800 bytes retained at most.
+            var value = new string('y', 400);
+            File.WriteAllText(path,
+                "notes:\n" + string.Concat(Enumerable.Repeat($"  - &same {value}\n", 100)) + "  - *same\n");
+            (await check.FindRefusalAsync(path, TestContext.Current.CancellationToken)).Should().BeNull();
+
+            // Two different anchors of 400 characters retain 1600 bytes, above the lowered budget.
+            File.WriteAllText(path, $"notes:\n  - &a {value}\n  - &b {value}\n");
+            var act = () => check.FindRefusalAsync(path, TestContext.Current.CancellationToken);
+            await act.Should().ThrowAsync<InvalidDataException>();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Check_ManyAliasesOfOneAnchor_StayWithinTheBudget()
+    {
+        // A billion-laughs style file: aliases are resolved per use and never copied into the budget.
+        var builder = new System.Text.StringBuilder($"base: &b {new string('z', 1000)}\nlist:\n");
+        for (var i = 0; i < 50_000; i++)
+        {
+            builder.Append("  - *b\n");
+        }
+
+        var transferId = StageUpload(builder.ToString() + "entities:\n  - ckTypeId: Basic/Asset\n");
         GivenImportSucceeds();
 
         var result = await CkModelFileTools.ImportRuntimeModel(MockServer.Object, transferId);
