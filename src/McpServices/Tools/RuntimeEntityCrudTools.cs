@@ -1756,10 +1756,6 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="FullId">Full id <c>Model-x.y.z/Type-n</c> for the CkId engine calls.</param>
     internal sealed record ResolvedCkType(string? Error, string RtCkId, string FullId);
 
-    /// <summary>
-    ///     Resolves the <c>ckTypeId</c> the caller passed (full id from get_type_schema, runtime id, or a unique short
-    ///     spelling) through <see cref="CkTypeIdResolver" />. An unknown or ambiguous id yields an error that names it.
-    /// </summary>
     private static UpdateEntityResponse KnowledgeUpdateRefusal(
         (string Message, IReadOnlyDictionary<string, string> Parameters) refusal, string ckTypeId, string rtId) => new()
     {
@@ -1782,6 +1778,10 @@ public sealed class RuntimeEntityCrudTools
         RtId = rtId
     };
 
+    /// <summary>
+    ///     Resolves the <c>ckTypeId</c> the caller passed (full id from get_type_schema, runtime id, or a unique short
+    ///     spelling) through <see cref="CkTypeIdResolver" />. An unknown or ambiguous id yields an error that names it.
+    /// </summary>
     internal static async Task<ResolvedCkType> ResolveCkTypeAsync(ICkCacheService ckCacheService,
         ITenantRepository tenantRepository, string ckTypeId)
     {

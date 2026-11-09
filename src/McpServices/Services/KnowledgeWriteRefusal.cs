@@ -1,6 +1,3 @@
-using System.IO.Compression;
-using System.Text;
-using System.Text.RegularExpressions;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 
@@ -19,7 +16,7 @@ namespace Meshmakers.Octo.Backend.McpServices.Services;
 ///         outside MCP (GraphQL or octo-cli).
 ///     </para>
 /// </summary>
-internal static partial class KnowledgeWriteRefusal
+internal static class KnowledgeWriteRefusal
 {
     /// <summary>Error code of the refusal.</summary>
     public const string Code = "GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL";
@@ -76,94 +73,27 @@ internal static partial class KnowledgeWriteRefusal
         return Build(runtimeId.ToString(), operation);
     }
 
-    /// <summary>
-    ///     The refusal message for a runtime-model import whose file (YAML, JSON, or a zip of them) mentions a knowledge
-    ///     type or a knowledge association role, or <c>null</c>. The check is by text, fail closed: any occurrence of the
-    ///     type or role id refuses the whole import, before the file reaches the asset repository. A file that cannot be
-    ///     read (e.g. a corrupt zip) is refused as well, with the reason; this method never throws.
-    /// </summary>
-    public static string? TryGetImportRefusal(string filePath)
-    {
-        try
-        {
-            var hit = FindKnowledgeReference(filePath);
-            return hit == null ? null : Build(hit, Operation.Import).Message;
-        }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
-        {
-            return $"The uploaded runtime model could not be checked for knowledge types ({ex.GetType().Name}: " +
-                   $"{ex.Message}). Nothing was imported.";
-        }
-    }
+    /// <summary>The refusal message of an import whose file references the knowledge type or role <paramref name="id" />.</summary>
+    public static string ImportMessage(string id) => Build(id, Operation.Import).Message;
 
-    /// <summary>The first knowledge type or role id found in the file, or <c>null</c>. Reads in bounded chunks.</summary>
-    internal static string? FindKnowledgeReference(string filePath)
-    {
-        if (!File.Exists(filePath))
-        {
-            return null;
-        }
-
-        if (IsZip(filePath))
-        {
-            using var archive = ZipFile.OpenRead(filePath);
-            foreach (var entry in archive.Entries.Where(e => e.Length > 0))
-            {
-                using var entryStream = entry.Open();
-                var hit = Scan(entryStream);
-                if (hit != null)
-                {
-                    return hit;
-                }
-            }
-
-            return null;
-        }
-
-        using var stream = File.OpenRead(filePath);
-        return Scan(stream);
-    }
+    /// <summary>The refusal message of an import that references a CK type the tenant does not know (fail closed).</summary>
+    public static string UnknownTypeImportMessage(string ckTypeId) =>
+        $"The runtime model references the CK type '{Truncate(ckTypeId)}', which this tenant does not know. In a tenant " +
+        "with knowledge types an unknown type cannot be ruled out as a knowledge page, so the file is not imported over " +
+        "MCP. Nothing was imported.";
 
     /// <summary>
-    ///     Scans a stream in chunks of <see cref="ChunkSize" /> characters; the last <see cref="Overlap" /> characters
-    ///     of a chunk are carried into the next one, so an id across a chunk boundary is still found. Memory stays bounded
-    ///     however large the upload or a decompressed zip entry is.
+    ///     The refusal message of an import whose file could not be read or checked. Deliberately generic: no exception
+    ///     text, which can carry server-side paths.
     /// </summary>
-    internal static string? Scan(Stream stream)
-    {
-        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true,
-            bufferSize: ChunkSize, leaveOpen: true);
-        var buffer = new char[ChunkSize];
-        var carry = string.Empty;
-        int read;
-        while ((read = reader.Read(buffer, 0, buffer.Length)) > 0)
-        {
-            var text = carry + new string(buffer, 0, read);
-            var match = KnowledgeIdPattern().Match(text);
-            if (match.Success)
-            {
-                return $"System.Ai/{match.Groups["name"].Value}";
-            }
+    public const string ImportCheckFailedMessage =
+        "The uploaded runtime model could not be read to check it for knowledge types, so it is refused. Upload a valid " +
+        "runtime model (.yaml, .json, or a .zip with one of them). Nothing was imported.";
 
-            carry = text.Length > Overlap ? text[^Overlap..] : text;
-        }
+    private static string Truncate(string value) => value.Length <= 200 ? value : value[..200] + "...";
 
-        return null;
-    }
-
-    internal const int ChunkSize = 64 * 1024;
-
-    // Longer than the longest id the pattern matches (System.Ai-<version>/KnowledgePageVersion plus the boundary char).
-    internal const int Overlap = 128;
-
-    private static bool IsZip(string filePath)
-    {
-        Span<byte> header = stackalloc byte[4];
-        using var stream = File.OpenRead(filePath);
-        return stream.Read(header) == 4 && header[0] == 'P' && header[1] == 'K' && header[2] == 3 && header[3] == 4;
-    }
-
-    private static bool IsKnowledgeType(ICkCacheService ckCache, string tenantId, RtCkId<CkTypeId> runtimeId)
+    /// <summary>A protected type, or a type the CK cache knows that derives from one.</summary>
+    internal static bool IsKnowledgeType(ICkCacheService ckCache, string tenantId, RtCkId<CkTypeId> runtimeId)
     {
         if (ProtectedTypes.Contains(runtimeId))
         {
@@ -202,10 +132,4 @@ internal static partial class KnowledgeWriteRefusal
             [ToolParameter] = tool
         });
     }
-
-    // Runtime ids (System.Ai/KnowledgePage) and full ids (System.Ai-4.7.0/KnowledgePage-1) of the protected types and of
-    // the knowledge association roles. KnowledgePageVersion is matched by its own name (the alternation is ordered).
-    [GeneratedRegex(@"System\.Ai(?:-[0-9][0-9.]*)?/(?<name>KnowledgePageVersion|KnowledgePage|LinksTo|GeneratedFrom|VersionOf)\b",
-        RegexOptions.CultureInvariant)]
-    private static partial Regex KnowledgeIdPattern();
 }

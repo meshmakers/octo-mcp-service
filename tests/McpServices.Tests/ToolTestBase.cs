@@ -1,3 +1,5 @@
+using Meshmakers.Octo.Runtime.Contracts.Serialization;
+using Microsoft.Extensions.DependencyInjection;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Sdk.ServiceClient.AiServices;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.StreamData;
@@ -125,6 +127,9 @@ public abstract class ToolTestBase : TestBase
         TestServiceProvider.RegisterService(MockClientFactory.Object);
         TestServiceProvider.RegisterService(MockTokenExchanger.Object);
         TestServiceProvider.RegisterService<IFileTransferStore>(FileTransferStore);
+        // AB#8568: the import_runtime_model precheck reads JSON with the importer's own reader (stateless, real instance).
+        TestServiceProvider.RegisterService(new ServiceCollection().AddRuntimeEngine().Services.BuildServiceProvider()
+            .GetRequiredService<IRtJsonSerializer>());
     }
 
     /// <summary>

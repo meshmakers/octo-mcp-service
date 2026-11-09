@@ -62,8 +62,10 @@
   `System.Ai/KnowledgePage`, `System.Ai/KnowledgePageVersion` and types derived from them with `errorCode`
   `GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL` (`errorParameters` `ckTypeId`, `tool`), checked on the requested type before
   a session is opened and again on the actual type of the stored entity; `import_runtime_model` refuses a file (YAML,
-  JSON or zip) that references a knowledge type or the knowledge associations `LinksTo`, `GeneratedFrom`, `VersionOf`
-  before it reaches the asset repository. Nothing is written. Delete is refused too (CPO decision 2026-11-08): agents set
+  JSON or zip) that writes a knowledge type (also a derived one, judged through the CK type hierarchy of the target tenant)
+  or the knowledge associations `LinksTo`, `GeneratedFrom`, `VersionOf` before it reaches the asset repository. The check
+  reads the decoded ids (the importer's streaming JSON reader, YAML parser events, zip entries streamed and capped), so
+  escapes, quoting, aliases and casing do not hide a reference; a file it cannot read is refused with a generic message. Nothing is written. Delete is refused too (CPO decision 2026-11-08): agents set
   an unwanted page to `Rejected` with `knowledge_set_status`; a person deletes pages outside MCP (GraphQL or octo-cli).
   Reads are unchanged. Tests `Tools/KnowledgeGenericWriteRefusalTests`.
 - AB#8043: the generic CRUD, query and aggregation tools enforce the CK attribute access rules, like the asset-repo

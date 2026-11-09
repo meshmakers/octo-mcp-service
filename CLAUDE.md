@@ -256,12 +256,31 @@ only. Where it runs:
 - `UpdateCoreAsync` (update_entity, set_entity_secrets) and `delete_entity`: on the requested type before the session is
   opened, and again on `existingEntity.CkTypeId` inside the transaction (a base type such as `System/Entity` can name a
   page), which aborts the transaction.
-- `import_runtime_model`: `RunImport` takes a `precheck`; `TryGetImportRefusal` scans the uploaded file (YAML/JSON, or every
-  entry of a zip) by text for the runtime or full ids of the two types and of the roles `LinksTo`, `GeneratedFrom`,
-  `VersionOf`, fail closed, before the asset repository is called. It reads in 64 KiB chunks with a 128-character overlap
-  (bounded memory for 5 GiB uploads and zip bombs) and never throws: a file it cannot read (corrupt zip, I/O error) is
-  refused with the reason. The import response carries `ErrorCode` and the message only (`JobStartedResponse` has no
-  `ErrorParameters`). The upload buffer stays (expires on its own).
+- `import_runtime_model`: `RunImport` takes a `precheck` that runs after the target tenant is resolved and before the file
+  is sent: `CkModelFileTools.KnowledgeImportPrecheckAsync` -> `Services/KnowledgeImportCheck.cs`. It judges the **decoded
+  ids**, never the raw text (a text scan was bypassed by `System.Ai\/KnowledgePage`, `\u002F`, YAML escapes or casing):
+  - format by the upload's extension, like the SDK call (`.zip`, `.yaml`, `.json`; anything else the SDK refuses itself);
+    in a zip every `.json`/`.yaml` entry is checked (the bot imports one of them), streamed and capped at 5 GiB
+    decompressed per entry (`MaxEntryBytes`, zip bombs);
+  - JSON: the importer's own streaming reader (`IRtJsonSerializer.DeserializeStreamAsync` + `ReadBulksAsync`, bulks of
+    5000; Newtonsoft, so key casing and escapes resolve exactly as in the import; a file without the leading `$schema`
+    fails there as in the import);
+  - YAML: YamlDotNet `Parser` events (the library the importer's deserializer uses), no document in memory. The importer's
+    YAML reader is not used because its schema validation copies the whole file into memory. Scalars are decoded by the
+    parser; aliases of scalars are resolved (also as keys); keys are compared case-insensitively;
+  - per entity: `ckTypeId` and each association's `targetCkTypeId` -> protected type (runtime or full id, any casing,
+    version suffixes stripped), a type the CK cache knows that derives from one (`KnowledgeWriteRefusal.IsKnowledgeType`,
+    the same rule as the CRUD tools), or - in a tenant that has `KnowledgePage` - a type the cache does not know (it
+    cannot be ruled out as derived; such an import would fail anyway); `roleId` -> `LinksTo`, `GeneratedFrom`,
+    `VersionOf`. YAML: any other scalar that is itself a protected id refuses too (superset); free text that only mentions
+    an id does not;
+  - fail closed: any exception (corrupt/encrypted zip, unsupported compression, parse error, missing file, I/O) refuses
+    with the generic `KnowledgeWriteRefusal.ImportCheckFailedMessage`; the exception goes to the server log only (no
+    `ex.Message`, it can carry server paths). The import response carries `ErrorCode` and the message only
+    (`JobStartedResponse` has no `ErrorParameters`). The upload buffer stays (expires on its own).
+  - Defence in depth that is still missing: the asset repository does not refuse knowledge types on `ImportRt` itself
+    (octo-cli and GraphQL callers are not covered by this MCP check; a server-side preflight like
+    `RtIdentityOwnedWriteCheck` in the engine would close that).
 
 **Delete is ruled out over MCP** (CPO decision 2026-11-08): deleting a knowledge page is not a knowledge operation in M1.
 Agents set `Rejected` with `knowledge_set_status`; a person deletes pages outside MCP (GraphQL or octo-cli). There is no

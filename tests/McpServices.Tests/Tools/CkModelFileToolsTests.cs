@@ -17,6 +17,10 @@ public class CkModelFileToolsTests : ToolTestBase
         GivenAuthenticated();
     }
 
+    // AB#8568: import_runtime_model reads the file before it is sent, so it must be a runtime model.
+    private const string RuntimeModelJson =
+        "{\"$schema\":\"https://schemas.meshmakers.cloud/runtime-model.schema.json\",\"dependencies\":[],\"entities\":[]}";
+
     private (string transferId, string filePath) StageUpload(string content = "{}", string fileName = "model.json")
     {
         var (id, path) = FileTransferStore.ReserveUpload(CallerSession, fileName);
@@ -87,7 +91,7 @@ public class CkModelFileToolsTests : ToolTestBase
     [Fact]
     public async Task ImportRuntimeModel_PassesImportStrategy()
     {
-        var (transferId, _) = StageUpload();
+        var (transferId, _) = StageUpload(RuntimeModelJson);
         MockAssetClient.Setup(c => c.ImportRtModelAsync(DefaultTenantId,
                 ImportStrategyDto.Upsert, It.IsAny<string>()))
             .ReturnsAsync("job-2");
@@ -104,7 +108,7 @@ public class CkModelFileToolsTests : ToolTestBase
     [Fact]
     public async Task ImportRuntimeModel_DefaultsToInsertOnly()
     {
-        var (transferId, _) = StageUpload();
+        var (transferId, _) = StageUpload(RuntimeModelJson);
         MockAssetClient.Setup(c => c.ImportRtModelAsync(DefaultTenantId,
                 ImportStrategyDto.InsertOnly, It.IsAny<string>()))
             .ReturnsAsync("job-3");

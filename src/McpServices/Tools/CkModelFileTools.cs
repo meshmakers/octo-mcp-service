@@ -3,6 +3,9 @@ using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.ConstructionKit.Contracts.Services;
+using Meshmakers.Octo.Runtime.Contracts.Serialization;
+using Meshmakers.Octo.Services.Infrastructure.Services;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -52,7 +55,7 @@ public sealed class CkModelFileTools
         "model YAML (with `$schema: https://schemas.meshmakers.cloud/runtime-model.schema.json` and an " +
         "`entities:` list), the equivalent JSON, or a zip containing one such file. importStrategy " +
         "controls whether existing entities are replaced ('Upsert') or rejected ('InsertOnly'). Equivalent " +
-        "to octo-cli ImportRuntimeModel. A file that references System.Ai KnowledgePage, KnowledgePageVersion or the " +
+        "to octo-cli ImportRuntimeModel. A file that writes System.Ai KnowledgePage, KnowledgePageVersion (or a type derived from them) or the " +
         "knowledge associations (LinksTo, GeneratedFrom, VersionOf) is refused with error code " +
         "GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL and nothing is imported: write knowledge pages with the knowledge tools.")]
     public static async Task<JobStartedResponse> ImportRuntimeModel(
@@ -65,14 +68,40 @@ public sealed class CkModelFileTools
             (asset, tid, path) => asset.ImportRtModelAsync(tid, importStrategy, path),
             opName: $"Runtime model import ({importStrategy})",
             // AB#8568: knowledge pages, versions and their links are written only through the knowledge tools.
-            precheck: path => KnowledgeWriteRefusal.TryGetImportRefusal(path) is { } refusal
-                ? new JobStartedResponse
-                {
-                    IsSuccess = false,
-                    ErrorCode = KnowledgeWriteRefusal.Code,
-                    ErrorMessage = refusal
-                }
-                : null);
+            precheck: KnowledgeImportPrecheckAsync);
+
+    /// <summary>
+    ///     AB#8568: refuses a runtime model that writes knowledge pages, versions or their links, judged on the decoded
+    ///     ids against the target tenant's CK types (<see cref="KnowledgeImportCheck" />). Fail closed: a file that cannot
+    ///     be read or checked is refused with a generic message; the exception stays in the server log.
+    /// </summary>
+    internal static async Task<JobStartedResponse?> KnowledgeImportPrecheckAsync(McpServer server, string tenantId,
+        string filePath)
+    {
+        string? refusal;
+        try
+        {
+            var services = server.Services!;
+            var ckCache = services.GetRequiredService<ICkCacheService>();
+            var tenantRepository = await services.GetRequiredService<ITenantResolutionService>()
+                .GetTenantRepositoryAsync(tenantId);
+            await tenantRepository.LoadCacheForTenantAsync(ckCache);
+            refusal = await new KnowledgeImportCheck(services.GetRequiredService<IRtJsonSerializer>(), ckCache,
+                    tenantRepository.TenantId)
+                .FindRefusalAsync(filePath);
+        }
+        catch (Exception ex)
+        {
+            server.Services?.GetService<ILoggerFactory>()?.CreateLogger<CkModelFileTools>()
+                .LogWarning(ex, "Runtime model upload for tenant {TenantId} could not be checked for knowledge types",
+                    tenantId);
+            refusal = KnowledgeWriteRefusal.ImportCheckFailedMessage;
+        }
+
+        return refusal == null
+            ? null
+            : new JobStartedResponse { IsSuccess = false, ErrorCode = KnowledgeWriteRefusal.Code, ErrorMessage = refusal };
+    }
 
     /// <summary>Export runtime entities matched by a query. Returns a downloadable file via downloadId.</summary>
     [McpServerTool(Name = "export_runtime_model_by_query")]
@@ -175,7 +204,7 @@ public sealed class CkModelFileTools
     private static async Task<JobStartedResponse> RunImport(
         McpServer server, string transferId, string? tenantId, int waitTimeoutMinutes,
         Func<Sdk.ServiceClient.AssetRepositoryServices.System.IAssetServicesClient, string, string, Task<string>> sdkCall,
-        string opName, Func<string, JobStartedResponse?>? precheck = null)
+        string opName, Func<McpServer, string, string, Task<JobStartedResponse?>>? precheck = null)
     {
         if (string.IsNullOrWhiteSpace(transferId))
         {
@@ -193,18 +222,17 @@ public sealed class CkModelFileTools
             };
         }
 
-        // The precheck reads the uploaded file before any service is called; a refusal keeps the upload (the caller
-        // may fix and re-upload, the buffer expires on its own).
-        var refusal = precheck?.Invoke(upload.FilePath);
-        if (refusal != null)
-        {
-            return refusal;
-        }
-
         var asset = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (asset.Error != null)
         {
             return new JobStartedResponse { IsSuccess = false, ErrorMessage = asset.Error };
+        }
+
+        // The precheck reads the uploaded file against the target tenant before the file is sent; it never throws
+        // (fail closed). A refusal keeps the upload (the caller may fix and re-upload, the buffer expires on its own).
+        if (precheck != null && await precheck(server, asset.TenantId!, upload.FilePath) is { } refusal)
+        {
+            return refusal;
         }
 
         var bot = await BotClientContext.TryBuildAsync(server, tenantId);
