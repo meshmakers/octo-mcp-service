@@ -201,7 +201,9 @@ public static class KnowledgeTools
         "(the version you read) to refuse the write when someone changed the page in between. On an update, title and " +
         "sections are replaced; an omitted kind, summary, citations or hallucinationFlags keeps the current value, an " +
         "explicit empty value (\"\" or []) clears it. origin applies to new pages only; linksTo and sourceRtIds only add " +
-        "links (knowledge_link removes one); changeNote and the run metadata belong to the new version only.")]
+        "links (knowledge_link removes one); changeNote and the run metadata belong to the new version only. Run metadata " +
+        "(all optional): promptName, promptVersion, modelId, inputTokens, outputTokens, cost (USD), reviewerRounds and " +
+        "runRef (the pipeline execution id); an omitted value is not stored, a negative number is refused.")]
     public static async Task<KnowledgeWriteResponse> KnowledgeUpsertPage(
         McpServer server,
         [Description("Slug of the page: lower-case words joined by hyphens, e.g. 'rollout-seed-change'.")] string slug,
@@ -231,12 +233,28 @@ public static class KnowledgeTools
         [Description("Name of the prompt template that generated the content (run metadata).")] string? promptName = null,
         [Description("Version of that prompt template.")] int? promptVersion = null,
         [Description("Model id that generated the content.")] string? modelId = null,
+        [Description("Input (prompt) tokens of the generation run, 0 or more; stored as PromptTokens.")]
+        int? inputTokens = null,
+        [Description("Output (completion) tokens of the generation run, 0 or more; stored as CompletionTokens.")]
+        int? outputTokens = null,
+        [Description("Cost of the generation run in USD, 0 or more; stored as CostUsd.")] double? cost = null,
+        [Description("Number of reviewer (self-correction) rounds of the run, 0 or more; stored as ReviewerIterations.")]
+        int? reviewerRounds = null,
+        [Description("Reference of the run that wrote this version: the pipeline execution id (up to " +
+                     "200 characters).")]
+        string? runRef = null,
         [Description("Tenant to write to. Falls back to URL route.")] string? tenantId = null,
         CancellationToken cancellationToken = default)
     {
         if (!KnowledgePages.IsValidSlug(slug))
         {
             return Invalid($"Invalid slug '{slug}': lower-case letters, digits, '-', '.', '_' (2-120 characters).");
+        }
+
+        var runDataError = ValidateRunData(inputTokens, outputTokens, cost, reviewerRounds, runRef);
+        if (runDataError != null)
+        {
+            return Invalid(runDataError);
         }
 
         if (string.IsNullOrWhiteSpace(title))
@@ -290,7 +308,7 @@ public static class KnowledgeTools
 
             var refusal = await GuardAsync(server, ctx, session, content, slug, "knowledge_upsert_page", cancellationToken,
                 new ContentGuardField("changeNote", changeNote), new ContentGuardField("promptName", promptName),
-                new ContentGuardField("modelId", modelId));
+                new ContentGuardField("modelId", modelId), new ContentGuardField("runRef", runRef));
             if (refusal != null)
             {
                 return refusal;
@@ -298,7 +316,8 @@ public static class KnowledgeTools
 
             var write = KnowledgePages.BuildWrite(existing, slug, content, originValue.Value, ctx.Author!,
                 changeNote ?? (existing == null ? "created" : "updated"), null,
-                new KnowledgeRunMetadata(promptName, promptVersion, modelId), DateTime.UtcNow);
+                new KnowledgeRunMetadata(promptName, promptVersion, modelId, runRef, inputTokens, outputTokens, cost,
+                    reviewerRounds), DateTime.UtcNow);
 
             var associations = new List<AssociationUpdateInfo> { KnowledgePages.VersionOf(write.Version, write.Page) };
             var response = new KnowledgeWriteResponse();
@@ -845,6 +864,49 @@ public static class KnowledgeTools
 
             return n;
         }
+    }
+
+    /// <summary>AB#8657: checks the run data of a write; returns the error message or <c>null</c>.</summary>
+    internal static string? ValidateRunData(int? inputTokens, int? outputTokens, double? cost, int? reviewerRounds,
+        string? runRef)
+    {
+        var negative = new List<string>();
+        if (inputTokens < 0)
+        {
+            negative.Add($"inputTokens ({inputTokens})");
+        }
+
+        if (outputTokens < 0)
+        {
+            negative.Add($"outputTokens ({outputTokens})");
+        }
+
+        if (reviewerRounds < 0)
+        {
+            negative.Add($"reviewerRounds ({reviewerRounds})");
+        }
+
+        if (cost != null && (double.IsNaN(cost.Value) || double.IsInfinity(cost.Value)))
+        {
+            return "cost must be a finite number of USD.";
+        }
+
+        if (cost < 0)
+        {
+            negative.Add(FormattableString.Invariant($"cost ({cost})"));
+        }
+
+        if (negative.Count > 0)
+        {
+            return $"Run data must not be negative: {string.Join(", ", negative)}.";
+        }
+
+        if (runRef != null && (string.IsNullOrWhiteSpace(runRef) || runRef.Length > 200))
+        {
+            return "runRef must be a non-empty execution id of up to 200 characters.";
+        }
+
+        return null;
     }
 
     private static KnowledgeWriteResponse Invalid(string message) =>

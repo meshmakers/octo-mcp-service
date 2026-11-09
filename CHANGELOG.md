@@ -4,6 +4,13 @@
 
 ### Added
 
+- **AB#8657** — `knowledge_upsert_page` takes the run data of the ingest pipeline as optional parameters and stores them on
+  the new `KnowledgePageVersion`: `inputTokens` (`PromptTokens`), `outputTokens` (`CompletionTokens`), `cost` in USD
+  (`CostUsd`), `reviewerRounds` (`ReviewerIterations`) and `runRef`, the pipeline execution id (`RunRef`). Omitted values are
+  not stored, existing callers are unchanged; negative or non-finite numbers and a blank `runRef` are refused with
+  `InvalidArgument`; `runRef` passes the content guard. Cache read/creation tokens wait for System.Ai attributes.
+  Tests in `Tools/KnowledgeToolsTests`.
+
 - **AB#8529** — the model-changing tools `import_ck_model`, `install_blueprint`, `update_blueprint`, `uninstall_blueprint`,
   `refresh_ck_catalogs`, `import_ck_from_catalog` and `fix_all_ck_models` name the required tenant role `DataModelManagement` in
   their descriptions and return the service's problem code in the new `errorCode` member (all asset and file-transfer tool

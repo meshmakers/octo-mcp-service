@@ -1103,7 +1103,7 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   run metadata) and the `VersionOf` association, in one transaction. The page's `CurrentVersion` points at it. A restore writes
   a new version with `RestoredFromVersion`; nothing is ever deleted. Links (`LinksTo`) are not content and make no version.
 - **Content guard first** (`IContentGuard`, AB#8475): every tool that writes text (upsert, restore, set_status) checks title,
-  summary, sections, citations (all four fields), flags, the slug and the free-text extras (`changeNote`, `promptName`, `modelId`) before anything
+  summary, sections, citations (all four fields), flags, the slug and the free-text extras (`changeNote`, `promptName`, `modelId`, `runRef`) before anything
   is written; tenant secrets come in as fingerprints read with the caller's session. No guard registered = refusal.
   `knowledge_link` writes only an association between two existing, slug-validated pages and carries no text.
 - **Status**: every content write (upsert, restore) sets `Draft`; `knowledge_set_status` moves Draft/InReview/Rejected and
@@ -1121,6 +1121,13 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   and are cleared by an explicit empty value (`""` / `[]`). Deliberate exceptions, named in the tool description:
   `origin` applies to new pages only; `linksTo` / `sourceRtIds` only add links (removal is `knowledge_link remove=true`);
   `changeNote` and the run metadata belong to the new version only.
+- **Run data** (AB#8657, write path W1 of AB#8486: the pipeline node `McpToolCall@1` writes after the LLM run):
+  `knowledge_upsert_page` takes `inputTokens`, `outputTokens`, `cost` (USD), `reviewerRounds` and `runRef` besides
+  `promptName` / `promptVersion` / `modelId`, carried by `KnowledgeRunMetadata` into `BuildWrite`, which writes only the
+  non-null values to the version attributes `PromptTokens`, `CompletionTokens`, `CostUsd` (Double), `ReviewerIterations`,
+  `RunRef`. `KnowledgeTools.ValidateRunData` runs before the tenant is opened: negative numbers (all named in one message),
+  NaN/infinite cost, a blank or > 200 character `runRef` = `InvalidArgument`. `runRef` passes the content guard like
+  `changeNote`. Cache read/creation tokens are not stored: System.Ai has no attribute for them yet (question on AB#8657).
 - **Prototype JSON**: `KnowledgeSectionDto` / `KnowledgeCitationDto` / `KnowledgeHallucinationFlagDto` carry the JSON names of the
   KnowledgeCapture prompts (`heading`, `sectionContent`, `sortOrder`, `sectionRef`, `sourceQuote`, `sourceAnchor`, `sourceRtId`,
   `claim`, `reason`); cited `sourceRtId`s that are SourceArtifacts are linked with `GeneratedFrom`, others are reported in
