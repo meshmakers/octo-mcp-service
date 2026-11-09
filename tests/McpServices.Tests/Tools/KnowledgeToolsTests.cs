@@ -605,6 +605,78 @@ public class KnowledgeToolsTests : TestBase
         }
     }
 
+    // AB#8567: omitted optional content parameters keep the current value on update; explicit empty values clear it.
+    private Task<KnowledgeWriteResponse> CreateFullPageAsync() =>
+        KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, "zebrafisch-pipeline", "Zebrafisch pipeline",
+            [new KnowledgeSectionDto { Heading = "When", SectionContent = "Nightly at 02:00." }],
+            citations: [new KnowledgeCitationDto { SectionRef = "When", SourceQuote = "runs nightly", SourceRtId = SourceRtId }],
+            hallucinationFlags: [new KnowledgeHallucinationFlagDto { Claim = "02:00", Reason = "not in the source" }],
+            summary: "Wann die Zebrafisch-Pipeline läuft.", kind: "HowTo", cancellationToken: Ct);
+
+    private RtEntity VersionEntity(string slug, int version) =>
+        Versions(slug).Single(v => v.RtWellKnownName == $"{slug}@{version}");
+
+    [Fact]
+    public async Task Update_WithoutOptionalContent_KeepsKindSummaryCitationsAndFlags()
+    {
+        (await CreateFullPageAsync()).IsSuccess.Should().BeTrue();
+
+        var result = await KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, "zebrafisch-pipeline",
+            "Zebrafisch pipeline", [new KnowledgeSectionDto { Heading = "When", SectionContent = "Nightly at 03:00." }],
+            expectedVersion: 1, cancellationToken: Ct);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Page!.CurrentVersion.Should().Be(2);
+        result.Page.Summary.Should().Be("Wann die Zebrafisch-Pipeline läuft.");
+        result.Page.Kind.Should().Be("HowTo");
+        var page = await KnowledgeTools.KnowledgeGet(MockServer.Object, "zebrafisch-pipeline");
+        page.Sections.Single().SectionContent.Should().Be("Nightly at 03:00.", "sections are replaced");
+        page.Citations.Should().ContainSingle(c => c.SourceQuote == "runs nightly");
+        page.HallucinationFlags.Should().ContainSingle(f => f.Claim == "02:00");
+        var version2 = KnowledgePages.ReadContent(VersionEntity("zebrafisch-pipeline", 2));
+        version2.Summary.Should().Be("Wann die Zebrafisch-Pipeline läuft.", "the version carries the kept summary too");
+        version2.Citations.Should().HaveCount(1);
+        version2.HallucinationFlags.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task Update_WithExplicitEmptyValues_ClearsSummaryCitationsAndFlags()
+    {
+        await CreateFullPageAsync();
+
+        var result = await KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, "zebrafisch-pipeline",
+            "Zebrafisch pipeline", [new KnowledgeSectionDto { Heading = "When", SectionContent = "Nightly." }],
+            citations: [], hallucinationFlags: [], summary: "", kind: "Concept", expectedVersion: 1,
+            cancellationToken: Ct);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Page!.Summary.Should().BeEmpty();
+        result.Page.Kind.Should().Be("Concept", "an explicit kind replaces the current one");
+        var page = await KnowledgeTools.KnowledgeGet(MockServer.Object, "zebrafisch-pipeline");
+        page.Citations.Should().BeEmpty();
+        page.HallucinationFlags.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Create_WithoutOptionalContent_HasDefaults()
+    {
+        var result = await UpsertAsync("plain", "Plain", "text");
+
+        result.Page!.Kind.Should().Be("Concept");
+        result.Page.Summary.Should().BeEmpty();
+        (await KnowledgeTools.KnowledgeGet(MockServer.Object, "plain")).Citations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Upsert_Description_StatesTheOmittedMeansUnchangedRule()
+    {
+        var description = typeof(KnowledgeTools).GetMethod(nameof(KnowledgeTools.KnowledgeUpsertPage))!
+            .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+            .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+        description.Should().Contain("omitted kind, summary, citations or hallucinationFlags keeps the current value")
+            .And.Contain("origin applies to new pages only").And.Contain("only add");
+    }
+
     [Fact]
     public async Task Search_WithAWordOfThreeCharacters_SendsTheQueryToTheTextIndex()
     {

@@ -227,8 +227,11 @@ dotnet run
 and the resource template `knowledge-page://{tenantId}/{slug}`. Pages are System.Ai `KnowledgePage` entities (System.Ai 4.7.0);
 every content or status write is a new `KnowledgePageVersion` and passes the content guard (credentials and tenant secret values are refused with
 `ContentRejected`). Start with the conventions page `knowledge-schema`.
-- `knowledge_search` with a query returns only pages that contain at least one of its words (3+ characters) or an inflected form of it ("pipelines" finds
-  "pipeline"); no match is an empty
+- `knowledge_upsert_page` on an existing page: title and sections replace; an omitted `kind`, `summary`, `citations` or
+  `hallucinationFlags` keeps the current value, an explicit `""` / `[]` clears it (AB#8567). `origin` applies to new pages only,
+  `linksTo` / `sourceRtIds` only add links, `changeNote` and run metadata belong to the new version.
+- `knowledge_search` with a query returns only pages that contain at least one of its words (3+ characters) or an inflected
+  form of it ("pipelines" finds "pipeline"); no match is an empty
   result with the message to say so (AB#8566). A query without such a word returns the index of all pages, like no query.
 - The knowledge tools are the **only** write path (AB#8568): `create_entity`, `create_entity_with_secrets`, `update_entity`,
   `set_entity_secrets`, `delete_entity` and `import_runtime_model` refuse `System.Ai/KnowledgePage`, `System.Ai/KnowledgePageVersion`

@@ -198,18 +198,24 @@ public static class KnowledgeTools
         "optional hallucinationFlags [{claim, reason}]. Every write is a new version (the page keeps its history); the page " +
         "becomes Draft again until a person verifies it. Cited SourceArtifacts are linked with GeneratedFrom. Content that " +
         "looks like a credential or a secret value of the tenant is refused with ContentRejected. Pass expectedVersion " +
-        "(the version you read) to refuse the write when someone changed the page in between.")]
+        "(the version you read) to refuse the write when someone changed the page in between. On an update, title and " +
+        "sections are replaced; an omitted kind, summary, citations or hallucinationFlags keeps the current value, an " +
+        "explicit empty value (\"\" or []) clears it. origin applies to new pages only; linksTo and sourceRtIds only add " +
+        "links (knowledge_link removes one); changeNote and the run metadata belong to the new version only.")]
     public static async Task<KnowledgeWriteResponse> KnowledgeUpsertPage(
         McpServer server,
         [Description("Slug of the page: lower-case words joined by hyphens, e.g. 'rollout-seed-change'.")] string slug,
         [Description("Title of the page.")] string title,
         [Description("Sections in order: heading, sectionContent (markdown), sortOrder.")]
         List<KnowledgeSectionDto> sections,
-        [Description("Quote-level citations: sectionRef, sourceQuote, sourceAnchor, sourceRtId.")]
+        [Description("Quote-level citations: sectionRef, sourceQuote, sourceAnchor, sourceRtId. Omitted on update: " +
+                     "kept; [] clears them.")]
         List<KnowledgeCitationDto>? citations = null,
-        [Description("Claims the verification pass could not ground: claim, reason.")]
+        [Description("Claims the verification pass could not ground: claim, reason. Omitted on update: kept; [] " +
+                     "clears them.")]
         List<KnowledgeHallucinationFlagDto>? hallucinationFlags = null,
-        [Description("One or two sentences that say what the page is about (shown in search and the index).")]
+        [Description("One or two sentences that say what the page is about (shown in search and the index). Omitted " +
+                     "on update: kept; \"\" clears it.")]
         string? summary = null,
         [Description("Kind: Concept (default), Entity, HowTo, Summary, Skill, Schema. Unchanged on update when omitted.")]
         string? kind = null,
@@ -271,9 +277,15 @@ public static class KnowledgeTools
                 return conflict;
             }
 
+            // AB#8567: an omitted optional content parameter (null) keeps the current value on update; an explicit
+            // empty value ("" or []) clears it. Title and sections are required and always replace.
+            var current = existing == null ? null : KnowledgePages.ReadContent(existing);
             var content = new KnowledgeContent(title.Trim(),
-                kindValue ?? (existing == null ? 0 : KnowledgePages.ReadContent(existing).Kind),
-                summary, sections.OrderBy(s => s.SortOrder).ToList(), citations ?? [], hallucinationFlags ?? [],
+                kindValue ?? current?.Kind ?? 0,
+                summary ?? current?.Summary,
+                sections.OrderBy(s => s.SortOrder).ToList(),
+                citations ?? current?.Citations ?? [],
+                hallucinationFlags ?? current?.HallucinationFlags ?? [],
                 KnowledgePages.StatusDraft);
 
             var refusal = await GuardAsync(server, ctx, session, content, slug, "knowledge_upsert_page", cancellationToken,
