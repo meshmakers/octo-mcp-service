@@ -455,6 +455,18 @@ public class KnowledgeToolsTests : TestBase
         _entities.Values.Should().NotContain(e => Equals(e.CkTypeId, KnowledgePages.PageTypeId));
     }
 
+    [Theory]
+    [InlineData("3f2b8c1e-9d4a-4e7b-a6c5-0f1e2d3c4b5a")] // pipeline execution id: Guid ("D"), as the mesh adapter leases it
+    [InlineData("3F2B8C1E9D4A4E7BA6C50F1E2D3C4B5A")] // Guid without dashes, upper case
+    [InlineData("672000000000000000000abc")] // 24-hex rtId of a future agent Run (AB#8453)
+    public async Task Upsert_WithARealExecutionIdAsRunRef_PassesTheContentGuard_AndIsStored(string runRef)
+    {
+        var result = await UpsertWithRunDataAsync("page-a", runRef: runRef);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        Versions("page-a").Single().GetAttributeStringValueOrDefault("RunRef").Should().Be(runRef);
+    }
+
     [Fact]
     public async Task Upsert_WithACredentialInTheRunRef_IsRejected_ByTheContentGuard()
     {
