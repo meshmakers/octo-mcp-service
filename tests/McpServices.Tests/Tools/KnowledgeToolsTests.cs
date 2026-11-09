@@ -40,6 +40,12 @@ public class KnowledgeToolsTests : TestBase
 
     /// <summary>The text search of every page list query (null = no text search), in call order.</summary>
     private readonly List<string?> _textSearches = [];
+
+    /// <summary>
+    ///     AB#8566: when set, the repository returns every page for a text search, like the engine returned
+    ///     knowledge-schema (score 0) for "Zebrafisch" in the hand test; the tool alone must drop such pages.
+    /// </summary>
+    private bool _textIndexReturnsEveryPage;
     private readonly List<(RtEntityId Origin, RtEntityId Target, string Role)> _associations = [];
 
     public KnowledgeToolsTests()
@@ -66,7 +72,8 @@ public class KnowledgeToolsTests : TestBase
                 var textSearch = options.TextSearchFilter?.SearchTerm?.ToString();
                 _textSearches.Add(textSearch);
                 var items = _entities.Values.Where(e => Equals(e.CkTypeId, type))
-                    .Where(e => textSearch == null || MatchesTextIndex(e, textSearch)).ToList();
+                    .Where(e => textSearch == null || _textIndexReturnsEveryPage || MatchesTextIndex(e, textSearch))
+                    .ToList();
                 return new ResultSet<RtEntity>(items, items.Count, null, null);
             });
         MockTenantRepository
@@ -497,8 +504,8 @@ public class KnowledgeToolsTests : TestBase
             .Any(w => text.Contains(w, StringComparison.OrdinalIgnoreCase));
     }
 
-    // AB#8566: the in-memory repository ignores the text-search option and returns every page, like the engine did for
-    // knowledge-schema in the hand test; the tool must drop pages without any query word.
+    // AB#8566: a page about the schema and one that contains "Zebrafisch". The repository applies the text index
+    // (MatchesTextIndex) unless a test sets _textIndexReturnsEveryPage to replay the engine of the hand test.
     private async Task GivenSchemaAndZebrafischPagesAsync()
     {
         await UpsertAsync("knowledge-schema", "Knowledge base conventions", "How pages are written.");
@@ -515,6 +522,34 @@ public class KnowledgeToolsTests : TestBase
         result.IsSuccess.Should().BeTrue();
         result.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-pipeline");
         result.Pages.Should().OnlyContain(p => p.Score > 0);
+    }
+
+    [Fact]
+    public async Task Search_DropsAPageTheTextIndexPreselected_WithoutAnyQueryWord()
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch");
+
+        // The repository returned both pages; knowledge-schema has no query word (score 0) and is dropped by the tool.
+        _textSearches.Should().EndWith("Zebrafisch");
+        result.IsSuccess.Should().BeTrue();
+        result.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-pipeline");
+        result.Pages.Should().OnlyContain(p => p.Score > 0);
+    }
+
+    [Fact]
+    public async Task Search_WhenTheTextIndexPreselectsOnlyPagesWithoutAQueryWord_IsEmpty_WithTheNoMatchMessage()
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Okapi");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Pages.Should().BeEmpty();
+        result.Message.Should().StartWith("No knowledge page matches");
     }
 
     [Theory]
@@ -539,6 +574,7 @@ public class KnowledgeToolsTests : TestBase
     {
         // The hand-test case: knowledge-schema (Verified) used to come back with score 0.
         await GivenSchemaAndZebrafischPagesAsync();
+        _textIndexReturnsEveryPage = true;
         var page = _entities.Values.Single(e => e.RtWellKnownName == "knowledge-schema");
         page.SetAttributeValue("VerificationStatus", AttributeValueTypesDto.Enum, KnowledgePages.StatusVerified);
 
