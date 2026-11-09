@@ -29,12 +29,15 @@ public static class KnowledgeTools
     [McpServerTool(Name = "knowledge_search")]
     [Description(
         "Search the tenant's knowledge base (knowledge pages). Returns pages best first with slug, title, kind, " +
-        "verification status, summary, current version and the resource URI. Without a query it returns the index of all " +
-        "pages (sorted by title). Read the conventions page 'knowledge-schema' first; answer questions from pages and cite " +
-        "them by slug.")]
+        "verification status, summary, current version and the resource URI. With a query only pages that contain at least " +
+        "one of its words or an inflected form of it (plural, -ing, -ed) are returned; no match is an empty result with " +
+        "the message to say so. Words shorter than 3 " +
+        "characters are ignored; a query without a longer word returns the index of all pages, like no query (sorted by " +
+        "title). Read the conventions page 'knowledge-schema' first; answer questions from pages and cite them by slug.")]
     public static async Task<KnowledgeSearchResponse> KnowledgeSearch(
         McpServer server,
-        [Description("Words to search for (full-text over title, summary and section content). Empty: list all pages.")]
+        [Description("Words to search for (title, summary and section content; words of 3 or more characters). Empty: " +
+                     "list all pages.")]
         string? query = null,
         [Description("Only pages of this kind: Concept, Entity, HowTo, Summary, Skill, Schema.")]
         string? kind = null,
@@ -70,17 +73,24 @@ public static class KnowledgeTools
         try
         {
             using var session = await ctx.Repo.GetSessionAsync(ctx.Security!);
-            var candidates = await KnowledgePages.ListPagesAsync(ctx.Repo, session, query, MaxSearchCandidates);
+            // AB#8566: a query searches only when it has a word of 3+ characters; otherwise it is the index (no query).
             var terms = Terms(query);
+            var isSearch = terms.Length > 0;
+            var candidates = await KnowledgePages.ListPagesAsync(ctx.Repo, session, isSearch ? query : null,
+                MaxSearchCandidates);
             var pages = candidates
                 .Select(p => (Page: p, Content: KnowledgePages.ReadContent(p)))
                 .Where(x => kindFilter == null || x.Content.Kind == kindFilter)
                 .Where(x => statusFilter == null || x.Content.Status == statusFilter)
                 .Select(x => KnowledgePages.Summarize(ctx.TenantId!, x.Page, Score(x.Content, terms)))
+                // A page without any query word or its English stem (score 0) does not match, whatever the text index
+                // preselected.
+                .Where(p => !isSearch || p.Score > 0)
                 .OrderByDescending(p => p.Score).ThenBy(p => p.Title, StringComparer.OrdinalIgnoreCase)
                 .Take(limit)
                 .ToList();
 
+            var ignoredQuery = !isSearch && !string.IsNullOrWhiteSpace(query);
             return new KnowledgeSearchResponse
             {
                 IsSuccess = true,
@@ -88,7 +98,9 @@ public static class KnowledgeTools
                 Pages = pages,
                 Message = pages.Count == 0
                     ? "No knowledge page matches. Say so instead of answering from general knowledge."
-                    : $"{pages.Count} page(s)."
+                    : ignoredQuery
+                        ? $"The query has no word of 3 or more characters, so this is the index of all pages, not a match: {pages.Count} page(s)."
+                        : $"{pages.Count} page(s)."
             };
         }
         catch (Exception ex)
@@ -773,12 +785,19 @@ public static class KnowledgeTools
         }
     }
 
-    private static string[] Terms(string? query) => string.IsNullOrWhiteSpace(query)
+    /// <summary>
+    ///     The query words of 3+ characters, split like the page text (<see cref="KnowledgeStemmer.Words" />): a term such
+    ///     as "zebrafisch-pipelines" or "(pipelines)" is tokenized as the text index does, not stemmed as one token.
+    /// </summary>
+    internal static string[] Terms(string? query) => string.IsNullOrWhiteSpace(query)
         ? []
-        : query.Split([' ', ',', ';', '?', '!', '.', ':'], StringSplitOptions.RemoveEmptyEntries)
-            .Where(t => t.Length > 2).Select(t => t.ToLowerInvariant()).Distinct().ToArray();
+        : KnowledgeStemmer.Words(query).Where(t => t.Length > 2).Distinct().ToArray();
 
-    /// <summary>Title matches weigh 3, summary 2, section text 1 (same weights as the text index).</summary>
+    /// <summary>
+    ///     Title matches weigh 3, summary 2, section text 1 (same weights as the text index). A term counts its literal
+    ///     occurrences; where it has none, it counts the words with the same English stem (AB#8566: the text index stems,
+    ///     so "pipelines" matches "pipeline" there and must not score 0 here).
+    /// </summary>
     internal static double Score(KnowledgeContent content, IReadOnlyCollection<string> terms)
     {
         if (terms.Count == 0)
@@ -786,10 +805,23 @@ public static class KnowledgeTools
             return 0;
         }
 
-        var title = content.Title.ToLowerInvariant();
-        var summary = (content.Summary ?? string.Empty).ToLowerInvariant();
-        var body = string.Join("\n", content.Sections.Select(s => s.Heading + " " + s.SectionContent)).ToLowerInvariant();
-        return terms.Sum(t => 3 * Count(title, t) + 2 * Count(summary, t) + Math.Min(Count(body, t), 5));
+        var title = Field(content.Title);
+        var summary = Field(content.Summary ?? string.Empty);
+        var body = Field(string.Join("\n", content.Sections.Select(s => s.Heading + " " + s.SectionContent)));
+        return terms.Sum(t =>
+        {
+            var stem = KnowledgeStemmer.Stem(t);
+            return 3 * Hits(title, t, stem) + 2 * Hits(summary, t, stem) + Math.Min(Hits(body, t, stem), 5);
+        });
+
+        static (string Text, string[] Stems) Field(string text) =>
+            (text.ToLowerInvariant(), KnowledgeStemmer.Words(text).Select(KnowledgeStemmer.Stem).ToArray());
+
+        static int Hits((string Text, string[] Stems) field, string term, string stem)
+        {
+            var literal = Count(field.Text, term);
+            return literal > 0 ? literal : field.Stems.Count(s => s == stem);
+        }
 
         static int Count(string text, string term)
         {

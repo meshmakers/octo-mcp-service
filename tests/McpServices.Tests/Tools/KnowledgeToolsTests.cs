@@ -37,6 +37,15 @@ public class KnowledgeToolsTests : TestBase
         """;
 
     private readonly Dictionary<OctoObjectId, RtEntity> _entities = new();
+
+    /// <summary>The text search of every page list query (null = no text search), in call order.</summary>
+    private readonly List<string?> _textSearches = [];
+
+    /// <summary>
+    ///     AB#8566: when set, the repository returns every page for a text search, like the engine returned
+    ///     knowledge-schema (score 0) for "Zebrafisch" in the hand test; the tool alone must drop such pages.
+    /// </summary>
+    private bool _textIndexReturnsEveryPage;
     private readonly List<(RtEntityId Origin, RtEntityId Target, string Role)> _associations = [];
 
     public KnowledgeToolsTests()
@@ -58,9 +67,13 @@ public class KnowledgeToolsTests : TestBase
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(),
                 It.IsAny<RtEntityQueryOptions>(), It.IsAny<int?>(), It.IsAny<int?>()))
-            .ReturnsAsync((IOctoSession _, RtCkId<CkTypeId> type, RtEntityQueryOptions _, int? _, int? _) =>
+            .ReturnsAsync((IOctoSession _, RtCkId<CkTypeId> type, RtEntityQueryOptions options, int? _, int? _) =>
             {
-                var items = _entities.Values.Where(e => Equals(e.CkTypeId, type)).ToList();
+                var textSearch = options.TextSearchFilter?.SearchTerm?.ToString();
+                _textSearches.Add(textSearch);
+                var items = _entities.Values.Where(e => Equals(e.CkTypeId, type))
+                    .Where(e => textSearch == null || _textIndexReturnsEveryPage || MatchesTextIndex(e, textSearch))
+                    .ToList();
                 return new ResultSet<RtEntity>(items, items.Count, null, null);
             });
         MockTenantRepository
@@ -474,6 +487,184 @@ public class KnowledgeToolsTests : TestBase
         result.Pages[0].Status.Should().Be("Draft");
         result.Pages[0].Summary.Should().Be("FixAll breaks EnergyIQ.");
         result.Pages[0].Uri.Should().Be("knowledge-page://test-tenant/energyiq-fixall");
+    }
+
+    /// <summary>
+    ///     Like the MongoDB text index the page query uses: a page matches when its title, summary or a section contains a
+    ///     query word; stop words and words shorter than 3 characters match nothing (MongoDB drops them), so a short-word
+    ///     query sent to the index returns no page.
+    /// </summary>
+    private static bool MatchesTextIndex(RtEntity page, string textSearch)
+    {
+        var content = KnowledgePages.ReadContent(page);
+        var text = string.Join(" ", new[] { content.Title, content.Summary ?? string.Empty }
+            .Concat(content.Sections.Select(x => $"{x.Heading} {x.SectionContent}")));
+        return textSearch.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => w.Length >= 3)
+            .Any(w => text.Contains(w, StringComparison.OrdinalIgnoreCase));
+    }
+
+    // AB#8566: a page about the schema and one that contains "Zebrafisch". The repository applies the text index
+    // (MatchesTextIndex) unless a test sets _textIndexReturnsEveryPage to replay the engine of the hand test.
+    private async Task GivenSchemaAndZebrafischPagesAsync()
+    {
+        await UpsertAsync("knowledge-schema", "Knowledge base conventions", "How pages are written.");
+        await UpsertAsync("zebrafisch-pipeline", "Pipeline schedule", "Die Zebrafisch-Pipeline läuft nachts.");
+    }
+
+    [Fact]
+    public async Task Search_WithAQuery_ReturnsOnlyMatchingPages()
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-pipeline");
+        result.Pages.Should().OnlyContain(p => p.Score > 0);
+    }
+
+    [Fact]
+    public async Task Search_DropsAPageTheTextIndexPreselected_WithoutAnyQueryWord()
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch");
+
+        // The repository returned both pages; knowledge-schema has no query word (score 0) and is dropped by the tool.
+        _textSearches.Should().EndWith("Zebrafisch");
+        result.IsSuccess.Should().BeTrue();
+        result.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-pipeline");
+        result.Pages.Should().OnlyContain(p => p.Score > 0);
+    }
+
+    [Fact]
+    public async Task Search_WhenTheTextIndexPreselectsOnlyPagesWithoutAQueryWord_IsEmpty_WithTheNoMatchMessage()
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Okapi");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Pages.Should().BeEmpty();
+        result.Message.Should().StartWith("No knowledge page matches");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Verified")]
+    [InlineData("Draft")]
+    public async Task Search_WithAQueryThatMatchesNothing_IsEmpty_WithTheNoMatchMessage(string? status)
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+        var page = _entities.Values.Single(e => e.RtWellKnownName == "knowledge-schema");
+        page.SetAttributeValue("VerificationStatus", AttributeValueTypesDto.Enum, KnowledgePages.StatusVerified);
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Okapi", status: status);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Pages.Should().BeEmpty();
+        result.Message.Should().StartWith("No knowledge page matches");
+    }
+
+    [Fact]
+    public async Task Search_ForZebrafischWithStatusVerified_IsEmpty_WhenOnlyTheSchemaPageIsVerified()
+    {
+        // The hand-test case: knowledge-schema (Verified) used to come back with score 0.
+        await GivenSchemaAndZebrafischPagesAsync();
+        _textIndexReturnsEveryPage = true;
+        var page = _entities.Values.Single(e => e.RtWellKnownName == "knowledge-schema");
+        page.SetAttributeValue("VerificationStatus", AttributeValueTypesDto.Enum, KnowledgePages.StatusVerified);
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch", status: "Verified");
+
+        result.Pages.Should().BeEmpty();
+        result.Message.Should().StartWith("No knowledge page matches");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("a of")]
+    public async Task Search_WithoutAWordOfThreeCharacters_ReturnsTheIndexOfAllPages(string? query)
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+        _textSearches.Clear();
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, query);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Pages.Select(p => p.Slug).Should().Equal("knowledge-schema", "zebrafisch-pipeline");
+        // The page list is read without a text search: sent to the text index, "a of" would return no page.
+        _textSearches.Should().Equal([null]);
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            result.Message.Should().Contain("index of all pages, not a match");
+        }
+    }
+
+    [Fact]
+    public async Task Search_WithAWordOfThreeCharacters_SendsTheQueryToTheTextIndex()
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+        _textSearches.Clear();
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "a Zebrafisch");
+
+        result.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-pipeline");
+        _textSearches.Should().Equal("a Zebrafisch");
+    }
+
+    // AB#8566 review: the page text index stems English words, so it returns a page for an inflected query word. The
+    // repository replays that with _textIndexReturnsEveryPage; the tool must keep the stem match and drop the page
+    // without any query word.
+    [Theory]
+    [InlineData("pipelines")] // plural of "Pipeline" in the title and the section
+    [InlineData("scheduled")] // inflected form of "schedule" in the title
+    [InlineData("Scheduling pipelines")]
+    public async Task Search_KeepsAPageThatMatchesOnlyAnInflectedForm_AndDropsThePageWithoutAMatch(string query)
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, query);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-pipeline");
+        result.Pages.Should().OnlyContain(p => p.Score > 0);
+    }
+
+    [Fact]
+    public void Score_CountsStemMatchesWithTheFieldWeights_AndIsZeroWithoutAnyMatch()
+    {
+        var content = new KnowledgeContent("Pipeline schedule", 0, "Pipelines run nightly.",
+            [new KnowledgeSectionDto { Heading = "Runs", SectionContent = "The pipeline runs at 02:00." }], [], [], 0);
+
+        // "pipelines": literal in the summary (2), stem in the title (3) and the section (1).
+        KnowledgeTools.Score(content, ["pipelines"]).Should().Be(6);
+        // "running": no literal hit; stem "run" in the summary (2) and twice in the section (heading + text, 2).
+        KnowledgeTools.Score(content, ["running"]).Should().Be(4);
+        KnowledgeTools.Score(content, ["okapi", "zebrafisch"]).Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData("zebrafisch-pipelines", new[] { "zebrafisch", "pipelines" })]
+    [InlineData("(Pipelines) page's run", new[] { "pipelines", "page", "run" })]
+    [InlineData("a b? ok", new string[0])]
+    public void Terms_SplitTheQueryLikeThePageText_AndKeepWordsOf3PlusCharacters(string query, string[] expected)
+    {
+        KnowledgeTools.Terms(query).Should().Equal(expected);
+    }
+
+    [Fact]
+    public void Score_AHyphenatedOrBracketedQueryWord_MatchesThePageWord()
+    {
+        var content = new KnowledgeContent("Pipeline schedule", 0, null, [], [], [], 0);
+
+        KnowledgeTools.Score(content, KnowledgeTools.Terms("zebrafisch-pipelines")).Should().Be(3);
+        KnowledgeTools.Score(content, KnowledgeTools.Terms("(pipelines)")).Should().Be(3);
     }
 
     [Fact]

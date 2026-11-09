@@ -1121,7 +1121,15 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   `claim`, `reason`); cited `sourceRtId`s that are SourceArtifacts are linked with `GeneratedFrom`, others are reported in
   `UnresolvedSources`.
 - **Search**: the engine text index (title, summary, section content) preselects up to 200 pages; the tool ranks them by
-  term hits (title 3, summary 2, body 1, capped). Without a query it is the index of all pages.
+  term hits (title 3, summary 2, body 1, capped) and **drops pages with score 0** (AB#8566: the preselection returned
+  pages without any query word, e.g. `knowledge-schema` for "Zebrafisch"); no match = 0 pages, `isSuccess: true` and the
+  message "No knowledge page matches …", also with a kind/status filter. The text index stems English words, so a term
+  also scores on words with the same stem (`Services/Knowledge/KnowledgeStemmer.cs`: plural, -ing, -ed; "pipelines"
+  scores on "pipeline"; a two-letter rest gets its "e" back only as vowel + consonant: using -> use, but being -> be,
+  doing -> do, eyed -> ey) — otherwise the score-0 filter would drop real index matches. The repository API does not return
+  MongoDB's `textScore` (the engine only sorts by it), which is why the tool scores itself. Words shorter than 3 characters are ignored; a
+  query without a longer word is treated as no query (index of all pages, the message says it is not a match). Without
+  a query it is the index of all pages.
 - **Optimistic locking**: `expectedVersion` (the page's `CurrentVersion`) on upsert and restore; stale = `VersionConflict`, nothing
   written. Independent of it, every page write re-reads the page inside its transaction (`ApplyAsync`): a page that moved on
   since the tool read it, or a MongoDB write conflict with a writer that commits later, is `VersionConflict` as well, so two
