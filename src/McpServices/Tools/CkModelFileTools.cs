@@ -3,6 +3,9 @@ using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.ConstructionKit.Contracts.Services;
+using Meshmakers.Octo.Runtime.Contracts.Serialization;
+using Meshmakers.Octo.Services.Infrastructure.Services;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -52,7 +55,9 @@ public sealed class CkModelFileTools
         "model YAML (with `$schema: https://schemas.meshmakers.cloud/runtime-model.schema.json` and an " +
         "`entities:` list), the equivalent JSON, or a zip containing one such file. importStrategy " +
         "controls whether existing entities are replaced ('Upsert') or rejected ('InsertOnly'). Equivalent " +
-        "to octo-cli ImportRuntimeModel.")]
+        "to octo-cli ImportRuntimeModel. A file that writes System.Ai KnowledgePage, KnowledgePageVersion (or a type derived from them) or the " +
+        "knowledge associations (LinksTo, GeneratedFrom, VersionOf) is refused with error code " +
+        "GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL and nothing is imported: write knowledge pages with the knowledge tools.")]
     public static async Task<JobStartedResponse> ImportRuntimeModel(
         McpServer server,
         [Description("Transfer id from prepare_file_upload.")] string transferId,
@@ -61,7 +66,56 @@ public sealed class CkModelFileTools
         [Description("Wait timeout in minutes (default 10).")] int waitTimeoutMinutes = 10)
         => await RunImport(server, transferId, tenantId, waitTimeoutMinutes,
             (asset, tid, path) => asset.ImportRtModelAsync(tid, importStrategy, path),
-            opName: $"Runtime model import ({importStrategy})");
+            opName: $"Runtime model import ({importStrategy})",
+            // AB#8568: knowledge pages, versions and their links are written only through the knowledge tools.
+            precheck: new ImportPrecheck(KnowledgeImportPrecheckAsync, KnowledgeImportCheckFailed));
+
+    /// <summary>
+    ///     A check that runs on the uploaded file before it is sent to the service. <see cref="Failed" /> is the refusal
+    ///     when the file cannot even be prepared for the check (fail closed).
+    /// </summary>
+    internal sealed record ImportPrecheck(
+        Func<McpServer, string, string, Task<JobStartedResponse?>> CheckAsync,
+        Func<JobStartedResponse> Failed);
+
+    private static JobStartedResponse KnowledgeImportCheckFailed() => new()
+    {
+        IsSuccess = false, ErrorCode = KnowledgeWriteRefusal.Code,
+        ErrorMessage = KnowledgeWriteRefusal.ImportCheckFailedMessage
+    };
+
+    /// <summary>
+    ///     AB#8568: refuses a runtime model that writes knowledge pages, versions or their links, judged on the decoded
+    ///     ids against the target tenant's CK types (<see cref="KnowledgeImportCheck" />). Fail closed: a file that cannot
+    ///     be read or checked is refused with a generic message; the exception stays in the server log.
+    /// </summary>
+    internal static async Task<JobStartedResponse?> KnowledgeImportPrecheckAsync(McpServer server, string tenantId,
+        string filePath)
+    {
+        string? refusal;
+        try
+        {
+            var services = server.Services!;
+            var ckCache = services.GetRequiredService<ICkCacheService>();
+            var tenantRepository = await services.GetRequiredService<ITenantResolutionService>()
+                .GetTenantRepositoryAsync(tenantId);
+            await tenantRepository.LoadCacheForTenantAsync(ckCache);
+            refusal = await new KnowledgeImportCheck(services.GetRequiredService<IRtJsonSerializer>(), ckCache,
+                    tenantRepository.TenantId)
+                .FindRefusalAsync(filePath);
+        }
+        catch (Exception ex)
+        {
+            server.Services?.GetService<ILoggerFactory>()?.CreateLogger<CkModelFileTools>()
+                .LogWarning(ex, "Runtime model upload for tenant {TenantId} could not be checked for knowledge types",
+                    tenantId);
+            refusal = KnowledgeWriteRefusal.ImportCheckFailedMessage;
+        }
+
+        return refusal == null
+            ? null
+            : new JobStartedResponse { IsSuccess = false, ErrorCode = KnowledgeWriteRefusal.Code, ErrorMessage = refusal };
+    }
 
     /// <summary>Export runtime entities matched by a query. Returns a downloadable file via downloadId.</summary>
     [McpServerTool(Name = "export_runtime_model_by_query")]
@@ -164,7 +218,7 @@ public sealed class CkModelFileTools
     private static async Task<JobStartedResponse> RunImport(
         McpServer server, string transferId, string? tenantId, int waitTimeoutMinutes,
         Func<Sdk.ServiceClient.AssetRepositoryServices.System.IAssetServicesClient, string, string, Task<string>> sdkCall,
-        string opName)
+        string opName, ImportPrecheck? precheck = null)
     {
         if (string.IsNullOrWhiteSpace(transferId))
         {
@@ -188,34 +242,115 @@ public sealed class CkModelFileTools
             return new JobStartedResponse { IsSuccess = false, ErrorMessage = asset.Error };
         }
 
-        var bot = await BotClientContext.TryBuildAsync(server, tenantId);
-        if (bot.Error != null)
+        if (precheck == null)
         {
-            return new JobStartedResponse { IsSuccess = false, ErrorMessage = bot.Error };
+            return await ImportFileAsync(upload.FilePath);
         }
 
+        // AB#8568 (CWE-367): the upload slot stays writable for a PUT that started before the upload completed, so the
+        // check and the import never read the slot itself. Both run on one private snapshot the PUT route cannot reach.
+        return await CheckAndImportSnapshotAsync(upload.FilePath, upload.FileName,
+            path => precheck.CheckAsync(server, asset.TenantId!, path), ImportFileAsync,
+            ex =>
+            {
+                server.Services?.GetService<ILoggerFactory>()?.CreateLogger<CkModelFileTools>()
+                    .LogWarning(ex, "Upload for tenant {TenantId} could not be copied for the import check",
+                        asset.TenantId);
+                return precheck.Failed();
+            });
+
+        async Task<JobStartedResponse> ImportFileAsync(string filePath)
+        {
+            var bot = await BotClientContext.TryBuildAsync(server, tenantId);
+            if (bot.Error != null)
+            {
+                return new JobStartedResponse { IsSuccess = false, ErrorMessage = bot.Error };
+            }
+
+            try
+            {
+                var jobId = await sdkCall(asset.Client!, asset.TenantId!, filePath);
+                await JobPollingHelper.WaitForJobAsync(bot.Client!, jobId,
+                    TimeSpan.FromMinutes(waitTimeoutMinutes));
+
+                // Successful → cleanup upload buffer.
+                store.DeleteUpload(transferId);
+
+                return new JobStartedResponse
+                {
+                    IsSuccess = true,
+                    TenantId = asset.TenantId,
+                    JobId = jobId,
+                    Message = $"{opName} completed (job '{jobId}')."
+                };
+            }
+            catch (Exception ex)
+            {
+                var problem = ServiceProblemMessage.From(ex);
+                return new JobStartedResponse { IsSuccess = false, ErrorMessage = problem.Message, ErrorCode = problem.Code };
+            }
+        }
+    }
+
+    /// <summary>Name prefix of the per-import snapshot directories in the temp path.</summary>
+    internal const string ImportSnapshotDirectoryPrefix = "octo-mcp-import-";
+
+    /// <summary>
+    ///     AB#8568 (CWE-367): copies the completed upload to a private snapshot, runs <paramref name="check" /> and then
+    ///     <paramref name="import" /> on that same snapshot. The snapshot lives in a fresh directory of its own with an
+    ///     unpredictable name, created atomically and owner-only (<see cref="PrivateTempDirectory" />), and keeps the
+    ///     upload's extension (the readers pick the format by it). The whole directory is deleted on every exit path. A
+    ///     refusal keeps the upload (the caller may fix and re-upload; the buffer expires on its own). A directory that
+    ///     cannot be created or verified, or a copy that fails, is refused through <paramref name="snapshotFailed" />,
+    ///     never imported unchecked. <paramref name="createDirectory" /> replaces the directory creation; tests only.
+    /// </summary>
+    internal static async Task<JobStartedResponse> CheckAndImportSnapshotAsync(string uploadPath, string uploadFileName,
+        Func<string, Task<JobStartedResponse?>> check, Func<string, Task<JobStartedResponse>> import,
+        Func<Exception, JobStartedResponse> snapshotFailed, Func<DirectoryInfo>? createDirectory = null)
+    {
+        DirectoryInfo? directory = null;
         try
         {
-            var jobId = await sdkCall(asset.Client!, asset.TenantId!, upload.FilePath);
-            await JobPollingHelper.WaitForJobAsync(bot.Client!, jobId,
-                TimeSpan.FromMinutes(waitTimeoutMinutes));
-
-            // Successful → cleanup upload buffer.
-            store.DeleteUpload(transferId);
-
-            return new JobStartedResponse
+            string snapshot;
+            try
             {
-                IsSuccess = true,
-                TenantId = asset.TenantId,
-                JobId = jobId,
-                Message = $"{opName} completed (job '{jobId}')."
-            };
+                directory = createDirectory?.Invoke() ?? PrivateTempDirectory.Create(ImportSnapshotDirectoryPrefix);
+                snapshot = Path.Combine(directory.FullName, "snapshot" + Path.GetExtension(uploadFileName));
+                await using var source = new FileStream(uploadPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                await using var target = new FileStream(snapshot, SnapshotFileOptions());
+                await source.CopyToAsync(target);
+            }
+            catch (Exception ex)
+            {
+                return snapshotFailed(ex);
+            }
+
+            // The check never throws (fail closed); a refusal stops here.
+            if (await check(snapshot) is { } refusal)
+            {
+                return refusal;
+            }
+
+            return await import(snapshot);
         }
-        catch (Exception ex)
+        finally
         {
-            var problem = ServiceProblemMessage.From(ex);
-            return new JobStartedResponse { IsSuccess = false, ErrorMessage = problem.Message, ErrorCode = problem.Code };
+            if (directory != null)
+            {
+                PrivateTempDirectory.TryDelete(directory.FullName);
+            }
         }
+    }
+
+    private static FileStreamOptions SnapshotFileOptions()
+    {
+        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+        if (!OperatingSystem.IsWindows())
+        {
+            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        }
+
+        return options;
     }
 
     private static async Task<FileDownloadResponse> PublishJobDownload(

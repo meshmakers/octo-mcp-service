@@ -242,6 +242,64 @@ not in the CK cache is not refused (the create fails on its own). Tool names, in
 unchanged; no type sets the flag today. Tests: `RuntimeEntityCrudToolsGenericCreateTests` (builds type graphs with
 methods via `CkGraphTestBuilder.BuildTypeWithMethods`).
 
+### Knowledge types are written only by the knowledge tools (AB#8568)
+
+`Services/KnowledgeWriteRefusal.cs` keeps the generic write tools off the System.Ai knowledge types
+(`KnowledgePage`, `KnowledgePageVersion`, and any type whose `GetBaseTypes(true)` contains one of them): a generic write
+would skip the content guard (AB#8475) and the `KnowledgePageVersion` with author and time (AB#8484). Same contract shape
+as the generic-create refusal: `ErrorCode = GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL`, `ErrorParameters` = `ckTypeId`
+(runtime id) and `tool` (the knowledge tools to use, comma-separated, or `none` for a delete); the message carries ids
+only. Where it runs:
+
+- `CreateCoreAsync` (create_entity, create_entity_with_secrets): after type resolution, before the generic-create
+  refusal, secret handling or any session.
+- `UpdateCoreAsync` (update_entity, set_entity_secrets) and `delete_entity`: on the requested type before the session is
+  opened, and again on `existingEntity.CkTypeId` inside the transaction (a base type such as `System/Entity` can name a
+  page), which aborts the transaction.
+- `import_runtime_model`: `RunImport` takes a `precheck` that runs after the target tenant is resolved and before the file
+  is sent: `CkModelFileTools.KnowledgeImportPrecheckAsync` -> `Services/KnowledgeImportCheck.cs`. Check and import read
+  the same private snapshot (`CheckAndImportSnapshotAsync`: a fresh per-import directory
+  `octo-mcp-import-<random>` from `PrivateTempDirectory.Create` - `Directory.CreateTempSubdirectory`, atomic, mode 0700,
+  never a shared fixed path in `/tmp`, so created and owned by the process user by construction; on Unix verified after
+  creation with managed APIs only (`File.GetUnixFileMode` without group/other bits, `LinkTarget == null`; no `lstat`
+  P/Invoke - fragile `struct stat` offsets, glibc < 2.33 has no `lstat` export), else refused with `ImportCheckFailedMessage`; file `snapshot<ext>` mode 0600; the whole
+  directory deleted in `finally`), never the upload slot: a PUT that started before the
+  upload completed can still write the slot (CWE-367). A copy that fails is refused with `ImportCheckFailedMessage`. It judges the **decoded
+  ids**, never the raw text (a text scan was bypassed by `System.Ai\/KnowledgePage`, `\u002F`, YAML escapes or casing):
+  - format by the upload's extension, case-insensitive: `.zip`, `.json`, `.yaml` and `.yml` (both YAML). Any other
+    extension is refused with `ImportCheckFailedMessage` (fail closed; the check does not rely on the SDK or the bot
+    refusing it - the bot reads a file of unknown content type as YAML). In a zip every `.json`/`.yaml`/`.yml` entry is
+    checked, streamed and capped at 5 GiB decompressed per entry (`MaxEntryBytes`, zip bombs); other entries are
+    skipped, because the bot (`ImportModelJob.GetTempFile`) picks its entry only by the extension `.json` or `.yaml` and
+    never reads another one (a README in the zip does not refuse it);
+  - JSON: the importer's own streaming reader (`IRtJsonSerializer.DeserializeStreamAsync` + `ReadBulksAsync`, bulks of
+    5000; Newtonsoft, so key casing and escapes resolve exactly as in the import; a file without the leading `$schema`
+    fails there as in the import);
+  - YAML: YamlDotNet `Parser` events (the library the importer's deserializer uses), no document in memory. The importer's
+    YAML reader is not used because its schema validation copies the whole file into memory. Scalars are decoded by the
+    parser; aliases of scalars are resolved (also as keys); keys are compared case-insensitively; bounded against
+    hostile input: more than 64 nested containers (`MaxYamlDepth`), 10,000 anchored scalars (`MaxYamlAnchors`) or
+    16 MiB of retained anchored values (`MaxYamlAnchorBytes`, UTF-16) refuse the file, also inside a zip;
+  - per entity: `ckTypeId` and each association's `targetCkTypeId` -> protected type (runtime or full id, any casing,
+    version suffixes stripped), a type the CK cache knows that derives from one (`KnowledgeWriteRefusal.IsKnowledgeType`,
+    the same rule as the CRUD tools), or - in a tenant that has `KnowledgePage` - a type the cache does not know (it
+    cannot be ruled out as derived; such an import would fail anyway); `roleId` -> `LinksTo`, `GeneratedFrom`,
+    `VersionOf`. YAML: any other scalar that is itself a protected id refuses too (superset); free text that only mentions
+    an id does not;
+  - fail closed: any exception (corrupt/encrypted zip, unsupported compression, parse error, missing file, I/O) refuses
+    with the generic `KnowledgeWriteRefusal.ImportCheckFailedMessage`; the exception goes to the server log only (no
+    `ex.Message`, it can carry server paths). The import response carries `ErrorCode` and the message only
+    (`JobStartedResponse` has no `ErrorParameters`). The upload buffer stays (expires on its own).
+  - Defence in depth that is still missing: the asset repository does not refuse knowledge types on `ImportRt` itself
+    (octo-cli and GraphQL callers are not covered by this MCP check; a server-side preflight like
+    `RtIdentityOwnedWriteCheck` in the engine would close that).
+
+**Delete is ruled out over MCP** (CPO decision 2026-11-08): deleting a knowledge page is not a knowledge operation in M1.
+Agents set `Rejected` with `knowledge_set_status`; a person deletes pages outside MCP (GraphQL or octo-cli). There is no
+generic association write tool, so the knowledge associations are reachable only through the import (refused) and the
+knowledge tools. Reads (`get_entity_by_id`, `query_entities*`, `navigate_associations`, …) are unchanged.
+Tests: `Tools/KnowledgeGenericWriteRefusalTests` (incl. `KnowledgeRuntimeImportRefusalTests`).
+
 ## CK attribute access in the generic tools (AB#8043)
 
 Family-2/3 tools read and write the tenant repository directly, and **the repository does not know CK `access`**
@@ -1064,6 +1122,8 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   (no unique index on `rtWellKnownName`); the second one leaves a duplicate page.
 - **Risk**: `knowledge_upsert_page`, `knowledge_restore_version` and `knowledge_set_status` are Medium (audit matters, a status
   change decides what answers may use); `knowledge_search`, `knowledge_get` and `knowledge_link` are Low.
+- **Only write path**: the generic entity tools and `import_runtime_model` refuse the knowledge types (AB#8568, see
+  "Knowledge types are written only by the knowledge tools"). There is no knowledge delete tool; pages are set to `Rejected`.
 - Tests: `Tools/KnowledgeToolsTests` (in-memory repository that applies inserts, updates and associations like the engine).
 
 ## Test Infrastructure

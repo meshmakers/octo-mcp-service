@@ -13,7 +13,9 @@ public sealed class CreateEntityResponse : ErrorResponse
     public required string CkTypeId { get; init; }
 
     /// <summary>
-    ///     Machine-readable error code, set for refusals with a contract. <c>GENERIC_CREATE_REPLACED_BY_METHOD</c>:
+    ///     Machine-readable error code, set for refusals with a contract. <c>GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL</c>
+    ///     (AB#8568): the type is a System.Ai knowledge type, written only through the knowledge tools.
+    ///     <c>GENERIC_CREATE_REPLACED_BY_METHOD</c>:
     ///     the type's generic create is replaced by a CK method; create the entity through that method.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]

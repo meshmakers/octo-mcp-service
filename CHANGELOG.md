@@ -57,6 +57,21 @@
 
 ### Security
 
+- **AB#8568** — the generic entity tools no longer write System.Ai knowledge pages past versioning and the content
+  guard. `create_entity`, `create_entity_with_secrets`, `update_entity`, `set_entity_secrets` and `delete_entity` refuse
+  `System.Ai/KnowledgePage`, `System.Ai/KnowledgePageVersion` and types derived from them with `errorCode`
+  `GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL` (`errorParameters` `ckTypeId`, `tool`), checked on the requested type before
+  a session is opened and again on the actual type of the stored entity; `import_runtime_model` refuses a file (YAML,
+  JSON or zip) that writes a knowledge type (also a derived one, judged through the CK type hierarchy of the target tenant)
+  or the knowledge associations `LinksTo`, `GeneratedFrom`, `VersionOf` before it reaches the asset repository. The check
+  reads the decoded ids (the importer's streaming JSON reader, YAML parser events, zip entries streamed and capped), so
+  escapes, quoting, aliases and casing do not hide a reference; a file it cannot read, or with an extension other than `.zip`, `.json`, `.yaml` or `.yml` (`.yml` is read as YAML), is refused with a generic message; in a zip every `.json`, `.yaml` and `.yml` entry is checked. Nothing is written. Delete is refused too (CPO decision 2026-11-08): agents set
+  an unwanted page to `Rejected` with `knowledge_set_status`; a person deletes pages outside MCP (GraphQL or octo-cli).
+  Reads are unchanged. The check and the import run on one private snapshot of the upload, in a fresh owner-only
+  directory with an unpredictable name per import (created atomically and so owned by the service user, verified on Unix
+  with managed APIs only to be a real directory closed to group and others - no native `lstat` check, deleted with its content on every exit path), so a delayed PUT to the upload slot
+  cannot swap the file after the check (CWE-367) and a directory another user prepared in `/tmp` is never used. The YAML
+  check refuses files nested deeper than 64 levels or retaining more than 16 MiB of anchored values (DoS). Tests `Tools/KnowledgeGenericWriteRefusalTests`.
 - AB#8043: the generic CRUD, query and aggregation tools enforce the CK attribute access rules, like the asset-repo
   GraphQL guards. Before, they returned `Hidden` values (password hash, security stamp, authenticator tokens of
   `System.Identity/User`), accepted filters and group-by on them and wrote `Hidden` / `MethodOnly` / `ReadOnly` and

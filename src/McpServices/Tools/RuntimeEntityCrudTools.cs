@@ -387,7 +387,9 @@ public sealed class RuntimeEntityCrudTools
         "(high risk), or use create_entity_with_secrets (high risk) when the type has a required secret. null, " +
         "\"\" or an echoed {\"isSet\": …} marker for a Secret attribute are ignored. A type whose static CK method " +
         "replaces the generic create is refused with error code GENERIC_CREATE_REPLACED_BY_METHOD (errorParameters " +
-        "ckTypeId and methodId): create such entities by calling that method instead.")]
+        "ckTypeId and methodId): create such entities by calling that method instead. System.Ai KnowledgePage and " +
+        "KnowledgePageVersion are refused with error code GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL (errorParameters " +
+        "ckTypeId and tool): write knowledge pages with knowledge_upsert_page.")]
     public static Task<CreateEntityResponse> CreateEntity(
         McpServer server,
         string ckTypeId,
@@ -419,7 +421,8 @@ public sealed class RuntimeEntityCrudTools
         "non-empty string is an ordinary value — '<...>' or 'TODO_SET_*' have no special meaning). Values are " +
         "encrypted server-side and are never returned — the response shows secretIsSet only. A type whose static CK " +
         "method replaces the generic create is refused with error code GENERIC_CREATE_REPLACED_BY_METHOD " +
-        "(errorParameters ckTypeId and methodId) and nothing is written: create such entities by calling that method.")]
+        "(errorParameters ckTypeId and methodId) and nothing is written: create such entities by calling that method. " +
+        "System.Ai KnowledgePage and KnowledgePageVersion are refused with GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL.")]
     public static Task<CreateEntityResponse> CreateEntityWithSecrets(
         McpServer server,
         [Description("Construction Kit type ID of the new entity.")] string ckTypeId,
@@ -480,6 +483,21 @@ public sealed class RuntimeEntityCrudTools
 
         var fullCkTypeId = type.FullId;
         var rtTypeId = type.RtCkId;
+
+        // AB#8568: knowledge pages and versions are written only through the knowledge tools (guard + version).
+        var knowledgeRefusal = KnowledgeWriteRefusal.TryGetRefusal(ckCacheService, tenantRepository.TenantId, rtTypeId,
+            KnowledgeWriteRefusal.Operation.Create);
+        if (knowledgeRefusal != null)
+        {
+            return new CreateEntityResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = knowledgeRefusal.Value.Message,
+                ErrorCode = KnowledgeWriteRefusal.Code,
+                ErrorParameters = knowledgeRefusal.Value.Parameters,
+                CkTypeId = ckTypeId
+            };
+        }
 
         // The generic create is replaced by a CK method: refuse BEFORE anything is written (no entity, no secret).
         var refusal = GenericCreateRefusal.TryGetRefusal(ckCacheService, tenantRepository.TenantId, fullCkTypeId);
@@ -613,7 +631,9 @@ public sealed class RuntimeEntityCrudTools
         "Update an existing entity with new data. Secret attributes: a non-empty value is refused — use " +
         "set_entity_secrets (high risk) to set or rotate a secret; null, \"\" or an echoed {\"isSet\": …} marker " +
         "leave the stored secret unchanged; use clearSecretAttributes to clear an optional secret. Secret values " +
-        "are never returned — entities show secretIsSet instead.")]
+        "are never returned — entities show secretIsSet instead. System.Ai KnowledgePage and KnowledgePageVersion are " +
+        "refused with error code GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL (errorParameters ckTypeId and tool): change " +
+        "pages with knowledge_upsert_page, knowledge_set_status, knowledge_restore_version or knowledge_link.")]
     public static Task<UpdateEntityResponse> UpdateEntity(
         McpServer server, string rtId, string ckTypeId, List<AttributeUpdateItem> entityData,
         [Description(
@@ -651,7 +671,8 @@ public sealed class RuntimeEntityCrudTools
         "an existing entity. HIGH RISK. Each entry in 'secrets' must target a Secret attribute (dot notation " +
         "through records, e.g. 'Endpoints.Token') with a non-empty string value (any non-empty string is an " +
         "ordinary value; use clearSecretAttributes to clear). Other attributes are never touched. " +
-        "Values are encrypted server-side and are never returned — the response shows secretIsSet only.")]
+        "Values are encrypted server-side and are never returned — the response shows secretIsSet only. System.Ai " +
+        "KnowledgePage and KnowledgePageVersion are refused with GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL.")]
     public static Task<UpdateEntityResponse> SetEntitySecrets(
         McpServer server,
         [Description("Runtime ID (24-hex) of the entity.")] string rtId,
@@ -717,6 +738,15 @@ public sealed class RuntimeEntityCrudTools
 
         var rtTypeId = type.RtCkId;
 
+        // AB#8568: knowledge pages and versions are written only through the knowledge tools. Checked before the session
+        // is opened; the actual type of the stored entity is checked again below (a base type can name a page).
+        var knowledgeRefusal = KnowledgeWriteRefusal.TryGetRefusal(ckCacheService, tenantRepository.TenantId, rtTypeId,
+            KnowledgeWriteRefusal.Operation.Update);
+        if (knowledgeRefusal != null)
+        {
+            return KnowledgeUpdateRefusal(knowledgeRefusal.Value, ckTypeId, rtId);
+        }
+
         // AB#8043: Hidden / MethodOnly / ReadOnly attributes and the identity-owned User fields are never written by an
         // update (clearing a secret is a write too). Checked before the session is opened.
         var accessError = AttributeAccessGuard.FindNotWritable(ckCacheService, tenantRepository.TenantId, rtTypeId,
@@ -768,6 +798,14 @@ public sealed class RuntimeEntityCrudTools
             // AB#8043: the entity may be of a type derived from the requested one; judge the write against its actual type
             // too (a derived type can declare further protected attributes, and the identity-owned fields are User's).
             var actualTypeId = existingEntity.CkTypeId?.ToString();
+            var actualKnowledgeRefusal = KnowledgeWriteRefusal.TryGetRefusal(ckCacheService, tenantRepository.TenantId,
+                actualTypeId, KnowledgeWriteRefusal.Operation.Update);
+            if (actualKnowledgeRefusal != null)
+            {
+                await session.AbortTransactionAsync();
+                return KnowledgeUpdateRefusal(actualKnowledgeRefusal.Value, ckTypeId, rtId);
+            }
+
             if (actualTypeId != null && actualTypeId != rtTypeId)
             {
                 var actualTypeError = AttributeAccessGuard.FindNotWritable(ckCacheService, tenantRepository.TenantId,
@@ -901,7 +939,11 @@ public sealed class RuntimeEntityCrudTools
     /// <returns>Deletion result</returns>
     [McpServerTool(Name = "delete_entity")]
     [McpRisk(McpRiskLevel.Medium)]
-    [Description("Delete an entity by its runtime ID")]
+    [Description(
+        "Delete an entity by its runtime ID. System.Ai KnowledgePage and KnowledgePageVersion are not deleted over MCP: " +
+        "the call is refused with error code GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL (errorParameters ckTypeId, tool " +
+        "'none'). Set an unwanted page to Rejected with knowledge_set_status; a person deletes pages outside MCP " +
+        "(GraphQL or octo-cli).")]
     public static async Task<DeleteEntityResponse> DeleteEntity(
         McpServer server,
         string ckTypeId,
@@ -930,8 +972,8 @@ public sealed class RuntimeEntityCrudTools
         var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId);
         var rtEntityToDtoMapper = server.Services!.GetRequiredService<IRtEntityToDtoMapper>();
 
-        var type = await ResolveCkTypeAsync(server.Services!.GetRequiredService<ICkCacheService>(),
-            tenantRepository, ckTypeId);
+        var ckCacheService = server.Services!.GetRequiredService<ICkCacheService>();
+        var type = await ResolveCkTypeAsync(ckCacheService, tenantRepository, ckTypeId);
         if (type.Error != null)
         {
             return new DeleteEntityResponse
@@ -945,6 +987,15 @@ public sealed class RuntimeEntityCrudTools
 
         var rtTypeId = type.RtCkId;
 
+        // AB#8568: knowledge pages and versions are not deleted over MCP (agents set Rejected; a person deletes outside
+        // MCP). Checked before the session is opened, and again on the actual type of the stored entity.
+        var knowledgeRefusal = KnowledgeWriteRefusal.TryGetRefusal(ckCacheService, tenantRepository.TenantId, rtTypeId,
+            KnowledgeWriteRefusal.Operation.Delete);
+        if (knowledgeRefusal != null)
+        {
+            return KnowledgeDeleteRefusal(knowledgeRefusal.Value, ckTypeId, rtId);
+        }
+
         using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
         session.StartTransaction();
 
@@ -956,6 +1007,14 @@ public sealed class RuntimeEntityCrudTools
             if (existingEntity == null)
             {
                 throw new ArgumentException($"Entity with ID '{rtId}' not found in type '{ckTypeId}'");
+            }
+
+            var actualKnowledgeRefusal = KnowledgeWriteRefusal.TryGetRefusal(ckCacheService, tenantRepository.TenantId,
+                existingEntity.CkTypeId?.ToString(), KnowledgeWriteRefusal.Operation.Delete);
+            if (actualKnowledgeRefusal != null)
+            {
+                await session.AbortTransactionAsync();
+                return KnowledgeDeleteRefusal(actualKnowledgeRefusal.Value, ckTypeId, rtId);
             }
 
             // Optimistic-lock gate — mirrors update_entity. Same contract: abort the
@@ -1696,6 +1755,28 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="RtCkId">Runtime id <c>Model/Type-n</c> (model without version) for the RtCkId/RtEntityId engine calls.</param>
     /// <param name="FullId">Full id <c>Model-x.y.z/Type-n</c> for the CkId engine calls.</param>
     internal sealed record ResolvedCkType(string? Error, string RtCkId, string FullId);
+
+    private static UpdateEntityResponse KnowledgeUpdateRefusal(
+        (string Message, IReadOnlyDictionary<string, string> Parameters) refusal, string ckTypeId, string rtId) => new()
+    {
+        IsSuccess = false,
+        ErrorMessage = refusal.Message,
+        ErrorCode = KnowledgeWriteRefusal.Code,
+        ErrorParameters = refusal.Parameters,
+        TypeId = ckTypeId,
+        RtId = rtId
+    };
+
+    private static DeleteEntityResponse KnowledgeDeleteRefusal(
+        (string Message, IReadOnlyDictionary<string, string> Parameters) refusal, string ckTypeId, string rtId) => new()
+    {
+        IsSuccess = false,
+        ErrorMessage = refusal.Message,
+        ErrorCode = KnowledgeWriteRefusal.Code,
+        ErrorParameters = refusal.Parameters,
+        CkTypeId = ckTypeId,
+        RtId = rtId
+    };
 
     /// <summary>
     ///     Resolves the <c>ckTypeId</c> the caller passed (full id from get_type_schema, runtime id, or a unique short
