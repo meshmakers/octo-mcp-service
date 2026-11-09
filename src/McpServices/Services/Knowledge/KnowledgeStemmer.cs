@@ -4,7 +4,7 @@ namespace Meshmakers.Octo.Backend.McpServices.Services.Knowledge;
 ///     AB#8566: a light English stemmer for scoring knowledge search hits. The page text index of MongoDB stems English
 ///     words (Snowball), so "pipelines" finds a page that says "pipeline"; the tool's own score must count such a hit too,
 ///     or the score-0 filter drops a real index match. This stemmer covers the regular inflections (plural -s/-es/-ies,
-///     -ing, -ed, final -e and -y, doubled final consonant, short verbs such as used/using -> use); it does not reproduce every Snowball rule (derivations such as
+///     -ing, -ed, final -e and -y, doubled final consonant, short verbs such as used/using -> use, but not being -> bee); it does not reproduce every Snowball rule (derivations such as
 ///     -ness, -ation are not reduced).
 /// </summary>
 internal static class KnowledgeStemmer
@@ -70,8 +70,15 @@ internal static class KnowledgeStemmer
         if (TryStrip(word, "ing", out var stem) ||
             (!word.EndsWith("eed", StringComparison.Ordinal) && TryStrip(word, "ed", out stem)))
         {
-            // A two-letter rest is a short verb that lost its final "e": used/using -> use, like use/uses.
-            return stem.Length < MinStemLength ? stem + "e" : UndoubleConsonant(stem);
+            // A two-letter rest of vowel + consonant is a short verb that lost its final "e": used/using -> use, like
+            // use/uses (also aged, owed). Other two-letter rests stay: being -> be, doing -> do, eyed -> ey (not bee,
+            // doe, eye).
+            if (stem.Length < MinStemLength)
+            {
+                return IsVowel(stem[0]) && stem[0] != 'y' && !IsVowel(stem[1]) ? stem + "e" : stem;
+            }
+
+            return UndoubleConsonant(stem);
         }
 
         if (word.EndsWith("sses", StringComparison.Ordinal) || word.EndsWith("xes", StringComparison.Ordinal) ||

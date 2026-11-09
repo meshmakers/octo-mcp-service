@@ -1125,7 +1125,8 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   pages without any query word, e.g. `knowledge-schema` for "Zebrafisch"); no match = 0 pages, `isSuccess: true` and the
   message "No knowledge page matches …", also with a kind/status filter. The text index stems English words, so a term
   also scores on words with the same stem (`Services/Knowledge/KnowledgeStemmer.cs`: plural, -ing, -ed; "pipelines"
-  scores on "pipeline") — otherwise the score-0 filter would drop real index matches. The repository API does not return
+  scores on "pipeline"; a two-letter rest gets its "e" back only as vowel + consonant: using -> use, but being -> be,
+  doing -> do, eyed -> ey) — otherwise the score-0 filter would drop real index matches. The repository API does not return
   MongoDB's `textScore` (the engine only sorts by it), which is why the tool scores itself. Words shorter than 3 characters are ignored; a
   query without a longer word is treated as no query (index of all pages, the message says it is not a match). Without
   a query it is the index of all pages.

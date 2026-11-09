@@ -28,6 +28,8 @@ public class KnowledgeStemmerTests
     [InlineData("use", "using")]
     [InlineData("age", "aged")]
     [InlineData("owe", "owed")]
+    [InlineData("be", "being")]
+    [InlineData("do", "doing")]
     public void InflectedForms_ShareTheStem(string word, string inflected)
     {
         KnowledgeStemmer.Stem(inflected).Should().Be(KnowledgeStemmer.Stem(word));
@@ -44,6 +46,15 @@ public class KnowledgeStemmerTests
     public void WordsThatOnlyLookInflected_KeepTheirStem(string word)
     {
         KnowledgeStemmer.Stem(word).Should().Be(word);
+    }
+
+    [Theory]
+    [InlineData("being", "bee")]
+    [InlineData("doing", "doe")]
+    [InlineData("eyed", "eye")]
+    public void ShortVerbsEndingInAVowel_DoNotGainAnE(string inflected, string unrelated)
+    {
+        KnowledgeStemmer.Stem(inflected).Should().NotBe(KnowledgeStemmer.Stem(unrelated));
     }
 
     [Theory]
