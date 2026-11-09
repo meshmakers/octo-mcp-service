@@ -23,6 +23,11 @@ public class KnowledgeStemmerTests
     [InlineData("need", "needed")]
     [InlineData("agree", "agreed")]
     [InlineData("speed", "speeds")]
+    [InlineData("use", "uses")]
+    [InlineData("use", "used")]
+    [InlineData("use", "using")]
+    [InlineData("age", "aged")]
+    [InlineData("owe", "owed")]
     public void InflectedForms_ShareTheStem(string word, string inflected)
     {
         KnowledgeStemmer.Stem(inflected).Should().Be(KnowledgeStemmer.Stem(word));
@@ -34,6 +39,8 @@ public class KnowledgeStemmerTests
     [InlineData("class")]
     [InlineData("string")]
     [InlineData("thing")]
+    [InlineData("bring")]
+    [InlineData("sing")]
     public void WordsThatOnlyLookInflected_KeepTheirStem(string word)
     {
         KnowledgeStemmer.Stem(word).Should().Be(word);

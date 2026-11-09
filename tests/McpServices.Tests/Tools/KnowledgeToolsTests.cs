@@ -649,6 +649,24 @@ public class KnowledgeToolsTests : TestBase
         KnowledgeTools.Score(content, ["okapi", "zebrafisch"]).Should().Be(0);
     }
 
+    [Theory]
+    [InlineData("zebrafisch-pipelines", new[] { "zebrafisch", "pipelines" })]
+    [InlineData("(Pipelines) page's run", new[] { "pipelines", "page", "run" })]
+    [InlineData("a b? ok", new string[0])]
+    public void Terms_SplitTheQueryLikeThePageText_AndKeepWordsOf3PlusCharacters(string query, string[] expected)
+    {
+        KnowledgeTools.Terms(query).Should().Equal(expected);
+    }
+
+    [Fact]
+    public void Score_AHyphenatedOrBracketedQueryWord_MatchesThePageWord()
+    {
+        var content = new KnowledgeContent("Pipeline schedule", 0, null, [], [], [], 0);
+
+        KnowledgeTools.Score(content, KnowledgeTools.Terms("zebrafisch-pipelines")).Should().Be(3);
+        KnowledgeTools.Score(content, KnowledgeTools.Terms("(pipelines)")).Should().Be(3);
+    }
+
     [Fact]
     public async Task Link_AddsAndRemovesLinksTo_WithoutAVersion()
     {

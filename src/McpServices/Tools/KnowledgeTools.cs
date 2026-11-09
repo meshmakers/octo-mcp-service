@@ -785,10 +785,13 @@ public static class KnowledgeTools
         }
     }
 
-    private static string[] Terms(string? query) => string.IsNullOrWhiteSpace(query)
+    /// <summary>
+    ///     The query words of 3+ characters, split like the page text (<see cref="KnowledgeStemmer.Words" />): a term such
+    ///     as "zebrafisch-pipelines" or "(pipelines)" is tokenized as the text index does, not stemmed as one token.
+    /// </summary>
+    internal static string[] Terms(string? query) => string.IsNullOrWhiteSpace(query)
         ? []
-        : query.Split([' ', ',', ';', '?', '!', '.', ':'], StringSplitOptions.RemoveEmptyEntries)
-            .Where(t => t.Length > 2).Select(t => t.ToLowerInvariant()).Distinct().ToArray();
+        : KnowledgeStemmer.Words(query).Where(t => t.Length > 2).Distinct().ToArray();
 
     /// <summary>
     ///     Title matches weigh 3, summary 2, section text 1 (same weights as the text index). A term counts its literal
