@@ -30,7 +30,8 @@ public static class KnowledgeTools
     [Description(
         "Search the tenant's knowledge base (knowledge pages). Returns pages best first with slug, title, kind, " +
         "verification status, summary, current version and the resource URI. With a query only pages that contain at least " +
-        "one of its words are returned; no match is an empty result with the message to say so. Words shorter than 3 " +
+        "one of its words or an inflected form of it (plural, -ing, -ed) are returned; no match is an empty result with " +
+        "the message to say so. Words shorter than 3 " +
         "characters are ignored; a query without a longer word returns the index of all pages, like no query (sorted by " +
         "title). Read the conventions page 'knowledge-schema' first; answer questions from pages and cite them by slug.")]
     public static async Task<KnowledgeSearchResponse> KnowledgeSearch(
@@ -82,7 +83,8 @@ public static class KnowledgeTools
                 .Where(x => kindFilter == null || x.Content.Kind == kindFilter)
                 .Where(x => statusFilter == null || x.Content.Status == statusFilter)
                 .Select(x => KnowledgePages.Summarize(ctx.TenantId!, x.Page, Score(x.Content, terms)))
-                // A page without any query word (score 0) does not match, whatever the text index preselected.
+                // A page without any query word or its English stem (score 0) does not match, whatever the text index
+                // preselected.
                 .Where(p => !isSearch || p.Score > 0)
                 .OrderByDescending(p => p.Score).ThenBy(p => p.Title, StringComparer.OrdinalIgnoreCase)
                 .Take(limit)
@@ -788,7 +790,11 @@ public static class KnowledgeTools
         : query.Split([' ', ',', ';', '?', '!', '.', ':'], StringSplitOptions.RemoveEmptyEntries)
             .Where(t => t.Length > 2).Select(t => t.ToLowerInvariant()).Distinct().ToArray();
 
-    /// <summary>Title matches weigh 3, summary 2, section text 1 (same weights as the text index).</summary>
+    /// <summary>
+    ///     Title matches weigh 3, summary 2, section text 1 (same weights as the text index). A term counts its literal
+    ///     occurrences; where it has none, it counts the words with the same English stem (AB#8566: the text index stems,
+    ///     so "pipelines" matches "pipeline" there and must not score 0 here).
+    /// </summary>
     internal static double Score(KnowledgeContent content, IReadOnlyCollection<string> terms)
     {
         if (terms.Count == 0)
@@ -796,10 +802,23 @@ public static class KnowledgeTools
             return 0;
         }
 
-        var title = content.Title.ToLowerInvariant();
-        var summary = (content.Summary ?? string.Empty).ToLowerInvariant();
-        var body = string.Join("\n", content.Sections.Select(s => s.Heading + " " + s.SectionContent)).ToLowerInvariant();
-        return terms.Sum(t => 3 * Count(title, t) + 2 * Count(summary, t) + Math.Min(Count(body, t), 5));
+        var title = Field(content.Title);
+        var summary = Field(content.Summary ?? string.Empty);
+        var body = Field(string.Join("\n", content.Sections.Select(s => s.Heading + " " + s.SectionContent)));
+        return terms.Sum(t =>
+        {
+            var stem = KnowledgeStemmer.Stem(t);
+            return 3 * Hits(title, t, stem) + 2 * Hits(summary, t, stem) + Math.Min(Hits(body, t, stem), 5);
+        });
+
+        static (string Text, string[] Stems) Field(string text) =>
+            (text.ToLowerInvariant(), KnowledgeStemmer.Words(text).Select(KnowledgeStemmer.Stem).ToArray());
+
+        static int Hits((string Text, string[] Stems) field, string term, string stem)
+        {
+            var literal = Count(field.Text, term);
+            return literal > 0 ? literal : field.Stems.Count(s => s == stem);
+        }
 
         static int Count(string text, string term)
         {

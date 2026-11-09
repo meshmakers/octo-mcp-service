@@ -617,6 +617,38 @@ public class KnowledgeToolsTests : TestBase
         _textSearches.Should().Equal("a Zebrafisch");
     }
 
+    // AB#8566 review: the page text index stems English words, so it returns a page for an inflected query word. The
+    // repository replays that with _textIndexReturnsEveryPage; the tool must keep the stem match and drop the page
+    // without any query word.
+    [Theory]
+    [InlineData("pipelines")] // plural of "Pipeline" in the title and the section
+    [InlineData("scheduled")] // inflected form of "schedule" in the title
+    [InlineData("Scheduling pipelines")]
+    public async Task Search_KeepsAPageThatMatchesOnlyAnInflectedForm_AndDropsThePageWithoutAMatch(string query)
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, query);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-pipeline");
+        result.Pages.Should().OnlyContain(p => p.Score > 0);
+    }
+
+    [Fact]
+    public void Score_CountsStemMatchesWithTheFieldWeights_AndIsZeroWithoutAnyMatch()
+    {
+        var content = new KnowledgeContent("Pipeline schedule", 0, "Pipelines run nightly.",
+            [new KnowledgeSectionDto { Heading = "Runs", SectionContent = "The pipeline runs at 02:00." }], [], [], 0);
+
+        // "pipelines": literal in the summary (2), stem in the title (3) and the section (1).
+        KnowledgeTools.Score(content, ["pipelines"]).Should().Be(6);
+        // "running": no literal hit; stem "run" in the summary (2) and twice in the section (heading + text, 2).
+        KnowledgeTools.Score(content, ["running"]).Should().Be(4);
+        KnowledgeTools.Score(content, ["okapi", "zebrafisch"]).Should().Be(0);
+    }
+
     [Fact]
     public async Task Link_AddsAndRemovesLinksTo_WithoutAVersion()
     {

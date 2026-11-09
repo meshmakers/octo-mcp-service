@@ -55,6 +55,8 @@
   that matches nothing returns 0 pages, `isSuccess: true` and the "No knowledge page matches" message, also with a status
   or kind filter (the hand test returned `knowledge-schema` for "Zebrafisch" + Verified). Words shorter than 3 characters
   are ignored; a query without a longer word returns the index of all pages, and the message says it is not a match.
+  The score also counts words with the same English stem as a query word (plural, -ing, -ed), like the stemming text
+  index does, so "pipelines" still finds a page that says "pipeline".
 - AB#8355: `execute_runtime_query` and `execute_stream_data_query` answer "not found" for a deleted persisted query.
   The default delete archives the query (`rtState = Archived`) and the lookup by id still returned it, so a deleted
   query kept running. Both tools now load the query with the engine's `GetActiveRtEntityByRtIdAsync`.
