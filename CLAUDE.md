@@ -1115,6 +1115,7 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
 - **Content hash contract**: `ContentHash` = SHA-256 (lower-case hex) of `Render(content, slug, 0)`. octo-cli
   `SetKnowledgePageStatus` recomputes it with a port of `Render`; both repos pin the same golden hash
   (`Services/Knowledge/KnowledgeContentHashGoldenTests` here). Changing `Render` means changing the octo-cli port in the same step.
+  `Render` ends every line with an explicit `\n` (never `AppendLine`/`Environment.NewLine`), so the hash is the same on Windows.
 - **Prototype JSON**: `KnowledgeSectionDto` / `KnowledgeCitationDto` / `KnowledgeHallucinationFlagDto` carry the JSON names of the
   KnowledgeCapture prompts (`heading`, `sectionContent`, `sortOrder`, `sectionRef`, `sourceQuote`, `sourceAnchor`, `sourceRtId`,
   `claim`, `reason`); cited `sourceRtId`s that are SourceArtifacts are linked with `GeneratedFrom`, others are reported in
