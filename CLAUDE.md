@@ -257,7 +257,10 @@ only. Where it runs:
   opened, and again on `existingEntity.CkTypeId` inside the transaction (a base type such as `System/Entity` can name a
   page), which aborts the transaction.
 - `import_runtime_model`: `RunImport` takes a `precheck` that runs after the target tenant is resolved and before the file
-  is sent: `CkModelFileTools.KnowledgeImportPrecheckAsync` -> `Services/KnowledgeImportCheck.cs`. It judges the **decoded
+  is sent: `CkModelFileTools.KnowledgeImportPrecheckAsync` -> `Services/KnowledgeImportCheck.cs`. Check and import read
+  the same private snapshot (`CheckAndImportSnapshotAsync`: copy to `ImportSnapshotDirectory`, Guid name, the upload's
+  extension, mode 0600 in a 0700 directory, deleted in `finally`), never the upload slot: a PUT that started before the
+  upload completed can still write the slot (CWE-367). A copy that fails is refused with `ImportCheckFailedMessage`. It judges the **decoded
   ids**, never the raw text (a text scan was bypassed by `System.Ai\/KnowledgePage`, `\u002F`, YAML escapes or casing):
   - format by the upload's extension, case-insensitive: `.zip`, `.json`, `.yaml` and `.yml` (both YAML). Any other
     extension is refused with `ImportCheckFailedMessage` (fail closed; the check does not rely on the SDK or the bot

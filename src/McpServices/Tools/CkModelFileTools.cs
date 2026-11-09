@@ -68,7 +68,21 @@ public sealed class CkModelFileTools
             (asset, tid, path) => asset.ImportRtModelAsync(tid, importStrategy, path),
             opName: $"Runtime model import ({importStrategy})",
             // AB#8568: knowledge pages, versions and their links are written only through the knowledge tools.
-            precheck: KnowledgeImportPrecheckAsync);
+            precheck: new ImportPrecheck(KnowledgeImportPrecheckAsync, KnowledgeImportCheckFailed));
+
+    /// <summary>
+    ///     A check that runs on the uploaded file before it is sent to the service. <see cref="Failed" /> is the refusal
+    ///     when the file cannot even be prepared for the check (fail closed).
+    /// </summary>
+    internal sealed record ImportPrecheck(
+        Func<McpServer, string, string, Task<JobStartedResponse?>> CheckAsync,
+        Func<JobStartedResponse> Failed);
+
+    private static JobStartedResponse KnowledgeImportCheckFailed() => new()
+    {
+        IsSuccess = false, ErrorCode = KnowledgeWriteRefusal.Code,
+        ErrorMessage = KnowledgeWriteRefusal.ImportCheckFailedMessage
+    };
 
     /// <summary>
     ///     AB#8568: refuses a runtime model that writes knowledge pages, versions or their links, judged on the decoded
@@ -204,7 +218,7 @@ public sealed class CkModelFileTools
     private static async Task<JobStartedResponse> RunImport(
         McpServer server, string transferId, string? tenantId, int waitTimeoutMinutes,
         Func<Sdk.ServiceClient.AssetRepositoryServices.System.IAssetServicesClient, string, string, Task<string>> sdkCall,
-        string opName, Func<McpServer, string, string, Task<JobStartedResponse?>>? precheck = null)
+        string opName, ImportPrecheck? precheck = null)
     {
         if (string.IsNullOrWhiteSpace(transferId))
         {
@@ -228,40 +242,128 @@ public sealed class CkModelFileTools
             return new JobStartedResponse { IsSuccess = false, ErrorMessage = asset.Error };
         }
 
-        // The precheck reads the uploaded file against the target tenant before the file is sent; it never throws
-        // (fail closed). A refusal keeps the upload (the caller may fix and re-upload, the buffer expires on its own).
-        if (precheck != null && await precheck(server, asset.TenantId!, upload.FilePath) is { } refusal)
+        if (precheck == null)
         {
-            return refusal;
+            return await ImportFileAsync(upload.FilePath);
         }
 
-        var bot = await BotClientContext.TryBuildAsync(server, tenantId);
-        if (bot.Error != null)
-        {
-            return new JobStartedResponse { IsSuccess = false, ErrorMessage = bot.Error };
-        }
+        // AB#8568 (CWE-367): the upload slot stays writable for a PUT that started before the upload completed, so the
+        // check and the import never read the slot itself. Both run on one private snapshot the PUT route cannot reach.
+        return await CheckAndImportSnapshotAsync(upload.FilePath, upload.FileName,
+            path => precheck.CheckAsync(server, asset.TenantId!, path), ImportFileAsync,
+            ex =>
+            {
+                server.Services?.GetService<ILoggerFactory>()?.CreateLogger<CkModelFileTools>()
+                    .LogWarning(ex, "Upload for tenant {TenantId} could not be copied for the import check",
+                        asset.TenantId);
+                return precheck.Failed();
+            });
 
+        async Task<JobStartedResponse> ImportFileAsync(string filePath)
+        {
+            var bot = await BotClientContext.TryBuildAsync(server, tenantId);
+            if (bot.Error != null)
+            {
+                return new JobStartedResponse { IsSuccess = false, ErrorMessage = bot.Error };
+            }
+
+            try
+            {
+                var jobId = await sdkCall(asset.Client!, asset.TenantId!, filePath);
+                await JobPollingHelper.WaitForJobAsync(bot.Client!, jobId,
+                    TimeSpan.FromMinutes(waitTimeoutMinutes));
+
+                // Successful → cleanup upload buffer.
+                store.DeleteUpload(transferId);
+
+                return new JobStartedResponse
+                {
+                    IsSuccess = true,
+                    TenantId = asset.TenantId,
+                    JobId = jobId,
+                    Message = $"{opName} completed (job '{jobId}')."
+                };
+            }
+            catch (Exception ex)
+            {
+                var problem = ServiceProblemMessage.From(ex);
+                return new JobStartedResponse { IsSuccess = false, ErrorMessage = problem.Message, ErrorCode = problem.Code };
+            }
+        }
+    }
+
+    /// <summary>Directory of the import snapshots; only the service user can list or open it.</summary>
+    internal static readonly string ImportSnapshotDirectory =
+        Path.Combine(Path.GetTempPath(), "octo-mcp-import-snapshots");
+
+    /// <summary>
+    ///     AB#8568 (CWE-367): copies the completed upload to a private snapshot with an unguessable name and the upload's
+    ///     extension (the readers pick the format by it), runs <paramref name="check" /> and then
+    ///     <paramref name="import" /> on that same snapshot, and deletes the snapshot on every exit path. A refusal keeps
+    ///     the upload (the caller may fix and re-upload; the buffer expires on its own). A copy that fails is refused
+    ///     through <paramref name="snapshotFailed" />, never imported unchecked.
+    /// </summary>
+    internal static async Task<JobStartedResponse> CheckAndImportSnapshotAsync(string uploadPath, string uploadFileName,
+        Func<string, Task<JobStartedResponse?>> check, Func<string, Task<JobStartedResponse>> import,
+        Func<Exception, JobStartedResponse> snapshotFailed)
+    {
+        var snapshot = Path.Combine(ImportSnapshotDirectory,
+            Guid.NewGuid().ToString("N") + Path.GetExtension(uploadFileName));
         try
         {
-            var jobId = await sdkCall(asset.Client!, asset.TenantId!, upload.FilePath);
-            await JobPollingHelper.WaitForJobAsync(bot.Client!, jobId,
-                TimeSpan.FromMinutes(waitTimeoutMinutes));
-
-            // Successful → cleanup upload buffer.
-            store.DeleteUpload(transferId);
-
-            return new JobStartedResponse
+            try
             {
-                IsSuccess = true,
-                TenantId = asset.TenantId,
-                JobId = jobId,
-                Message = $"{opName} completed (job '{jobId}')."
-            };
+                CreatePrivateDirectory(ImportSnapshotDirectory);
+                await using var source = new FileStream(uploadPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                await using var target = new FileStream(snapshot, SnapshotFileOptions());
+                await source.CopyToAsync(target);
+            }
+            catch (Exception ex)
+            {
+                return snapshotFailed(ex);
+            }
+
+            // The check never throws (fail closed); a refusal stops here.
+            if (await check(snapshot) is { } refusal)
+            {
+                return refusal;
+            }
+
+            return await import(snapshot);
         }
-        catch (Exception ex)
+        finally
         {
-            var problem = ServiceProblemMessage.From(ex);
-            return new JobStartedResponse { IsSuccess = false, ErrorMessage = problem.Message, ErrorCode = problem.Code };
+            try
+            {
+                File.Delete(snapshot);
+            }
+            catch
+            {
+                // Best effort: the snapshot lives in the temp directory and holds nothing the caller did not upload.
+            }
+        }
+    }
+
+    private static FileStreamOptions SnapshotFileOptions()
+    {
+        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+        if (!OperatingSystem.IsWindows())
+        {
+            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        }
+
+        return options;
+    }
+
+    private static void CreatePrivateDirectory(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(path);
+        }
+        else
+        {
+            Directory.CreateDirectory(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
     }
 

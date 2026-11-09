@@ -625,6 +625,142 @@ public class KnowledgeRuntimeImportRefusalTests : ToolTestBase
     }
 
     [Fact]
+    public async Task ImportRuntimeModel_UploadOverwrittenDuringTheCheck_ImportsTheCheckedSnapshot()
+    {
+        // AB#8568 (CWE-367): a delayed PUT to the same upload slot rewrites it while the check runs. The import must get
+        // the file that was checked, not the rewritten slot.
+        GivenKnowledgeTenant();
+        const string clean = "entities:\n  - ckTypeId: Basic/Asset\n";
+        var (transferId, uploadPath) = FileTransferStore.ReserveUpload(CallerSession, "model.yaml");
+        File.WriteAllText(uploadPath, clean);
+        FileTransferStore.CompleteUpload(transferId, clean.Length);
+
+        var slotRewritten = false;
+        MockCkCacheService
+            .Setup(c => c.TryGetRtCkType(It.IsAny<string>(), It.IsAny<RtCkId<CkTypeId>>(),
+                out It.Ref<CkTypeGraph?>.IsAny))
+            .Returns(new TryGetTypeCallback((string _, RtCkId<CkTypeId> id, out CkTypeGraph? graph) =>
+            {
+                File.WriteAllText(uploadPath, PageModel);
+                slotRewritten = true;
+                return _knownTypes.TryGetValue(id, out graph);
+            }));
+
+        string? importedPath = null;
+        string? importedContent = null;
+        MockAssetClient.Setup(c => c.ImportRtModelAsync(DefaultTenantId,
+                Meshmakers.Octo.Communication.Contracts.DataTransferObjects.ImportStrategyDto.InsertOnly,
+                It.IsAny<string>()))
+            .Callback((string _, Meshmakers.Octo.Communication.Contracts.DataTransferObjects.ImportStrategyDto _,
+                string path) =>
+            {
+                importedPath = path;
+                importedContent = File.ReadAllText(path);
+            })
+            .ReturnsAsync("job-ok");
+        MockBotClient.Setup(c => c.GetImportJobStatus("job-ok"))
+            .ReturnsAsync(new Meshmakers.Octo.Communication.Contracts.DataTransferObjects.JobDto
+            {
+                Id = "job-ok", Status = "Succeeded"
+            });
+
+        var result = await CkModelFileTools.ImportRuntimeModel(MockServer.Object, transferId);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        slotRewritten.Should().BeTrue("the slot was rewritten while the check ran");
+        importedContent.Should().Be(clean);
+        importedPath.Should().NotBe(uploadPath);
+        Path.GetExtension(importedPath).Should().Be(".yaml");
+        Path.GetDirectoryName(importedPath).Should().Be(CkModelFileTools.ImportSnapshotDirectory);
+        File.Exists(importedPath).Should().BeFalse("the snapshot is deleted after the import");
+    }
+
+    [Fact]
+    public async Task CheckAndImportSnapshot_CheckAndImportSeeTheSameSnapshot_AndItIsDeleted()
+    {
+        var upload = Path.Combine(Path.GetTempPath(), $"ab8568-{Guid.NewGuid():N}_model.json");
+        File.WriteAllText(upload, "checked");
+        string? checkedPath = null;
+        string? importedPath = null;
+        try
+        {
+            var result = await CkModelFileTools.CheckAndImportSnapshotAsync(upload, "model.json",
+                path =>
+                {
+                    checkedPath = path;
+                    File.WriteAllText(upload, "swapped");
+                    return Task.FromResult<JobStartedResponse?>(null);
+                },
+                path =>
+                {
+                    importedPath = path;
+                    File.ReadAllText(path).Should().Be("checked");
+                    return Task.FromResult(new JobStartedResponse { IsSuccess = true });
+                },
+                _ => throw new InvalidOperationException("snapshot must be created"));
+
+            result.IsSuccess.Should().BeTrue();
+            importedPath.Should().Be(checkedPath).And.EndWith(".json");
+            File.Exists(checkedPath).Should().BeFalse();
+        }
+        finally
+        {
+            File.Delete(upload);
+        }
+    }
+
+    [Fact]
+    public async Task CheckAndImportSnapshot_RefusalOrFailingImport_DeletesTheSnapshot_AndKeepsTheUpload()
+    {
+        var upload = Path.Combine(Path.GetTempPath(), $"ab8568-{Guid.NewGuid():N}_model.yaml");
+        File.WriteAllText(upload, "content");
+        var snapshots = new List<string>();
+        try
+        {
+            var refused = await CkModelFileTools.CheckAndImportSnapshotAsync(upload, "model.yaml",
+                path =>
+                {
+                    snapshots.Add(path);
+                    return Task.FromResult<JobStartedResponse?>(new JobStartedResponse { ErrorCode = Code });
+                },
+                _ => throw new InvalidOperationException("a refused file is never imported"),
+                _ => throw new InvalidOperationException("snapshot must be created"));
+
+            var failingImport = () => CkModelFileTools.CheckAndImportSnapshotAsync(upload, "model.yaml",
+                path =>
+                {
+                    snapshots.Add(path);
+                    return Task.FromResult<JobStartedResponse?>(null);
+                },
+                _ => throw new IOException("service down"),
+                _ => throw new InvalidOperationException("snapshot must be created"));
+
+            refused.ErrorCode.Should().Be(Code);
+            await failingImport.Should().ThrowAsync<IOException>();
+            snapshots.Should().HaveCount(2).And.OnlyContain(p => !File.Exists(p));
+            File.Exists(upload).Should().BeTrue();
+        }
+        finally
+        {
+            File.Delete(upload);
+        }
+    }
+
+    [Fact]
+    public async Task CheckAndImportSnapshot_UploadUnreadable_IsRefusedThroughSnapshotFailed_NeverChecked()
+    {
+        var missing = Path.Combine(Path.GetTempPath(), $"ab8568-{Guid.NewGuid():N}_model.yaml");
+
+        var result = await CkModelFileTools.CheckAndImportSnapshotAsync(missing, "model.yaml",
+            _ => throw new InvalidOperationException("never checked"),
+            _ => throw new InvalidOperationException("never imported"),
+            ex => new JobStartedResponse { ErrorCode = Code, ErrorMessage = ex.GetType().Name });
+
+        result.ErrorCode.Should().Be(Code);
+        result.ErrorMessage.Should().Be(nameof(FileNotFoundException));
+    }
+
+    [Fact]
     public async Task Check_RefusesAZipEntryAboveTheCap()
     {
         var path = Path.Combine(Path.GetTempPath(), $"ab8568-{Guid.NewGuid():N}.zip");

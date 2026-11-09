@@ -67,7 +67,9 @@
   reads the decoded ids (the importer's streaming JSON reader, YAML parser events, zip entries streamed and capped), so
   escapes, quoting, aliases and casing do not hide a reference; a file it cannot read, or with an extension other than `.zip`, `.json`, `.yaml` or `.yml` (`.yml` is read as YAML), is refused with a generic message; in a zip every `.json`, `.yaml` and `.yml` entry is checked. Nothing is written. Delete is refused too (CPO decision 2026-11-08): agents set
   an unwanted page to `Rejected` with `knowledge_set_status`; a person deletes pages outside MCP (GraphQL or octo-cli).
-  Reads are unchanged. Tests `Tools/KnowledgeGenericWriteRefusalTests`.
+  Reads are unchanged. The check and the import run on one private snapshot of the upload (unguessable name, same
+  extension, deleted on every exit path), so a delayed PUT to the upload slot cannot swap the file after the check
+  (CWE-367). Tests `Tools/KnowledgeGenericWriteRefusalTests`.
 - AB#8043: the generic CRUD, query and aggregation tools enforce the CK attribute access rules, like the asset-repo
   GraphQL guards. Before, they returned `Hidden` values (password hash, security stamp, authenticator tokens of
   `System.Identity/User`), accepted filters and group-by on them and wrote `Hidden` / `MethodOnly` / `ReadOnly` and
