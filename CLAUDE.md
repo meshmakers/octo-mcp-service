@@ -260,8 +260,9 @@ only. Where it runs:
   is sent: `CkModelFileTools.KnowledgeImportPrecheckAsync` -> `Services/KnowledgeImportCheck.cs`. Check and import read
   the same private snapshot (`CheckAndImportSnapshotAsync`: a fresh per-import directory
   `octo-mcp-import-<random>` from `PrivateTempDirectory.Create` - `Directory.CreateTempSubdirectory`, atomic, mode 0700,
-  never a shared fixed path in `/tmp`; on Unix verified after creation by `lstat`: real directory, owned by the effective
-  uid, no group/other bits, else refused with `ImportCheckFailedMessage`; file `snapshot<ext>` mode 0600; the whole
+  never a shared fixed path in `/tmp`, so created and owned by the process user by construction; on Unix verified after
+  creation with managed APIs only (`File.GetUnixFileMode` without group/other bits, `LinkTarget == null`; no `lstat`
+  P/Invoke - fragile `struct stat` offsets, glibc < 2.33 has no `lstat` export), else refused with `ImportCheckFailedMessage`; file `snapshot<ext>` mode 0600; the whole
   directory deleted in `finally`), never the upload slot: a PUT that started before the
   upload completed can still write the slot (CWE-367). A copy that fails is refused with `ImportCheckFailedMessage`. It judges the **decoded
   ids**, never the raw text (a text scan was bypassed by `System.Ai\/KnowledgePage`, `\u002F`, YAML escapes or casing):

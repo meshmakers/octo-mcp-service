@@ -68,8 +68,8 @@
   escapes, quoting, aliases and casing do not hide a reference; a file it cannot read, or with an extension other than `.zip`, `.json`, `.yaml` or `.yml` (`.yml` is read as YAML), is refused with a generic message; in a zip every `.json`, `.yaml` and `.yml` entry is checked. Nothing is written. Delete is refused too (CPO decision 2026-11-08): agents set
   an unwanted page to `Rejected` with `knowledge_set_status`; a person deletes pages outside MCP (GraphQL or octo-cli).
   Reads are unchanged. The check and the import run on one private snapshot of the upload, in a fresh owner-only
-  directory with an unpredictable name per import (created atomically, verified on Unix to be owned by the service user
-  and closed to group and others, deleted with its content on every exit path), so a delayed PUT to the upload slot
+  directory with an unpredictable name per import (created atomically and so owned by the service user, verified on Unix
+  with managed APIs only to be a real directory closed to group and others - no native `lstat` check, deleted with its content on every exit path), so a delayed PUT to the upload slot
   cannot swap the file after the check (CWE-367) and a directory another user prepared in `/tmp` is never used. The YAML
   check refuses files nested deeper than 64 levels or retaining more than 16 MiB of anchored values (DoS). Tests `Tools/KnowledgeGenericWriteRefusalTests`.
 - AB#8043: the generic CRUD, query and aggregation tools enforce the CK attribute access rules, like the asset-repo

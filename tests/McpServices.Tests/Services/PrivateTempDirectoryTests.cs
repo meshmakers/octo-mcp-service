@@ -1,4 +1,3 @@
-using System.Runtime.Versioning;
 using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Xunit;
@@ -6,8 +5,8 @@ using Xunit;
 namespace McpServices.Tests.Services;
 
 /// <summary>
-///     AB#8568: the import snapshot directory is fresh, unpredictable, owner-only and verified on Unix (owner, mode, no
-///     symbolic link); anything else is refused.
+///     AB#8568: the import snapshot directory is fresh, unpredictable, owner-only and verified on Unix with managed APIs
+///     (mode, no symbolic link); anything else is refused.
 /// </summary>
 public class PrivateTempDirectoryTests
 {
@@ -34,56 +33,6 @@ public class PrivateTempDirectoryTests
         {
             PrivateTempDirectory.TryDelete(first.FullName);
             PrivateTempDirectory.TryDelete(second.FullName);
-        }
-    }
-
-    [Fact]
-    [UnsupportedOSPlatform("windows")]
-    public void TryGetOwner_ReadsTheOwnerOfAFreshDirectory_AndOfTheRootDirectory()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
-        var directory = PrivateTempDirectory.Create("ab8568-test-");
-        try
-        {
-            // The platform's struct stat layout is known and self-checked against the managed mode.
-            PrivateTempDirectory.TryGetOwner(directory.FullName, out var owner, out var isDirectory).Should().BeTrue();
-            isDirectory.Should().BeTrue();
-            PrivateTempDirectory.TryGetOwner("/", out var rootOwner, out _).Should().BeTrue();
-            rootOwner.Should().Be(0u);
-            var act = () => PrivateTempDirectory.EnsurePrivate(directory.FullName, owner);
-            act.Should().NotThrow();
-        }
-        finally
-        {
-            PrivateTempDirectory.TryDelete(directory.FullName);
-        }
-    }
-
-    [Fact]
-    [UnsupportedOSPlatform("windows")]
-    public void EnsurePrivate_DirectoryOwnedBySomeoneElse_Throws()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
-        var directory = PrivateTempDirectory.Create("ab8568-test-");
-        try
-        {
-            PrivateTempDirectory.TryGetOwner(directory.FullName, out var owner, out _).Should().BeTrue();
-
-            var act = () => PrivateTempDirectory.EnsurePrivate(directory.FullName, owner + 1);
-
-            act.Should().Throw<UnauthorizedAccessException>();
-        }
-        finally
-        {
-            PrivateTempDirectory.TryDelete(directory.FullName);
         }
     }
 
@@ -161,6 +110,34 @@ public class PrivateTempDirectoryTests
         {
             File.Delete(file);
         }
+    }
+
+    [Fact]
+    public void EnsurePrivate_FreshDirectory_Passes()
+    {
+        var directory = PrivateTempDirectory.Create("ab8568-test-");
+        try
+        {
+            var act = () => PrivateTempDirectory.EnsurePrivate(directory.FullName);
+            act.Should().NotThrow();
+        }
+        finally
+        {
+            PrivateTempDirectory.TryDelete(directory.FullName);
+        }
+    }
+
+    [Fact]
+    public void EnsurePrivate_MissingDirectory_Throws()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var act = () => PrivateTempDirectory.EnsurePrivate(Path.Combine(Path.GetTempPath(), $"ab8568-none-{Guid.NewGuid():N}"));
+
+        act.Should().Throw<UnauthorizedAccessException>();
     }
 
     [Fact]
