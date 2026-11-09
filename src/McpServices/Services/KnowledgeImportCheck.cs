@@ -24,8 +24,12 @@ namespace Meshmakers.Octo.Backend.McpServices.Services;
 ///         </item>
 ///     </list>
 ///     Memory stays bounded for any upload size; a zip entry is streamed and capped at <see cref="MaxEntryBytes" />.
-///     The format follows the upload's file extension, like the SDK call that sends it (<c>.zip</c>, <c>.yaml</c>,
-///     <c>.json</c>); in a zip every <c>.json</c> and <c>.yaml</c> entry is checked (the importer takes one of them).
+///     The format follows the upload's file extension, case-insensitive: <c>.zip</c>, <c>.json</c>, and <c>.yaml</c> or
+///     <c>.yml</c> (both read as YAML). Any other extension is refused with the generic failure message, fail closed,
+///     whatever the SDK or the import job would do with it (the import job reads a file of unknown content type as
+///     YAML). In a zip every <c>.json</c>, <c>.yaml</c> and <c>.yml</c> entry is checked; the import job picks its
+///     entry by the extension <c>.json</c> or <c>.yaml</c> (case-insensitive) and never reads any other entry, so other
+///     entries (a README, images) are left alone and do not refuse the zip.
 /// </summary>
 internal sealed class KnowledgeImportCheck(
     IRtJsonSerializer jsonSerializer,
@@ -56,8 +60,10 @@ internal sealed class KnowledgeImportCheck(
     }
 
     /// <summary>
-    ///     The refusal message, or <c>null</c> when the file references no knowledge type or role. Throws when the file
-    ///     cannot be read; the caller refuses the import then (fail closed).
+    ///     The refusal message, or <c>null</c> when the file references no knowledge type or role. A file with an
+    ///     extension other than <c>.zip</c>, <c>.json</c>, <c>.yaml</c> or <c>.yml</c> gets
+    ///     <see cref="KnowledgeWriteRefusal.ImportCheckFailedMessage" />. Throws when the file cannot be read; the caller
+    ///     refuses the import then (fail closed).
     /// </summary>
     public async Task<string?> FindRefusalAsync(string filePath, CancellationToken cancellationToken = default)
     {
@@ -70,14 +76,14 @@ internal sealed class KnowledgeImportCheck(
                 await using var stream = File.OpenRead(filePath);
                 return await CheckJsonAsync(stream, cancellationToken);
             }
-            case ".yaml":
+            case ".yaml" or ".yml":
             {
                 await using var stream = File.OpenRead(filePath);
                 return CheckYaml(stream, cancellationToken);
             }
             default:
-                // The SDK sends only .zip, .yaml and .json and refuses any other file before a byte leaves the server.
-                return null;
+                // Fail closed: a format this check cannot read is never passed on unchecked.
+                return KnowledgeWriteRefusal.ImportCheckFailedMessage;
         }
     }
 
@@ -87,9 +93,9 @@ internal sealed class KnowledgeImportCheck(
         foreach (var entry in archive.Entries)
         {
             var extension = Path.GetExtension(entry.FullName).ToLowerInvariant();
-            if (extension is not (".json" or ".yaml"))
+            if (extension is not (".json" or ".yaml" or ".yml"))
             {
-                continue; // the importer reads only the .json or .yaml entry
+                continue; // the import job reads only a .json or .yaml entry; .yml is checked as well
             }
 
             await using var entryStream = new CappedReadStream(await entry.OpenAsync(cancellationToken), _entryBytesLimit);

@@ -259,9 +259,12 @@ only. Where it runs:
 - `import_runtime_model`: `RunImport` takes a `precheck` that runs after the target tenant is resolved and before the file
   is sent: `CkModelFileTools.KnowledgeImportPrecheckAsync` -> `Services/KnowledgeImportCheck.cs`. It judges the **decoded
   ids**, never the raw text (a text scan was bypassed by `System.Ai\/KnowledgePage`, `\u002F`, YAML escapes or casing):
-  - format by the upload's extension, like the SDK call (`.zip`, `.yaml`, `.json`; anything else the SDK refuses itself);
-    in a zip every `.json`/`.yaml` entry is checked (the bot imports one of them), streamed and capped at 5 GiB
-    decompressed per entry (`MaxEntryBytes`, zip bombs);
+  - format by the upload's extension, case-insensitive: `.zip`, `.json`, `.yaml` and `.yml` (both YAML). Any other
+    extension is refused with `ImportCheckFailedMessage` (fail closed; the check does not rely on the SDK or the bot
+    refusing it - the bot reads a file of unknown content type as YAML). In a zip every `.json`/`.yaml`/`.yml` entry is
+    checked, streamed and capped at 5 GiB decompressed per entry (`MaxEntryBytes`, zip bombs); other entries are
+    skipped, because the bot (`ImportModelJob.GetTempFile`) picks its entry only by the extension `.json` or `.yaml` and
+    never reads another one (a README in the zip does not refuse it);
   - JSON: the importer's own streaming reader (`IRtJsonSerializer.DeserializeStreamAsync` + `ReadBulksAsync`, bulks of
     5000; Newtonsoft, so key casing and escapes resolve exactly as in the import; a file without the leading `$schema`
     fails there as in the import);

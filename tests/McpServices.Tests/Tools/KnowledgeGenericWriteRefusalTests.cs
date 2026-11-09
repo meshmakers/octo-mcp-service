@@ -356,13 +356,19 @@ public class KnowledgeRuntimeImportRefusalTests : ToolTestBase
         return id;
     }
 
-    private string StageZipUpload(string entryName, string entryContent)
+    private string StageZipUpload(string entryName, string entryContent) =>
+        StageZipUpload((entryName, entryContent));
+
+    private string StageZipUpload(params (string Name, string Content)[] entries)
     {
         var (id, path) = FileTransferStore.ReserveUpload(CallerSession, "model.zip");
         using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
         {
-            using var writer = new StreamWriter(archive.CreateEntry(entryName).Open());
-            writer.Write(entryContent);
+            foreach (var (name, content) in entries)
+            {
+                using var writer = new StreamWriter(archive.CreateEntry(name).Open());
+                writer.Write(content);
+            }
         }
 
         FileTransferStore.CompleteUpload(id, new FileInfo(path).Length);
@@ -482,6 +488,8 @@ public class KnowledgeRuntimeImportRefusalTests : ToolTestBase
 
     [Theory]
     [InlineData("rt-model.yaml", PageModel)]
+    [InlineData("rt-model.yml", PageModel)]
+    [InlineData("nested/RT-MODEL.YML", PageModel)]
     [InlineData("nested/rt-model.JSON", "{\"$schema\":\"https://schemas.meshmakers.cloud/runtime-model.schema.json\",\"entities\":[{\"ckTypeId\":\"System.Ai\\u002FKnowledgePage\"}]}")]
     public async Task ImportRuntimeModel_ZipWithKnowledgePage_IsRefused(string entryName, string entryContent)
     {
@@ -492,6 +500,81 @@ public class KnowledgeRuntimeImportRefusalTests : ToolTestBase
         result.ErrorCode.Should().Be(Code);
         result.ErrorMessage.Should().Contain("System.Ai/KnowledgePage");
         VerifyNothingImported();
+    }
+
+    [Theory]
+    [InlineData("model.yml")]
+    [InlineData("model.YML")]
+    public async Task ImportRuntimeModel_YmlFileWithKnowledgePage_IsReadAsYamlAndRefused(string fileName)
+    {
+        var transferId = StageUpload(PageModel, fileName);
+
+        var result = await CkModelFileTools.ImportRuntimeModel(MockServer.Object, transferId);
+
+        result.ErrorCode.Should().Be(Code);
+        result.ErrorMessage.Should().Contain("System.Ai/KnowledgePage").And.Contain("Nothing was imported");
+        VerifyNothingImported();
+    }
+
+    [Fact]
+    public async Task ImportRuntimeModel_YmlFileWithoutKnowledgeReference_PassesTheCheck()
+    {
+        GivenKnowledgeTenant();
+        var transferId = StageUpload("entities:\n  - ckTypeId: Basic/Asset\n", "model.yml");
+        GivenImportSucceeds();
+
+        var result = await CkModelFileTools.ImportRuntimeModel(MockServer.Object, transferId);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+    }
+
+    [Theory]
+    [InlineData("model.txt")]
+    [InlineData("model.xml")]
+    [InlineData("model.yaml.bak")]
+    [InlineData("model")]
+    public async Task ImportRuntimeModel_UnknownFileExtension_IsRefusedWithAGenericMessage(string fileName)
+    {
+        // Even a file without any knowledge reference: the check cannot read the format, so it fails closed.
+        var transferId = StageUpload("entities:\n  - ckTypeId: Basic/Asset\n", fileName);
+        GivenImportSucceeds();
+
+        var result = await CkModelFileTools.ImportRuntimeModel(MockServer.Object, transferId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(Code);
+        result.ErrorMessage.Should().Be(KnowledgeWriteRefusal.ImportCheckFailedMessage);
+        VerifyNothingImported();
+    }
+
+    [Fact]
+    public async Task ImportRuntimeModel_ZipWithKnowledgePageInAYmlEntryNextToACleanYaml_IsRefused()
+    {
+        var transferId = StageZipUpload(("rt-model.yaml", "entities:\n  - ckTypeId: Basic/Asset\n"),
+            ("extra.yml", PageModel));
+
+        var result = await CkModelFileTools.ImportRuntimeModel(MockServer.Object, transferId);
+
+        result.ErrorCode.Should().Be(Code);
+        result.ErrorMessage.Should().Contain("System.Ai/KnowledgePage");
+        VerifyNothingImported();
+    }
+
+    [Fact]
+    public async Task ImportRuntimeModel_ZipWithEntriesTheImporterNeverReads_ChecksOnlyTheModelEntry()
+    {
+        // The import job reads only a .json or .yaml entry; a README or an image is never imported, so its content
+        // (even a knowledge id, or bytes that are no YAML) neither refuses the zip nor makes the check fail.
+        GivenKnowledgeTenant();
+        var transferId = StageZipUpload(("rt-model.yaml", "entities:\n  - ckTypeId: Basic/Asset\n"),
+            ("README.md", "ckTypeId: System.Ai/KnowledgePage"),
+            ("logo.png", "\u0089PNG [unclosed"),
+            ("model", "ckTypeId: System.Ai/KnowledgePage"));
+        GivenImportSucceeds();
+
+        var result = await CkModelFileTools.ImportRuntimeModel(MockServer.Object, transferId);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
     }
 
     [Fact]

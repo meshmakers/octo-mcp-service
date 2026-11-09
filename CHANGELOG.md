@@ -65,7 +65,7 @@
   JSON or zip) that writes a knowledge type (also a derived one, judged through the CK type hierarchy of the target tenant)
   or the knowledge associations `LinksTo`, `GeneratedFrom`, `VersionOf` before it reaches the asset repository. The check
   reads the decoded ids (the importer's streaming JSON reader, YAML parser events, zip entries streamed and capped), so
-  escapes, quoting, aliases and casing do not hide a reference; a file it cannot read is refused with a generic message. Nothing is written. Delete is refused too (CPO decision 2026-11-08): agents set
+  escapes, quoting, aliases and casing do not hide a reference; a file it cannot read, or with an extension other than `.zip`, `.json`, `.yaml` or `.yml` (`.yml` is read as YAML), is refused with a generic message; in a zip every `.json`, `.yaml` and `.yml` entry is checked. Nothing is written. Delete is refused too (CPO decision 2026-11-08): agents set
   an unwanted page to `Rejected` with `knowledge_set_status`; a person deletes pages outside MCP (GraphQL or octo-cli).
   Reads are unchanged. Tests `Tools/KnowledgeGenericWriteRefusalTests`.
 - AB#8043: the generic CRUD, query and aggregation tools enforce the CK attribute access rules, like the asset-repo

@@ -83,8 +83,8 @@ internal static class KnowledgeWriteRefusal
         "MCP. Nothing was imported.";
 
     /// <summary>
-    ///     The refusal message of an import whose file could not be read or checked. Deliberately generic: no exception
-    ///     text, which can carry server-side paths.
+    ///     The refusal message of an import whose file could not be read or checked, or whose file type the check does
+    ///     not read (fail closed). Deliberately generic: no exception text, which can carry server-side paths.
     /// </summary>
     public const string ImportCheckFailedMessage =
         "The uploaded runtime model could not be read to check it for knowledge types, so it is refused. Upload a valid " +

@@ -232,7 +232,7 @@ every content or status write is a new `KnowledgePageVersion` and passes the con
   (and derived types; for the import also the associations `LinksTo`, `GeneratedFrom`, `VersionOf`, judged on the decoded ids, so
   escapes and casing do not get past it) with `errorCode`
   `GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL`; the entity tools also return `errorParameters` `ckTypeId` and `tool`, the import
-  names the reference in the message (a file it cannot read is refused too). Nothing is written. Generic reads work as before.
+  names the reference in the message (a file it cannot read, or of another type than `.zip`, `.json`, `.yaml`/`.yml`, is refused too). Nothing is written. Generic reads work as before.
 - **No delete over MCP**: pages and versions keep their history. Set an unwanted page to `Rejected` with `knowledge_set_status`;
   a person deletes pages outside MCP (GraphQL `runtimeEntities.delete` or octo-cli).
 
