@@ -233,6 +233,9 @@ every content or status write is a new `KnowledgePageVersion` and passes the con
   escapes and casing do not get past it) with `errorCode`
   `GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL`; the entity tools also return `errorParameters` `ckTypeId` and `tool`, the import
   names the reference in the message (a file it cannot read, or of another type than `.zip`, `.json`, `.yaml`/`.yml`, is refused too). Nothing is written. Generic reads work as before.
+- **Verified is never set over MCP** (AB#8565, decision G2a): `knowledge_set_status` accepts Draft, InReview and Rejected and refuses
+  Verified for every caller with `VerifiedNotAllowedOverMcp`. A person verifies a page outside MCP:
+  `octo-cli -c SetKnowledgePageStatus -tid <tenant> -s <slug> -st Verified -n "<why>"` (interactive user login) or GraphQL.
 - **No delete over MCP**: pages and versions keep their history. Set an unwanted page to `Rejected` with `knowledge_set_status`;
   a person deletes pages outside MCP (GraphQL `runtimeEntities.delete` or octo-cli).
 

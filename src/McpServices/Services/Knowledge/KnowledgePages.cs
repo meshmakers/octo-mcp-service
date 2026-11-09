@@ -186,27 +186,34 @@ internal static class KnowledgePages
         return fields;
     }
 
-    /// <summary>Renders a content as markdown (title, summary, sections in order, sources).</summary>
+    /// <summary>Line break of <see cref="Render" />; never <c>Environment.NewLine</c>, the content hash is the same on every OS.</summary>
+    private const char Nl = '\n';
+
+    /// <summary>
+    ///     Renders a content as markdown (title, summary, sections in order, sources). Lines end with <c>\n</c> on every
+    ///     platform: the output is the input of the content hash, which octo-cli recomputes (AB#8565).
+    /// </summary>
     public static string Render(KnowledgeContent content, string slug, int version)
     {
         var sb = new StringBuilder();
-        sb.Append("# ").AppendLine(content.Title).AppendLine();
+        sb.Append("# ").Append(content.Title).Append(Nl).Append(Nl);
         sb.Append("> slug `").Append(slug).Append("` · ").Append(Name(KindNames, content.Kind)).Append(" · ")
             .Append(Name(StatusNames, content.Status)).Append(" · version ")
-            .AppendLine(version.ToString(CultureInfo.InvariantCulture)).AppendLine();
+            .Append(version.ToString(CultureInfo.InvariantCulture)).Append(Nl).Append(Nl);
         if (!string.IsNullOrWhiteSpace(content.Summary))
         {
-            sb.AppendLine(content.Summary).AppendLine();
+            sb.Append(content.Summary).Append(Nl).Append(Nl);
         }
 
         foreach (var section in content.Sections.OrderBy(s => s.SortOrder))
         {
-            sb.Append("## ").AppendLine(section.Heading).AppendLine().AppendLine(section.SectionContent).AppendLine();
+            sb.Append("## ").Append(section.Heading).Append(Nl).Append(Nl)
+                .Append(section.SectionContent).Append(Nl).Append(Nl);
         }
 
         if (content.Citations.Count > 0)
         {
-            sb.AppendLine("## Citations").AppendLine();
+            sb.Append("## Citations").Append(Nl).Append(Nl);
             foreach (var c in content.Citations)
             {
                 sb.Append("- [").Append(c.SectionRef).Append("] \"").Append(c.SourceQuote).Append('"');
@@ -221,18 +228,18 @@ internal static class KnowledgePages
                     sb.Append(')');
                 }
 
-                sb.AppendLine();
+                sb.Append(Nl);
             }
 
-            sb.AppendLine();
+            sb.Append(Nl);
         }
 
         if (content.HallucinationFlags.Count > 0)
         {
-            sb.AppendLine("## Unsupported claims").AppendLine();
+            sb.Append("## Unsupported claims").Append(Nl).Append(Nl);
             foreach (var f in content.HallucinationFlags)
             {
-                sb.Append("- ").Append(f.Claim).Append(" (").Append(f.Reason).AppendLine(")");
+                sb.Append("- ").Append(f.Claim).Append(" (").Append(f.Reason).Append(')').Append(Nl);
             }
         }
 

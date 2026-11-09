@@ -6,6 +6,7 @@ using Meshmakers.Octo.Backend.McpServices.Resources;
 using Meshmakers.Octo.Backend.McpServices.Services.Knowledge;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.ConstructionKit.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts.DependencyGraph;
 using Meshmakers.Octo.Runtime.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
@@ -326,17 +327,6 @@ public class KnowledgeToolsTests : TestBase
     }
 
     [Fact]
-    public async Task SetStatus_Verified_IsRefusedWithoutAnyPrincipal()
-    {
-        GivenUnauthenticatedCaller();
-
-        var result = await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Verified",
-            cancellationToken: Ct);
-
-        result.ErrorCode.Should().Be("VerifiedRequiresPerson");
-    }
-
-    [Fact]
     public async Task Upsert_AcceptsThePrototypeGenerationJson_AndLinksGeneratedFrom()
     {
         var generation = JsonDocument.Parse(PrototypeGenerationJson).RootElement;
@@ -360,34 +350,108 @@ public class KnowledgeToolsTests : TestBase
             .Should().Be("wiki-prompt-structured");
     }
 
-    [Fact]
-    public async Task SetStatus_MovesThroughTheStates_AndVerifiedIsRefusedForServiceAccounts()
+    public enum Caller
+    {
+        User,
+        ServiceAccount,
+        NoPrincipal
+    }
+
+    private void GivenCaller(Caller caller)
+    {
+        switch (caller)
+        {
+            case Caller.ServiceAccount:
+                GivenServicePrincipalCaller();
+                break;
+            case Caller.NoPrincipal:
+                GivenUnauthenticatedCaller();
+                break;
+        }
+    }
+
+    private RtEntity Page(string slug) => _entities.Values.Single(e =>
+        Equals(e.CkTypeId, KnowledgePages.PageTypeId) && e.RtWellKnownName == slug);
+
+    /// <summary>Seeds a page directly as Verified (as a person's octo-cli write would leave it), version 2.</summary>
+    private async Task SeedVerifiedPageAsync(string slug)
+    {
+        await UpsertAsync(slug, "Page A", "text");
+        var page = Page(slug);
+        page.SetAttributeValue("VerificationStatus", AttributeValueTypesDto.Enum, KnowledgePages.StatusVerified);
+        page.SetAttributeValue("CurrentVersion", AttributeValueTypesDto.Int, 2);
+    }
+
+    [Theory]
+    [InlineData(Caller.User, "Verified")]
+    [InlineData(Caller.ServiceAccount, "Verified")]
+    [InlineData(Caller.NoPrincipal, "Verified")]
+    [InlineData(Caller.User, "verified")]
+    [InlineData(Caller.User, "2")]
+    public async Task SetStatus_Verified_IsRefusedOverMcpForEveryCaller(Caller caller, string status)
     {
         await UpsertAsync("page-a", "Page A", "text");
+        GivenCaller(caller);
+        MockTenantResolution.Invocations.Clear();
 
-        (await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "InReview", cancellationToken: Ct)).Page!.Status
-            .Should().Be("InReview");
-        (await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Verified", cancellationToken: Ct)).Page!.Status
-            .Should().Be("Verified");
-        (await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Rejected", cancellationToken: Ct)).Page!.Status
-            .Should().Be("Rejected");
-        (await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Draft", cancellationToken: Ct)).Page!.Status
-            .Should().Be("Draft");
-        Versions("page-a").Should().HaveCount(5);
+        var result = await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", status, cancellationToken: Ct);
 
-        GivenServicePrincipalCaller();
-        var refused = await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Verified", cancellationToken: Ct);
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("VerifiedNotAllowedOverMcp");
+        result.ErrorMessage.Should().Contain("SetKnowledgePageStatus").And.Contain("GraphQL");
+        Versions("page-a").Should().ContainSingle("no version is written");
+        Page("page-a").GetAttributeValueOrDefault("VerificationStatus").Should().Be(KnowledgePages.StatusDraft);
+        // The check runs before the tenant is opened: no repository is resolved, nothing can be written.
+        MockTenantResolution.Verify(t => t.GetTenantRepositoryAsync(It.IsAny<string?>()), Times.Never);
+    }
 
-        refused.IsSuccess.Should().BeFalse();
-        refused.ErrorCode.Should().Be("VerifiedRequiresPerson");
-        Versions("page-a").Should().HaveCount(5);
+    [Theory]
+    [InlineData(Caller.User)]
+    [InlineData(Caller.ServiceAccount)]
+    public async Task SetStatus_DraftInReviewRejected_StillWork_AndWriteAVersion(Caller caller)
+    {
+        await UpsertAsync("page-a", "Page A", "text");
+        GivenCaller(caller);
+
+        foreach (var status in new[] { "InReview", "Rejected", "Draft" })
+        {
+            var result = await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", status, cancellationToken: Ct);
+            result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+            result.Page!.Status.Should().Be(status);
+        }
+
+        Versions("page-a").Should().HaveCount(4);
+    }
+
+    [Fact]
+    public async Task SetStatus_OnAVerifiedPage_CanMoveItBackToInReview()
+    {
+        await SeedVerifiedPageAsync("page-a");
+
+        var result = await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "InReview", cancellationToken: Ct);
+
+        result.Page!.Status.Should().Be("InReview");
+        result.Page.CurrentVersion.Should().Be(3);
+    }
+
+    [Fact]
+    public void SetStatus_Description_ListsOnlyTheMcpStates_AndNamesTheHumanPath()
+    {
+        var method = typeof(KnowledgeTools).GetMethod(nameof(KnowledgeTools.KnowledgeSetStatus))!;
+        var description = method.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+            .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+        description.Should().Contain("Draft, InReview or Rejected").And.Contain("SetKnowledgePageStatus")
+            .And.Contain("VerifiedNotAllowedOverMcp");
+        var statusParameter = method.GetParameters().Single(p => p.Name == "status")
+            .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+            .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+        statusParameter.Should().StartWith("Draft, InReview or Rejected").And.Contain("SetKnowledgePageStatus");
     }
 
     [Fact]
     public async Task ContentWrite_PutsAVerifiedPageBackToDraft()
     {
-        await UpsertAsync("page-a", "Page A", "text");
-        await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Verified", cancellationToken: Ct);
+        await SeedVerifiedPageAsync("page-a");
 
         var result = await UpsertAsync("page-a", "Page A", "changed text");
 

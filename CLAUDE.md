@@ -1106,9 +1106,16 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   summary, sections, citations (all four fields), flags, the slug and the free-text extras (`changeNote`, `promptName`, `modelId`) before anything
   is written; tenant secrets come in as fingerprints read with the caller's session. No guard registered = refusal.
   `knowledge_link` writes only an association between two existing, slug-validated pages and carries no text.
-- **Status**: every content write (upsert, restore) sets `Draft`; `knowledge_set_status` moves Draft/InReview/Verified/Rejected
-  and refuses `Verified` unless the caller is a user principal (`VerifiedRequiresPerson`; fail closed for a client-credentials
-  token or no principal).
+- **Status**: every content write (upsert, restore) sets `Draft`; `knowledge_set_status` moves Draft/InReview/Rejected and
+  refuses `Verified` for **every** caller, user token included (`VerifiedNotAllowedOverMcp`, AB#8565, decision G2a on Epic
+  AB#8449: MCP callers are always AI clients, also in a user's session). The check runs before the tenant is opened. A person
+  sets `Verified` outside MCP with octo-cli `SetKnowledgePageStatus` (user login only; writes the page status and a
+  `KnowledgePageVersion` in one GraphQL mutation) or GraphQL; later the Refinery Studio review view. No knowledge tool path
+  leads to `Verified` any more (upsert and restore write `Draft`), and the generic tools are closed by AB#8568.
+- **Content hash contract**: `ContentHash` = SHA-256 (lower-case hex) of `Render(content, slug, 0)`. octo-cli
+  `SetKnowledgePageStatus` recomputes it with a port of `Render`; both repos pin the same golden hash
+  (`Services/Knowledge/KnowledgeContentHashGoldenTests` here). Changing `Render` means changing the octo-cli port in the same step.
+  `Render` ends every line with an explicit `\n` (never `AppendLine`/`Environment.NewLine`), so the hash is the same on Windows.
 - **Prototype JSON**: `KnowledgeSectionDto` / `KnowledgeCitationDto` / `KnowledgeHallucinationFlagDto` carry the JSON names of the
   KnowledgeCapture prompts (`heading`, `sectionContent`, `sortOrder`, `sectionRef`, `sourceQuote`, `sourceAnchor`, `sourceRtId`,
   `claim`, `reason`); cited `sourceRtId`s that are SourceArtifacts are linked with `GeneratedFrom`, others are reported in
