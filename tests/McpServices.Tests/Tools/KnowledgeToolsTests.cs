@@ -37,6 +37,9 @@ public class KnowledgeToolsTests : TestBase
         """;
 
     private readonly Dictionary<OctoObjectId, RtEntity> _entities = new();
+
+    /// <summary>The text search of every page list query (null = no text search), in call order.</summary>
+    private readonly List<string?> _textSearches = [];
     private readonly List<(RtEntityId Origin, RtEntityId Target, string Role)> _associations = [];
 
     public KnowledgeToolsTests()
@@ -58,9 +61,12 @@ public class KnowledgeToolsTests : TestBase
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(),
                 It.IsAny<RtEntityQueryOptions>(), It.IsAny<int?>(), It.IsAny<int?>()))
-            .ReturnsAsync((IOctoSession _, RtCkId<CkTypeId> type, RtEntityQueryOptions _, int? _, int? _) =>
+            .ReturnsAsync((IOctoSession _, RtCkId<CkTypeId> type, RtEntityQueryOptions options, int? _, int? _) =>
             {
-                var items = _entities.Values.Where(e => Equals(e.CkTypeId, type)).ToList();
+                var textSearch = options.TextSearchFilter?.SearchTerm?.ToString();
+                _textSearches.Add(textSearch);
+                var items = _entities.Values.Where(e => Equals(e.CkTypeId, type))
+                    .Where(e => textSearch == null || MatchesTextIndex(e, textSearch)).ToList();
                 return new ResultSet<RtEntity>(items, items.Count, null, null);
             });
         MockTenantRepository
@@ -476,6 +482,21 @@ public class KnowledgeToolsTests : TestBase
         result.Pages[0].Uri.Should().Be("knowledge-page://test-tenant/energyiq-fixall");
     }
 
+    /// <summary>
+    ///     Like the MongoDB text index the page query uses: a page matches when its title, summary or a section contains a
+    ///     query word; stop words and words shorter than 3 characters match nothing (MongoDB drops them), so a short-word
+    ///     query sent to the index returns no page.
+    /// </summary>
+    private static bool MatchesTextIndex(RtEntity page, string textSearch)
+    {
+        var content = KnowledgePages.ReadContent(page);
+        var text = string.Join(" ", new[] { content.Title, content.Summary ?? string.Empty }
+            .Concat(content.Sections.Select(x => $"{x.Heading} {x.SectionContent}")));
+        return textSearch.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => w.Length >= 3)
+            .Any(w => text.Contains(w, StringComparison.OrdinalIgnoreCase));
+    }
+
     // AB#8566: the in-memory repository ignores the text-search option and returns every page, like the engine did for
     // knowledge-schema in the hand test; the tool must drop pages without any query word.
     private async Task GivenSchemaAndZebrafischPagesAsync()
@@ -534,15 +555,30 @@ public class KnowledgeToolsTests : TestBase
     public async Task Search_WithoutAWordOfThreeCharacters_ReturnsTheIndexOfAllPages(string? query)
     {
         await GivenSchemaAndZebrafischPagesAsync();
+        _textSearches.Clear();
 
         var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, query);
 
         result.IsSuccess.Should().BeTrue();
         result.Pages.Select(p => p.Slug).Should().Equal("knowledge-schema", "zebrafisch-pipeline");
+        // The page list is read without a text search: sent to the text index, "a of" would return no page.
+        _textSearches.Should().Equal([null]);
         if (!string.IsNullOrWhiteSpace(query))
         {
             result.Message.Should().Contain("index of all pages, not a match");
         }
+    }
+
+    [Fact]
+    public async Task Search_WithAWordOfThreeCharacters_SendsTheQueryToTheTextIndex()
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+        _textSearches.Clear();
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "a Zebrafisch");
+
+        result.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-pipeline");
+        _textSearches.Should().Equal("a Zebrafisch");
     }
 
     [Fact]
