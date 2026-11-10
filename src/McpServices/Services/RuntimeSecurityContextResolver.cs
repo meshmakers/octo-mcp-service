@@ -219,7 +219,7 @@ internal static class RuntimeSecurityContextResolver
     ///     This deliberately delegates to <see cref="ResolveAsync" /> instead of reimplementing a
     ///     "cheaper" gate-only variant: the deny decisions and the context construction are the same
     ///     computation, and the only work the gate-only caller does not need is a single
-    ///     <see cref="RtSecurityContext.ForUser" /> allocation. A second code path would be free to drift
+    ///     <see cref="RtSecurityContext.ForUser(string?, System.Collections.Generic.IEnumerable{string}?)" /> allocation. A second code path would be free to drift
     ///     away from the one that actually guards the data.
     ///     </para>
     /// </summary>
