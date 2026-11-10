@@ -196,6 +196,9 @@ public class ContentGuardTests
     [InlineData("password=(fake0000)")]
     [InlineData("password=$3cretFake")]
     [InlineData("password=*fake0000")]
+    // A literal in parentheses stays a credential; only masks and references are unwrapped.
+    [InlineData("Log in (password=Fake0000) first.")]
+    [InlineData("Then call it (token=fake0000).")]
     public async Task PasswordAssignment_IsRejected(string text)
     {
         var result = await CheckAsync(Context, [new ContentGuardField("sections[0]", text)]);
