@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- **AB#8717** — the build failed with CS0419 (ambiguous cref) after the engine added a second
+  `RtSecurityContext.ForUser` overload (AB#8574); the XML doc comment in `RuntimeSecurityContextResolver` now names the
+  two-parameter overload it means.
+
 ### Added
 
 - **AB#8657** — `knowledge_upsert_page` takes the run data of the ingest pipeline as optional parameters and stores them on
