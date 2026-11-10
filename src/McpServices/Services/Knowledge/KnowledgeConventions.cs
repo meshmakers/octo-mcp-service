@@ -19,7 +19,7 @@ internal sealed record KnowledgeAnsweringConventions(string Text, string Source)
 ///     itself is always looked up with the caller's session, so the cache never hands the text to a caller who cannot
 ///     read the page.
 /// </summary>
-public sealed class KnowledgeConventionsCache
+internal sealed class KnowledgeConventionsCache
 {
     private readonly ConcurrentDictionary<string, (string PageRtId, int Version, string Text)> _entries =
         new(StringComparer.Ordinal);
@@ -43,7 +43,7 @@ public sealed class KnowledgeConventionsCache
 /// <summary>
 ///     The answering conventions of a tenant's knowledge base (AB#8712): the "Answering questions" section of the schema
 ///     page <c>knowledge-schema</c>, bounded to <see cref="MaxLength" /> characters, or a built-in default when the tenant
-///     has no schema page, the caller cannot read it, or it has no such section. <c>knowledge_search</c> returns it with
+///     has no schema page, the caller cannot read it, the page is not Verified, or it has no such section. <c>knowledge_search</c> returns it with
 ///     every result, so a client cites pages and does not invent without first reading the schema page.
 /// </summary>
 internal static class KnowledgeConventions
@@ -91,6 +91,15 @@ internal static class KnowledgeConventions
                 return Default;
             }
 
+            // Only a Verified page speaks for the tenant (review of PR #66): every MCP write sets a page to Draft, so an
+            // AI client with write rights could otherwise put its own instructions into every later search response.
+            // A person verifies the page outside MCP; until then the built-in default applies.
+            var content = KnowledgePages.ReadContent(page);
+            if (content.Status != KnowledgePages.StatusVerified)
+            {
+                return Default;
+            }
+
             var version = KnowledgePages.CurrentVersion(page);
             var pageRtId = page.RtId.ToString();
             var source = $"{SchemaSlug}@{version.ToString(CultureInfo.InvariantCulture)}";
@@ -99,7 +108,7 @@ internal static class KnowledgeConventions
                 return cached.Length == 0 ? Default : new KnowledgeAnsweringConventions(cached, source);
             }
 
-            var section = KnowledgePages.ReadContent(page).Sections
+            var section = content.Sections
                 .FirstOrDefault(s => IsAnsweringHeading(s.Heading) && !string.IsNullOrWhiteSpace(s.SectionContent));
             var text = section == null ? string.Empty : Bound(section.SectionContent!);
             cache?.Set(tenantId, pageRtId, version, text);
@@ -126,7 +135,14 @@ internal static class KnowledgeConventions
 
         var budget = MaxLength - TruncationMarker.Length;
         var cut = trimmed.LastIndexOfAny([' ', '\t', '\r', '\n'], budget);
-        var head = (cut > budget / 2 ? trimmed[..cut] : trimmed[..budget]).TrimEnd();
+        var end = cut > budget / 2 ? cut : budget;
+        // Never split a surrogate pair (an emoji or another non-BMP character at the hard cut).
+        if (char.IsHighSurrogate(trimmed[end - 1]))
+        {
+            end--;
+        }
+
+        var head = trimmed[..end].TrimEnd();
         return head + TruncationMarker;
     }
 

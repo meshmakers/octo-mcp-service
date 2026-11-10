@@ -187,6 +187,15 @@ public class ContentGuardTests
     [InlineData("password: Fake-Pass-2026!")]
     [InlineData("{\"username\": \"admin\", \"password\": \"fakefake\"}")]
     [InlineData("passwd = 'fake1234'")]
+    // Review of PR #66: a leading symbol is no placeholder.
+    [InlineData("password=#Fake2xyz!")]
+    [InlineData("password=@fakeP4ss")]
+    [InlineData("password=&fake0000")]
+    [InlineData("password=.fake0000")]
+    [InlineData("password=?fake0000")]
+    [InlineData("password=(fake0000)")]
+    [InlineData("password=$3cretFake")]
+    [InlineData("password=*fake0000")]
     public async Task PasswordAssignment_IsRejected(string text)
     {
         var result = await CheckAsync(Context, [new ContentGuardField("sections[0]", text)]);
@@ -251,6 +260,12 @@ public class ContentGuardTests
     [InlineData("DB_PASSWORD=$DB_PASSWORD")]
     [InlineData("token: ${{ secrets.GITHUB_TOKEN }}")]
     [InlineData("password: ***")]
+    [InlineData("password=[REDACTED]")]
+    [InlineData("password=%DB_PASSWORD%")]
+    [InlineData("password={password}")]
+    [InlineData("password=$env:DB_PASSWORD")]
+    [InlineData("password=$(cat /run/secrets/db)")]
+    [InlineData("password: {{ .Values.db.password }}")]
     [InlineData("password=...")]
     [InlineData("password: \"\"")]
     [InlineData("\"token\": \"The access token of the caller\"")]

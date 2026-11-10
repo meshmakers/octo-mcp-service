@@ -20,9 +20,9 @@
 ### Added
 
 - **AB#8712** — every successful `knowledge_search` response carries `answeringConventions`: the "Answering questions"
-  section of the tenant's schema page `knowledge-schema` (read with the caller's session, at most 2000 characters, longer
-  text cut deterministically at a word boundary with a marker), or a built-in default when the tenant has no such page or
-  section, and `answeringConventionsSource` (`knowledge-schema@<version>` or `default`). The bounded text is cached per
+  section of the tenant's schema page `knowledge-schema` (read with the caller's session, only from a Verified page, at most 2000
+  characters, longer text cut deterministically at a word boundary with a marker), or a built-in default when the tenant
+  has no such page or section or the page is not Verified, and `answeringConventionsSource` (`knowledge-schema@<version>` or `default`). The bounded text is cached per
   tenant and page version (`KnowledgeConventionsCache`); a new version of the schema page is read again. The tool
   description says so. Clients cite pages and do not invent without reading the schema page first.
   Tests in `Tools/KnowledgeToolsTests`.

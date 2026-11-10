@@ -160,14 +160,10 @@ public static partial class ContentDetectors
 
     private static bool IsPlaceholder(string literal)
     {
-        // References and masks: $VAR, ${VAR}, ${{ secrets.X }}, {{ .Values.x }}, %VAR%, <your-password>, [secret], ***,
-        // ..., …, ???, #{...}; a run of one repeated character (xxxxxxxx, 00000000).
-        if (literal[0] is '$' or '<' or '{' or '%' or '[' or '(' or '*' or '.' or '…' or '?' or '#' or '@' or '&')
-        {
-            return true;
-        }
-
-        if (literal.All(c => c == literal[0]) || literal.Trim('.', '…', '*', ',', ')').Length == 0)
+        // Only whole reference syntaxes count, never a single leading character: a real password may well start with
+        // '#', '@', '&', '.' or '?' (review of PR #66).
+        if (ReferenceRegex().IsMatch(literal) || literal.All(c => c == literal[0]) ||
+            literal.All(c => c is '*' or '.' or '…' or '?'))
         {
             return true;
         }
@@ -178,6 +174,14 @@ public static partial class ContentDetectors
                word.StartsWith("example", StringComparison.OrdinalIgnoreCase) ||
                word.Contains("...", StringComparison.Ordinal) || word.Contains('…');
     }
+
+    // A reference instead of a value: $NAME / $env:NAME, ${...} and $(...), the template openers {{ ${{ #{ (the value
+    // ends at the first whitespace, so "{{ .Values.x }}" arrives as "{{"), {name}, %NAME%, <placeholder ...> and
+    // [REDACTED]-style brackets.
+    [GeneratedRegex(
+        @"^(?:\$(?:env:)?[A-Za-z_][A-Za-z0-9_]*|\$\{.*|\$\(.*|\{\{.*|#\{.*|\{[A-Za-z_][A-Za-z0-9_.\-]*\}|%[A-Za-z_][A-Za-z0-9_]*%|<[A-Za-z_][^<>]*>?|\[[^\[\]]+\])$",
+        RegexOptions.CultureInvariant)]
+    private static partial Regex ReferenceRegex();
 
     /// <summary>True when the text contains a JSON Web Token.</summary>
     public static bool ContainsJwt(string text) => JwtRegex().IsMatch(text);

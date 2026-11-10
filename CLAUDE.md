@@ -1074,7 +1074,7 @@ runtime (AB#8473) are meant to use the same library (move it into a shared packa
 | `HighEntropyToken` | a run of 32+ base64/base64url characters (`=` only as padding) that mixes upper case, lower case and digits, is not hex, has an entropy of at least 4.2 bits per character, switches character class on at least 30 % of the positions and is covered by runs of four or more lower-case letters to less than 30 %. Never scanned: the scheme/host/path of URLs (share-link ids) and Teams thread ids (`…@thread.`); URL query strings are scanned. A heuristic: it misses about 3 % of random keys and must not be weakened for convenience. |
 | `GitHubToken` | `ghp_` / `gho_` / `ghu_` / `ghs_` / `ghr_` + 16 or more letters/digits, or `github_pat_` + 22 or more (AB#8702). A bare prefix passes. |
 | `AwsAccessKey` | `AKIA` or `ASIA` + exactly 16 upper-case letters/digits (AB#8702). |
-| `CredentialAssignment` | a key ending in `password`, `passwd`, `secret`, `token`, `api_key`/`apikey`, `access_key` or `private_key` (any prefix, any case: `DB_PASSWORD`, `client_secret`, `"clientSecret"`), then `=` or `:` (not `==`, `=>`, `:=`) and a literal value of 4+ characters (AB#8702). A quoted value counts unless it has whitespace; an unquoted value right after `=` (`password=…`, connection strings, env files) always counts; an unquoted value after `:` or a spaced `=` (YAML, code, prose) counts only with a digit or symbol, and member chains (`options.Token`), calls, `[`-indexing and lower-case kebab names (`existingSecret: octo-mongodb`) pass. Placeholders always pass: `$VAR`, `${{ … }}`, `<…>`, `{…}`, `%VAR%`, `***`, `...`, repeated characters, type names (`String!`), `null`/`true`/`string`/`redacted` and similar, `your…`/`example…`. |
+| `CredentialAssignment` | a key ending in `password`, `passwd`, `secret`, `token`, `api_key`/`apikey`, `access_key` or `private_key` (any prefix, any case: `DB_PASSWORD`, `client_secret`, `"clientSecret"`), then `=` or `:` (not `==`, `=>`, `:=`) and a literal value of 4+ characters (AB#8702). A quoted value counts unless it has whitespace; an unquoted value right after `=` (`password=…`, connection strings, env files) always counts; an unquoted value after `:` or a spaced `=` (YAML, code, prose) counts only with a digit or symbol, and member chains (`options.Token`), calls, `[`-indexing and lower-case kebab names (`existingSecret: octo-mongodb`) pass. Placeholders pass only as whole reference syntaxes (a single leading `#`, `@`, `&`, `.`, `?` is not one): `$NAME`, `$env:NAME`, `${…}`, `$(…)`, `{{ … }}`, `#{…}`, `{name}`, `%NAME%`, `<…>`, `[REDACTED]`, `***`, `...`, repeated characters, type names (`String!`), `null`/`true`/`string`/`redacted` and similar, `your…`/`example…`. |
 | `TenantSecret` | a word of the text (or the value of a `key=value` pair, or the whole text) whose SHA-256 equals the fingerprint of a Secret attribute value of the tenant. Values shorter than 8 characters are not compared. |
 
 Rules to keep:
@@ -1150,10 +1150,12 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
 - **Answering conventions** (AB#8712, `Services/Knowledge/KnowledgeConventions.cs`): every successful `knowledge_search`
   response carries `answeringConventions`, the section "Answering questions" of the schema page `knowledge-schema`, and
   `answeringConventionsSource` (`knowledge-schema@<version>` or `default`). The page is read with the caller's session on
-  every search (one lookup by well-known name), so a caller who cannot read it gets the built-in default
+  every search (one lookup by well-known name), and only a **Verified** page counts (every MCP write sets Draft, so an AI
+  client with write rights could otherwise inject instructions into every later response; review of PR #66). A caller who
+  cannot read it, or a page that is not Verified, gets the built-in default
   (`KnowledgeConventions.DefaultText`), as does a tenant without the page or the section, or a failed read (the search
   never fails because of it). The section text is bounded to 2000 characters: cut at the last whitespace before the limit
-  plus a fixed marker, deterministic. `KnowledgeConventionsCache` (singleton) keeps the bounded text per tenant keyed by
+  plus a fixed marker, deterministic, never inside a surrogate pair. `KnowledgeConventionsCache` (singleton) keeps the bounded text per tenant keyed by
   page rtId and `CurrentVersion`; a new page version is a miss. Clients therefore follow the conventions without opening
   the schema page first (draft eval runs of AB#8487 scored 5/6 and 4/6 when the client never read it).
 - **Optimistic locking**: `expectedVersion` (the page's `CurrentVersion`) on upsert and restore; stale = `VersionConflict`, nothing
