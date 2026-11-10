@@ -161,9 +161,16 @@ public static partial class ContentDetectors
     private static bool IsPlaceholder(string literal)
     {
         // Only whole reference syntaxes count, never a single leading character: a real password may well start with
-        // '#', '@', '&', '.' or '?' (review of PR #66).
-        if (ReferenceRegex().IsMatch(literal) || literal.All(c => c == literal[0]) ||
-            literal.All(c => c is '*' or '.' or '…' or '?'))
+        // '#', '@', '&', '.' or '?' (review of PR #66). A closing parenthesis of the surrounding prose is not part of the
+        // value: "(password=***)." arrives as "***).".
+        var unwrapped = literal.TrimEnd(')', '.', ',');
+        if (unwrapped.Length == 0)
+        {
+            return true;
+        }
+
+        if (ReferenceRegex().IsMatch(literal) || ReferenceRegex().IsMatch(unwrapped) ||
+            unwrapped.All(c => c == unwrapped[0]) || unwrapped.All(c => c is '*' or '.' or '…' or '?'))
         {
             return true;
         }

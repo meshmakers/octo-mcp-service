@@ -261,6 +261,8 @@ public class ContentGuardTests
     [InlineData("token: ${{ secrets.GITHUB_TOKEN }}")]
     [InlineData("password: ***")]
     [InlineData("password=[REDACTED]")]
+    [InlineData("Mask it in the log (password=***) and in docs (token=...).")]
+    [InlineData("Read it from the environment (password=$DB_PASSWORD) or (secret=[REDACTED]).")]
     [InlineData("password=%DB_PASSWORD%")]
     [InlineData("password={password}")]
     [InlineData("password=$env:DB_PASSWORD")]
