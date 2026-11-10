@@ -33,7 +33,9 @@ public static class KnowledgeTools
         "one of its words or an inflected form of it (plural, -ing, -ed) are returned; no match is an empty result with " +
         "the message to say so. Words shorter than 3 " +
         "characters are ignored; a query without a longer word returns the index of all pages, like no query (sorted by " +
-        "title). Read the conventions page 'knowledge-schema' first; answer questions from pages and cite them by slug.")]
+        "title). Every result carries answeringConventions: the 'Answering questions' section of the tenant's schema page " +
+        "'knowledge-schema' (or a built-in default, see answeringConventionsSource). Follow them when you answer: answer " +
+        "only from pages, cite every page you read by its slug, and say so when no page answers instead of inventing.")]
     public static async Task<KnowledgeSearchResponse> KnowledgeSearch(
         McpServer server,
         [Description("Words to search for (title, summary and section content; words of 3 or more characters). Empty: " +
@@ -91,11 +93,16 @@ public static class KnowledgeTools
                 .ToList();
 
             var ignoredQuery = !isSearch && !string.IsNullOrWhiteSpace(query);
+            // AB#8712: the answering conventions with every result, read with the caller's own session.
+            var conventions = await KnowledgeConventions.ReadAsync(ctx.Repo, session, ctx.TenantId!,
+                server.Services?.GetService<KnowledgeConventionsCache>());
             return new KnowledgeSearchResponse
             {
                 IsSuccess = true,
                 TenantId = ctx.TenantId,
                 Pages = pages,
+                AnsweringConventions = conventions.Text,
+                AnsweringConventionsSource = conventions.Source,
                 Message = pages.Count == 0
                     ? "No knowledge page matches. Say so instead of answering from general knowledge."
                     : ignoredQuery

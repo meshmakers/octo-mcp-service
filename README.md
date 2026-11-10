@@ -226,7 +226,10 @@ dotnet run
 `knowledge_search`, `knowledge_get`, `knowledge_upsert_page`, `knowledge_link`, `knowledge_restore_version`, `knowledge_set_status`
 and the resource template `knowledge-page://{tenantId}/{slug}`. Pages are System.Ai `KnowledgePage` entities (System.Ai 4.7.0);
 every content or status write is a new `KnowledgePageVersion` and passes the content guard (credentials and tenant secret values are refused with
-`ContentRejected`). Start with the conventions page `knowledge-schema`.
+`ContentRejected`; AB#8702 adds GitHub tokens, AWS access key ids and `password=`/`secret:`/`token=`-style assignments, while
+prose that names a credential without a value passes). Every `knowledge_search` result carries `answeringConventions`, the
+"Answering questions" section of the conventions page `knowledge-schema` (Verified page only, max. 2000 characters, otherwise a built-in default),
+with `answeringConventionsSource` (AB#8712).
 - `knowledge_upsert_page` on an existing page: title and sections replace; an omitted `kind`, `summary`, `citations` or
   `hallucinationFlags` keeps the current value, an explicit `""` / `[]` clears it (AB#8567). `origin` applies to new pages only,
   `linksTo` / `sourceRtIds` only add links, `changeNote` and run metadata belong to the new version.

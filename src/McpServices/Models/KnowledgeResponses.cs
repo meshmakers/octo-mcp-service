@@ -118,6 +118,19 @@ public class KnowledgeSearchResponse : KnowledgeResponse
 {
     /// <summary>Matching pages, best first.</summary>
     public List<KnowledgePageSummaryDto> Pages { get; set; } = [];
+
+    /// <summary>
+    ///     How to answer from these pages (AB#8712): the "Answering questions" section of the tenant's schema page
+    ///     <c>knowledge-schema</c> (at most 2000 characters, longer text is truncated), or a built-in default when the
+    ///     tenant has no such page or section. Set on every successful search.
+    /// </summary>
+    public string? AnsweringConventions { get; set; }
+
+    /// <summary>
+    ///     Where <see cref="AnsweringConventions" /> comes from: <c>knowledge-schema@&lt;version&gt;</c>, or <c>default</c>
+    ///     for the built-in text.
+    /// </summary>
+    public string? AnsweringConventionsSource { get; set; }
 }
 
 /// <summary>Result of <c>knowledge_get</c>.</summary>

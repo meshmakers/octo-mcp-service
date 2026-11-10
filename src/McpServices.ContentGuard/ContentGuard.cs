@@ -43,6 +43,21 @@ public sealed class ContentGuard(ILogger<ContentGuard> logger) : IContentGuard
                 findings.Add(new ContentGuardFinding(ContentGuardDetector.Jwt, field.Name));
             }
 
+            if (ContentDetectors.ContainsGitHubToken(field.Text))
+            {
+                findings.Add(new ContentGuardFinding(ContentGuardDetector.GitHubToken, field.Name));
+            }
+
+            if (ContentDetectors.ContainsAwsAccessKey(field.Text))
+            {
+                findings.Add(new ContentGuardFinding(ContentGuardDetector.AwsAccessKey, field.Name));
+            }
+
+            if (ContentDetectors.ContainsCredentialAssignment(field.Text))
+            {
+                findings.Add(new ContentGuardFinding(ContentGuardDetector.CredentialAssignment, field.Name));
+            }
+
             if (ContentDetectors.ContainsHighEntropyToken(field.Text))
             {
                 findings.Add(new ContentGuardFinding(ContentGuardDetector.HighEntropyToken, field.Name));
