@@ -32,6 +32,46 @@ public static partial class ContentDetectors
     [GeneratedRegex(@"eyJ[A-Za-z0-9_\-]{8,}\.eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}", RegexOptions.CultureInvariant)]
     private static partial Regex JwtRegex();
 
+    // GitHub tokens (AB#8702): classic prefixes ghp_ (personal), gho_ (OAuth), ghu_ (user-to-server), ghs_
+    // (server-to-server), ghr_ (refresh) with at least 16 characters, and fine-grained github_pat_ tokens. The bare prefix
+    // in documentation ("tokens start with ghp_") does not match.
+    [GeneratedRegex(@"(?<![A-Za-z0-9_])(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{22,})",
+        RegexOptions.CultureInvariant)]
+    private static partial Regex GitHubTokenRegex();
+
+    // AWS access key ids (AB#8702): AKIA (long-term) or ASIA (temporary) plus 16 upper-case letters or digits.
+    [GeneratedRegex(@"(?<![A-Za-z0-9])(?:AKIA|ASIA)[A-Z0-9]{16}(?![A-Za-z0-9])", RegexOptions.CultureInvariant)]
+    private static partial Regex AwsAccessKeyRegex();
+
+    // Credential assignments (AB#8702): a key that ends in a credential word, an optional closing quote of a quoted key,
+    // '=' or ':' (not '==', '=>', ':=' or '::') and the value: a quoted string or an unquoted run up to whitespace, quote,
+    // backtick, comma or semicolon. Whether the value is a literal credential is decided in code (IsAssignedCredential).
+    [GeneratedRegex(
+        @"(?<![A-Za-z0-9_.\-])(?<key>[A-Za-z0-9_.\-]*(?:password|passwd|secret|token|api[_\-]?key|access[_\-]?key|private[_\-]?key))[""']?(?<before>[ 	]*)(?<sep>[:=])(?![=>:])(?<after>[ 	]*)(?<value>""[^""
+]*""|'[^'
+]*'|[^\s""'`,;]+)",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex CredentialAssignmentRegex();
+
+    // A value that is code, not a literal: a dotted member chain (options.Token, process.env.API_KEY) or a call/index.
+    [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$", RegexOptions.CultureInvariant)]
+    private static partial Regex MemberChainRegex();
+
+    // A lower-case kebab-case name (my-secret-name): the name of a Kubernetes secret or a Vault entry, not its value.
+    [GeneratedRegex(@"^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$", RegexOptions.CultureInvariant)]
+    private static partial Regex KebabNameRegex();
+
+    /// <summary>Minimum length of an assigned value the credential assignment detector refuses.</summary>
+    public const int MinAssignedValueLength = 4;
+
+    // Values that say "no value here": types, booleans, nulls and the words documentation puts in place of a secret.
+    private static readonly HashSet<string> PlaceholderValues = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "null", "none", "nil", "true", "false", "undefined", "empty", "redacted", "masked", "hidden", "removed",
+        "omitted", "secret", "password", "token", "required", "optional", "string", "number", "boolean", "bool", "any",
+        "value", "placeholder", "example", "dummy", "fake", "unset", "default", "env", "vault"
+    };
+
     // Candidate tokens: runs of the characters a base64 / base64url / hex key consists of.
     // '=' only as base64 padding at the end, so key=value pairs are judged by their parts.
     [GeneratedRegex(@"[A-Za-z0-9+/_\-]{32,}={0,2}", RegexOptions.CultureInvariant)]
@@ -51,6 +91,93 @@ public static partial class ContentDetectors
     /// <summary>True when the text contains a PEM block with a body.</summary>
     public static bool ContainsPemBlock(string text) => text.Contains("-----BEGIN ", StringComparison.Ordinal) &&
                                                         PemRegex().IsMatch(text);
+
+    /// <summary>True when the text contains a GitHub token (<c>ghp_</c>, <c>gho_</c>, <c>ghu_</c>, <c>ghs_</c>, <c>ghr_</c>, <c>github_pat_</c>).</summary>
+    public static bool ContainsGitHubToken(string text) => GitHubTokenRegex().IsMatch(text);
+
+    /// <summary>True when the text contains an AWS access key id (<c>AKIA...</c> or <c>ASIA...</c>).</summary>
+    public static bool ContainsAwsAccessKey(string text) => AwsAccessKeyRegex().IsMatch(text);
+
+    /// <summary>
+    ///     True when the text assigns a literal value to a credential key: <c>password=...</c>, <c>DB_PASSWORD="..."</c>,
+    ///     <c>"client_secret": "..."</c>, <c>api_key: ...</c>, <c>access_token = ...</c>. Prose that names a credential
+    ///     without a value passes, and so do placeholders and references (<c>$VAR</c>, <c>${{ secrets.X }}</c>,
+    ///     <c>&lt;your-password&gt;</c>, <c>***</c>, <c>...</c>), see <see cref="IsAssignedCredential" />.
+    /// </summary>
+    public static bool ContainsCredentialAssignment(string text)
+    {
+        foreach (Match match in CredentialAssignmentRegex().Matches(text))
+        {
+            var spaced = match.Groups["before"].Length > 0 || match.Groups["after"].Length > 0 ||
+                         match.Groups["sep"].Value == ":";
+            if (IsAssignedCredential(match.Groups["value"].Value, spaced))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    ///     The rule of <see cref="ContainsCredentialAssignment" /> for one assigned value. A quoted value is a credential
+    ///     when it has no whitespace and is not a placeholder. An unquoted value directly after <c>=</c>
+    ///     (<c>password=hunter</c>, the form of connection strings, env files and command lines) is a credential unless it
+    ///     is a placeholder. An unquoted value after <c>:</c> or a spaced <c>=</c> (YAML, code, prose) is one only when it
+    ///     also holds a digit or a symbol, so prose (<c>Password: see the vault</c>), types (<c>token: string</c>),
+    ///     member chains (<c>token = options.Token</c>), calls and lower-case kebab names of secrets
+    ///     (<c>existingSecret: octo-mongodb</c>) pass.
+    /// </summary>
+    /// <param name="value">The value as matched, quotes included.</param>
+    /// <param name="spaced">True for <c>:</c> or an <c>=</c> with whitespace around it.</param>
+    public static bool IsAssignedCredential(string value, bool spaced)
+    {
+        var quoted = value.Length >= 2 && (value[0] == '"' || value[0] == '\'') && value[^1] == value[0];
+        var literal = (quoted ? value[1..^1] : value).Trim();
+        if (literal.Length < MinAssignedValueLength || IsPlaceholder(literal))
+        {
+            return false;
+        }
+
+        if (quoted)
+        {
+            return !literal.Any(char.IsWhiteSpace);
+        }
+
+        if (!spaced)
+        {
+            return true;
+        }
+
+        if (literal.Contains('(') || literal.Contains('[') || MemberChainRegex().IsMatch(literal) ||
+            KebabNameRegex().IsMatch(literal))
+        {
+            return false;
+        }
+
+        return literal.Any(c => !char.IsAsciiLetter(c));
+    }
+
+    private static bool IsPlaceholder(string literal)
+    {
+        // References and masks: $VAR, ${VAR}, ${{ secrets.X }}, {{ .Values.x }}, %VAR%, <your-password>, [secret], ***,
+        // ..., …, ???, #{...}; a run of one repeated character (xxxxxxxx, 00000000).
+        if (literal[0] is '$' or '<' or '{' or '%' or '[' or '(' or '*' or '.' or '…' or '?' or '#' or '@' or '&')
+        {
+            return true;
+        }
+
+        if (literal.All(c => c == literal[0]) || literal.Trim('.', '…', '*', ',', ')').Length == 0)
+        {
+            return true;
+        }
+
+        // Trailing punctuation and the non-null / nullable marks of type names (GraphQL String!, C# string?).
+        var word = literal.TrimEnd('.', ',', ')', ']', '}', '!', '?');
+        return PlaceholderValues.Contains(word) || word.StartsWith("your", StringComparison.OrdinalIgnoreCase) ||
+               word.StartsWith("example", StringComparison.OrdinalIgnoreCase) ||
+               word.Contains("...", StringComparison.Ordinal) || word.Contains('…');
+    }
 
     /// <summary>True when the text contains a JSON Web Token.</summary>
     public static bool ContainsJwt(string text) => JwtRegex().IsMatch(text);

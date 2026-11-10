@@ -135,6 +135,141 @@ public class ContentGuardTests
         result.Findings.Should().ContainSingle(f => f.Detector == ContentGuardDetector.TenantSecret);
     }
 
+    // AB#8702: one test per credential pattern. Every value is an obvious fake: low-entropy runs and the word "fake"
+    // or "example", never a real credential. The values are built so that only the detector under test is needed.
+
+    [Theory]
+    [InlineData("ghp_")]
+    [InlineData("gho_")]
+    [InlineData("ghu_")]
+    [InlineData("ghs_")]
+    [InlineData("ghr_")]
+    public async Task GitHubClassicToken_IsRejected(string prefix)
+    {
+        var result = await CheckAsync(Context,
+            [new ContentGuardField("sections[0]", $"Clone with {prefix}FAKEfake0000FAKEfake0000FAKEfake0000 and push.")]);
+
+        result.Findings.Should().Contain(f => f.Detector == ContentGuardDetector.GitHubToken &&
+                                              f.FieldName == "sections[0]");
+        result.Message.Should().StartWith(ContentGuardResult.ErrorCode).And.NotContain("FAKEfake");
+    }
+
+    [Fact]
+    public async Task GitHubFineGrainedToken_IsRejected()
+    {
+        var result = await CheckAsync(Context,
+            [new ContentGuardField("summary", "token github_pat_11FAKE0000000000000000_fakefakefakefakefakefake")]);
+
+        result.Findings.Should().Contain(f => f.Detector == ContentGuardDetector.GitHubToken);
+    }
+
+    [Fact]
+    public async Task AwsAccessKeyId_IsRejected()
+    {
+        var result = await CheckAsync(Context,
+            [new ContentGuardField("sections[1]", "The bucket is read with AKIAFAKEFAKEFAKE0000 from the build agent.")]);
+
+        result.Findings.Should().ContainSingle(f => f.Detector == ContentGuardDetector.AwsAccessKey);
+    }
+
+    [Fact]
+    public async Task AwsTemporaryAccessKeyId_IsRejected()
+    {
+        var result = await CheckAsync(Context, [new ContentGuardField("title", "Key ASIAFAKEFAKEFAKE0000")]);
+
+        result.Findings.Should().Contain(f => f.Detector == ContentGuardDetector.AwsAccessKey);
+    }
+
+    [Theory]
+    [InlineData("Connect with password=hunter2fake to the broker.")]
+    [InlineData("Server=db;User Id=sa;Password=FakePass123;")]
+    [InlineData("export DB_PASSWORD=fakefake")]
+    [InlineData("password: Fake-Pass-2026!")]
+    [InlineData("{\"username\": \"admin\", \"password\": \"fakefake\"}")]
+    [InlineData("passwd = 'fake1234'")]
+    public async Task PasswordAssignment_IsRejected(string text)
+    {
+        var result = await CheckAsync(Context, [new ContentGuardField("sections[0]", text)]);
+
+        result.Findings.Should().Contain(f => f.Detector == ContentGuardDetector.CredentialAssignment, text);
+    }
+
+    [Theory]
+    [InlineData("client_secret=fakeClientSecret0000")]
+    [InlineData("\"clientSecret\": \"fake-secret-0000\"")]
+    [InlineData("AZURE_CLIENT_SECRET: fake.secret.0000~x")]
+    public async Task SecretAssignment_IsRejected(string text)
+    {
+        var result = await CheckAsync(Context, [new ContentGuardField("sections[0]", text)]);
+
+        result.Findings.Should().Contain(f => f.Detector == ContentGuardDetector.CredentialAssignment, text);
+    }
+
+    [Theory]
+    [InlineData("token=fakefake0000")]
+    [InlineData("access_token: fake_token_0000")]
+    [InlineData("api_key = \"fakekey0000\"")]
+    [InlineData("curl https://example.invalid/api?apikey=fake0000")]
+    [InlineData("AWS_SECRET_ACCESS_KEY=fake/secret/0000")]
+    public async Task TokenAndKeyAssignment_IsRejected(string text)
+    {
+        var result = await CheckAsync(Context, [new ContentGuardField("sections[0]", text)]);
+
+        result.Findings.Should().Contain(f => f.Detector == ContentGuardDetector.CredentialAssignment, text);
+    }
+
+    [Fact]
+    public async Task PrivateKeyBlock_IsRejected_AsInTheStory()
+    {
+        const string pem = "-----BEGIN RSA PRIVATE KEY-----\nFAKEfakeFAKEfakeFAKEfakeFAKEfake\nFAKEfakeFAKEfake\n" +
+                           "-----END RSA PRIVATE KEY-----";
+
+        var result = await CheckAsync(Context, [new ContentGuardField("sections[0]", pem)]);
+
+        result.Findings.Should().Contain(f => f.Detector == ContentGuardDetector.PemBlock);
+    }
+
+    [Fact]
+    public async Task AnthropicKeyInAnAssignment_IsRejectedByBothDetectors()
+    {
+        var result = await CheckAsync(Context,
+            [new ContentGuardField("sections[0]", "ANTHROPIC_API_KEY=sk-ant-api03-FAKEfake")]);
+
+        result.Findings.Select(f => f.Detector).Should()
+            .Contain([ContentGuardDetector.AnthropicKey, ContentGuardDetector.CredentialAssignment]);
+    }
+
+    /// <summary>AB#8702 AC 2: prose and documentation that name a credential without a value pass.</summary>
+    [Theory]
+    [InlineData("Set a strong password for the admin account and rotate it every 90 days.")]
+    [InlineData("The password is stored in Vault; ask the platform team for access.")]
+    [InlineData("Password: see the team vault.")]
+    [InlineData("Client secret: rotate it yearly in the identity provider.")]
+    [InlineData("A password reset link expires after one hour.")]
+    [InlineData("The token: an opaque string the identity service issues.")]
+    [InlineData("password=<your-password>")]
+    [InlineData("DB_PASSWORD=$DB_PASSWORD")]
+    [InlineData("token: ${{ secrets.GITHUB_TOKEN }}")]
+    [InlineData("password: ***")]
+    [InlineData("password=...")]
+    [InlineData("password: \"\"")]
+    [InlineData("\"token\": \"The access token of the caller\"")]
+    [InlineData("type Config { host: String! password: String! }")]
+    [InlineData("token: string; apiKey: process.env.API_KEY")]
+    [InlineData("var token = await GetTokenAsync(cancellationToken: ct);")]
+    [InlineData("if (token == null) return; items.Select(token => token.Value)")]
+    [InlineData("existingSecret: octo-mongodb-credentials")]
+    [InlineData("secretKeyRef: name: octo-tls")]
+    [InlineData("GitHub classic tokens start with ghp_ and fine-grained ones with github_pat_.")]
+    [InlineData("AWS access key ids start with AKIA.")]
+    [InlineData("passwordPolicy: strict, tokenLifetime: 3600")]
+    public async Task ProseAndPlaceholdersAboutCredentials_AreAccepted(string text)
+    {
+        var result = await CheckAsync(Context, [new ContentGuardField("sections[0]", text)]);
+
+        result.IsRejected.Should().BeFalse(result.Message);
+    }
+
     [Theory]
     [InlineData("Known key prefixes such as `sk-ant-`, PEM blocks, JWTs and high-entropy tokens are rejected.")]
     [InlineData("rtId 67a1000000000000000a1c20, commit b110b96b9f0f8b6c3c1d2e7a4f5e6d7c8b9a0f1e")]

@@ -135,6 +135,8 @@ try
         .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
     builder.Services.AddSingleton<IHostAddressResolver, SystemDnsResolver>();
     builder.Services.AddSingleton<KnowledgeUrlPolicy>();
+    // AB#8712: answering conventions of knowledge_search, cached per tenant and schema page version.
+    builder.Services.AddSingleton<Meshmakers.Octo.Backend.McpServices.Services.Knowledge.KnowledgeConventionsCache>();
     builder.Services.AddSingleton<IKnowledgeUrlFetcher, KnowledgeUrlFetcher>();
     // AB#8475: content guard of knowledge page writes (credentials, PEM, JWT, high-entropy tokens, tenant secrets).
     builder.Services.AddSingleton<Meshmakers.Octo.Backend.McpServices.ContentGuard.IContentGuard,

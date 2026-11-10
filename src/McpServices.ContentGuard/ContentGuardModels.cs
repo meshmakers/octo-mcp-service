@@ -18,7 +18,24 @@ public enum ContentGuardDetector
     HighEntropyToken,
 
     /// <summary>A value equal to a Secret attribute value of the tenant.</summary>
-    TenantSecret
+    TenantSecret,
+
+    /// <summary>
+    ///     A GitHub token: <c>ghp_</c>, <c>gho_</c>, <c>ghu_</c>, <c>ghs_</c> or <c>ghr_</c> followed by at least 16
+    ///     letters or digits, or a fine-grained <c>github_pat_</c> token (AB#8702).
+    /// </summary>
+    GitHubToken,
+
+    /// <summary>An AWS access key id: <c>AKIA</c> or <c>ASIA</c> followed by 16 upper-case letters or digits (AB#8702).</summary>
+    AwsAccessKey,
+
+    /// <summary>
+    ///     A credential assignment: a key ending in password, passwd, secret, token, api key, access key or private key,
+    ///     followed by <c>=</c> or <c>:</c> and a literal value, e.g. <c>password=...</c> or <c>"client_secret": "..."</c>
+    ///     (AB#8702). Placeholders (<c>$VAR</c>, <c>&lt;...&gt;</c>, <c>${{ ... }}</c>, <c>***</c>) and prose without a
+    ///     value pass.
+    /// </summary>
+    CredentialAssignment
 }
 
 /// <summary>One text field of a write the guard checks, e.g. a page title or a section body.</summary>

@@ -8,7 +8,24 @@
   `RtSecurityContext.ForUser` overload (AB#8574); the XML doc comment in `RuntimeSecurityContextResolver` now names the
   two-parameter overload it means.
 
+### Security
+
+- **AB#8702** — the content guard of knowledge writes also refuses GitHub tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`,
+  `github_pat_`), AWS access key ids (`AKIA…`, `ASIA…`) and credential assignments (`password=…`, `DB_PASSWORD="…"`,
+  `"client_secret": "…"`, `api_key: …`, `access_token = …`) with `ContentRejected`, nothing written (new detectors
+  `GitHubToken`, `AwsAccessKey`, `CredentialAssignment`). Prose that names a credential without a value, placeholders
+  (`$VAR`, `<your-password>`, `${{ secrets.X }}`, `***`), type names and code pass. The local AB#8486 run had stored a page
+  with `password=…` and a `ghp_` token. Tests in `Services/ContentGuardTests` and `Tools/KnowledgeToolsTests`.
+
 ### Added
+
+- **AB#8712** — every successful `knowledge_search` response carries `answeringConventions`: the "Answering questions"
+  section of the tenant's schema page `knowledge-schema` (read with the caller's session, at most 2000 characters, longer
+  text cut deterministically at a word boundary with a marker), or a built-in default when the tenant has no such page or
+  section, and `answeringConventionsSource` (`knowledge-schema@<version>` or `default`). The bounded text is cached per
+  tenant and page version (`KnowledgeConventionsCache`); a new version of the schema page is read again. The tool
+  description says so. Clients cite pages and do not invent without reading the schema page first.
+  Tests in `Tools/KnowledgeToolsTests`.
 
 - **AB#8657** — `knowledge_upsert_page` takes the run data of the ingest pipeline as optional parameters and stores them on
   the new `KnowledgePageVersion`: `inputTokens` (`PromptTokens`), `outputTokens` (`CompletionTokens`), `cost` in USD

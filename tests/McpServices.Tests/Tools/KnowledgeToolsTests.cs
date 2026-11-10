@@ -67,10 +67,15 @@ public class KnowledgeToolsTests : TestBase
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(),
                 It.IsAny<RtEntityQueryOptions>(), It.IsAny<int?>(), It.IsAny<int?>()))
-            .ReturnsAsync((IOctoSession _, RtCkId<CkTypeId> type, RtEntityQueryOptions options, int? _, int? _) =>
+            .ReturnsAsync((IOctoSession _, RtCkId<CkTypeId> type, RtEntityQueryOptions options, int? _, int? take) =>
             {
                 var textSearch = options.TextSearchFilter?.SearchTerm?.ToString();
-                _textSearches.Add(textSearch);
+                // Page list queries only: KnowledgePages.FindBySlugAsync (take 2) looks up one page by its name, e.g.
+                // the schema page for the answering conventions (AB#8712).
+                if (take != 2)
+                {
+                    _textSearches.Add(textSearch);
+                }
                 var items = _entities.Values.Where(e => Equals(e.CkTypeId, type))
                     .Where(e => textSearch == null || _textIndexReturnsEveryPage || MatchesTextIndex(e, textSearch))
                     .ToList();
@@ -296,6 +301,37 @@ public class KnowledgeToolsTests : TestBase
         result.ErrorCode.Should().Be(ContentGuardResult.ErrorCode);
         result.ErrorMessage.Should().NotContain("AbCdEf123456");
         _entities.Values.Should().NotContain(e => Equals(e.CkTypeId, KnowledgePages.PageTypeId));
+    }
+
+    /// <summary>
+    ///     AB#8702: the page of the AB#8486 local run (a password assignment and a ghp_ token) is refused in the summary
+    ///     and in a section, on create and on update; nothing is written and an existing page keeps its version.
+    /// </summary>
+    [Theory]
+    [InlineData("summary", "password=hunter2fake")]
+    [InlineData("summary", "ghp_FAKEfake0000FAKEfake0000FAKEfake0000")]
+    [InlineData("section", "Log in with password=hunter2fake as admin.")]
+    [InlineData("section", "Push with ghp_FAKEfake0000FAKEfake0000FAKEfake0000.")]
+    public async Task CredentialPatternFromTheIngestRun_IsRejected_AndNothingIsWritten(string field, string text)
+    {
+        var created = await KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, "leaky-page", "Leaky page",
+            [new KnowledgeSectionDto { Heading = "Body", SectionContent = field == "section" ? text : "harmless" }],
+            summary: field == "summary" ? text : "harmless", cancellationToken: Ct);
+
+        created.ErrorCode.Should().Be(ContentGuardResult.ErrorCode);
+        created.ErrorMessage.Should().NotContain("hunter2fake").And.NotContain("FAKEfake");
+        _entities.Values.Should().NotContain(e => Equals(e.CkTypeId, KnowledgePages.PageTypeId));
+
+        var first = await UpsertAsync("clean-page", "Clean page", "harmless");
+        var updated = await KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, "clean-page", "Clean page",
+            [new KnowledgeSectionDto { Heading = "Body", SectionContent = field == "section" ? text : "harmless" }],
+            summary: field == "summary" ? text : null, cancellationToken: Ct);
+
+        updated.ErrorCode.Should().Be(ContentGuardResult.ErrorCode);
+        var page = _entities.Values.Single(e => e.RtWellKnownName == "clean-page");
+        KnowledgePages.CurrentVersion(page).Should().Be(first.Page!.CurrentVersion);
+        _entities.Values.Should().NotContain(e => Equals(e.CkTypeId, KnowledgePages.VersionTypeId) &&
+                                                  e.RtWellKnownName == KnowledgePages.VersionName("clean-page", 2));
     }
 
     [Fact]
@@ -1032,6 +1068,155 @@ public class KnowledgeToolsTests : TestBase
         var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
 
         result.ErrorMessage.Should().Contain("System.Ai 4.7.0");
+    }
+
+    // AB#8712: the answering conventions with every knowledge_search result.
+
+    private const string AnsweringText =
+        "Answer only from pages. Cite every page you used as [slug]. If no page answers, say so.";
+
+    private Task<KnowledgeWriteResponse> UpsertSchemaAsync(string answering, string heading = "Answering questions") =>
+        KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, KnowledgeConventions.SchemaSlug,
+            "Knowledge base conventions",
+            [
+                new KnowledgeSectionDto { Heading = "Purpose", SectionContent = "This tenant keeps a knowledge base.", SortOrder = 0 },
+                new KnowledgeSectionDto { Heading = heading, SectionContent = answering, SortOrder = 4 }
+            ],
+            kind: "Schema", cancellationToken: Ct);
+
+    [Fact]
+    public async Task Search_CarriesTheAnsweringSectionOfTheSchemaPage()
+    {
+        (await UpsertSchemaAsync(AnsweringText)).IsSuccess.Should().BeTrue();
+        await UpsertAsync("zebrafisch-pipeline", "Pipeline schedule", "Die Zebrafisch-Pipeline läuft nachts.");
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-pipeline");
+        result.AnsweringConventions.Should().Be(AnsweringText);
+        result.AnsweringConventionsSource.Should().Be("knowledge-schema@1");
+    }
+
+    [Fact]
+    public async Task Search_WithoutAMatch_AndTheIndex_CarryTheConventionsToo()
+    {
+        await UpsertSchemaAsync(AnsweringText);
+
+        var noMatch = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Okapi");
+        var index = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
+
+        noMatch.Pages.Should().BeEmpty();
+        noMatch.AnsweringConventions.Should().Be(AnsweringText);
+        index.AnsweringConventions.Should().Be(AnsweringText);
+    }
+
+    [Fact]
+    public async Task Search_AfterANewSchemaPageVersion_CarriesTheNewText()
+    {
+        TestServiceProvider.RegisterService(new KnowledgeConventionsCache());
+        await UpsertSchemaAsync(AnsweringText);
+        (await KnowledgeTools.KnowledgeSearch(MockServer.Object)).AnsweringConventions.Should().Be(AnsweringText);
+
+        await UpsertSchemaAsync("Answer in German. Cite pages as [slug].");
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
+
+        result.AnsweringConventions.Should().Be("Answer in German. Cite pages as [slug].");
+        result.AnsweringConventionsSource.Should().Be("knowledge-schema@2");
+    }
+
+    [Fact]
+    public async Task Conventions_AreServedFromTheCache_WhileTheSchemaPageVersionIsUnchanged()
+    {
+        var cache = new KnowledgeConventionsCache();
+        TestServiceProvider.RegisterService(cache);
+        await UpsertSchemaAsync(AnsweringText);
+        var page = _entities.Values.Single(e => e.RtWellKnownName == KnowledgeConventions.SchemaSlug &&
+                                                Equals(e.CkTypeId, KnowledgePages.PageTypeId));
+        cache.Set("test-tenant", page.RtId.ToString(), 1, "cached text of version 1");
+
+        (await KnowledgeTools.KnowledgeSearch(MockServer.Object)).AnsweringConventions
+            .Should().Be("cached text of version 1");
+
+        await UpsertSchemaAsync(AnsweringText + " Version two.");
+        (await KnowledgeTools.KnowledgeSearch(MockServer.Object)).AnsweringConventions
+            .Should().Be(AnsweringText + " Version two.", "a new page version is a cache miss");
+    }
+
+    [Fact]
+    public async Task Search_InATenantWithoutASchemaPage_CarriesTheBuiltInDefault()
+    {
+        await UpsertAsync("zebrafisch-pipeline", "Pipeline schedule", "Die Zebrafisch-Pipeline läuft nachts.");
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch");
+
+        result.AnsweringConventions.Should().Be(KnowledgeConventions.DefaultText);
+        result.AnsweringConventionsSource.Should().Be(KnowledgeConventions.DefaultSource);
+        result.AnsweringConventions.Should().Contain("[page-slug]").And.Contain("No knowledge page answers this question.");
+    }
+
+    [Fact]
+    public async Task Search_WithASchemaPageWithoutTheSection_CarriesTheBuiltInDefault()
+    {
+        await UpsertSchemaAsync("Write pages through the knowledge tools.", heading: "Writing pages");
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
+
+        result.AnsweringConventions.Should().Be(KnowledgeConventions.DefaultText);
+        result.AnsweringConventionsSource.Should().Be("default");
+    }
+
+    [Fact]
+    public async Task Search_WithALongSection_TruncatesDeterministically_AtAWordBoundary()
+    {
+        var words = string.Join(" ", Enumerable.Range(0, 1000).Select(i => $"rule{i}"));
+        await UpsertSchemaAsync(words);
+
+        var first = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
+        var second = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
+
+        var text = first.AnsweringConventions!;
+        text.Length.Should().BeLessThanOrEqualTo(KnowledgeConventions.MaxLength);
+        text.Should().EndWith(KnowledgeConventions.TruncationMarker);
+        second.AnsweringConventions.Should().Be(text);
+        var head = text[..^KnowledgeConventions.TruncationMarker.Length];
+        words.Should().StartWith(head + " ", "the cut falls between two words");
+        KnowledgeConventions.Bound(words).Should().Be(text);
+    }
+
+    [Fact]
+    public void Bound_KeepsAShortText_AndCutsAWordlessText_AtTheLimit()
+    {
+        KnowledgeConventions.Bound("  short text  ").Should().Be("short text");
+        var wordless = new string('a', 5000);
+        var bounded = KnowledgeConventions.Bound(wordless);
+        bounded.Length.Should().Be(KnowledgeConventions.MaxLength);
+        bounded.Should().EndWith(KnowledgeConventions.TruncationMarker);
+    }
+
+    [Fact]
+    public async Task Conventions_WhenTheSchemaPageCannotBeRead_AreTheDefault_AndTheSearchStillSucceeds()
+    {
+        var repo = new Mock<Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories.ITenantRepository>();
+        repo.Setup(r => r.GetRtEntitiesByTypeAsync(It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(), It.IsAny<int?>(), It.IsAny<int?>()))
+            .ThrowsAsync(new InvalidOperationException("database down"));
+
+        var conventions = await KnowledgeConventions.ReadAsync(repo.Object, Mock.Of<IOctoSession>(), "test-tenant",
+            new KnowledgeConventionsCache());
+
+        conventions.Should().Be(KnowledgeConventions.Default);
+    }
+
+    [Fact]
+    public void SearchToolDescription_MentionsTheConventionsInTheResponse()
+    {
+        var method = typeof(KnowledgeTools).GetMethod(nameof(KnowledgeTools.KnowledgeSearch))!;
+        var description = method.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+            .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+
+        description.Should().Contain("answeringConventions").And.Contain("Answering questions")
+            .And.Contain("knowledge-schema");
     }
 
     private static Meshmakers.Octo.Runtime.Contracts.Secrets.ISecretAttributeProtector SecretProtector(string plaintext)
