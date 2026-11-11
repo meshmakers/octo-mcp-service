@@ -271,15 +271,19 @@ with `answeringConventionsSource` (AB#8712).
   `KnowledgePageVersion` entities but never refreshes an existing page (AB#8778). A *Blueprint version* has the author
   `blueprint:<id>-<version>` and the engine's `rtBlueprintSource` stamp. `knowledge_list_platform_updates` (read) lists
   the pages with a newer Blueprint version: `Adoptable` (unedited - the current version is a Blueprint version) or
-  `Available` (edited - the current version was written in the tenant; newer = higher number or arrived after the
-  current version was written; not above `DismissedBlueprintVersion`). `knowledge_adopt_platform_updates` (medium risk,
+  `Available` (edited - the current version was written in the tenant, or the page content differs from its current
+  Blueprint version after a direct edit; newer = higher number or arrived after the tenant's current version; only a
+  version above `DismissedBlueprintVersion` counts). `knowledge_adopt_platform_updates` (medium risk,
   `runRef` required; caller: the `knowledge-platform-updates` pipeline of System.Ai.Knowledge) switches every Adoptable
   page to the newest Blueprint version **without writing a version**: title, kind, summary, sections, citations and
   status from that version, `CurrentVersion`, `BlueprintVersion`, `AdoptedByRun` = `runRef`, and `LinksTo` = the
   version's `DeclaredLinks` (added and removed; no attribute = links unchanged; unknown slugs are reported). Content guard
-  per page; a second call without a new Blueprint version writes nothing. Edited pages are never switched: a person
+  per page; a failure of one page is reported in `skipped`, the others stay adopted; the discovery reads the Blueprint
+  versions page by page and pages / current versions in batches (`truncated` above 100,000 Blueprint versions); a
+  second call without a new Blueprint version writes nothing. Edited pages are never switched: a person
   adopts with `knowledge_restore_version` (a new Draft version) or keeps the page with `knowledge_dismiss_platform_update`
-  (stores the version; the finding returns only for a higher Blueprint version; no version, no status). Verified
+  (stores the version, never lowers it; the finding returns only for a higher Blueprint version; no version, no status;
+  refused with `NotEdited` for an unedited page, whose update is adopted). Verified
   (AB#8565): the adopt copies the status of a seeded Blueprint version onto a page whose current version is itself a
   seeded Blueprint version; no caller chooses it, and edited pages never get it. Page writes take the next free version
   number (`<slug>@<n>` is never written twice).

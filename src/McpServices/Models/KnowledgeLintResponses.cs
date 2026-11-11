@@ -79,6 +79,9 @@ public class KnowledgePlatformUpdatesResponse : KnowledgeResponse
 {
     /// <summary>The pages with a newer Blueprint version, in slug order.</summary>
     public List<KnowledgePlatformUpdateDto> Updates { get; set; } = [];
+
+    /// <summary>True when the safety cap of Blueprint versions was hit; not every page was looked at.</summary>
+    public bool Truncated { get; set; }
 }
 
 /// <summary>One page of <c>knowledge_adopt_platform_updates</c>.</summary>
@@ -126,4 +129,7 @@ public class KnowledgeAdoptPlatformUpdatesResponse : KnowledgeResponse
 
     /// <summary>Edited pages with a newer Blueprint version; they keep their content.</summary>
     public List<KnowledgePlatformUpdateDto> Available { get; set; } = [];
+
+    /// <summary>True when the safety cap of Blueprint versions was hit; run again for the rest.</summary>
+    public bool Truncated { get; set; }
 }

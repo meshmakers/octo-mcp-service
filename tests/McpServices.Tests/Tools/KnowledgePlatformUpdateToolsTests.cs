@@ -51,11 +51,17 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(),
                 It.IsAny<RtEntityQueryOptions>(), It.IsAny<int?>(), It.IsAny<int?>()))
-            .ReturnsAsync((IOctoSession _, RtCkId<CkTypeId> type, RtEntityQueryOptions _, int? _, int? _) =>
+            .ReturnsAsync((IOctoSession _, RtCkId<CkTypeId> type, RtEntityQueryOptions options, int? skip, int? take) =>
             {
-                // Field filters are not applied here on purpose: the tools filter the result again themselves.
-                var items = _entities.Values.Where(e => Equals(e.CkTypeId, type)).ToList();
-                return new ResultSet<RtEntity>(items, items.Count, null, null);
+                // Like the engine: field filters (StartsWith, In), then skip / take over a stable order.
+                _queries++;
+                var items = _entities.Values.Where(e => Equals(e.CkTypeId, type))
+                    .Where(e => (options.FieldFilters ?? []).All(f => Matches(e, f)))
+                    .OrderBy(e => e.RtId.ToString(), StringComparer.Ordinal)
+                    .ToList();
+                var total = items.Count;
+                var window = items.Skip(skip ?? 0).Take(take ?? int.MaxValue).ToList();
+                return new ResultSet<RtEntity>(window, total, null, null);
             });
         MockTenantRepository
             .Setup(r => r.GetRtEntityByRtIdAsync(It.IsAny<IOctoSession>(), It.IsAny<RtEntityId>()))
@@ -108,6 +114,20 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
 
                 return Task.CompletedTask;
             });
+    }
+
+    private int _queries;
+
+    private static bool Matches(RtEntity e, FieldFilter f)
+    {
+        var value = f.AttributePath == "rtWellKnownName" ? e.RtWellKnownName : e.GetAttributeStringValueOrDefault(f.AttributePath);
+        return f.Operator switch
+        {
+            FieldFilterOperator.StartsWith => value != null && value.StartsWith((string)f.ComparisonValue!, StringComparison.Ordinal),
+            FieldFilterOperator.In => value != null && ((IEnumerable<object>)f.ComparisonValue!).Select(x => x.ToString()).Contains(value),
+            FieldFilterOperator.Equals => value == f.ComparisonValue?.ToString(),
+            _ => true
+        };
     }
 
     private delegate bool TryGetType(string tenantId, RtCkId<CkTypeId> ckTypeId, out CkTypeGraph? graph);
@@ -270,9 +290,8 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
     }
 
     [Fact]
-    public async Task Edited_ABlueprintVersionThatArrivedAfterTheEdit_IsAvailable_EvenWithALowerNumber()
+    public async Task Edited_ABlueprintVersionWithAHigherNumber_IsAvailable()
     {
-        // Version 2 of the blueprint arrives after the tenant already wrote its own versions 2 and 3.
         SeedPage("page-a");
         await EditAsync("page-a", "edit one");
         await EditAsync("page-a", "edit two");
@@ -281,6 +300,115 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
         SeedVersion(page, 4, "v4 from the blueprint");
 
         (await ListAsync()).Updates.Should().ContainSingle(u => u.State == "Available" && u.NewerVersion == 4);
+    }
+
+    [Fact]
+    public async Task Edited_ABlueprintVersionThatArrivedAfterTheEdit_IsAvailable_EvenWithALowerNumber()
+    {
+        // The blueprint's version 2 arrives after the tenant already wrote its own versions 2 and 3 (arrival branch).
+        SeedPage("page-a");
+        await EditAsync("page-a", "edit one");
+        await EditAsync("page-a", "edit two");
+        var page = Page("page-a");
+        Current(page).Should().Be(3);
+        SeedVersion(page, 2, "v2 from the blueprint");
+
+        (await ListAsync()).Updates.Should().ContainSingle(u => u.State == "Available" && u.NewerVersion == 2 &&
+                                                                u.CurrentVersion == 3);
+    }
+
+    [Fact]
+    public async Task Edited_ABlueprintVersionWithTheCurrentNumberThatArrivedLater_IsAvailable()
+    {
+        // Tenant wrote version 2 (current); the blueprint's version 2 arrives later with the same number.
+        SeedPage("page-a");
+        await EditAsync("page-a");
+        var page = Page("page-a");
+        SeedVersion(page, 2, "v2 from the blueprint");
+
+        var result = await AdoptAsync();
+
+        result.Adopted.Should().BeEmpty();
+        result.Available.Should().ContainSingle(u => u.NewerVersion == 2 && u.CurrentVersion == 2);
+    }
+
+    [Fact]
+    public async Task APageEditedDirectlyWithoutAVersion_CountsAsEdited_AndIsNotOverwritten()
+    {
+        // A signed-in user may write the page directly (writeAccess Interactive): CurrentVersion stays on the seed.
+        var page = SeedPage("page-a");
+        KnowledgePages.SetContent(page, Content("Edited directly in Studio", KnowledgePages.StatusDraft));
+        SeedVersion(page, 2, "v2");
+
+        var result = await AdoptAsync();
+
+        result.Adopted.Should().BeEmpty();
+        Current(page).Should().Be(1);
+        KnowledgePages.ReadContent(page).Title.Should().Be("Edited directly in Studio");
+        result.Available.Should().ContainSingle(u => u.Slug == "page-a" && u.NewerVersion == 2);
+    }
+
+    [Fact]
+    public async Task ManyPages_AreFoundWithBatchedQueries_NotOneQueryPerPage()
+    {
+        for (var i = 0; i < 450; i++)
+        {
+            var page = SeedPage($"page-{i:D3}", $"Page {i}");
+            if (i % 3 == 0)
+            {
+                SeedVersion(page, 2, $"Page {i} v2");
+            }
+        }
+
+        _queries = 0;
+        var list = await ListAsync();
+
+        list.Updates.Should().HaveCount(150).And.OnlyContain(u => u.State == "Adoptable");
+        list.Truncated.Should().BeFalse();
+        _queries.Should().BeLessThan(12, "Blueprint versions page by page, pages and current versions in batches of 200");
+    }
+
+    [Fact]
+    public async Task AFailureOnOnePage_IsReportedWithIt_AndTheOtherPagesStayAdopted()
+    {
+        TestServiceProvider.RegisterService<IContentGuard>(new ThrowingGuard("page-boom"));
+        var ok = SeedPage("page-ok");
+        SeedVersion(ok, 2, "ok v2");
+        var boom = SeedPage("page-boom");
+        SeedVersion(boom, 2, "boom v2");
+
+        var result = await AdoptAsync();
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Adopted.Should().ContainSingle(a => a.Slug == "page-ok");
+        result.Skipped.Should().ContainSingle(s => s.Slug == "page-boom" && s.Reason!.Contains("guard exploded"));
+        Current(ok).Should().Be(2);
+        Current(boom).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Dismiss_OfAnUneditedPage_IsRefused_BecauseItsUpdateIsAdopted()
+    {
+        var page = SeedPage("page-a");
+        SeedVersion(page, 2, "v2");
+
+        var result = await KnowledgePlatformUpdateTools.KnowledgeDismissPlatformUpdate(MockServer.Object, "page-a", 2);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("NotEdited");
+        _writes.Should().BeEmpty();
+        (await AdoptAsync()).Adopted.Should().ContainSingle();
+    }
+
+    private sealed class ThrowingGuard(string slug) : IContentGuard
+    {
+        private readonly ContentGuard _inner = new(NullLogger<ContentGuard>.Instance);
+
+        public Task<ContentGuardResult> CheckAsync(ContentGuardContext context, IReadOnlyCollection<ContentGuardField> fields,
+            CancellationToken cancellationToken = default) =>
+            fields.Any(f => f.Text == slug)
+                ? throw new InvalidOperationException("guard exploded")
+                : _inner.CheckAsync(context, fields, cancellationToken);
     }
 
     [Fact]

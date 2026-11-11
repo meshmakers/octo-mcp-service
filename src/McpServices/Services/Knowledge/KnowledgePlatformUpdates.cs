@@ -26,6 +26,9 @@ internal sealed record KnowledgeVersionInfo(RtEntity Entity, int Number, bool Is
         : null;
 }
 
+/// <summary>Result of a scan: the updates and whether the safety cap of Blueprint versions was hit.</summary>
+internal sealed record PlatformUpdateScan(IReadOnlyList<PlatformUpdate> Updates, bool Truncated);
+
 /// <summary>A page with a newer Blueprint version and what to do with it.</summary>
 internal sealed record PlatformUpdate(
     RtEntity Page,
@@ -71,11 +74,14 @@ internal static class KnowledgePlatformUpdates
     /// <summary>The version attribute with the LinksTo slugs a Blueprint version declares.</summary>
     public const string DeclaredLinksAttribute = "DeclaredLinks";
 
-    /// <summary>At most this many pages are looked at in one call (like the lint).</summary>
-    public const int MaxPages = 1000;
+    /// <summary>Page size of the discovery queries; the Blueprint versions are read page by page.</summary>
+    public const int QueryPageSize = 1000;
 
-    /// <summary>At most this many Blueprint versions are read in one call.</summary>
-    public const int MaxBlueprintVersions = 5000;
+    /// <summary>Slugs (or version names) per batched <c>In</c> query.</summary>
+    public const int BatchSize = 200;
+
+    /// <summary>Safety cap of Blueprint versions read in one call; above it the result says <c>Truncated</c>.</summary>
+    public const int MaxBlueprintVersions = 100_000;
 
     /// <summary>True for a version a blueprint seeded (author prefix and the engine's blueprint stamp).</summary>
     public static bool IsBlueprintVersion(RtEntity version) =>
@@ -103,35 +109,66 @@ internal static class KnowledgePlatformUpdates
     }
 
     /// <summary>
-    ///     The pages that have a newer Blueprint version, in slug order. One query finds the Blueprint versions; only the
-    ///     pages they belong to are read in full.
+    ///     The pages that have a newer Blueprint version, in slug order. Database round trips do not grow with the page
+    ///     count: the Blueprint versions are read page by page (author prefix), then the pages they belong to and the
+    ///     current versions of those pages in batches (<see cref="BatchSize" />). Nothing else is needed to decide.
     /// </summary>
-    public static async Task<IReadOnlyList<PlatformUpdate>> FindAsync(ITenantRepository repository,
-        IOctoSession session)
+    public static async Task<PlatformUpdateScan> FindAsync(ITenantRepository repository, IOctoSession session)
     {
-        var options = RtEntityQueryOptions.Create();
-        options.FieldStartsWith("Author", BlueprintAuthorPrefix);
-        var blueprintVersions = (await repository.GetRtEntitiesByTypeAsync(session, KnowledgePages.VersionTypeId,
-                options, 0, MaxBlueprintVersions)).Items
-            .Where(IsBlueprintVersion)
+        var blueprintEntities = new List<RtEntity>();
+        var truncated = false;
+        for (var skip = 0;; skip += QueryPageSize)
+        {
+            var options = RtEntityQueryOptions.Create();
+            options.FieldStartsWith("Author", BlueprintAuthorPrefix);
+            var page = await repository.GetRtEntitiesByTypeAsync(session, KnowledgePages.VersionTypeId, options, skip,
+                QueryPageSize);
+            var items = page.Items.ToList();
+            blueprintEntities.AddRange(items);
+            if (items.Count < QueryPageSize)
+            {
+                break;
+            }
+
+            if (blueprintEntities.Count >= MaxBlueprintVersions)
+            {
+                truncated = true;
+                break;
+            }
+        }
+
+        var blueprintBySlug = blueprintEntities.Where(IsBlueprintVersion)
             .Select(v => (Slug: SlugOf(v.RtWellKnownName), Version: v))
             .Where(x => x.Slug != null)
             .GroupBy(x => x.Slug!, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.Select(x => x.Version).ToList(), StringComparer.Ordinal);
-        if (blueprintVersions.Count == 0)
+            .ToDictionary(g => g.Key, g => g.Select(x => Info(x.Version, g.Key)!).DistinctBy(v => v.Entity.RtId).ToList(),
+                StringComparer.Ordinal);
+        if (blueprintBySlug.Count == 0)
         {
-            return [];
+            return new PlatformUpdateScan([], truncated);
         }
 
-        var pages = await repository.GetRtEntitiesByTypeAsync(session, KnowledgePages.PageTypeId,
-            RtEntityQueryOptions.Create(), 0, MaxPages);
+        // Only the pages with a Blueprint version (a deleted page has none to read: it stays deleted).
+        var pages = (await ByNamesAsync(repository, session, KnowledgePages.PageTypeId, blueprintBySlug.Keys))
+            .Where(p => p.RtWellKnownName != null && blueprintBySlug.ContainsKey(p.RtWellKnownName))
+            .DistinctBy(p => p.RtWellKnownName)
+            .ToList();
+        var currentNames = pages.ToDictionary(p => KnowledgePages.VersionName(p.RtWellKnownName!, KnowledgePages.CurrentVersion(p)),
+            p => p.RtWellKnownName!, StringComparer.Ordinal);
+        var currentBySlug = (await ByNamesAsync(repository, session, KnowledgePages.VersionTypeId, currentNames.Keys))
+            .Where(v => v.RtWellKnownName != null && currentNames.ContainsKey(v.RtWellKnownName))
+            .GroupBy(v => currentNames[v.RtWellKnownName!], StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Select(v => Info(v, g.Key)).Where(v => v != null).Select(v => v!).ToList(),
+                StringComparer.Ordinal);
+
         var updates = new List<PlatformUpdate>();
-        foreach (var page in pages.Items.Where(p => p.RtWellKnownName != null && blueprintVersions.ContainsKey(p.RtWellKnownName))
-                     .OrderBy(p => p.RtWellKnownName, StringComparer.Ordinal))
+        foreach (var page in pages.OrderBy(p => p.RtWellKnownName, StringComparer.Ordinal))
         {
-            // Only pages with a Blueprint version get here; their full version list decides (current version, arrival).
             var slug = page.RtWellKnownName!;
-            var versions = await ListVersionsAsync(repository, session, slug);
+            var versions = blueprintBySlug[slug]
+                .Concat(currentBySlug.TryGetValue(slug, out var current) ? current : [])
+                .DistinctBy(v => v.Entity.RtId)
+                .ToList();
             var update = Decide(page, slug, KnowledgePages.CurrentVersion(page), versions, Dismissed(page));
             if (update != null)
             {
@@ -139,7 +176,24 @@ internal static class KnowledgePlatformUpdates
             }
         }
 
-        return updates;
+        return new PlatformUpdateScan(updates, truncated);
+    }
+
+    /// <summary>The entities of a type with one of the well-known names, read in batches.</summary>
+    private static async Task<List<RtEntity>> ByNamesAsync(ITenantRepository repository, IOctoSession session,
+        RtCkId<CkTypeId> type, IEnumerable<string> names)
+    {
+        var result = new List<RtEntity>();
+        foreach (var batch in names.Distinct(StringComparer.Ordinal).Chunk(BatchSize))
+        {
+            var options = RtEntityQueryOptions.Create();
+            options.Field("rtWellKnownName", FieldFilterOperator.In, batch);
+            var wanted = batch.ToHashSet(StringComparer.Ordinal);
+            var items = await repository.GetRtEntitiesByTypeAsync(session, type, options, 0, batch.Length * 4);
+            result.AddRange(items.Items.Where(e => e.RtWellKnownName != null && wanted.Contains(e.RtWellKnownName)));
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -158,7 +212,11 @@ internal static class KnowledgePlatformUpdates
         // number with a Blueprint version (a seed that arrived with a number the tenant had already used), the page
         // counts as edited - the safe direction: nothing is switched, a person decides.
         var currentVersions = versions.Where(v => v.Number == current).ToList();
-        var unedited = currentVersions.Count > 0 && currentVersions.All(v => v.IsBlueprint);
+        // Signed-in users may write a page directly (writeAccess AB#8575) without a version: such an edit leaves
+        // CurrentVersion on the seeded version, so the page content must still equal it (status included - a person
+        // who verified or rejected the page directly decided something an adopt must not undo).
+        var unedited = currentVersions.Count > 0 && currentVersions.All(v => v.IsBlueprint) &&
+                       currentVersions.Any(v => SameContent(page, v.Entity, slug));
         if (unedited)
         {
             var target = blueprint.Where(v => v.Number > current).MaxBy(v => v.Number);
@@ -173,8 +231,12 @@ internal static class KnowledgePlatformUpdates
             return null;
         }
 
-        var currentArrived = currentVersions.Select(v => v.ArrivedAt).Where(t => t != null).DefaultIfEmpty(null).Max() ??
-                             CompiledAt(page);
+        // When the edit happened: the tenant-written current version (a Blueprint version with the same number that
+        // arrived later must not count), else the page's compile time (a direct page edit has no version).
+        var tenantCurrent = currentVersions.Where(v => !v.IsBlueprint).ToList();
+        var currentArrived = tenantCurrent.Count > 0
+            ? tenantCurrent.Select(v => v.ArrivedAt).Where(t => t != null).DefaultIfEmpty(null).Max()
+            : CompiledAt(page) ?? currentVersions.Select(v => v.ArrivedAt).Where(t => t != null).DefaultIfEmpty(null).Max();
         var newer = newest.Number > current ||
                     currentArrived == null ||
                     (newest.ArrivedAt != null && newest.ArrivedAt > currentArrived);
@@ -233,6 +295,11 @@ internal static class KnowledgePlatformUpdates
         var arrived = version.RtCreationDateTime ?? version.GetAttributeValueOrDefault("AuthoredAt") as DateTime?;
         return new KnowledgeVersionInfo(version, number, IsBlueprintVersion(version), arrived?.ToUniversalTime());
     }
+
+    /// <summary>True when the page shows exactly the content (and status) of the version.</summary>
+    public static bool SameContent(RtEntity page, RtEntity version, string slug) =>
+        KnowledgePages.Render(KnowledgePages.ReadContent(page), slug, 0) ==
+        KnowledgePages.Render(KnowledgePages.ReadContent(version), slug, 0);
 
     private static DateTime? CompiledAt(RtEntity page) =>
         page.GetAttributeValueOrDefault("CompiledAt") is DateTime t ? t.ToUniversalTime() : null;

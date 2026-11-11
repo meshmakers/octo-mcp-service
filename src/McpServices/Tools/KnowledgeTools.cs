@@ -780,7 +780,8 @@ public static class KnowledgeTools
     /// <returns>The failure response, or <c>null</c> when the write was committed.</returns>
     internal static async Task<KnowledgeWriteResponse?> ApplyAsync(ITenantRepository repository, IOctoSession session,
         string tenantId, IReadOnlyList<IEntityUpdateInfo<RtEntity>> updates,
-        IReadOnlyList<AssociationUpdateInfo> associations, string? slug = null, RtEntity? readPage = null)
+        IReadOnlyList<AssociationUpdateInfo> associations, string? slug = null, RtEntity? readPage = null,
+        Func<RtEntity, string?>? recheck = null)
     {
         var readVersion = readPage == null ? 0 : KnowledgePages.CurrentVersion(readPage);
         session.StartTransaction();
@@ -795,6 +796,20 @@ public static class KnowledgeTools
                 {
                     await session.AbortTransactionAsync();
                     return Conflict(tenantId, current, readVersion);
+                }
+
+                // AB#8780: a caller-specific condition on the page as stored inside the transaction.
+                if (current != null && recheck?.Invoke(current) is { } reason)
+                {
+                    await session.AbortTransactionAsync();
+                    return new KnowledgeWriteResponse
+                    {
+                        TenantId = tenantId,
+                        IsConflict = true,
+                        ErrorCode = "VersionConflict",
+                        Page = KnowledgePages.Summarize(tenantId, current),
+                        ErrorMessage = reason + " Nothing was written."
+                    };
                 }
             }
 

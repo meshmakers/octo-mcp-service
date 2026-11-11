@@ -13,7 +13,9 @@
   `LinksTo` follows the version's `DeclaredLinks` (absent = unchanged). Edited pages are never changed; they are listed as
   `Available` (the lint's `PlatformUpdateAvailable`) until a person restores the version or dismisses it
   (`DismissedBlueprintVersion`). `knowledge_write_lint_report` accepts the kind `PlatformUpdateAvailable` (key 6) on
-  tenants with System.Ai 4.10.0. Tests in `Tools/KnowledgePlatformUpdateToolsTests` and `Tools/KnowledgeLintToolsTests`.
+  tenants with System.Ai 4.10.0. A page whose content differs from its current Blueprint version (direct edit by a
+  signed-in user) counts as edited; discovery is paged and batched. Tests in `Tools/KnowledgePlatformUpdateToolsTests`
+  and `Tools/KnowledgeLintToolsTests`.
 
 ### Fixed
 

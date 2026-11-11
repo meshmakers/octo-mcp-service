@@ -55,12 +55,13 @@ public static class KnowledgePlatformUpdateTools
         try
         {
             using var session = await ctx.Repo.GetSessionAsync(ctx.Security!);
-            var updates = await KnowledgePlatformUpdates.FindAsync(ctx.Repo, session);
+            var scan = await KnowledgePlatformUpdates.FindAsync(ctx.Repo, session);
             var response = new KnowledgePlatformUpdatesResponse
             {
                 IsSuccess = true,
                 TenantId = ctx.TenantId,
-                Updates = updates.Select(Dto).ToList()
+                Updates = scan.Updates.Select(Dto).ToList(),
+                Truncated = scan.Truncated
             };
             response.Message = $"{response.Updates.Count(u => u.State == nameof(PlatformUpdateState.Adoptable))} " +
                                "unedited page(s) to adopt, " +
@@ -117,8 +118,12 @@ public static class KnowledgePlatformUpdateTools
         try
         {
             using var session = await ctx.Repo.GetSessionAsync(ctx.Security!);
-            var response = new KnowledgeAdoptPlatformUpdatesResponse { TenantId = ctx.TenantId, RunRef = runRef };
-            foreach (var update in await KnowledgePlatformUpdates.FindAsync(ctx.Repo, session))
+            var scan = await KnowledgePlatformUpdates.FindAsync(ctx.Repo, session);
+            var response = new KnowledgeAdoptPlatformUpdatesResponse
+            {
+                TenantId = ctx.TenantId, RunRef = runRef, Truncated = scan.Truncated
+            };
+            foreach (var update in scan.Updates)
             {
                 if (update.State == PlatformUpdateState.Available)
                 {
@@ -126,7 +131,25 @@ public static class KnowledgePlatformUpdateTools
                     continue;
                 }
 
-                var outcome = await AdoptAsync(server, ctx, session, update, runRef, cancellationToken);
+                // One transaction per page: a failure of one page is reported with it, the pages already switched
+                // in this run stay in the answer.
+                KnowledgePlatformAdoptionDto outcome;
+                try
+                {
+                    outcome = await AdoptAsync(server, ctx, session, update, runRef, cancellationToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    outcome = new KnowledgePlatformAdoptionDto
+                    {
+                        Slug = update.Slug,
+                        FromVersion = update.CurrentVersion,
+                        ToVersion = update.Target.Number,
+                        Blueprint = update.Target.Blueprint,
+                        Reason = $"Failed: {ex.Message}"
+                    };
+                }
+
                 if (outcome.IsSuccess)
                 {
                     response.Adopted.Add(outcome);
@@ -139,7 +162,8 @@ public static class KnowledgePlatformUpdateTools
 
             response.IsSuccess = true;
             response.Message = $"Adopted {response.Adopted.Count} page(s), skipped {response.Skipped.Count}; " +
-                               $"{response.Available.Count} edited page(s) keep their content (PlatformUpdateAvailable).";
+                               $"{response.Available.Count} edited page(s) keep their content (PlatformUpdateAvailable)." +
+                               (scan.Truncated ? " Not every Blueprint version was read (safety cap); run again." : "");
             return response;
         }
         catch (Exception ex)
@@ -203,6 +227,19 @@ public static class KnowledgePlatformUpdateTools
                 };
             }
 
+            var current = KnowledgePages.CurrentVersion(page);
+            var decision = KnowledgePlatformUpdates.Decide(page, slug, current, versions, null);
+            if (decision?.State == PlatformUpdateState.Adoptable)
+            {
+                return new KnowledgeWriteResponse
+                {
+                    TenantId = ctx.TenantId,
+                    ErrorCode = "NotEdited",
+                    ErrorMessage = $"'{slug}' was never edited in this tenant: its Blueprint versions are adopted " +
+                                   "automatically (knowledge_adopt_platform_updates). Only an edited page's update can be dismissed."
+                };
+            }
+
             var dismissed = KnowledgePlatformUpdates.Dismissed(page);
             if (dismissed >= version)
             {
@@ -217,9 +254,13 @@ public static class KnowledgePlatformUpdateTools
 
             var update = new RtEntity { RtId = page.RtId, CkTypeId = KnowledgePages.PageTypeId, RtWellKnownName = slug };
             update.SetAttributeValue(KnowledgePlatformUpdates.DismissedAttribute, AttributeValueTypesDto.Int, version);
+            // Monotonic: re-read inside the transaction; a concurrent dismissal of a higher version wins.
             var failure = await KnowledgeTools.ApplyAsync(ctx.Repo, session, ctx.TenantId!,
                 [EntityUpdateInfo<RtEntity>.CreateUpdate(new RtEntityId(KnowledgePages.PageTypeId, page.RtId), update)],
-                [], slug, page);
+                [], slug, page,
+                stored => KnowledgePlatformUpdates.Dismissed(stored) >= version
+                    ? $"Blueprint version {KnowledgePlatformUpdates.Dismissed(stored)} of '{slug}' was dismissed meanwhile."
+                    : null);
             return failure ?? new KnowledgeWriteResponse
             {
                 IsSuccess = true,
@@ -286,9 +327,14 @@ public static class KnowledgePlatformUpdateTools
             await FollowLinksAsync(ctx.Repo, session, update.Page, declared, associations, result);
         }
 
+        // A direct page edit by a signed-in user in between keeps CurrentVersion; compare the content as well.
+        var readContent = KnowledgePages.Render(KnowledgePages.ReadContent(update.Page), update.Slug, 0);
         var failure = await KnowledgeTools.ApplyAsync(ctx.Repo, session, ctx.TenantId!,
             [EntityUpdateInfo<RtEntity>.CreateUpdate(new RtEntityId(KnowledgePages.PageTypeId, update.Page.RtId), page)],
-            associations, update.Slug, update.Page);
+            associations, update.Slug, update.Page,
+            stored => KnowledgePages.Render(KnowledgePages.ReadContent(stored), update.Slug, 0) == readContent
+                ? null
+                : $"'{update.Slug}' was edited while the adopt ran.");
         if (failure != null)
         {
             result.Reason = $"{failure.ErrorCode ?? "WriteFailed"}: {failure.ErrorMessage}";
