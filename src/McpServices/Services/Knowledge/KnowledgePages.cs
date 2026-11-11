@@ -25,7 +25,8 @@ internal sealed record KnowledgeContent(
 /// <summary>
 ///     Run metadata of a write (prototype WikiEntry run metadata, stored on the version). AB#8657 adds the run data the
 ///     ingest pipeline passes: tokens (<c>PromptTokens</c>, <c>CompletionTokens</c>), cost (<c>CostUsd</c>), reviewer
-///     rounds (<c>ReviewerIterations</c>) and the run reference (<c>RunRef</c>). A <c>null</c> value is not written.
+///     rounds (<c>ReviewerIterations</c>) and the run reference (<c>RunRef</c>); AB#8719 the generation latency
+///     (<c>LatencySeconds</c>). A <c>null</c> value is not written.
 /// </summary>
 internal sealed record KnowledgeRunMetadata(
     string? PromptName = null,
@@ -35,7 +36,8 @@ internal sealed record KnowledgeRunMetadata(
     int? InputTokens = null,
     int? OutputTokens = null,
     double? CostUsd = null,
-    int? ReviewerRounds = null);
+    int? ReviewerRounds = null,
+    double? LatencySeconds = null);
 
 /// <summary>
 ///     The knowledge base model of System.Ai 4.7.0 (AB#8483) as the knowledge tools use it (AB#8484): ids, enum names,
@@ -352,6 +354,11 @@ internal static class KnowledgePages
         if (run?.ReviewerRounds != null)
         {
             version.SetAttributeValue("ReviewerIterations", AttributeValueTypesDto.Int, run.ReviewerRounds.Value);
+        }
+
+        if (run?.LatencySeconds != null)
+        {
+            version.SetAttributeValue("LatencySeconds", AttributeValueTypesDto.Double, run.LatencySeconds.Value);
         }
 
         var pageId = new RtEntityId(PageTypeId, page.RtId);

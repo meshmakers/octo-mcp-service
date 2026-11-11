@@ -1156,11 +1156,11 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   `origin` applies to new pages only; `linksTo` / `sourceRtIds` only add links (removal is `knowledge_link remove=true`);
   `changeNote` and the run metadata belong to the new version only.
 - **Run data** (AB#8657, write path W1 of AB#8486: the pipeline node `McpToolCall@1` writes after the LLM run):
-  `knowledge_upsert_page` takes `inputTokens`, `outputTokens`, `cost` (USD), `reviewerRounds` and `runRef` besides
+  `knowledge_upsert_page` takes `inputTokens`, `outputTokens`, `cost` (USD), `reviewerRounds`, `latencySeconds` (AB#8719) and `runRef` besides
   `promptName` / `promptVersion` / `modelId`, carried by `KnowledgeRunMetadata` into `BuildWrite`, which writes only the
   non-null values to the version attributes `PromptTokens`, `CompletionTokens`, `CostUsd` (Double), `ReviewerIterations`,
-  `RunRef`. `KnowledgeTools.ValidateRunData` runs before the tenant is opened: negative numbers (all named in one message),
-  NaN/infinite cost, a blank or > 200 character `runRef` = `InvalidArgument`. `runRef` passes the content guard like
+  `RunRef`, `LatencySeconds` (Double). `KnowledgeTools.ValidateRunData` runs before the tenant is opened: negative numbers (all named in one message),
+  NaN/infinite cost or latency, a blank or > 200 character `runRef` = `InvalidArgument`. `runRef` passes the content guard like
   `changeNote`. Cache read/creation tokens are not stored: System.Ai has no attribute for them yet (question on AB#8657).
 - **Prototype JSON**: `KnowledgeSectionDto` / `KnowledgeCitationDto` / `KnowledgeHallucinationFlagDto` carry the JSON names of the
   KnowledgeCapture prompts (`heading`, `sectionContent`, `sortOrder`, `sectionRef`, `sourceQuote`, `sourceAnchor`, `sourceRtId`,
