@@ -1129,6 +1129,13 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   (`rtWellKnownName` `<slug>@<n>`, full content, `Author` = `user:<sub>` or `client:<client_id>`, `AuthoredAt`, `ChangeNote`,
   run metadata) and the `VersionOf` association, in one transaction. The page's `CurrentVersion` points at it. A restore writes
   a new version with `RestoredFromVersion`; nothing is ever deleted. Links (`LinksTo`) are not content and make no version.
+- **Write channel** (AB#8575): the write tools open their session with `OpenAsync(server, tenantId, write: true)`, which adds
+  `RtSecurityContext.WithWriteChannel(KnowledgePages.WriteChannel)` = `System.Ai/KnowledgeTools`. System.Ai 4.8.0 declares
+  `writeAccess { principals: [Interactive], channels: [System.Ai/KnowledgeTools] }` on `KnowledgePage` and
+  `KnowledgePageVersion`, so the engine (AB#8574) admits these writes for every caller and refuses a client-credentials
+  caller's direct GraphQL/REST/ImportRt writes with message 144. The constant must equal the model's channel (a mismatch
+  breaks every knowledge write of a client caller); read tools never get the channel; the channel is never taken from
+  caller input. Only these four tools may set it.
 - **Content guard first** (`IContentGuard`, AB#8475): every tool that writes text (upsert, restore, set_status) checks title,
   summary, sections, citations (all four fields), flags, the slug and the free-text extras (`changeNote`, `promptName`, `modelId`, `runRef`) before anything
   is written; tenant secrets come in as fingerprints read with the caller's session. No guard registered = refusal.

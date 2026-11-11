@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Security
+
+- **AB#8575** — the knowledge write tools (`knowledge_upsert_page`, `knowledge_link`, `knowledge_set_status`,
+  `knowledge_restore_version`) open their caller session on the trusted write channel `System.Ai/KnowledgeTools`
+  (`KnowledgePages.WriteChannel`, `RtSecurityContext.WithWriteChannel`). System.Ai 4.8.0 restricts writes of
+  `KnowledgePage` and `KnowledgePageVersion` to signed-in users and this channel (`writeAccess`, engine AB#8574), so the
+  tools keep writing for every caller (content guard, versioning, no Verified), while a client-credentials token that
+  writes those types directly via GraphQL, REST or ImportRt is refused by the engine with message 144. The read tools
+  get no channel; the session still acts for the caller (roles, data permissions, author). Tests in
+  `Tools/KnowledgeToolsTests` (`WriteTools_OpenTheirSessionOnTheKnowledgeToolsChannel_ForTheCallerItself`,
+  `ReadTools_NeverOpenTheirSessionOnTheChannel`, `WriteChannel_IsTheChannelOfTheSystemAiWriteAccessBlock`).
+
 ### Fixed
 
 - **AB#8717** — the build failed with CS0419 (ambiguous cref) after the engine added a second

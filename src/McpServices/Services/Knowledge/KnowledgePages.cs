@@ -54,6 +54,14 @@ internal static class KnowledgePages
     public const string CitationRecord = "System.Ai/Citation";
     public const string FlagRecord = "System.Ai/HallucinationFlag";
 
+    /// <summary>
+    ///     AB#8575: the trusted in-process write channel of the knowledge write tools. Must equal the <c>channels</c> entry
+    ///     of the <c>writeAccess</c> block of <c>KnowledgePage</c> and <c>KnowledgePageVersion</c> in System.Ai 4.8.0
+    ///     (octo-ai-services <c>src/SystemAiCkModel/ConstructionKit/types/knowledgePage*.yaml</c>); a mismatch makes every
+    ///     knowledge write of a client-credentials caller fail with message 144.
+    /// </summary>
+    public const string WriteChannel = "System.Ai/KnowledgeTools";
+
     public static readonly string[] KindNames = ["Concept", "Entity", "HowTo", "Summary", "Skill", "Schema"];
     public static readonly string[] OriginNames = ["Ingest", "Query", "Manual", "Blueprint"];
     public static readonly string[] StatusNames = ["Draft", "InReview", "Verified", "Rejected"];
