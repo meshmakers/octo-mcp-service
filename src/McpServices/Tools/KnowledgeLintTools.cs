@@ -194,7 +194,8 @@ public static class KnowledgeLintTools
             return "completedAt must not be in the future.";
         }
 
-        var latest = completedAt?.ToUniversalTime() ?? horizon;
+        // Without completedAt the cursor may not pass the current time (no allowance: the next run continues after it).
+        var latest = completedAt?.ToUniversalTime() ?? (now ?? DateTime.UtcNow);
         if (verifiedThrough != null && verifiedThrough.Value.ToUniversalTime() > latest)
         {
             return completedAt != null

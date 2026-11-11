@@ -77,21 +77,39 @@ internal static class KnowledgeWriteRefusal
             return null;
         }
 
-        return Build(runtimeId.ToString(), operation, IsLintReportType(ckCache, tenantId, runtimeId));
+        return Build(runtimeId.ToString(), operation, LintKindOf(ckCache, tenantId, runtimeId));
     }
 
-    /// <summary>The lint report type, or a type the CK cache knows that derives from it (AB#8488).</summary>
-    private static bool IsLintReportType(ICkCacheService ckCache, string tenantId, RtCkId<CkTypeId> runtimeId)
+    /// <summary>Whether a type is the lint report, a type the CK cache knows that derives from it, or neither (AB#8488).</summary>
+    private enum LintKind
+    {
+        None,
+        Report,
+        Derived
+    }
+
+    private static LintKind LintKindOf(ICkCacheService ckCache, string tenantId, RtCkId<CkTypeId> runtimeId)
     {
         var lintReport = new RtCkId<CkTypeId>(LintReportType);
-        return runtimeId.Equals(lintReport) ||
-               (ckCache.TryGetRtCkType(tenantId, runtimeId, out var graph) && graph != null &&
-                graph.GetBaseTypes(true).Any(t => t.ToRtCkId().Equals(lintReport)));
+        if (runtimeId.Equals(lintReport))
+        {
+            return LintKind.Report;
+        }
+
+        return ckCache.TryGetRtCkType(tenantId, runtimeId, out var graph) && graph != null &&
+               graph.GetBaseTypes(true).Any(t => t.ToRtCkId().Equals(lintReport))
+            ? LintKind.Derived
+            : LintKind.None;
     }
 
     /// <summary>The refusal message of an import whose file references the knowledge type or role <paramref name="id" />.</summary>
     public static string ImportMessage(string id) =>
-        Build(id, Operation.Import, string.Equals(id, LintReportType, StringComparison.OrdinalIgnoreCase)).Message;
+        Build(id, Operation.Import,
+            string.Equals(id, LintReportType, StringComparison.OrdinalIgnoreCase) ? LintKind.Report : LintKind.None).Message;
+
+    /// <summary>The refusal message of an import whose file references the knowledge type <paramref name="runtimeId" /> the CK cache knows.</summary>
+    public static string ImportMessage(ICkCacheService ckCache, string tenantId, RtCkId<CkTypeId> runtimeId) =>
+        Build(runtimeId.ToString(), Operation.Import, LintKindOf(ckCache, tenantId, runtimeId)).Message;
 
     /// <summary>The refusal message of an import that references a CK type the tenant does not know (fail closed).</summary>
     public static string UnknownTypeImportMessage(string ckTypeId) =>
@@ -123,11 +141,14 @@ internal static class KnowledgeWriteRefusal
     }
 
     private static (string Message, IReadOnlyDictionary<string, string> Parameters) Build(string typeId,
-        Operation operation, bool isLintReport)
+        Operation operation, LintKind lintKind)
     {
-        var (message, tool) = isLintReport
-            ? LintReportRefusal(typeId, operation)
-            : PageRefusal(typeId, operation);
+        var (message, tool) = lintKind switch
+        {
+            LintKind.Report => LintReportRefusal(typeId, operation),
+            LintKind.Derived => DerivedLintReportRefusal(typeId, operation),
+            _ => PageRefusal(typeId, operation)
+        };
 
         return (message, new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -148,6 +169,11 @@ internal static class KnowledgeWriteRefusal
             $"'{typeId}' is written only through {LintReportTool}, which runs the content guard and writes the report " +
             "unvalidated. Nothing was written.", LintReportTool)
     };
+
+    private static (string Message, string Tool) DerivedLintReportRefusal(string typeId, Operation operation) => (
+        $"'{typeId}' derives from {LintReportType}. Derived lint reports are not written or imported over MCP: " +
+        $"{LintReportTool} writes {LintReportType} only. " +
+        (operation == Operation.Import ? "Nothing was imported." : "Nothing was written."), "none");
 
     private static (string Message, string Tool) PageRefusal(string typeId, Operation operation)
     {

@@ -263,7 +263,7 @@ public class KnowledgeLintToolsTests : TestBase
     [
         "kind", "page-ref", "related-ref", "detail-empty", "detail-long", "too-many", "pages-negative",
         "completed-before-started", "tokens-negative", "cost-nan", "name-long", "run-ref-long", "started-missing",
-        "finding-null", "cursor-after-completed", "cursor-in-future", "completed-in-future"
+        "finding-null", "cursor-after-completed", "cursor-in-future", "completed-in-future", "cursor-just-after-now"
     ];
 
     [Theory]
@@ -289,6 +289,7 @@ public class KnowledgeLintToolsTests : TestBase
             "cursor-after-completed" => await WriteAsync(completedAt: Started.AddMinutes(1),
                 verifiedThrough: Started.AddMinutes(2)),
             "cursor-in-future" => await WriteAsync(verifiedThrough: DateTime.UtcNow.AddDays(1)),
+            "cursor-just-after-now" => await WriteAsync(verifiedThrough: DateTime.UtcNow.AddMinutes(1)),
             "completed-in-future" => await WriteAsync(completedAt: DateTime.UtcNow.AddDays(1),
                 verifiedThrough: DateTime.UtcNow.AddDays(1)),
             _ => throw new ArgumentOutOfRangeException(nameof(variant))
@@ -435,7 +436,7 @@ public class KnowledgeLintReportGenericWriteRefusalTests : TestBase
     }
 
     [Fact]
-    public async Task TypeDerivedFromTheLintReport_GetsTheLintRefusal()
+    public async Task TypeDerivedFromTheLintReport_IsRefused_WithoutPointingAtAToolThatCannotWriteIt()
     {
         var derived = CkGraphTestBuilder.BuildTypeWithAccess("Custom-1.0.0/SpecialLintReport-1", [], [ReportFullId], [],
             ("Name", AttributeValueTypesDto.String, null, null));
@@ -447,7 +448,11 @@ public class KnowledgeLintReportGenericWriteRefusalTests : TestBase
 
         result.ErrorCode.Should().Be(KnowledgeWriteRefusal.Code);
         result.ErrorParameters!["ckTypeId"].Should().Be("Custom/SpecialLintReport");
-        result.ErrorParameters["tool"].Should().Be("knowledge_write_lint_report");
+        result.ErrorParameters["tool"].Should().Be("none", "the lint tool writes only the base type");
+        result.ErrorMessage.Should().Contain("Derived lint reports are not written or imported over MCP");
+        KnowledgeWriteRefusal.ImportMessage(MockCkCacheService.Object, DefaultTestTenantId,
+                new RtCkId<CkTypeId>("Custom/SpecialLintReport"))
+            .Should().Contain("Derived lint reports").And.Contain("Nothing was imported").And.NotContain("knowledge_upsert_page");
         VerifyNothingWritten();
     }
 
