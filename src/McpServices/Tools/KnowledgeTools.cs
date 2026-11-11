@@ -286,7 +286,7 @@ public static class KnowledgeTools
             return Invalid($"Origin '{origin}' is not allowed: use Manual, Query or Ingest (Blueprint pages come from blueprints).");
         }
 
-        var ctx = await OpenAsync(server, tenantId);
+        var ctx = await OpenAsync(server, tenantId, write: true);
         if (ctx.Error != null)
         {
             return new KnowledgeWriteResponse { ErrorMessage = ctx.Error };
@@ -373,7 +373,7 @@ public static class KnowledgeTools
             return Invalid("fromSlug and toSlug must be two different valid slugs.");
         }
 
-        var ctx = await OpenAsync(server, tenantId);
+        var ctx = await OpenAsync(server, tenantId, write: true);
         if (ctx.Error != null)
         {
             return new KnowledgeWriteResponse { ErrorMessage = ctx.Error };
@@ -443,7 +443,7 @@ public static class KnowledgeTools
             return Invalid("A valid slug and a version of at least 1 are required.");
         }
 
-        var ctx = await OpenAsync(server, tenantId);
+        var ctx = await OpenAsync(server, tenantId, write: true);
         if (ctx.Error != null)
         {
             return new KnowledgeWriteResponse { ErrorMessage = ctx.Error };
@@ -540,7 +540,7 @@ public static class KnowledgeTools
             };
         }
 
-        var ctx = await OpenAsync(server, tenantId);
+        var ctx = await OpenAsync(server, tenantId, write: true);
         if (ctx.Error != null)
         {
             return new KnowledgeWriteResponse { ErrorMessage = ctx.Error };
@@ -593,7 +593,17 @@ public static class KnowledgeTools
         public ITenantRepository Repo => Repository ?? throw new InvalidOperationException("No repository.");
     }
 
-    internal static async Task<KnowledgeContext> OpenAsync(McpServer server, string? tenantId)
+    /// <summary>
+    ///     Resolves the caller's security context, the tenant repository and the author for a knowledge tool call. With
+    ///     <paramref name="write" /> the session context carries the trusted write channel
+    ///     <see cref="KnowledgePages.WriteChannel" /> (AB#8575): System.Ai 4.8.0 restricts writes of <c>KnowledgePage</c>
+    ///     and <c>KnowledgePageVersion</c> to signed-in users and this channel (<c>writeAccess</c>, engine AB#8574), so the
+    ///     write tools — which apply the content guard, append a version and never set Verified — may write for every
+    ///     caller, while the same caller's direct GraphQL, REST or ImportRt writes are refused by the engine (message 144)
+    ///     unless it is a signed-in user. The read tools never get the channel. The channel is set here, in service code,
+    ///     and never from caller input.
+    /// </summary>
+    internal static async Task<KnowledgeContext> OpenAsync(McpServer server, string? tenantId, bool write = false)
     {
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
         var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
@@ -616,7 +626,10 @@ public static class KnowledgeTools
         var author = principal == null
             ? "unknown"
             : principal.IsUserPrincipal ? $"user:{principal.UserSubjectId}" : $"client:{principal.ClientId}";
-        return new KnowledgeContext(repository, security.SecurityContext, repository.TenantId, author, null);
+        var securityContext = write
+            ? security.SecurityContext?.WithWriteChannel(KnowledgePages.WriteChannel)
+            : security.SecurityContext;
+        return new KnowledgeContext(repository, securityContext, repository.TenantId, author, null);
     }
 
     private static async Task<KnowledgeWriteResponse?> GuardAsync(McpServer server, KnowledgeContext ctx,

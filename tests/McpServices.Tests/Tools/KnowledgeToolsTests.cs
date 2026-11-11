@@ -1266,6 +1266,72 @@ public class KnowledgeToolsTests : TestBase
             .And.Contain("knowledge-schema");
     }
 
+    // ---- AB#8575: the knowledge write tools write on the channel System.Ai 4.8.0 admits ----
+
+    /// <summary>The security contexts of every session the tools opened since the last call.</summary>
+    private List<RtSecurityContext> TakeOpenedSessionContexts()
+    {
+        var contexts = MockSecureSessionFactory.Invocations
+            .Where(i => i.Method.Name == nameof(ISecureSessionFactory.GetSessionAsync))
+            .Select(i => (RtSecurityContext)i.Arguments[0]).ToList();
+        MockSecureSessionFactory.Invocations.Clear();
+        return contexts;
+    }
+
+    [Fact]
+    public void WriteChannel_IsTheChannelOfTheSystemAiWriteAccessBlock()
+    {
+        // System.Ai 4.8.0 (octo-ai-services, types/knowledgePage*.yaml) declares
+        // writeAccess { principals: [Interactive], channels: [System.Ai/KnowledgeTools] }; the integration test there
+        // (KnowledgeWriteAccessTests) pins the same literal against the compiled model in a real tenant.
+        KnowledgePages.WriteChannel.Should().Be("System.Ai/KnowledgeTools");
+        CkWritePrincipals.IsValidChannel(KnowledgePages.WriteChannel).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task WriteTools_OpenTheirSessionOnTheKnowledgeToolsChannel_ForTheCallerItself()
+    {
+        TakeOpenedSessionContexts();
+        var writes = new List<(string Tool, Func<Task<KnowledgeWriteResponse>> Call)>
+        {
+            ("knowledge_upsert_page a", () => UpsertAsync("page-a", "Page A", "first text")),
+            ("knowledge_upsert_page b", () => UpsertAsync("page-b", "Page B", "other text")),
+            ("knowledge_upsert_page a2", () => UpsertAsync("page-a", "Page A", "second text")),
+            ("knowledge_link", () => KnowledgeTools.KnowledgeLink(MockServer.Object, "page-a", "page-b")),
+            ("knowledge_set_status", () => KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "InReview",
+                cancellationToken: Ct)),
+            ("knowledge_restore_version", () => KnowledgeTools.KnowledgeRestoreVersion(MockServer.Object, "page-a", 1,
+                cancellationToken: Ct))
+        };
+
+        foreach (var (tool, call) in writes)
+        {
+            var result = await call();
+            result.IsSuccess.Should().BeTrue($"{tool}: {result.ErrorMessage}");
+
+            var contexts = TakeOpenedSessionContexts();
+            contexts.Should().NotBeEmpty($"{tool} must open a caller session");
+            contexts.Should().OnlyContain(c => c.WriteChannel == KnowledgePages.WriteChannel,
+                $"{tool} writes KnowledgePage/KnowledgePageVersion, which only signed-in users and this channel may write");
+            contexts.Should().OnlyContain(c => c.SubjectId == DefaultCallerSubjectId && !c.IsSystem,
+                $"{tool} still acts for the caller (CK roles, data permissions, author), never as the system");
+        }
+    }
+
+    [Fact]
+    public async Task ReadTools_NeverOpenTheirSessionOnTheChannel()
+    {
+        await UpsertAsync("page-a", "Page A", "first text");
+        TakeOpenedSessionContexts();
+
+        (await KnowledgeTools.KnowledgeSearch(MockServer.Object, "first")).ErrorMessage.Should().BeNull();
+        (await KnowledgeTools.KnowledgeGet(MockServer.Object, "page-a")).ErrorMessage.Should().BeNull();
+
+        var contexts = TakeOpenedSessionContexts();
+        contexts.Should().NotBeEmpty();
+        contexts.Should().OnlyContain(c => c.WriteChannel == null, "the read tools get no write privilege");
+    }
+
     private static Meshmakers.Octo.Runtime.Contracts.Secrets.ISecretAttributeProtector SecretProtector(string plaintext)
     {
         var protector = new Mock<Meshmakers.Octo.Runtime.Contracts.Secrets.ISecretAttributeProtector>();

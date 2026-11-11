@@ -250,6 +250,9 @@ with `answeringConventionsSource` (AB#8712).
 - **Verified is never set over MCP** (AB#8565, decision G2a): `knowledge_set_status` accepts Draft, InReview and Rejected and refuses
   Verified for every caller with `VerifiedNotAllowedOverMcp`. A person verifies a page outside MCP:
   `octo-cli -c SetKnowledgePageStatus -tid <tenant> -s <slug> -st Verified -n "<why>"` (interactive user login) or GraphQL.
+- **Write channel** (AB#8575, System.Ai 4.8.0): pages and versions may be written only by signed-in users and by these
+  knowledge tools; the tools write on the channel `System.Ai/KnowledgeTools`, so an agent with a client-credentials token
+  writes pages through them, while its direct GraphQL, REST or ImportRt writes of those types are refused (message 144).
 - **No delete over MCP**: pages and versions keep their history. Set an unwanted page to `Rejected` with `knowledge_set_status`;
   a person deletes pages outside MCP (GraphQL `runtimeEntities.delete` or octo-cli).
 
