@@ -622,6 +622,44 @@ public class KnowledgeToolsTests : TestBase
         MockTenantResolution.Verify(t => t.GetTenantRepositoryAsync(It.IsAny<string?>()), Times.Never);
     }
 
+    // AB#8580: the octo-cli command of the refusal names the page and the tenant of the call, so a person following it
+    // does not verify the page in whatever tenant octo-cli happens to be set to.
+    [Fact]
+    public async Task SetStatus_Verified_RefusalCommandNamesThePageAndTheRouteTenant()
+    {
+        var result = await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Verified", cancellationToken: Ct);
+
+        result.ErrorCode.Should().Be("VerifiedNotAllowedOverMcp");
+        result.ErrorMessage.Should()
+            .Contain("'octo-cli -c SetKnowledgePageStatus -s page-a -st Verified -tid test-tenant'");
+        MockTenantResolution.Verify(t => t.GetTenantRepositoryAsync(It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SetStatus_Verified_RefusalCommandNamesTheTenantOfTheTenantIdParameter()
+    {
+        MockTenantResolution.Setup(t => t.ResolveTenantId("other-tenant")).Returns("other-tenant");
+
+        var result = await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Verified",
+            tenantId: "other-tenant", cancellationToken: Ct);
+
+        result.ErrorMessage.Should().Contain("-s page-a -st Verified -tid other-tenant'").And.NotContain("test-tenant");
+        MockTenantResolution.Verify(t => t.GetTenantRepositoryAsync(It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SetStatus_Verified_WhenTheTenantCannotBeResolved_KeepsThePlaceholder_AndStillRefuses()
+    {
+        MockTenantResolution.Setup(t => t.ResolveTenantId(It.IsAny<string?>()))
+            .Throws(new UnauthorizedAccessException("not allowed"));
+
+        var result = await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Verified",
+            tenantId: "foreign", cancellationToken: Ct);
+
+        result.ErrorCode.Should().Be("VerifiedNotAllowedOverMcp");
+        result.ErrorMessage.Should().Contain("-s page-a -st Verified -tid <tenant>'").And.NotContain("foreign");
+    }
+
     [Theory]
     [InlineData(Caller.User)]
     [InlineData(Caller.ServiceAccount)]
@@ -923,6 +961,41 @@ public class KnowledgeToolsTests : TestBase
         // "running": no literal hit; stem "run" in the summary (2) and twice in the section (heading + text, 2).
         KnowledgeTools.Score(content, ["running"]).Should().Be(4);
         KnowledgeTools.Score(content, ["okapi", "zebrafisch"]).Should().Be(0);
+    }
+
+    // AB#8580: a literal hit is a whole word; a query word inside another word ("use" in "because") is no hit.
+    [Theory]
+    [InlineData("use", "Because of this, nothing.")]
+    [InlineData("run", "Truncate the table.")]
+    [InlineData("the", "Some other page.")]
+    public void Score_AQueryWordInsideAnotherWord_IsNoHit(string term, string text)
+    {
+        var content = new KnowledgeContent(text, 0, text, [new KnowledgeSectionDto { Heading = text, SectionContent = text }],
+            [], [], 0);
+
+        KnowledgeTools.Score(content, [term]).Should().Be(0);
+    }
+
+    [Fact]
+    public void Score_CountsEveryWholeWordHit_NotTheSubstringsAroundIt()
+    {
+        var content = new KnowledgeContent("Use the CLI", 0, "Because you use it, use it often.", [], [], [], 0);
+
+        // Title: one "use" (3); summary: two whole words "use" (2 x 2) — "Because" does not count.
+        KnowledgeTools.Score(content, ["use"]).Should().Be(7);
+    }
+
+    [Fact]
+    public async Task Search_DropsAPageTheTextIndexPreselected_WhereTheQueryWordIsOnlyInsideAnotherWord()
+    {
+        await UpsertAsync("because-page", "Because of the weather", "Nothing to see.");
+        await UpsertAsync("use-page", "How to use the CLI", "Use it.");
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "use");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Pages.Select(p => p.Slug).Should().Equal("use-page");
     }
 
     [Theory]
