@@ -5,6 +5,7 @@ namespace Meshmakers.Octo.Backend.McpServices.Services;
 
 /// <summary>
 ///     AB#8568: the generic entity tools never write the knowledge types of System.Ai (<c>KnowledgePage</c>,
+///     <c>KnowledgeLintReport</c> (AB#8488, only through <c>knowledge_write_lint_report</c>),
 ///     <c>KnowledgePageVersion</c>, and types derived from them). Pages are written only through the knowledge tools
 ///     (AB#8484), which run the content guard and append a version with author and time; a generic create, update,
 ///     secret write, delete or runtime-model import would bypass both. Same shape as <see cref="GenericCreateRefusal" />:
@@ -31,8 +32,14 @@ internal static class KnowledgeWriteRefusal
     public static readonly IReadOnlyList<RtCkId<CkTypeId>> ProtectedTypes =
     [
         new("System.Ai/KnowledgePage"),
-        new("System.Ai/KnowledgePageVersion")
+        new("System.Ai/KnowledgePageVersion"),
+        new(LintReportType)
     ];
+
+    /// <summary>AB#8488: the lint report is written only by <c>knowledge_write_lint_report</c> (content guard, unvalidated).</summary>
+    private const string LintReportType = "System.Ai/KnowledgeLintReport";
+
+    private const string LintReportTool = "knowledge_write_lint_report";
 
     /// <summary>The kind of generic write.</summary>
     public enum Operation
@@ -108,7 +115,33 @@ internal static class KnowledgeWriteRefusal
     private static (string Message, IReadOnlyDictionary<string, string> Parameters) Build(string typeId,
         Operation operation)
     {
-        var (message, tool) = operation switch
+        var (message, tool) = string.Equals(typeId, LintReportType, StringComparison.OrdinalIgnoreCase)
+            ? LintReportRefusal(typeId, operation)
+            : PageRefusal(typeId, operation);
+
+        return (message, new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [CkTypeIdParameter] = typeId,
+            [ToolParameter] = tool
+        });
+    }
+
+    private static (string Message, string Tool) LintReportRefusal(string typeId, Operation operation) => operation switch
+    {
+        Operation.Delete => (
+            $"'{typeId}' is not deleted over MCP: lint reports are the history of the lint runs. A person deletes old " +
+            "reports outside MCP (GraphQL or octo-cli).", "none"),
+        Operation.Import => (
+            $"The runtime model references '{typeId}'. Lint reports are not imported generically (no content guard); " +
+            $"write them with {LintReportTool}. Nothing was imported.", LintReportTool),
+        _ => (
+            $"'{typeId}' is written only through {LintReportTool}, which runs the content guard and writes the report " +
+            "unvalidated. Nothing was written.", LintReportTool)
+    };
+
+    private static (string Message, string Tool) PageRefusal(string typeId, Operation operation)
+    {
+        return operation switch
         {
             Operation.Delete => (
                 $"'{typeId}' is not deleted over MCP: knowledge pages and their versions keep their history. Set the " +
@@ -125,11 +158,5 @@ internal static class KnowledgeWriteRefusal
                 "knowledge_restore_version (restore), knowledge_link (links). Nothing was written.",
                 WriteTools)
         };
-
-        return (message, new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            [CkTypeIdParameter] = typeId,
-            [ToolParameter] = tool
-        });
     }
 }
