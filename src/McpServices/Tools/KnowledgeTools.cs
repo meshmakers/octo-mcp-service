@@ -498,7 +498,34 @@ public static class KnowledgeTools
     }
 
     /// <summary>The octo-cli command a person uses to set a status outside MCP (named in descriptions and refusals).</summary>
-    internal const string HumanStatusCommand = "octo-cli -c SetKnowledgePageStatus -s <slug> -st Verified";
+    internal const string HumanStatusCommand = "octo-cli -c SetKnowledgePageStatus -s <slug> -st Verified -tid <tenant>";
+
+    /// <summary>
+    ///     AB#8580: the octo-cli command of the Verified refusal with the page and the tenant of the call filled in, so a
+    ///     person following it verifies the page in the right tenant and not in whatever tenant octo-cli is set to.
+    ///     The tenant is resolved like the tool resolves it (parameter, then URL route) without opening it; when it
+    ///     cannot be resolved, or is not a plain tenant id (ASCII letters, digits, '-', '_'), the placeholder stays, so
+    ///     no caller-supplied text ends up in a command a person copies into a shell.
+    /// </summary>
+    internal static string HumanStatusCommandFor(McpServer server, string slug, string? tenantId)
+    {
+        string? tenant;
+        try
+        {
+            tenant = server.Services?.GetService<ITenantResolutionService>()?.ResolveTenantId(tenantId);
+        }
+        catch (Exception)
+        {
+            tenant = null;
+        }
+
+        return HumanStatusCommand.Replace("<slug>", slug, StringComparison.Ordinal)
+            .Replace("<tenant>", IsPlainTenantId(tenant) ? tenant : "<tenant>", StringComparison.Ordinal);
+
+        static bool IsPlainTenantId([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] string? value) =>
+            !string.IsNullOrEmpty(value) && value.Length <= 64 &&
+            value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
+    }
 
     /// <summary>
     ///     Moves a page through the review states Draft, InReview and Rejected. Verified is never set over MCP (decision
@@ -509,7 +536,7 @@ public static class KnowledgeTools
     [Description(
         "Set the verification status of a knowledge page: Draft, InReview or Rejected. Verified is never set over MCP, " +
         "for any caller (error VerifiedNotAllowedOverMcp): a person verifies a page outside MCP with octo-cli " +
-        "(SetKnowledgePageStatus -s <slug> -st Verified) or GraphQL. Each change is a new version with the same content. " +
+        "(SetKnowledgePageStatus -s <slug> -st Verified -tid <tenant>) or GraphQL. Each change is a new version with the same content. " +
         "Pages are not deleted over MCP: set an unwanted page to Rejected; a person deletes pages outside MCP (GraphQL or " +
         "octo-cli).")]
     public static async Task<KnowledgeWriteResponse> KnowledgeSetStatus(
@@ -536,7 +563,7 @@ public static class KnowledgeTools
                 ErrorCode = "VerifiedNotAllowedOverMcp",
                 ErrorMessage = "Verified is never set over MCP: MCP callers are AI clients, also in a user's session. " +
                                "Leave the page in Draft or InReview; a person verifies it outside MCP with " +
-                               $"'{HumanStatusCommand}' or a GraphQL client."
+                               $"'{HumanStatusCommandFor(server, slug, tenantId)}' or a GraphQL client."
             };
         }
 
@@ -865,24 +892,17 @@ public static class KnowledgeTools
             return 3 * Hits(title, t, stem) + 2 * Hits(summary, t, stem) + Math.Min(Hits(body, t, stem), 5);
         });
 
-        static (string Text, string[] Stems) Field(string text) =>
-            (text.ToLowerInvariant(), KnowledgeStemmer.Words(text).Select(KnowledgeStemmer.Stem).ToArray());
-
-        static int Hits((string Text, string[] Stems) field, string term, string stem)
+        static (string[] Words, string[] Stems) Field(string text)
         {
-            var literal = Count(field.Text, term);
-            return literal > 0 ? literal : field.Stems.Count(s => s == stem);
+            var words = KnowledgeStemmer.Words(text).ToArray();
+            return (words, words.Select(KnowledgeStemmer.Stem).ToArray());
         }
 
-        static int Count(string text, string term)
+        // AB#8580: a literal hit is a whole word ("use" is not a hit in "because"), split like the query terms.
+        static int Hits((string[] Words, string[] Stems) field, string term, string stem)
         {
-            var n = 0;
-            for (var i = text.IndexOf(term, StringComparison.Ordinal); i >= 0; i = text.IndexOf(term, i + term.Length, StringComparison.Ordinal))
-            {
-                n++;
-            }
-
-            return n;
+            var literal = field.Words.Count(w => w == term);
+            return literal > 0 ? literal : field.Stems.Count(s => s == stem);
         }
     }
 
