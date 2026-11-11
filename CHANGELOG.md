@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Added
+
+- **AB#8780** — platform updates of Blueprint knowledge pages (System.Ai 4.10.0). A blueprint update brings new
+  `KnowledgePageVersion` entities but never refreshes an existing page (AB#8778). New tools:
+  `knowledge_list_platform_updates` (read), `knowledge_adopt_platform_updates` (medium risk, `runRef` required) and
+  `knowledge_dismiss_platform_update` (medium risk). Unedited pages (current version is a Blueprint version: author
+  `blueprint:…` and the engine's `rtBlueprintSource` stamp) are switched to the newest Blueprint version without a new
+  version: content and status from that version, `CurrentVersion`, `BlueprintVersion`, `AdoptedByRun` = `runRef`,
+  `LinksTo` follows the version's `DeclaredLinks` (absent = unchanged). Edited pages are never changed; they are listed as
+  `Available` (the lint's `PlatformUpdateAvailable`) until a person restores the version or dismisses it
+  (`DismissedBlueprintVersion`). `knowledge_write_lint_report` accepts the kind `PlatformUpdateAvailable` (key 6) on
+  tenants with System.Ai 4.10.0. Tests in `Tools/KnowledgePlatformUpdateToolsTests` and `Tools/KnowledgeLintToolsTests`.
+
+### Fixed
+
+- **AB#8780** — a page write (`knowledge_upsert_page`, `knowledge_restore_version`, `knowledge_set_status`) takes the next
+  free version number of the page instead of `CurrentVersion + 1`. A blueprint update brings versions above the current
+  one (`<slug>@<n>`), and the versions of a deleted page stay; the old rule wrote a second version with the same name.
+
 ### Security
 
 - **AB#8575** — the knowledge write tools (`knowledge_upsert_page`, `knowledge_link`, `knowledge_set_status`,
