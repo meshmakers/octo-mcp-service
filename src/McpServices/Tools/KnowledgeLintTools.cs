@@ -188,7 +188,13 @@ public static class KnowledgeLintTools
 
         // The cursor of the next run: a value after the end of this run (or in the future) would make later runs skip
         // every page compiled before it.
-        var latest = completedAt?.ToUniversalTime() ?? (now ?? DateTime.UtcNow).AddMinutes(5);
+        var horizon = (now ?? DateTime.UtcNow).AddMinutes(5);
+        if (completedAt != null && completedAt.Value.ToUniversalTime() > horizon)
+        {
+            return "completedAt must not be in the future.";
+        }
+
+        var latest = completedAt?.ToUniversalTime() ?? horizon;
         if (verifiedThrough != null && verifiedThrough.Value.ToUniversalTime() > latest)
         {
             return completedAt != null

@@ -313,11 +313,11 @@ one insert per call, nothing updated. Rules a later change must keep:
 - **No page is touched** (no status, never `Verified`). Finding refs must be page slugs (`KnowledgePages.IsValidSlug`),
   which also keeps free text out of the ref fields.
 - Validation (kind by name or key, slugs, detail <= 2000, <= 500 findings, run data via `KnowledgeTools.ValidateRunData`,
-  `verifiedThrough` not after `completedAt` / not in the future - it is the next run's cursor) runs before the session. A tenant whose report type has no `IsValidated` (System.Ai before AB#8488) gets a clear error.
+  `completedAt` and `verifiedThrough` not in the future, `verifiedThrough` not after `completedAt` - it is the next
+  run's cursor) runs before the session. A tenant whose report type has no `IsValidated` (System.Ai before AB#8488) gets a clear error.
 - `KnowledgeWriteRefusal` lists the report type, with its own message and `tool` = `knowledge_write_lint_report`
   (delete: `none`), also for a type derived from it.
-- The guard call is a small copy of `KnowledgeTools.GuardAsync` (that file belongs to the AB#8575 lane at the time of
-  writing); merge the two when both lanes are in.
+- The guard call is a small copy of `KnowledgeTools.GuardAsync`; a change to one belongs in the other.
 
 Tests: `Tools/KnowledgeLintToolsTests` (incl. `KnowledgeLintReportGenericWriteRefusalTests`).
 

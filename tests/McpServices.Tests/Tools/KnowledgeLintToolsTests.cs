@@ -26,7 +26,7 @@ namespace McpServices.Tests.Tools;
 /// </summary>
 public class KnowledgeLintToolsTests : TestBase
 {
-    private static readonly DateTime Started = new(2026, 11, 12, 2, 30, 0, DateTimeKind.Utc);
+    private static readonly DateTime Started = new(2026, 11, 10, 2, 30, 0, DateTimeKind.Utc);
 
     private readonly List<IEntityUpdateInfo<RtEntity>> _writes = [];
     private readonly Dictionary<OctoObjectId, RtEntity> _entities = new();
@@ -129,7 +129,7 @@ public class KnowledgeLintToolsTests : TestBase
         result.FindingCount.Should().Be(6);
         result.IsValidated.Should().BeFalse();
         result.FindingsByKind.Should().HaveCount(6).And.ContainKey("CitationNotInSource");
-        result.Name.Should().Be("knowledge-lint 2026-11-12T02:30Z");
+        result.Name.Should().Be("knowledge-lint 2026-11-10T02:30Z");
         var report = WrittenReport();
         _writes[0].ModOption.Should().Be(EntityModOptions.Insert);
         report.CkTypeId!.ToString().Should().Be(KnowledgeLintTools.ReportType);
@@ -263,7 +263,7 @@ public class KnowledgeLintToolsTests : TestBase
     [
         "kind", "page-ref", "related-ref", "detail-empty", "detail-long", "too-many", "pages-negative",
         "completed-before-started", "tokens-negative", "cost-nan", "name-long", "run-ref-long", "started-missing",
-        "finding-null", "cursor-after-completed", "cursor-in-future"
+        "finding-null", "cursor-after-completed", "cursor-in-future", "completed-in-future"
     ];
 
     [Theory]
@@ -289,6 +289,8 @@ public class KnowledgeLintToolsTests : TestBase
             "cursor-after-completed" => await WriteAsync(completedAt: Started.AddMinutes(1),
                 verifiedThrough: Started.AddMinutes(2)),
             "cursor-in-future" => await WriteAsync(verifiedThrough: DateTime.UtcNow.AddDays(1)),
+            "completed-in-future" => await WriteAsync(completedAt: DateTime.UtcNow.AddDays(1),
+                verifiedThrough: DateTime.UtcNow.AddDays(1)),
             _ => throw new ArgumentOutOfRangeException(nameof(variant))
         };
 
