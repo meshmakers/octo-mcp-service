@@ -209,8 +209,9 @@ public static class KnowledgeTools
         "sections are replaced; an omitted kind, summary, citations or hallucinationFlags keeps the current value, an " +
         "explicit empty value (\"\" or []) clears it. origin applies to new pages only; linksTo and sourceRtIds only add " +
         "links (knowledge_link removes one); changeNote and the run metadata belong to the new version only. Run metadata " +
-        "(all optional): promptName, promptVersion, modelId, inputTokens, outputTokens, cost (USD), reviewerRounds and " +
-        "runRef (the pipeline execution id); an omitted value is not stored, a negative number is refused.")]
+        "(all optional): promptName, promptVersion, modelId, inputTokens, outputTokens, cost (USD), reviewerRounds, " +
+        "latencySeconds and runRef (the pipeline execution id); an omitted value is not stored, a negative number is " +
+        "refused.")]
     public static async Task<KnowledgeWriteResponse> KnowledgeUpsertPage(
         McpServer server,
         [Description("Slug of the page: lower-case words joined by hyphens, e.g. 'rollout-seed-change'.")] string slug,
@@ -247,6 +248,8 @@ public static class KnowledgeTools
         [Description("Cost of the generation run in USD, 0 or more; stored as CostUsd.")] double? cost = null,
         [Description("Number of reviewer (self-correction) rounds of the run, 0 or more; stored as ReviewerIterations.")]
         int? reviewerRounds = null,
+        [Description("End-to-end generation latency of the run in seconds, 0 or more; stored as LatencySeconds.")]
+        double? latencySeconds = null,
         [Description("Reference of the run that wrote this version: the pipeline execution id (up to " +
                      "200 characters).")]
         string? runRef = null,
@@ -258,7 +261,7 @@ public static class KnowledgeTools
             return Invalid($"Invalid slug '{slug}': lower-case letters, digits, '-', '.', '_' (2-120 characters).");
         }
 
-        var runDataError = ValidateRunData(inputTokens, outputTokens, cost, reviewerRounds, runRef);
+        var runDataError = ValidateRunData(inputTokens, outputTokens, cost, reviewerRounds, runRef, latencySeconds);
         if (runDataError != null)
         {
             return Invalid(runDataError);
@@ -324,7 +327,7 @@ public static class KnowledgeTools
             var write = KnowledgePages.BuildWrite(existing, slug, content, originValue.Value, ctx.Author!,
                 changeNote ?? (existing == null ? "created" : "updated"), null,
                 new KnowledgeRunMetadata(promptName, promptVersion, modelId, runRef, inputTokens, outputTokens, cost,
-                    reviewerRounds), DateTime.UtcNow);
+                    reviewerRounds, latencySeconds), DateTime.UtcNow);
 
             var associations = new List<AssociationUpdateInfo> { KnowledgePages.VersionOf(write.Version, write.Page) };
             var response = new KnowledgeWriteResponse();
@@ -886,9 +889,12 @@ public static class KnowledgeTools
         }
     }
 
-    /// <summary>AB#8657: checks the run data of a write; returns the error message or <c>null</c>.</summary>
+    /// <summary>
+    ///     AB#8657: checks the run data of a write; returns the error message or <c>null</c>. AB#8719 adds
+    ///     <paramref name="latencySeconds" />.
+    /// </summary>
     internal static string? ValidateRunData(int? inputTokens, int? outputTokens, double? cost, int? reviewerRounds,
-        string? runRef)
+        string? runRef, double? latencySeconds = null)
     {
         var negative = new List<string>();
         if (inputTokens < 0)
@@ -914,6 +920,16 @@ public static class KnowledgeTools
         if (cost < 0)
         {
             negative.Add(FormattableString.Invariant($"cost ({cost})"));
+        }
+
+        if (latencySeconds != null && (double.IsNaN(latencySeconds.Value) || double.IsInfinity(latencySeconds.Value)))
+        {
+            return "latencySeconds must be a finite number of seconds.";
+        }
+
+        if (latencySeconds < 0)
+        {
+            negative.Add(FormattableString.Invariant($"latencySeconds ({latencySeconds})"));
         }
 
         if (negative.Count > 0)

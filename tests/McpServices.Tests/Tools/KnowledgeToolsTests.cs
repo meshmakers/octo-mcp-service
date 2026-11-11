@@ -365,14 +365,15 @@ public class KnowledgeToolsTests : TestBase
 
     // AB#8657: run data of the ingest pipeline (tokens, cost, reviewer rounds, run reference) on the new version.
     private static readonly string[] RunDataAttributes =
-        ["PromptTokens", "CompletionTokens", "CostUsd", "ReviewerIterations", "RunRef"];
+        ["PromptTokens", "CompletionTokens", "CostUsd", "ReviewerIterations", "RunRef", "LatencySeconds"];
 
     private Task<KnowledgeWriteResponse> UpsertWithRunDataAsync(string slug, int? inputTokens = null,
-        int? outputTokens = null, double? cost = null, int? reviewerRounds = null, string? runRef = null) =>
+        int? outputTokens = null, double? cost = null, int? reviewerRounds = null, string? runRef = null,
+        double? latencySeconds = null) =>
         KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, slug, "Page " + slug,
             [new KnowledgeSectionDto { Heading = "Summary", SectionContent = "text" }],
             inputTokens: inputTokens, outputTokens: outputTokens, cost: cost, reviewerRounds: reviewerRounds,
-            runRef: runRef, cancellationToken: Ct);
+            latencySeconds: latencySeconds, runRef: runRef, cancellationToken: Ct);
 
     [Fact]
     public async Task Upsert_WithAllRunData_StoresEachValueOnTheNewVersion()
@@ -380,10 +381,12 @@ public class KnowledgeToolsTests : TestBase
         var result = await KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, "page-a", "Page A",
             [new KnowledgeSectionDto { Heading = "Summary", SectionContent = "text" }], origin: "Ingest",
             promptName: "wiki-prompt-agentic", promptVersion: 3, modelId: "claude-sonnet-4-6", inputTokens: 12345,
-            outputTokens: 2100, cost: 0.0532, reviewerRounds: 2, runRef: "exec-6731a2f0", cancellationToken: Ct);
+            outputTokens: 2100, cost: 0.0532, reviewerRounds: 2, latencySeconds: 49.7, runRef: "exec-6731a2f0",
+            cancellationToken: Ct);
 
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
         var version = Versions("page-a").Single();
+        version.GetAttributeValueOrDefault("LatencySeconds").Should().Be(49.7);
         version.GetAttributeValueOrDefault("PromptTokens").Should().Be(12345);
         version.GetAttributeValueOrDefault("CompletionTokens").Should().Be(2100);
         version.GetAttributeValueOrDefault("CostUsd").Should().Be(0.0532);
@@ -443,10 +446,12 @@ public class KnowledgeToolsTests : TestBase
     [InlineData(null, -5, null, null, "outputTokens (-5)")]
     [InlineData(null, null, -0.01, null, "cost (-0.01)")]
     [InlineData(null, null, null, -1, "reviewerRounds (-1)")]
+    [InlineData(null, null, null, null, "latencySeconds (-0.5)", -0.5)]
     public async Task Upsert_WithNegativeRunData_IsRejected_AndNothingIsWritten(int? inputTokens, int? outputTokens,
-        double? cost, int? reviewerRounds, string expected)
+        double? cost, int? reviewerRounds, string expected, double? latencySeconds = null)
     {
-        var result = await UpsertWithRunDataAsync("page-a", inputTokens, outputTokens, cost, reviewerRounds);
+        var result = await UpsertWithRunDataAsync("page-a", inputTokens, outputTokens, cost, reviewerRounds,
+            latencySeconds: latencySeconds);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("InvalidArgument");
@@ -476,6 +481,28 @@ public class KnowledgeToolsTests : TestBase
         result.ErrorCode.Should().Be("InvalidArgument");
         result.ErrorMessage.Should().Be("cost must be a finite number of USD.");
         _entities.Values.Should().NotContain(e => Equals(e.CkTypeId, KnowledgePages.PageTypeId));
+    }
+
+    // AB#8719: the ingest pipeline passes the end-to-end generation latency; it lands on the version as LatencySeconds.
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.NegativeInfinity)]
+    public async Task Upsert_WithANonFiniteLatency_IsRejected(double latencySeconds)
+    {
+        var result = await UpsertWithRunDataAsync("page-a", latencySeconds: latencySeconds);
+
+        result.ErrorCode.Should().Be("InvalidArgument");
+        result.ErrorMessage.Should().Be("latencySeconds must be a finite number of seconds.");
+        _entities.Values.Should().NotContain(e => Equals(e.CkTypeId, KnowledgePages.PageTypeId));
+    }
+
+    [Fact]
+    public async Task Upsert_WithZeroLatency_StoresTheZero()
+    {
+        var result = await UpsertWithRunDataAsync("page-a", latencySeconds: 0d);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        Versions("page-a").Single().GetAttributeValueOrDefault("LatencySeconds").Should().Be(0d);
     }
 
     [Theory]
@@ -519,9 +546,9 @@ public class KnowledgeToolsTests : TestBase
         var method = typeof(KnowledgeTools).GetMethod(nameof(KnowledgeTools.KnowledgeUpsertPage))!;
         var description = method.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
             .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
-        description.Should().Contain("inputTokens, outputTokens, cost (USD), reviewerRounds and runRef");
+        description.Should().Contain("inputTokens, outputTokens, cost (USD), reviewerRounds, latencySeconds and runRef");
 
-        string[] parameters = ["inputTokens", "outputTokens", "cost", "reviewerRounds", "runRef"];
+        string[] parameters = ["inputTokens", "outputTokens", "cost", "reviewerRounds", "latencySeconds", "runRef"];
         foreach (var name in parameters)
         {
             var parameter = method.GetParameters().Single(p => p.Name == name);

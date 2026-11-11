@@ -236,8 +236,8 @@ with `answeringConventionsSource` (AB#8712).
   `linksTo` / `sourceRtIds` only add links, `changeNote` and run metadata belong to the new version.
 - Run metadata on `knowledge_upsert_page` (all optional, stored on the new `KnowledgePageVersion`): `promptName`, `promptVersion`,
   `modelId` and, for the ingest pipeline (AB#8657), `inputTokens` (→ `PromptTokens`), `outputTokens` (→ `CompletionTokens`),
-  `cost` in USD (→ `CostUsd`), `reviewerRounds` (→ `ReviewerIterations`) and `runRef`, the pipeline execution id (→ `RunRef`,
-  up to 200 characters). An omitted value is not stored; a negative or non-finite number or a blank `runRef` is refused with
+  `cost` in USD (→ `CostUsd`), `reviewerRounds` (→ `ReviewerIterations`), `latencySeconds` (→ `LatencySeconds`, AB#8719) and
+  `runRef`, the pipeline execution id (→ `RunRef`, up to 200 characters). An omitted value is not stored; a negative or non-finite number or a blank `runRef` is refused with
   `InvalidArgument` and nothing is written.
 - `knowledge_search` with a query returns only pages that contain at least one of its words (3+ characters) or an inflected
   form of it ("pipelines" finds "pipeline"); no match is an empty

@@ -31,6 +31,11 @@
 
 ### Added
 
+- **AB#8719** — `knowledge_upsert_page` takes the optional run data `latencySeconds` (end-to-end generation latency of the
+  ingest run) and stores it on the new `KnowledgePageVersion` as `LatencySeconds`. Omitted = not stored; a negative or
+  non-finite value is refused with `InvalidArgument`. The live ingest on kb-test (AB#8486) left `LatencySeconds` empty on every
+  version because the tool had no such parameter. Tests in `Tools/KnowledgeToolsTests`.
+
 - **AB#8488** — new tool `knowledge_write_lint_report` (medium risk): writes one System.Ai `KnowledgeLintReport` per
   call for the nightly knowledge lint (findings Contradiction, Orphan, Stale, MissingLink, UnsupportedClaim,
   CitationNotInSource; run data tokens, cost, `verifiedThrough`, `runRef`). Content guard over every text, always
