@@ -647,6 +647,21 @@ public class KnowledgeToolsTests : TestBase
         MockTenantResolution.Verify(t => t.GetTenantRepositoryAsync(It.IsAny<string?>()), Times.Never);
     }
 
+    [Theory]
+    [InlineData("x; rm -rf ~")]
+    [InlineData("$(whoami)")]
+    [InlineData("a b")]
+    public async Task SetStatus_Verified_WithATenantThatIsNoPlainTenantId_KeepsThePlaceholder(string tenantId)
+    {
+        MockTenantResolution.Setup(t => t.ResolveTenantId(tenantId)).Returns(tenantId);
+
+        var result = await KnowledgeTools.KnowledgeSetStatus(MockServer.Object, "page-a", "Verified",
+            tenantId: tenantId, cancellationToken: Ct);
+
+        result.ErrorCode.Should().Be("VerifiedNotAllowedOverMcp");
+        result.ErrorMessage.Should().Contain("-s page-a -st Verified -tid <tenant>'").And.NotContain(tenantId);
+    }
+
     [Fact]
     public async Task SetStatus_Verified_WhenTheTenantCannotBeResolved_KeepsThePlaceholder_AndStillRefuses()
     {

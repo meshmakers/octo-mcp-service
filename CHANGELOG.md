@@ -18,7 +18,8 @@
 
 - **AB#8580** — the `VerifiedNotAllowedOverMcp` refusal of `knowledge_set_status` names the page and the tenant of the
   call in its octo-cli command (`octo-cli -c SetKnowledgePageStatus -s <slug> -st Verified -tid <tenant>`, tenant
-  resolved like the tool resolves it, without opening it; the placeholder stays when it cannot be resolved), so a person
+  resolved like the tool resolves it, without opening it; the placeholder stays when it cannot be resolved or is not a
+  plain tenant id, so no caller text reaches the copy-paste command), so a person
   following it no longer verifies the page in whatever tenant octo-cli is set to. `knowledge_search` scoring counts
   literal hits only on whole words: a query word inside another word ("use" in "because", "run" in "truncate") is no
   hit, so a page the text index preselected without the word is dropped. Tests in `Tools/KnowledgeToolsTests`.

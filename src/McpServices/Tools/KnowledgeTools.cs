@@ -504,7 +504,8 @@ public static class KnowledgeTools
     ///     AB#8580: the octo-cli command of the Verified refusal with the page and the tenant of the call filled in, so a
     ///     person following it verifies the page in the right tenant and not in whatever tenant octo-cli is set to.
     ///     The tenant is resolved like the tool resolves it (parameter, then URL route) without opening it; when it
-    ///     cannot be resolved the placeholder stays.
+    ///     cannot be resolved, or is not a plain tenant id (ASCII letters, digits, '-', '_'), the placeholder stays, so
+    ///     no caller-supplied text ends up in a command a person copies into a shell.
     /// </summary>
     internal static string HumanStatusCommandFor(McpServer server, string slug, string? tenantId)
     {
@@ -519,7 +520,11 @@ public static class KnowledgeTools
         }
 
         return HumanStatusCommand.Replace("<slug>", slug, StringComparison.Ordinal)
-            .Replace("<tenant>", string.IsNullOrWhiteSpace(tenant) ? "<tenant>" : tenant, StringComparison.Ordinal);
+            .Replace("<tenant>", IsPlainTenantId(tenant) ? tenant : "<tenant>", StringComparison.Ordinal);
+
+        static bool IsPlainTenantId([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] string? value) =>
+            !string.IsNullOrEmpty(value) && value.Length <= 64 &&
+            value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
     }
 
     /// <summary>
