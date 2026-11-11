@@ -257,7 +257,7 @@ with `answeringConventionsSource` (AB#8712).
   `startedAt`, `pagesChecked`, optional `completedAt`, `name`, findings (`kind` = Contradiction, Orphan, Stale, MissingLink,
   UnsupportedClaim or CitationNotInSource, `pageRef` and optional `relatedPageRef` as page slugs, `detail` up to 2000 characters,
   at most 500 findings) and run data (`inputTokens`, `outputTokens`, `cost` in USD, `verifiedThrough` = the cursor of the
-  incremental LLM check, `runRef`). Every text passes the content guard; the report is always written with `IsValidated`
+  incremental LLM check, not after `completedAt` or in the future, `runRef`). Every text passes the content guard; the report is always written with `IsValidated`
   false (the lint's precision is not measured yet, nothing may act on it automatically) and no page is changed. The caller
   is the lint pipeline of the System.Ai.Knowledge blueprint (`McpToolCall@1` as service account `knowledge-linter`). The
   generic write tools refuse `System.Ai/KnowledgeLintReport` with `GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL` (`tool`

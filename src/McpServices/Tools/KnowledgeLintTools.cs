@@ -80,7 +80,7 @@ public static class KnowledgeLintTools
         CancellationToken cancellationToken = default)
     {
         var invalid = Validate(startedAt, pagesChecked, findings ?? [], completedAt, name, inputTokens, outputTokens,
-            cost, runRef, out var kinds);
+            cost, runRef, out var kinds, verifiedThrough, DateTime.UtcNow);
         if (invalid != null)
         {
             return Invalid(invalid);
@@ -168,7 +168,7 @@ public static class KnowledgeLintTools
     /// <summary>Checks the arguments; returns the error message or <c>null</c>. <paramref name="kinds" /> are the enum keys.</summary>
     internal static string? Validate(DateTime startedAt, int pagesChecked, IReadOnlyList<KnowledgeLintFindingDto> findings,
         DateTime? completedAt, string? name, int? inputTokens, int? outputTokens, double? cost, string? runRef,
-        out List<int> kinds)
+        out List<int> kinds, DateTime? verifiedThrough = null, DateTime? now = null)
     {
         kinds = [];
         if (startedAt == default)
@@ -184,6 +184,16 @@ public static class KnowledgeLintTools
         if (completedAt != null && completedAt.Value.ToUniversalTime() < startedAt.ToUniversalTime())
         {
             return "completedAt must not be before startedAt.";
+        }
+
+        // The cursor of the next run: a value after the end of this run (or in the future) would make later runs skip
+        // every page compiled before it.
+        var latest = completedAt?.ToUniversalTime() ?? (now ?? DateTime.UtcNow).AddMinutes(5);
+        if (verifiedThrough != null && verifiedThrough.Value.ToUniversalTime() > latest)
+        {
+            return completedAt != null
+                ? "verifiedThrough must not be after completedAt."
+                : "verifiedThrough must not be in the future.";
         }
 
         if (name != null && name.Trim().Length > MaxNameLength)

@@ -77,11 +77,21 @@ internal static class KnowledgeWriteRefusal
             return null;
         }
 
-        return Build(runtimeId.ToString(), operation);
+        return Build(runtimeId.ToString(), operation, IsLintReportType(ckCache, tenantId, runtimeId));
+    }
+
+    /// <summary>The lint report type, or a type the CK cache knows that derives from it (AB#8488).</summary>
+    private static bool IsLintReportType(ICkCacheService ckCache, string tenantId, RtCkId<CkTypeId> runtimeId)
+    {
+        var lintReport = new RtCkId<CkTypeId>(LintReportType);
+        return runtimeId.Equals(lintReport) ||
+               (ckCache.TryGetRtCkType(tenantId, runtimeId, out var graph) && graph != null &&
+                graph.GetBaseTypes(true).Any(t => t.ToRtCkId().Equals(lintReport)));
     }
 
     /// <summary>The refusal message of an import whose file references the knowledge type or role <paramref name="id" />.</summary>
-    public static string ImportMessage(string id) => Build(id, Operation.Import).Message;
+    public static string ImportMessage(string id) =>
+        Build(id, Operation.Import, string.Equals(id, LintReportType, StringComparison.OrdinalIgnoreCase)).Message;
 
     /// <summary>The refusal message of an import that references a CK type the tenant does not know (fail closed).</summary>
     public static string UnknownTypeImportMessage(string ckTypeId) =>
@@ -113,9 +123,9 @@ internal static class KnowledgeWriteRefusal
     }
 
     private static (string Message, IReadOnlyDictionary<string, string> Parameters) Build(string typeId,
-        Operation operation)
+        Operation operation, bool isLintReport)
     {
-        var (message, tool) = string.Equals(typeId, LintReportType, StringComparison.OrdinalIgnoreCase)
+        var (message, tool) = isLintReport
             ? LintReportRefusal(typeId, operation)
             : PageRefusal(typeId, operation);
 

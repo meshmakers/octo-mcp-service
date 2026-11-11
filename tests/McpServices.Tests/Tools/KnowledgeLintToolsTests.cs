@@ -263,7 +263,7 @@ public class KnowledgeLintToolsTests : TestBase
     [
         "kind", "page-ref", "related-ref", "detail-empty", "detail-long", "too-many", "pages-negative",
         "completed-before-started", "tokens-negative", "cost-nan", "name-long", "run-ref-long", "started-missing",
-        "finding-null"
+        "finding-null", "cursor-after-completed", "cursor-in-future"
     ];
 
     [Theory]
@@ -286,6 +286,9 @@ public class KnowledgeLintToolsTests : TestBase
             "run-ref-long" => await WriteAsync(runRef: new string('r', 201)),
             "started-missing" => await WriteAsync(startedAt: default(DateTime)),
             "finding-null" => await WriteAsync([null!]),
+            "cursor-after-completed" => await WriteAsync(completedAt: Started.AddMinutes(1),
+                verifiedThrough: Started.AddMinutes(2)),
+            "cursor-in-future" => await WriteAsync(verifiedThrough: DateTime.UtcNow.AddDays(1)),
             _ => throw new ArgumentOutOfRangeException(nameof(variant))
         };
 
@@ -308,7 +311,7 @@ public class KnowledgeLintToolsTests : TestBase
     {
         var result = await WriteAsync(
             Enumerable.Range(0, 500).Select(_ => Finding("Orphan", detail: new string('x', 2000))).ToList(),
-            name: new string('n', 200));
+            name: new string('n', 200), completedAt: Started.AddMinutes(1), verifiedThrough: Started.AddMinutes(1));
 
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
         result.FindingCount.Should().Be(500);
@@ -427,6 +430,23 @@ public class KnowledgeLintReportGenericWriteRefusalTests : TestBase
     {
         KnowledgeWriteRefusal.ImportMessage(KnowledgeLintTools.ReportType)
             .Should().Contain("knowledge_write_lint_report").And.Contain("Nothing was imported");
+    }
+
+    [Fact]
+    public async Task TypeDerivedFromTheLintReport_GetsTheLintRefusal()
+    {
+        var derived = CkGraphTestBuilder.BuildTypeWithAccess("Custom-1.0.0/SpecialLintReport-1", [], [ReportFullId], [],
+            ("Name", AttributeValueTypesDto.String, null, null));
+        CkGraphTestBuilder.SetupTryGetRtCkType(MockCkCacheService, derived);
+        MockCkCacheService.Setup(c => c.GetRtCkType(It.IsAny<string>(), It.IsAny<RtCkId<CkTypeId>>())).Returns(derived);
+
+        var result = await RuntimeEntityCrudTools.CreateEntity(MockServer.Object, "Custom-1.0.0/SpecialLintReport-1",
+            [Item("Name", "\"forged\"")]);
+
+        result.ErrorCode.Should().Be(KnowledgeWriteRefusal.Code);
+        result.ErrorParameters!["ckTypeId"].Should().Be("Custom/SpecialLintReport");
+        result.ErrorParameters["tool"].Should().Be("knowledge_write_lint_report");
+        VerifyNothingWritten();
     }
 
     [Fact]
