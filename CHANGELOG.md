@@ -19,6 +19,13 @@
 
 ### Added
 
+- **AB#8488** — new tool `knowledge_write_lint_report` (medium risk): writes one System.Ai `KnowledgeLintReport` per
+  call for the nightly knowledge lint (findings Contradiction, Orphan, Stale, MissingLink, UnsupportedClaim,
+  CitationNotInSource; run data tokens, cost, `verifiedThrough`, `runRef`). Content guard over every text, always
+  `IsValidated` false, no page changed. The generic write tools refuse the report type
+  (`GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL`, `tool` `knowledge_write_lint_report`). Tests in
+  `Tools/KnowledgeLintToolsTests`.
+
 - **AB#8712** — every successful `knowledge_search` response carries `answeringConventions`: the "Answering questions"
   section of the tenant's schema page `knowledge-schema` (read with the caller's session, only from a Verified page, at most 2000
   characters, longer text cut deterministically at a word boundary with a marker), or a built-in default when the tenant

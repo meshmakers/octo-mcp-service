@@ -222,8 +222,9 @@ dotnet run
 - Filters on a secret: only `IsNull` / `IsNotNull`. Other filter operators, aggregations and group-by on a secret are refused with `SecretAttributeNotQueryable`; `get_available_archive_paths` never lists secrets.
 - Identity providers: `clientSecret` is write-only (`clientSecretIsSet` instead; `get_identity_providers` also drops a client secret an older identity service might still return). `update_identity_provider` sends no secret unless a new one is passed. Risk classification and its rationale: `docs/risk-classification-sweep.md`.
 
-### **Knowledge base** (6 tools + 1 resource template, AB#8484)
-`knowledge_search`, `knowledge_get`, `knowledge_upsert_page`, `knowledge_link`, `knowledge_restore_version`, `knowledge_set_status`
+### **Knowledge base** (7 tools + 1 resource template, AB#8484)
+`knowledge_search`, `knowledge_get`, `knowledge_upsert_page`, `knowledge_link`, `knowledge_restore_version`, `knowledge_set_status`,
+`knowledge_write_lint_report` (AB#8488)
 and the resource template `knowledge-page://{tenantId}/{slug}`. Pages are System.Ai `KnowledgePage` entities (System.Ai 4.7.0);
 every content or status write is a new `KnowledgePageVersion` and passes the content guard (credentials and tenant secret values are refused with
 `ContentRejected`; AB#8702 adds GitHub tokens, AWS access key ids and `password=`/`secret:`/`token=`-style assignments, while
@@ -252,6 +253,16 @@ with `answeringConventionsSource` (AB#8712).
   `octo-cli -c SetKnowledgePageStatus -tid <tenant> -s <slug> -st Verified -n "<why>"` (interactive user login) or GraphQL.
 - **No delete over MCP**: pages and versions keep their history. Set an unwanted page to `Rejected` with `knowledge_set_status`;
   a person deletes pages outside MCP (GraphQL `runtimeEntities.delete` or octo-cli).
+- **Lint reports** (AB#8488): `knowledge_write_lint_report` (medium risk) writes one System.Ai `KnowledgeLintReport` per call -
+  `startedAt`, `pagesChecked`, optional `completedAt`, `name`, findings (`kind` = Contradiction, Orphan, Stale, MissingLink,
+  UnsupportedClaim or CitationNotInSource, `pageRef` and optional `relatedPageRef` as page slugs, `detail` up to 2000 characters,
+  at most 500 findings) and run data (`inputTokens`, `outputTokens`, `cost` in USD, `verifiedThrough` = the cursor of the
+  incremental LLM check, not after `completedAt` or in the future, `runRef`). Every text passes the content guard; the report is always written with `IsValidated`
+  false (the lint's precision is not measured yet, nothing may act on it automatically) and no page is changed. The caller
+  is the lint pipeline of the System.Ai.Knowledge blueprint (`McpToolCall@1` as service account `knowledge-linter`). The
+  generic write tools refuse `System.Ai/KnowledgeLintReport` with `GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL` (`tool`
+  `knowledge_write_lint_report`; delete: `none`, a person deletes old reports outside MCP). Needs the System.Ai version
+  with `KnowledgeLintReport.IsValidated`.
 
 ### **CK attribute access in the generic tools** (AB#8043)
 - The generic CRUD, query and aggregation tools read and write the tenant database directly, so they apply the CK `access` rules themselves, with the same error codes as the asset-repo GraphQL API.

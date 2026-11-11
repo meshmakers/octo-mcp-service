@@ -53,7 +53,7 @@ internal sealed class KnowledgeImportCheck(
 
     private const string ProtectedModel = "System.Ai";
 
-    private static readonly string[] ProtectedTypeNames = ["KnowledgePage", "KnowledgePageVersion"];
+    private static readonly string[] ProtectedTypeNames = ["KnowledgePage", "KnowledgePageVersion", "KnowledgeLintReport"];
 
     private static readonly string[] ProtectedRoleNames = ["LinksTo", "GeneratedFrom", "VersionOf"];
 
@@ -319,7 +319,7 @@ internal sealed class KnowledgeImportCheck(
         if (runtimeId != null && ckCache.TryGetRtCkType(tenantId, runtimeId, out var graph) && graph != null)
         {
             return KnowledgeWriteRefusal.IsKnowledgeType(ckCache, tenantId, runtimeId)
-                ? KnowledgeWriteRefusal.ImportMessage(runtimeId.ToString())
+                ? KnowledgeWriteRefusal.ImportMessage(ckCache, tenantId, runtimeId)
                 : null;
         }
 

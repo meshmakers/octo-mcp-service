@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes 216 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
+`octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes 217 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
 
 Three distinct tool families live here — be aware which one you're touching:
 
@@ -299,6 +299,28 @@ Agents set `Rejected` with `knowledge_set_status`; a person deletes pages outsid
 generic association write tool, so the knowledge associations are reachable only through the import (refused) and the
 knowledge tools. Reads (`get_entity_by_id`, `query_entities*`, `navigate_associations`, …) are unchanged.
 Tests: `Tools/KnowledgeGenericWriteRefusalTests` (incl. `KnowledgeRuntimeImportRefusalTests`).
+
+### Lint reports are written only by `knowledge_write_lint_report` (AB#8488)
+
+`Tools/KnowledgeLintTools.cs` is the write channel of the nightly knowledge lint (System.Ai.Knowledge blueprint, pipeline
+`knowledge-lint`, `McpToolCall@1` as service account `knowledge-linter`). One fixed type (`System.Ai/KnowledgeLintReport`),
+one insert per call, nothing updated. Rules a later change must keep:
+
+- **Content guard over every text** (name, `runRef`, each finding's `pageRef`, `relatedPageRef`, `detail`): a finding can
+  quote a SourceArtifact, which is unguarded ingest text. Fails closed without a guard, like the page tools.
+- **`IsValidated` is always written `false`.** The lint's flag precision is measured on the Control Set first (AB#8488
+  AC2); a person sets the flag outside MCP once it is. There is no parameter for it on purpose.
+- **No page is touched** (no status, never `Verified`). Finding refs must be page slugs (`KnowledgePages.IsValidSlug`),
+  which also keeps free text out of the ref fields.
+- Validation (kind by name or key, slugs, detail <= 2000, <= 500 findings, run data via `KnowledgeTools.ValidateRunData`,
+  `completedAt` at most 5 minutes in the future, `verifiedThrough` not after `completedAt` and, without it, not after
+  now - it is the next run's cursor) runs before the session. A tenant whose report type has no `IsValidated` (System.Ai before AB#8488) gets a clear error.
+- `KnowledgeWriteRefusal` lists the report type, with its own message and `tool` = `knowledge_write_lint_report`
+  (delete: `none`); a type derived from it is refused with `tool` = `none` (the tool writes only the base type), also
+  on import. `KnowledgeImportCheck.ProtectedTypeNames` lists `KnowledgeLintReport` next to the page types.
+- The guard call is a small copy of `KnowledgeTools.GuardAsync`; a change to one belongs in the other.
+
+Tests: `Tools/KnowledgeLintToolsTests` (incl. `KnowledgeLintReportGenericWriteRefusalTests`).
 
 ## CK attribute access in the generic tools (AB#8043)
 
@@ -658,7 +680,7 @@ Both `MapMcp` endpoints require it. Before this they carried a bare `RequireAuth
 token with no Octo API scope at all (a front-end `openid profile` token, say) reached every tool —
 while every backend service gates on `scope`.
 
-**The requirement is uniform, and it is the write scope `octo_api`.** MCP multiplexes all 216 tools
+**The requirement is uniform, and it is the write scope `octo_api`.** MCP multiplexes all 217 tools
 over one JSON-RPC `POST`; the tool name lives in the request *body* and ASP.NET authorization runs on
 the endpoint before the body is read, so there is no second endpoint to hang a stricter policy on and
 no way to split read from write there. Accepting `octo_api.read_only` would therefore hand a
