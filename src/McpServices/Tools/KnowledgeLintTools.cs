@@ -47,14 +47,18 @@ public static class KnowledgeLintTools
 
     /// <summary>Names of the System.Ai enum <c>KnowledgeLintFindingKind</c>, by key.</summary>
     public static readonly string[] FindingKindNames =
-        ["Contradiction", "Orphan", "Stale", "MissingLink", "UnsupportedClaim", "CitationNotInSource"];
+        ["Contradiction", "Orphan", "Stale", "MissingLink", "UnsupportedClaim", "CitationNotInSource", "PlatformUpdateAvailable"];
+
+    /// <summary>Key of <c>PlatformUpdateAvailable</c> (System.Ai 4.10.0, AB#8780).</summary>
+    internal const int PlatformUpdateAvailableKind = 6;
 
     /// <summary>Writes one knowledge lint report.</summary>
     [McpServerTool(Name = "knowledge_write_lint_report")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Write the report of one knowledge lint run (KnowledgeLintReport, readable in Studio's generic entity view). Takes " +
-        "the findings of the run: kind (Contradiction, Orphan, Stale, MissingLink, UnsupportedClaim, CitationNotInSource), " +
+        "the findings of the run: kind (Contradiction, Orphan, Stale, MissingLink, UnsupportedClaim, CitationNotInSource, " +
+        "PlatformUpdateAvailable - the last needs System.Ai 4.10.0), " +
         "pageRef (page slug), optional relatedPageRef (second page slug) and detail (one or two sentences, up to 2000 " +
         "characters; at most 500 findings). Every call writes a new report; nothing is updated and no knowledge page is " +
         "changed. The report is always written unvalidated (IsValidated false): the precision of the lint is not measured " +
@@ -102,6 +106,20 @@ public static class KnowledgeLintTools
                 TenantId = ctx.TenantId,
                 ErrorMessage = $"Tenant '{ctx.TenantId}' cannot store lint reports: it needs the System.Ai version whose " +
                                $"KnowledgeLintReport has {ValidatedAttribute} (AB#8488)."
+            };
+        }
+
+        // AB#8780: the enum value PlatformUpdateAvailable comes with System.Ai 4.10.0 (same release as the page attribute
+        // DismissedBlueprintVersion); an older tenant could not read the stored finding.
+        if (kinds.Contains(PlatformUpdateAvailableKind) &&
+            !(ckCache.TryGetRtCkType(ctx.TenantId!, KnowledgePages.PageTypeId, out var pageType) && pageType != null &&
+              pageType.AllAttributes.Values.Any(a => a.AttributeName == KnowledgePlatformUpdates.DismissedAttribute)))
+        {
+            return new KnowledgeLintReportResponse
+            {
+                TenantId = ctx.TenantId,
+                ErrorMessage = $"Tenant '{ctx.TenantId}' cannot store PlatformUpdateAvailable findings: it needs System.Ai " +
+                               "4.10.0 (AB#8780)."
             };
         }
 

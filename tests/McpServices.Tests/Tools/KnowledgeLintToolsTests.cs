@@ -31,6 +31,7 @@ public class KnowledgeLintToolsTests : TestBase
     private readonly List<IEntityUpdateInfo<RtEntity>> _writes = [];
     private readonly Dictionary<OctoObjectId, RtEntity> _entities = new();
     private bool _reportTypeHasValidatedAttribute = true;
+    private bool _pageTypeHasDismissedAttribute = true;
 
     public KnowledgeLintToolsTests()
     {
@@ -43,7 +44,10 @@ public class KnowledgeLintToolsTests : TestBase
             {
                 graph = id.ToString() == KnowledgeLintTools.ReportType
                     ? ReportType(_reportTypeHasValidatedAttribute)
-                    : CkGraphTestBuilder.BuildType("System.Ai-4.8.0/KnowledgePage-1");
+                    : _pageTypeHasDismissedAttribute
+                        ? CkGraphTestBuilder.BuildType("System.Ai-4.10.0/KnowledgePage-1",
+                            ("DismissedBlueprintVersion", AttributeValueTypesDto.Int, null))
+                        : CkGraphTestBuilder.BuildType("System.Ai-4.8.0/KnowledgePage-1");
                 return true;
             }));
         MockTenantRepository
@@ -126,9 +130,10 @@ public class KnowledgeLintToolsTests : TestBase
             runRef: "knowledge-lint/2026-11-12");
 
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
-        result.FindingCount.Should().Be(6);
+        result.FindingCount.Should().Be(7);
         result.IsValidated.Should().BeFalse();
-        result.FindingsByKind.Should().HaveCount(6).And.ContainKey("CitationNotInSource");
+        result.FindingsByKind.Should().HaveCount(7).And.ContainKey("CitationNotInSource")
+            .And.ContainKey("PlatformUpdateAvailable");
         result.Name.Should().Be("knowledge-lint 2026-11-10T02:30Z");
         var report = WrittenReport();
         _writes[0].ModOption.Should().Be(EntityModOptions.Insert);
@@ -145,7 +150,7 @@ public class KnowledgeLintToolsTests : TestBase
         report.GetAttributeStringValueOrDefault("RunRef").Should().Be("knowledge-lint/2026-11-12");
 
         var records = Findings(report);
-        records.Select(r => r.Attributes["Kind"]).Should().Equal(0, 1, 2, 3, 4, 5);
+        records.Select(r => r.Attributes["Kind"]).Should().Equal(0, 1, 2, 3, 4, 5, 6);
         records.Should().OnlyContain(r => r.CkRecordId.ToString() == KnowledgeLintTools.FindingRecord);
         records[0].Attributes["RelatedPageRef"].Should().Be("page-x");
         records[1].Attributes.Should().NotContainKey("RelatedPageRef");
@@ -173,6 +178,30 @@ public class KnowledgeLintToolsTests : TestBase
 
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
         Findings(WrittenReport()).Select(r => r.Attributes["Kind"]).Should().Equal(1, 5);
+    }
+
+    [Fact]
+    public async Task PlatformUpdateAvailable_IsStoredAsKey6()
+    {
+        var result = await WriteAsync([Finding("PlatformUpdateAvailable", "app-build-sequence",
+            detail: "Edited page at version 3; Blueprint version 4 (System.Ai.Builder-1.1.0) is newer.")]);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        Findings(WrittenReport()).Single().Attributes["Kind"].Should().Be(6);
+    }
+
+    [Fact]
+    public async Task PlatformUpdateAvailable_OnATenantBeforeSystemAi4100_IsRefused_AndNothingIsWritten()
+    {
+        _pageTypeHasDismissedAttribute = false;
+
+        var refused = await WriteAsync([Finding("PlatformUpdateAvailable")]);
+        var other = await WriteAsync([Finding("Stale")]);
+
+        refused.IsSuccess.Should().BeFalse();
+        refused.ErrorMessage.Should().Contain("System.Ai").And.Contain("4.10.0").And.Contain("AB#8780");
+        other.IsSuccess.Should().BeTrue("the other kinds still work on System.Ai 4.8/4.9");
+        _writes.Should().ContainSingle();
     }
 
     [Fact]

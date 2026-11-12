@@ -327,7 +327,8 @@ public static class KnowledgeTools
             var write = KnowledgePages.BuildWrite(existing, slug, content, originValue.Value, ctx.Author!,
                 changeNote ?? (existing == null ? "created" : "updated"), null,
                 new KnowledgeRunMetadata(promptName, promptVersion, modelId, runRef, inputTokens, outputTokens, cost,
-                    reviewerRounds, latencySeconds), DateTime.UtcNow);
+                    reviewerRounds, latencySeconds), DateTime.UtcNow,
+                await KnowledgePlatformUpdates.HighestVersionAsync(ctx.Repo, session, slug));
 
             var associations = new List<AssociationUpdateInfo> { KnowledgePages.VersionOf(write.Version, write.Page) };
             var response = new KnowledgeWriteResponse();
@@ -483,7 +484,7 @@ public static class KnowledgeTools
             }
 
             var write = KnowledgePages.BuildWrite(page, slug, content, 0, ctx.Author!, $"restore of version {version}",
-                version, null, DateTime.UtcNow);
+                version, null, DateTime.UtcNow, await KnowledgePlatformUpdates.HighestVersionAsync(ctx.Repo, session, slug));
             var failure = await ApplyAsync(ctx.Repo, session, ctx.TenantId!, write.Updates,
                 [KnowledgePages.VersionOf(write.Version, write.Page)], slug, page);
             return failure ?? new KnowledgeWriteResponse
@@ -595,7 +596,7 @@ public static class KnowledgeTools
 
             var write = KnowledgePages.BuildWrite(page, slug, content, 0, ctx.Author!,
                 changeNote ?? $"status {KnowledgePages.Name(KnowledgePages.StatusNames, statusValue.Value)}", null, null,
-                DateTime.UtcNow);
+                DateTime.UtcNow, await KnowledgePlatformUpdates.HighestVersionAsync(ctx.Repo, session, slug));
             var failure = await ApplyAsync(ctx.Repo, session, ctx.TenantId!, write.Updates,
                 [KnowledgePages.VersionOf(write.Version, write.Page)], slug, page);
             return failure ?? new KnowledgeWriteResponse
@@ -662,7 +663,7 @@ public static class KnowledgeTools
         return new KnowledgeContext(repository, securityContext, repository.TenantId, author, null);
     }
 
-    private static async Task<KnowledgeWriteResponse?> GuardAsync(McpServer server, KnowledgeContext ctx,
+    internal static async Task<KnowledgeWriteResponse?> GuardAsync(McpServer server, KnowledgeContext ctx,
         IOctoSession session, KnowledgeContent content, string slug, string operation, CancellationToken ct,
         params ContentGuardField[] extraFields)
     {
@@ -694,7 +695,7 @@ public static class KnowledgeTools
             : null;
     }
 
-    private static KnowledgeWriteResponse? CheckVersion(RtEntity? existing, int? expectedVersion, string tenantId)
+    internal static KnowledgeWriteResponse? CheckVersion(RtEntity? existing, int? expectedVersion, string tenantId)
     {
         if (expectedVersion == null)
         {
@@ -777,9 +778,10 @@ public static class KnowledgeTools
     ///     <c>VersionConflict</c> as well, so two writers can never both write version <c>n + 1</c> of an existing page.
     /// </summary>
     /// <returns>The failure response, or <c>null</c> when the write was committed.</returns>
-    private static async Task<KnowledgeWriteResponse?> ApplyAsync(ITenantRepository repository, IOctoSession session,
+    internal static async Task<KnowledgeWriteResponse?> ApplyAsync(ITenantRepository repository, IOctoSession session,
         string tenantId, IReadOnlyList<IEntityUpdateInfo<RtEntity>> updates,
-        IReadOnlyList<AssociationUpdateInfo> associations, string? slug = null, RtEntity? readPage = null)
+        IReadOnlyList<AssociationUpdateInfo> associations, string? slug = null, RtEntity? readPage = null,
+        Func<RtEntity, string?>? recheck = null)
     {
         var readVersion = readPage == null ? 0 : KnowledgePages.CurrentVersion(readPage);
         session.StartTransaction();
@@ -794,6 +796,20 @@ public static class KnowledgeTools
                 {
                     await session.AbortTransactionAsync();
                     return Conflict(tenantId, current, readVersion);
+                }
+
+                // AB#8780: a caller-specific condition on the page as stored inside the transaction.
+                if (current != null && recheck?.Invoke(current) is { } reason)
+                {
+                    await session.AbortTransactionAsync();
+                    return new KnowledgeWriteResponse
+                    {
+                        TenantId = tenantId,
+                        IsConflict = true,
+                        ErrorCode = "VersionConflict",
+                        Page = KnowledgePages.Summarize(tenantId, current),
+                        ErrorMessage = reason + " Nothing was written."
+                    };
                 }
             }
 

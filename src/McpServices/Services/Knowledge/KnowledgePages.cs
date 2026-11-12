@@ -277,11 +277,17 @@ internal static class KnowledgePages
     /// <param name="restoredFrom">The restored version, for a restore.</param>
     /// <param name="run">Run metadata.</param>
     /// <param name="now">Time of the write.</param>
+    /// <param name="highestVersion">
+    ///     The highest version number the page already has (<see cref="KnowledgePlatformUpdates.HighestVersionAsync" />).
+    ///     AB#8780: a blueprint update brings versions above the current one (<c>&lt;slug&gt;@&lt;n&gt;</c>), and the
+    ///     versions of a deleted page stay; the new version takes the next free number, so a version name is never used
+    ///     twice.
+    /// </param>
     public static (RtEntity Page, RtEntity Version, List<IEntityUpdateInfo<RtEntity>> Updates, int VersionNumber)
         BuildWrite(RtEntity? existing, string slug, KnowledgeContent content, int origin, string author,
-            string changeNote, int? restoredFrom, KnowledgeRunMetadata? run, DateTime now)
+            string changeNote, int? restoredFrom, KnowledgeRunMetadata? run, DateTime now, int highestVersion = 0)
     {
-        var versionNumber = existing == null ? 1 : CurrentVersion(existing) + 1;
+        var versionNumber = Math.Max(existing == null ? 0 : CurrentVersion(existing), highestVersion) + 1;
         var hash = Hash(Render(content, slug, 0));
 
         var page = new RtEntity
@@ -385,7 +391,8 @@ internal static class KnowledgePages
         return associations.Items.Select(a => a.TargetRtId).ToList();
     }
 
-    private static void SetContent(RtEntity entity, KnowledgeContent content)
+    /// <summary>Sets the content attributes (title, kind, summary, status, sections, citations, flags) of a page or version.</summary>
+    public static void SetContent(RtEntity entity, KnowledgeContent content)
     {
         entity.SetAttributeValue("Title", AttributeValueTypesDto.String, content.Title);
         entity.SetAttributeValue("Kind", AttributeValueTypesDto.Enum, content.Kind);
@@ -426,5 +433,6 @@ internal static class KnowledgePages
         _ => int.TryParse(value.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : 0
     };
 
-    private static string Hash(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+    /// <summary>SHA-256 (lower-case hex) of a text; the content hash is taken over <see cref="Render" /> with version 0.</summary>
+    public static string Hash(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 }

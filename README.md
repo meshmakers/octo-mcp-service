@@ -222,9 +222,10 @@ dotnet run
 - Filters on a secret: only `IsNull` / `IsNotNull`. Other filter operators, aggregations and group-by on a secret are refused with `SecretAttributeNotQueryable`; `get_available_archive_paths` never lists secrets.
 - Identity providers: `clientSecret` is write-only (`clientSecretIsSet` instead; `get_identity_providers` also drops a client secret an older identity service might still return). `update_identity_provider` sends no secret unless a new one is passed. Risk classification and its rationale: `docs/risk-classification-sweep.md`.
 
-### **Knowledge base** (7 tools + 1 resource template, AB#8484)
+### **Knowledge base** (10 tools + 1 resource template, AB#8484)
 `knowledge_search`, `knowledge_get`, `knowledge_upsert_page`, `knowledge_link`, `knowledge_restore_version`, `knowledge_set_status`,
-`knowledge_write_lint_report` (AB#8488)
+`knowledge_write_lint_report` (AB#8488), `knowledge_list_platform_updates`, `knowledge_adopt_platform_updates`,
+`knowledge_dismiss_platform_update` (AB#8780)
 and the resource template `knowledge-page://{tenantId}/{slug}`. Pages are System.Ai `KnowledgePage` entities (System.Ai 4.7.0);
 every content or status write is a new `KnowledgePageVersion` and passes the content guard (credentials and tenant secret values are refused with
 `ContentRejected`; AB#8702 adds GitHub tokens, AWS access key ids and `password=`/`secret:`/`token=`-style assignments, while
@@ -265,7 +266,27 @@ with `answeringConventionsSource` (AB#8712).
   is the lint pipeline of the System.Ai.Knowledge blueprint (`McpToolCall@1` as service account `knowledge-linter`). The
   generic write tools refuse `System.Ai/KnowledgeLintReport` with `GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL` (`tool`
   `knowledge_write_lint_report`; delete: `none`, a person deletes old reports outside MCP). Needs the System.Ai version
-  with `KnowledgeLintReport.IsValidated`.
+  with `KnowledgeLintReport.IsValidated`; the kind `PlatformUpdateAvailable` (AB#8780) needs System.Ai 4.10.0.
+- **Platform updates** (AB#8780, System.Ai 4.10.0): a blueprint update (System.Ai.Builder, System.Ai.Default) brings new
+  `KnowledgePageVersion` entities but never refreshes an existing page (AB#8778). A *Blueprint version* has the author
+  `blueprint:<id>-<version>` and the engine's `rtBlueprintSource` stamp. `knowledge_list_platform_updates` (read) lists
+  the pages with a newer Blueprint version: `Adoptable` (unedited - the current version is a Blueprint version) or
+  `Available` (edited - the current version was written in the tenant, or the page content differs from its current
+  Blueprint version after a direct edit; newer = higher number or arrived after the tenant's current version; only a
+  version above `DismissedBlueprintVersion` counts). `knowledge_adopt_platform_updates` (medium risk,
+  `runRef` required; caller: the `knowledge-platform-updates` pipeline of System.Ai.Knowledge) switches every Adoptable
+  page to the newest Blueprint version **without writing a version**: title, kind, summary, sections, citations and
+  status from that version, `CurrentVersion`, `BlueprintVersion`, `AdoptedByRun` = `runRef`, and `LinksTo` = the
+  version's `DeclaredLinks` (added and removed; no attribute = links unchanged; unknown slugs are reported). Content guard
+  per page; a failure of one page is reported in `skipped`, the others stay adopted; the discovery reads the Blueprint
+  versions page by page and pages / current versions in batches (`truncated` above 100,000 Blueprint versions); a
+  second call without a new Blueprint version writes nothing. Edited pages are never switched: a person
+  adopts with `knowledge_restore_version` (a new Draft version) or keeps the page with `knowledge_dismiss_platform_update`
+  (stores the version, never lowers it; the finding returns only for a higher Blueprint version; no version, no status;
+  refused with `NotEdited` for an unedited page, whose update is adopted). Verified
+  (AB#8565): the adopt copies the status of a seeded Blueprint version onto a page whose current version is itself a
+  seeded Blueprint version; no caller chooses it, and edited pages never get it. Page writes take the next free version
+  number (`<slug>@<n>` is never written twice).
 
 ### **CK attribute access in the generic tools** (AB#8043)
 - The generic CRUD, query and aggregation tools read and write the tenant database directly, so they apply the CK `access` rules themselves, with the same error codes as the asset-repo GraphQL API.

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes 217 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
+`octo-mcp-service` is the **Model Context Protocol** server for OctoMesh. It exposes 220 tools that mirror the full `octo-cli` command surface plus generic CK-type CRUD, so AI assistants can administer the platform end-to-end without invoking the CLI.
 
 Three distinct tool families live here — be aware which one you're touching:
 
@@ -321,6 +321,28 @@ one insert per call, nothing updated. Rules a later change must keep:
 - The guard call is a small copy of `KnowledgeTools.GuardAsync`; a change to one belongs in the other.
 
 Tests: `Tools/KnowledgeLintToolsTests` (incl. `KnowledgeLintReportGenericWriteRefusalTests`).
+
+### Platform updates of Blueprint pages (AB#8780)
+
+`Tools/KnowledgePlatformUpdateTools.cs` + `Services/Knowledge/KnowledgePlatformUpdates.cs` complete the blueprint update
+rule of AB#8778 for knowledge pages (the engine never refreshes an existing page; only new version entities arrive).
+Rules a later change must keep:
+
+- **The rule lives in `KnowledgePlatformUpdates.Decide`**, used by list, adopt and (through list) the lint. A Blueprint
+  version needs both the author prefix `blueprint:` and the `RtBlueprintSource` stamp; the knowledge tools never write
+  such an author. A tenant version that shares the current number with a Blueprint version makes the page *edited* (safe
+  direction).
+- **The adopt writes no version** and copies the status of the seeded version, so the page stays "unedited" for the next
+  blueprint update. It only ever adopts for a page whose current version is a Blueprint version; there is no parameter to
+  pick a page or a status. Never set Verified on anything else (AB#8565).
+- `LinksTo` follows `DeclaredLinks` only when the version has the attribute; unknown slugs are reported, not created.
+- Writes open the session with `write: true` (channel `System.Ai/KnowledgeTools`, AB#8575) and go through
+  `KnowledgeTools.ApplyAsync` (version re-check in the transaction) and `KnowledgeTools.GuardAsync`.
+- `BuildWrite` takes `highestVersion` (`KnowledgePlatformUpdates.HighestVersionAsync`): a new version gets the next free
+  number, never `CurrentVersion + 1` blindly.
+
+Tests: `Tools/KnowledgePlatformUpdateToolsTests` (fixtures unedited, edited, deleted, link change, already current; adopt
+by restore, dismiss, audit, Verified).
 
 ## CK attribute access in the generic tools (AB#8043)
 
@@ -680,7 +702,7 @@ Both `MapMcp` endpoints require it. Before this they carried a bare `RequireAuth
 token with no Octo API scope at all (a front-end `openid profile` token, say) reached every tool —
 while every backend service gates on `scope`.
 
-**The requirement is uniform, and it is the write scope `octo_api`.** MCP multiplexes all 217 tools
+**The requirement is uniform, and it is the write scope `octo_api`.** MCP multiplexes all 220 tools
 over one JSON-RPC `POST`; the tool name lives in the request *body* and ASP.NET authorization runs on
 the endpoint before the body is read, so there is no second endpoint to hang a stricter policy on and
 no way to split read from write there. Accepting `octo_api.read_only` would therefore hand a
