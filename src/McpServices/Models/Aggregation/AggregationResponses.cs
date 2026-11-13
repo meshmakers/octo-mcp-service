@@ -136,6 +136,12 @@ public class PersistedRuntimeQueryResponse : AggregationResponse
 
     /// <summary>Total entity count reported by the engine (simple queries only).</summary>
     public long? TotalCount { get; set; }
+
+    /// <summary>
+    ///     Paging state of a simple query result (applied skip/take, whether more items may exist, next skip).
+    ///     Null for aggregation subtypes (AB#8904).
+    /// </summary>
+    public QueryPagingInfo? Paging { get; set; }
 }
 
 /// <summary>

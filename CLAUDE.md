@@ -394,6 +394,30 @@ equality oracle, and `update_entity` wrote `securityStamp` / `twoFactorEnabled`.
   record with a Hidden sub-attribute, a derived-type case; the cache mock resolves ids like the real cache, by runtime id
   only) and `Architecture/HiddenAttributeOutputArchitectureTests`.
 
+## Paging of the entity query tools (AB#8904)
+
+The family-2/3 tools read the engine directly, so the asset-repo API guard against unbounded queries (AB#8898,
+`RuntimeQueryGuard`, MaxPageSize 1000) never sees them. They bound themselves through `Services/QueryPaging.cs`:
+
+- **Tools**: `query_entities`, `query_entities_simple` (`limit`/`offset`), `navigate_associations` (`take`/`skip`),
+  `get_association_tree` (`rootTake`/`rootSkip`, root entities only) and `execute_runtime_query` (`take`/`skip`,
+  applied to `RtSimpleRtQuery`).
+- **Rules**: no page size = `DynamicToolOptions.GetEffectiveDefaultQueryLimit()` (100); a page size above
+  `GetEffectiveMaxQueryResultLimit()` (1000) is **refused, never capped** (decision of Feature AB#8793), with the message
+  `<arg> <n> exceeds the maximum of <max>; page with <skipArg> (...)`; a page size below 1 or a negative skip is refused.
+  `QueryPaging.Resolve` runs **before** the session is opened or anything is loaded (`execute_runtime_query`: before the
+  persisted query is read), so a refused call never reaches the engine.
+- **Config**: `MaxQueryResultLimit` can be lowered, never raised: `DynamicToolOptions.MaxPageSize` (1000) is a constant,
+  a higher configured value is ignored, logged at startup and reported by `DynamicToolHealthCheck` (Degraded). There is
+  no override flag on purpose.
+- **Response**: every result carries `Paging` (`QueryPagingInfo`: `skip`, `take`, `defaultTakeApplied`, `maxTake`,
+  `returnedCount`, `hasMore`, `nextSkip`, `hint`). `hasMore` comes from the engine's `TotalCount`.
+- **Not paged**: `query_entities_aggregation` / `query_entities_grouping` (no entities; their tests pin `null` skip/take)
+  and the children per level of `get_association_tree` (open follow-up under AB#8793).
+- A new tool that returns runtime entities must use `QueryPaging` and append `RuntimeEntityCrudTools.PagingDescription`
+  (or an equivalent sentence) to its description. Tests: `Tools/RuntimeQueryPagingTests` (one theory per rule over all
+  five tools).
+
 ## Adapter pool queue tools (AB#4924 §10)
 
 `get_adapter_pool_queue` and `cancel_queued_execution` (in `DataFlowTriggerPoolTools`) are the MCP

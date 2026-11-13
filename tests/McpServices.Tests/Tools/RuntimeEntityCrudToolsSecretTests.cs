@@ -452,7 +452,7 @@ public class RuntimeEntityCrudToolsSecretTests : TestBase
     {
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(),
-                It.IsAny<RtEntityQueryOptions>(), null, null))
+                It.IsAny<RtEntityQueryOptions>(), 0, 100))
             .ReturnsAsync(new Meshmakers.Octo.Runtime.Engine.Repositories.Query.ResultSet<RtEntity>(
                 new List<RtEntity>(), 0, null, null));
         var filters = new FieldFilterCriteriaDto
@@ -480,7 +480,7 @@ public class RuntimeEntityCrudToolsSecretTests : TestBase
     {
         MockTenantRepository
             .Setup(r => r.GetRtEntitiesByTypeAsync(It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(),
-                It.IsAny<RtEntityQueryOptions>(), null, null))
+                It.IsAny<RtEntityQueryOptions>(), 0, 100))
             .ThrowsAsync(new SecretAttributeNotQueryableException("Password", "sort", "Credential"));
 
         var result = await RuntimeEntityCrudTools.QueryEntities(MockServer.Object, TestCkTypeId);

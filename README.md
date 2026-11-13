@@ -293,6 +293,13 @@ with `answeringConventionsSource` (AB#8712).
 - `Hidden` attributes (e.g. `passwordHash`, `securityStamp`, `userTokens` of `System.Identity/User`) are never returned — not by `get_entity_by_id`, `query_entities*`, `navigate_associations`, `get_association_tree`, `execute_runtime_query`, a write response or a conflict payload — and cannot be filtered on (any operator, `IsNull` included), aggregated or grouped by: `ATTRIBUTE_NOT_QUERYABLE`. A stored query whose filter, sort, columns or group-by reach a Hidden attribute is neither stored by `create_entity` / `update_entity` nor run by `execute_runtime_query`.
 - `create_entity` / `update_entity` / `set_entity_secrets` refuse `Hidden` and `MethodOnly` attributes, and `ReadOnly` ones on update (allowed on create): `ATTRIBUTE_NOT_WRITABLE`. The identity-owned fields of `System.Identity/User` (`twoFactorEnabled`, `normalizedUserName`, `emailConfirmed`, lockout fields, …) are refused too (they are `MethodOnly` in System.Identity 3.0.0); use the identity tools. A new `System.Identity/User` is refused with `GENERIC_CREATE_REPLACED_BY_METHOD` (create users with the user tools or `User.CreateUser`).
 
+### **Paging of the entity query tools** (AB#8904)
+- `query_entities`, `query_entities_simple`, `navigate_associations`, `get_association_tree` (root entities) and `execute_runtime_query` (`RtSimpleRtQuery`) return one page per call. They read the tenant database directly, so the asset-repo API guard never sees them; they bound themselves.
+- Without a page size the default is **100** (`DynamicTools:DefaultQueryLimit`). The maximum is **1000** (`DynamicTools:MaxQueryResultLimit`, can be lowered, never raised above 1000). A larger page size is **refused** before any query runs, never silently capped: `limit 5000 exceeds the maximum of 1000; page with offset (...)`.
+- Page with the tool's skip argument: `offset` (`query_entities*`), `skip` (`navigate_associations`, `execute_runtime_query`), `rootSkip` (`get_association_tree`); the page size is `limit`, `take` or `rootTake`.
+- Every result carries a `paging` block: `skip`, `take`, `defaultTakeApplied`, `maxTake`, `returnedCount`, `hasMore`, `nextSkip` and a `hint`. Call again with `nextSkip` until `hasMore` is false.
+- Not paged: the aggregation and grouping tools (they return aggregates, not entities) and the children per level of `get_association_tree`.
+
 <sup>‡</sup> Destructive — requires `confirm: true`.
 <sup>📁</sup> Uses file-transfer endpoints (see Section *File I/O Flow* below).
 
@@ -361,6 +368,9 @@ Reservations and downloads expire after **30 minutes**; a background sweeper pur
     "limit": 50
   }
 }
+// Response: { totalCount: 180, returnedCount: 50, entities: [...],
+//             paging: { skip: 0, take: 50, hasMore: true, nextSkip: 50, ... } }
+// Next page: same call with "offset": 50
 ```
 
 ### **Dump a tenant and download the .tar.gz**
@@ -499,8 +509,8 @@ Reservations and downloads expire after **30 minutes**; a background sweeper pur
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `EnableDynamicToolGeneration` | `true` | Enable automatic tool generation |
-| `MaxQueryResultLimit` | `1000` | Maximum entities per query |
-| `DefaultQueryLimit` | `100` | Default result limit |
+| `MaxQueryResultLimit` | `1000` | Maximum page size of the entity query tools; a larger requested page is refused. Can be lowered; values above 1000 are ignored (the health check reports them) |
+| `DefaultQueryLimit` | `100` | Page size when a query tool call passes none (lowered to the maximum if larger) |
 | `AnalyticsTimeoutSeconds` | `300` | Timeout for long operations |
 | `EnableToolStatistics` | `true` | Collect usage statistics |
 | `CkTypeGraphCacheDurationMinutes` | `30` | Cache duration for schemas |

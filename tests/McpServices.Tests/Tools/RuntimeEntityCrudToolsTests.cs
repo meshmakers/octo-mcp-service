@@ -29,8 +29,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
                 It.IsAny<IOctoSession>(),
                 It.IsAny<RtCkId<CkTypeId>>(),
                 It.IsAny<RtEntityQueryOptions>(),
-                null,
-                null))
+                0,
+                100))
             .ReturnsAsync(mockResults);
 
         // Act
@@ -58,7 +58,7 @@ public class RuntimeEntityCrudToolsTests : TestBase
                 It.IsAny<IOctoSession>(),
                 It.IsAny<RtCkId<CkTypeId>>(),
                 It.IsAny<RtEntityQueryOptions>(),
-                null,
+                0,
                 limit))
             .ReturnsAsync(mockResults);
 
@@ -77,7 +77,7 @@ public class RuntimeEntityCrudToolsTests : TestBase
             It.IsAny<IOctoSession>(),
             It.IsAny<RtCkId<CkTypeId>>(),
             It.IsAny<RtEntityQueryOptions>(),
-            null,
+            0,
             limit), Times.Once);
     }
 
@@ -94,7 +94,7 @@ public class RuntimeEntityCrudToolsTests : TestBase
                 It.IsAny<RtCkId<CkTypeId>>(),
                 It.IsAny<RtEntityQueryOptions>(),
                 offset,
-                null))
+                100))
             .ReturnsAsync(mockResults);
 
         // Act
@@ -112,7 +112,7 @@ public class RuntimeEntityCrudToolsTests : TestBase
             It.IsAny<RtCkId<CkTypeId>>(),
             It.IsAny<RtEntityQueryOptions>(),
             offset,
-            null), Times.Once);
+            100), Times.Once);
     }
 
     [Fact]
@@ -134,8 +134,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
                 It.IsAny<IOctoSession>(),
                 It.IsAny<RtCkId<CkTypeId>>(),
                 It.IsAny<RtEntityQueryOptions>(),
-                null,
-                null))
+                0,
+                100))
             .ReturnsAsync(mockResults);
 
         // Act
@@ -153,8 +153,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
             It.IsAny<IOctoSession>(),
             It.IsAny<RtCkId<CkTypeId>>(),
             It.IsAny<RtEntityQueryOptions>(),
-            null,
-            null), Times.Once);
+            0,
+            100), Times.Once);
     }
 
     [Fact]
@@ -178,8 +178,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
                 It.IsAny<IOctoSession>(),
                 It.IsAny<RtCkId<CkTypeId>>(),
                 It.IsAny<RtEntityQueryOptions>(),
-                null,
-                null))
+                0,
+                100))
             .ReturnsAsync(mockResults);
 
         // Act
@@ -196,8 +196,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
             It.IsAny<IOctoSession>(),
             It.IsAny<RtCkId<CkTypeId>>(),
             It.IsAny<RtEntityQueryOptions>(),
-            null,
-            null), Times.Once);
+            0,
+            100), Times.Once);
     }
 
     [Fact]
@@ -221,8 +221,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
                 It.IsAny<IOctoSession>(),
                 It.IsAny<RtCkId<CkTypeId>>(),
                 It.IsAny<RtEntityQueryOptions>(),
-                null,
-                null))
+                0,
+                100))
             .ReturnsAsync(mockResults);
 
         // Act
@@ -239,8 +239,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
             It.IsAny<IOctoSession>(),
             It.IsAny<RtCkId<CkTypeId>>(),
             It.IsAny<RtEntityQueryOptions>(),
-            null,
-            null), Times.Once);
+            0,
+            100), Times.Once);
     }
 
     [Fact]
@@ -263,8 +263,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
                 It.IsAny<IOctoSession>(),
                 It.IsAny<RtCkId<CkTypeId>>(),
                 It.IsAny<RtEntityQueryOptions>(),
-                null,
-                null))
+                0,
+                100))
             .ReturnsAsync(mockResults);
 
         // Act
@@ -299,8 +299,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
                 It.IsAny<IOctoSession>(),
                 It.IsAny<RtCkId<CkTypeId>>(),
                 It.IsAny<RtEntityQueryOptions>(),
-                null,
-                null))
+                0,
+                100))
             .ReturnsAsync(mockResults);
 
         // Act
@@ -331,8 +331,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
                 It.IsAny<IOctoSession>(),
                 It.IsAny<RtCkId<CkTypeId>>(),
                 It.IsAny<RtEntityQueryOptions>(),
-                null,
-                null))
+                0,
+                100))
             .ReturnsAsync(mockResults);
 
         // Act
@@ -359,8 +359,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
                 It.IsAny<IOctoSession>(),
                 It.IsAny<RtCkId<CkTypeId>>(),
                 It.IsAny<RtEntityQueryOptions>(),
-                null,
-                null))
+                0,
+                100))
             .ReturnsAsync(mockResults);
 
         // Act
@@ -386,8 +386,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
                 It.IsAny<IOctoSession>(),
                 It.IsAny<RtCkId<CkTypeId>>(),
                 It.IsAny<RtEntityQueryOptions>(),
-                null,
-                null))
+                0,
+                100))
             .ReturnsAsync(mockResults);
 
         // Act
@@ -464,8 +464,8 @@ public class RuntimeEntityCrudToolsTests : TestBase
                 It.IsAny<IOctoSession>(),
                 It.IsAny<RtCkId<CkTypeId>>(),
                 It.IsAny<RtEntityQueryOptions>(),
-                null,
-                null))
+                0,
+                100))
             .ThrowsAsync(new Exception("Database connection failed"));
 
         // Act & Assert
