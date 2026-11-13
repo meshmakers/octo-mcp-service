@@ -16,14 +16,43 @@ public class DynamicToolOptions
     public int CkTypeGraphCacheDurationMinutes { get; set; } = 30;
 
     /// <summary>
-    ///     Maximum number of entities to return in a single query
+    ///     Hard page size limit of the query tools (MaxPageSize of Feature AB#8793). It cannot be raised by
+    ///     configuration: a <see cref="MaxQueryResultLimit" /> above it takes no effect (the effective maximum stays
+    ///     1000) and the health check reports the misconfiguration.
     /// </summary>
-    public int MaxQueryResultLimit { get; set; } = 1000;
+    public const int MaxPageSize = 1000;
 
     /// <summary>
-    ///     Default limit for query results when not specified
+    ///     Maximum number of entities a query tool returns in a single call (<c>query_entities</c>,
+    ///     <c>query_entities_simple</c>, <c>navigate_associations</c>, <c>get_association_tree</c> roots and
+    ///     <c>execute_runtime_query</c>). A larger requested limit is refused, never silently capped (AB#8904).
+    ///     May be lowered; values above <see cref="MaxPageSize" /> (1000) are ignored (see
+    ///     <see cref="GetEffectiveMaxQueryResultLimit" />).
+    /// </summary>
+    public int MaxQueryResultLimit { get; set; } = MaxPageSize;
+
+    /// <summary>
+    ///     Page size the query tools use when the caller passes no limit/take (AB#8904). Values above the effective
+    ///     maximum are lowered to it.
     /// </summary>
     public int DefaultQueryLimit { get; set; } = 100;
+
+    /// <summary>
+    ///     The maximum the query tools enforce: <see cref="MaxQueryResultLimit" /> between 1 and
+    ///     <see cref="MaxPageSize" />; a value of 0 or less falls back to <see cref="MaxPageSize" />.
+    /// </summary>
+    public int GetEffectiveMaxQueryResultLimit() =>
+        MaxQueryResultLimit > 0 ? Math.Min(MaxQueryResultLimit, MaxPageSize) : MaxPageSize;
+
+    /// <summary>
+    ///     The page size the query tools use without a limit: <see cref="DefaultQueryLimit" />, at most
+    ///     <see cref="GetEffectiveMaxQueryResultLimit" />; a value of 0 or less falls back to 100.
+    /// </summary>
+    public int GetEffectiveDefaultQueryLimit()
+    {
+        var max = GetEffectiveMaxQueryResultLimit();
+        return Math.Min(DefaultQueryLimit > 0 ? DefaultQueryLimit : 100, max);
+    }
 
     /// <summary>
     ///     Enable detailed error responses for debugging

@@ -45,8 +45,8 @@ public class DynamicToolHealthCheck : IHealthCheck
             {
                 ["dynamic_tool_generation_enabled"] = _options.EnableDynamicToolGeneration,
                 ["tool_statistics_enabled"] = _options.EnableToolStatistics,
-                ["max_query_limit"] = _options.MaxQueryResultLimit,
-                ["default_query_limit"] = _options.DefaultQueryLimit,
+                ["max_query_limit"] = _options.GetEffectiveMaxQueryResultLimit(),
+                ["default_query_limit"] = _options.GetEffectiveDefaultQueryLimit(),
                 ["analytics_timeout_seconds"] = _options.AnalyticsTimeoutSeconds,
                 ["cache_duration_minutes"] = _options.CkTypeGraphCacheDurationMinutes
             };
@@ -69,6 +69,13 @@ public class DynamicToolHealthCheck : IHealthCheck
             if (_options.MaxQueryResultLimit <= 0)
             {
                 issues.Add("MaxQueryResultLimit must be greater than 0");
+            }
+
+            // AB#8904: the page size limit is a platform decision (AB#8793), not a setting. A higher value is ignored.
+            if (_options.MaxQueryResultLimit > DynamicToolOptions.MaxPageSize)
+            {
+                issues.Add($"MaxQueryResultLimit {_options.MaxQueryResultLimit} exceeds the platform maximum of " +
+                           $"{DynamicToolOptions.MaxPageSize}; the query tools enforce {DynamicToolOptions.MaxPageSize}");
             }
 
             if (_options.DefaultQueryLimit <= 0 || _options.DefaultQueryLimit > _options.MaxQueryResultLimit)

@@ -29,9 +29,10 @@ internal class DynamicToolService(IOptions<DynamicToolOptions> options, ILogger<
                 return (false, "Limit must be greater than 0");
             }
 
-            if (limit.Value > _options.MaxQueryResultLimit)
+            var max = _options.GetEffectiveMaxQueryResultLimit();
+            if (limit.Value > max)
             {
-                return (false, $"Limit cannot exceed {_options.MaxQueryResultLimit}");
+                return (false, $"Limit cannot exceed {max}");
             }
         }
 
