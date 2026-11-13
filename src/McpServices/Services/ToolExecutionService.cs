@@ -154,9 +154,10 @@ public class ToolExecutionService : IToolExecutionService
                 if (parameters.TryGetValue("limit", out var limitObj) &&
                     int.TryParse(limitObj.ToString(), out var limit))
                 {
-                    if (limit <= 0 || limit > _options.MaxQueryResultLimit)
+                    var max = _options.GetEffectiveMaxQueryResultLimit();
+                    if (limit <= 0 || limit > max)
                     {
-                        return (false, $"Limit must be between 1 and {_options.MaxQueryResultLimit}");
+                        return (false, $"Limit must be between 1 and {max}");
                     }
                 }
 

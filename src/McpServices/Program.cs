@@ -334,7 +334,13 @@ try
     logger.Info("OctoMesh MCP Service starting with configuration:");
     logger.Info("- Dynamic tool generation: {Enabled}", dynamicToolOptions.EnableDynamicToolGeneration);
     logger.Info("- Tool statistics: {Enabled}", dynamicToolOptions.EnableToolStatistics);
-    logger.Info("- Max query limit: {Limit}", dynamicToolOptions.MaxQueryResultLimit);
+    logger.Info("- Query page size: default {Default}, max {Max}", dynamicToolOptions.GetEffectiveDefaultQueryLimit(),
+        dynamicToolOptions.GetEffectiveMaxQueryResultLimit());
+    if (dynamicToolOptions.MaxQueryResultLimit > DynamicToolOptions.MaxPageSize)
+    {
+        logger.Warn("DynamicTools:MaxQueryResultLimit {Configured} exceeds the platform maximum of {Max} and is ignored",
+            dynamicToolOptions.MaxQueryResultLimit, DynamicToolOptions.MaxPageSize);
+    }
     logger.Info("- Preload models: {Models}", string.Join(", ", dynamicToolOptions.PreloadModels));
 
     app.MapControllerRoute(

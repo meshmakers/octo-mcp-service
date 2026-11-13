@@ -28,6 +28,22 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 public sealed class RuntimeEntityCrudTools
 {
     /// <summary>
+    ///     Paging rules appended to the description of every entity query tool (AB#8904).
+    /// </summary>
+    internal const string PagingDescription =
+        " Returns one page: without a page size (limit/take) the default is 100, the maximum is 1000 (an installation " +
+        "may configure lower values; the result's paging block reports the applied take and maxTake) and a larger " +
+        "page size is refused (never silently capped). The paging block also says whether more items may exist " +
+        "(hasMore) and gives nextSkip; pass it as the offset/skip argument of the next call to fetch the next page.";
+
+    private const string LimitDescription =
+        "Page size: maximum number of entities to return (default 100, maximum 1000 unless configured lower; a larger value is refused).";
+
+    private const string OffsetDescription =
+        "Number of entities to skip (default 0). Use the nextSkip value of the previous result's paging block to " +
+        "fetch the next page.";
+
+    /// <summary>
     ///     Query entities of any CK type with optional filters
     /// </summary>
     /// <param name="server">MCP Server instance</param>
@@ -38,22 +54,30 @@ public sealed class RuntimeEntityCrudTools
     ///     2. Complex EntityFilterDto object for advanced filtering with operators
     /// </param>
     /// <param name="attributePaths">Optional list of attribute paths to include in the response. If null, all attributes are returned.</param>
-    /// <param name="limit">Maximum number of results to return</param>
-    /// <param name="offset">Number of results to skip</param>
+    /// <param name="limit">Page size (default 100 = DynamicTools:DefaultQueryLimit, maximum 1000; larger is refused)</param>
+    /// <param name="offset">Number of results to skip (paging)</param>
     /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Query results with entity data</returns>
     [McpServerTool(Name = "query_entities")]
     [Description(
-        "Query entities of any Construction Kit type with optional filters. For simple equality filters, pass a JSON object like {\"FirstName\": \"Gerald\", \"LastName\": \"Lochner\"}. For complex filters with operators, use the EntityFilterDto format. Use attributePaths to request only specific attributes and reduce response size.")]
+        "Query entities of any Construction Kit type with optional filters. For simple equality filters, pass a JSON object like {\"FirstName\": \"Gerald\", \"LastName\": \"Lochner\"}. For complex filters with operators, use the EntityFilterDto format. Use attributePaths to request only specific attributes and reduce response size." +
+        PagingDescription)]
     public static async Task<QueryEntitiesResponse> QueryEntities(
         McpServer server,
         string ckTypeId,
         FieldFilterCriteriaDto? filters = null,
         List<string>? attributePaths = null,
-        int? limit = null,
-        int? offset = null,
+        [Description(LimitDescription)] int? limit = null,
+        [Description(OffsetDescription)] int? offset = null,
         string? tenantId = null)
     {
+        // AB#8904: default page size 100, a limit above the maximum (1000) is refused before any engine query.
+        var (paging, pagingError) = QueryPaging.Resolve(server, limit, offset, "limit", "offset");
+        if (paging == null)
+        {
+            return new QueryEntitiesResponse { IsSuccess = false, ErrorMessage = pagingError, CkTypeId = ckTypeId };
+        }
+
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
         var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
         if (security.Error != null)
@@ -115,8 +139,8 @@ public sealed class RuntimeEntityCrudTools
                 session,
                 new RtCkId<CkTypeId>(rtTypeId),
                 queryOperation,
-                offset,
-                limit);
+                paging.Skip,
+                paging.Take);
 
             var entities = results.Items.Select(e =>
                     rtEntityToDtoMapper.ConvertToDto(resolvedTenantId, e, AttributeValueResolveFlags.ResolveEnumsToNames))
@@ -137,8 +161,9 @@ public sealed class RuntimeEntityCrudTools
                 IsSuccess = true,
                 CkTypeId = ckTypeId,
                 TotalCount = results.TotalCount,
-                ReturnedCount = results.Items.Count(),
-                Entities = entities
+                ReturnedCount = entities.Count,
+                Entities = entities,
+                Paging = paging.ToInfo(entities.Count, results.TotalCount)
             };
         }
         catch (Exception ex)
@@ -159,22 +184,30 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="ckTypeId">Construction Kit Type ID (e.g., 'EnergyCommunity/Customer')</param>
     /// <param name="simpleFilters">Simple filters as a JSON array (e.g., [{attributePath: "FirstName", value: "Gerald"}, {attributePath: "LastName", value: "Lochner"}])</param>
     /// <param name="attributePaths">Optional list of attribute paths to include in the response (e.g., ["Name", "ControlType", "States.Name"]). If null, all attributes are returned. Use this to reduce response size.</param>
-    /// <param name="limit">Maximum number of results to return</param>
-    /// <param name="offset">Number of results to skip</param>
+    /// <param name="limit">Page size (default 100 = DynamicTools:DefaultQueryLimit, maximum 1000; larger is refused)</param>
+    /// <param name="offset">Number of results to skip (paging)</param>
     /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Query results with entity data</returns>
     [McpServerTool(Name = "query_entities_simple")]
     [Description(
-        "Query entities with simple equality filters - optimized for Claude. Pass filters as a JSON object where keys are field names and values are the exact values to match. Use attributePaths to request only specific attributes and reduce response size (e.g., [\"Name\", \"ControlType\", \"States.Name\"]).")]
+        "Query entities with simple equality filters - optimized for Claude. Pass filters as a JSON object where keys are field names and values are the exact values to match. Use attributePaths to request only specific attributes and reduce response size (e.g., [\"Name\", \"ControlType\", \"States.Name\"])." +
+        PagingDescription)]
     public static async Task<QueryEntitiesResponse> QueryEntitiesSimple(
         McpServer server,
         string ckTypeId,
         List<SimpleFilterDto>? simpleFilters = null,
         List<string>? attributePaths = null,
-        int? limit = null,
-        int? offset = null,
+        [Description(LimitDescription)] int? limit = null,
+        [Description(OffsetDescription)] int? offset = null,
         string? tenantId = null)
     {
+        // AB#8904: default page size 100, a limit above the maximum (1000) is refused before any engine query.
+        var (paging, pagingError) = QueryPaging.Resolve(server, limit, offset, "limit", "offset");
+        if (paging == null)
+        {
+            return new QueryEntitiesResponse { IsSuccess = false, ErrorMessage = pagingError, CkTypeId = ckTypeId };
+        }
+
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
         var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
         if (security.Error != null)
@@ -223,8 +256,8 @@ public sealed class RuntimeEntityCrudTools
                 session,
                 new RtCkId<CkTypeId>(rtTypeId),
                 queryOperation,
-                offset,
-                limit);
+                paging.Skip,
+                paging.Take);
 
             var entities = results.Items.Select(e =>
                     rtEntityToDtoMapper.ConvertToDto(resolvedTenantId, e, AttributeValueResolveFlags.ResolveEnumsToNames))
@@ -245,8 +278,9 @@ public sealed class RuntimeEntityCrudTools
                 IsSuccess = true,
                 CkTypeId = ckTypeId,
                 TotalCount = results.TotalCount,
-                ReturnedCount = results.Items.Count(),
-                Entities = entities
+                ReturnedCount = entities.Count,
+                Entities = entities,
+                Paging = paging.ToInfo(entities.Count, results.TotalCount)
             };
         }
         catch (Exception ex)
@@ -1073,11 +1107,14 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="targetTypeId">Optional target type ID to filter results</param>
     /// <param name="filters">Optional filters for the target entities as a JSON array (e.g., [{attributePath: "FirstName", value: "Gerald"}, {attributePath: "LastName", value: "Lochner"}])</param>
     /// <param name="attributePaths">Optional list of attribute paths to include in the response. If null, all attributes are returned.</param>
+    /// <param name="take">Page size of the related entities (default 100, maximum 1000 unless configured lower; larger is refused)</param>
+    /// <param name="skip">Number of related entities to skip (paging)</param>
     /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Related entities following the association path</returns>
     [McpServerTool(Name = "navigate_associations")]
     [Description(
-        "Navigate associations from a source entity to find related entities. Use dot notation for the association path (e.g., 'Facilities.Children'). Optionally filter results by type and/or field values.")]
+        "Navigate associations from a source entity to find related entities. Use dot notation for the association path (e.g., 'Facilities.Children'). Optionally filter results by type and/or field values." +
+        PagingDescription)]
     public static async Task<NavigateAssociationsResponse> NavigateAssociations(
         McpServer server,
         string ckTypeId,
@@ -1087,8 +1124,29 @@ public sealed class RuntimeEntityCrudTools
         string targetTypeId,
         List<SimpleFilterDto>? filters = null,
         List<string>? attributePaths = null,
+        [Description("Page size: maximum number of related entities to return (default 100, maximum 1000 unless configured lower; a larger " +
+                     "value is refused).")]
+        int? take = null,
+        [Description("Number of related entities to skip (default 0). Use the nextSkip value of the previous " +
+                     "result's paging block to fetch the next page.")]
+        int? skip = null,
         string? tenantId = null)
     {
+        // AB#8904: association targets are paged like entity queries (default 100, maximum 1000, refused above).
+        var (paging, pagingError) = QueryPaging.Resolve(server, take, skip, "take", "skip");
+        if (paging == null)
+        {
+            return new NavigateAssociationsResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = pagingError,
+                OriginCkTypeId = ckTypeId,
+                OriginRtId = rtId,
+                CkRoleId = ckRoleId,
+                TargetTypeId = targetTypeId
+            };
+        }
+
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
         var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
         if (security.Error != null)
@@ -1159,7 +1217,9 @@ public sealed class RuntimeEntityCrudTools
                 resolvedTargetTypeId,
                 (GraphDirections)direction,
                 null,
-                queryOperation);
+                queryOperation,
+                paging.Skip,
+                paging.Take);
 
 
             var entities = associatedResults.Items.Select(e =>
@@ -1184,7 +1244,8 @@ public sealed class RuntimeEntityCrudTools
                 CkRoleId = ckRoleId,
                 TargetTypeId = targetTypeId,
                 TotalCount = associatedResults.TotalCount,
-                Entities = entities
+                Entities = entities,
+                Paging = paging.ToInfo(entities.Count, associatedResults.TotalCount)
             };
         }
         catch (Exception ex)
@@ -1212,13 +1273,19 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="maxDepth">Maximum depth to traverse (1 = direct children only, 2 = children + grandchildren, etc.)</param>
     /// <param name="attributePaths">Optional list of attribute paths to include per entity</param>
     /// <param name="rootFilters">Optional filters for root entities</param>
+    /// <param name="rootTake">Page size of the root entities (default 100, maximum 1000 unless configured lower; larger is refused)</param>
+    /// <param name="rootSkip">Number of root entities to skip (paging)</param>
     /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Tree structure with root entities and their nested children</returns>
     [McpServerTool(Name = "get_association_tree")]
     [Description(
         "Traverse an association tree recursively. Starts from all entities of rootCkTypeId, then follows the specified association (ckRoleId) to find children at each depth level. " +
         "Example: rootCkTypeId='Loxone/Room', ckRoleId='System/ParentChild', direction='Inbound', maxDepth=2 returns all Rooms with their Categories and Controls. " +
-        "Use attributePaths to reduce response size.")]
+        "Use attributePaths to reduce response size. The root entities are paged: without rootTake the default " +
+        "page size is 100, the maximum is 1000 (lower if configured; see paging.maxTake) and a larger rootTake is " +
+        "refused (never silently capped). The " +
+        "result's paging block says whether more roots may exist (hasMore) and gives nextSkip; pass it as rootSkip " +
+        "to fetch the next page of roots.")]
     public static async Task<AssociationTreeResponse> GetAssociationTree(
         McpServer server,
         string rootCkTypeId,
@@ -1227,8 +1294,27 @@ public sealed class RuntimeEntityCrudTools
         int maxDepth = 2,
         List<string>? attributePaths = null,
         List<SimpleFilterDto>? rootFilters = null,
+        [Description("Page size for the root entities (default 100, maximum 1000 unless configured lower; a larger value is refused).")]
+        int? rootTake = null,
+        [Description("Number of root entities to skip (default 0). Use the nextSkip value of the previous " +
+                     "result's paging block to fetch the next page of roots.")]
+        int? rootSkip = null,
         string? tenantId = null)
     {
+        // AB#8904: the root query is paged (default 100, maximum 1000, refused above) before any engine query runs.
+        var (paging, pagingError) = QueryPaging.Resolve(server, rootTake, rootSkip, "rootTake", "rootSkip");
+        if (paging == null)
+        {
+            return new AssociationTreeResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = pagingError,
+                CkRoleId = ckRoleId,
+                Direction = direction.ToString(),
+                MaxDepth = maxDepth
+            };
+        }
+
         var tenantResolution = server.Services!.GetRequiredService<ITenantResolutionService>();
         var security = await RuntimeSecurityContextResolver.ResolveAsync(server, tenantResolution, tenantId);
         if (security.Error != null)
@@ -1293,7 +1379,7 @@ public sealed class RuntimeEntityCrudTools
             // Query root entities
             var rootQuery = BuildFilter(rootFilters);
             var rootResults = await tenantRepository.GetRtEntitiesByTypeAsync(
-                session, new RtCkId<CkTypeId>(rootCkTypeId), rootQuery, null, null);
+                session, new RtCkId<CkTypeId>(rootCkTypeId), rootQuery, paging.Skip, paging.Take);
 
             var rootNodes = new List<AssociationTreeNode>();
             foreach (var rootEntity in rootResults.Items)
@@ -1326,7 +1412,8 @@ public sealed class RuntimeEntityCrudTools
                 CkRoleId = ckRoleId,
                 Direction = direction.ToString(),
                 MaxDepth = maxDepth,
-                Nodes = rootNodes
+                Nodes = rootNodes,
+                Paging = paging.ToInfo(rootNodes.Count, rootResults.TotalCount)
             };
         }
         catch (Exception ex)
