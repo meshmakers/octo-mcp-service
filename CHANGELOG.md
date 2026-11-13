@@ -9,8 +9,9 @@
   `navigate_associations`, `get_association_tree` (root entities) and `execute_runtime_query` (`RtSimpleRtQuery`) used to
   load every matching entity when no limit was given. Now: without a page size the engine gets take = 100
   (`DynamicTools:DefaultQueryLimit`); a page size above 1000 (`DynamicTools:MaxQueryResultLimit`) is refused with an error
-  that names the limit, before any engine query runs (never silently capped); a negative skip or a page size below 1 is
-  refused too. New arguments: `skip`/`take` on `navigate_associations`, `rootSkip`/`rootTake` on `get_association_tree`.
+  that names the limit, before any engine query runs (never silently capped); a page size below 1, a negative skip or a
+  skip whose next page would overflow an int is refused too. New arguments: `skip`/`take` on `navigate_associations`,
+  `rootSkip`/`rootTake` on `get_association_tree`.
   Every result carries a `paging` block (`skip`, `take`, `defaultTakeApplied`, `maxTake`, `returnedCount`, `hasMore`,
   `nextSkip`, `hint`); the tool descriptions state default, maximum and how to page. `MaxQueryResultLimit` can be lowered
   but not raised above 1000 (`DynamicToolOptions.MaxPageSize`): a higher value is ignored, logged at startup and reported

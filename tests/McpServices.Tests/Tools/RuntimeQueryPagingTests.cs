@@ -10,6 +10,7 @@ using Meshmakers.Octo.ConstructionKit.Models.System.Generated.System.v2;
 using Meshmakers.Octo.Runtime.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Runtime.Contracts.RepositoryEntities;
+using Meshmakers.Octo.Runtime.Contracts.StreamData;
 using Meshmakers.Octo.Runtime.Engine.Repositories.Query;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -207,6 +208,27 @@ public class RuntimeQueryPagingTests : TestBase
         _engineCalls.Should().Be(0);
     }
 
+    [Theory]
+    [MemberData(nameof(Tools))]
+    public async Task SkipWhoseNextPageWouldOverflow_IsRefused_AndNoEngineQueryRuns(string tool)
+    {
+        var (isSuccess, error, _) = await Calls[tool].Call(this, null, int.MaxValue - 999);
+
+        isSuccess.Should().BeFalse();
+        error.Should().Contain($"{Calls[tool].SkipArgument} {int.MaxValue - 999} is too large");
+        _engineCalls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task LargestAllowedSkip_IsForwarded()
+    {
+        var result = await RuntimeEntityCrudTools.QueryEntities(MockServer.Object, FullId,
+            offset: int.MaxValue - 1000);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        _seenSkip.Should().Be(int.MaxValue - 1000);
+    }
+
     [Fact]
     public async Task ConfiguredMaximumBelow1000_IsEnforced()
     {
@@ -259,16 +281,26 @@ public class RuntimeQueryPagingTests : TestBase
         var aggregation = new RtAggregationRtQuery { QueryCkTypeId = RuntimeId };
         aggregation.Columns.Add(new RtAggregationQueryColumnRecord
         {
-            AttributePath = "Name", AggregationType = RtAggregationTypesEnum.Count
+            AttributePath = "Power", AggregationType = RtAggregationTypesEnum.Sum
         });
         MockTenantRepository
             .Setup(r => r.GetRtEntityByRtIdAsync<RtPersistentQuery>(It.IsAny<IOctoSession>(),
                 It.IsAny<OctoObjectId>()))
             .ReturnsAsync(aggregation);
+        var scalar = new AggregationResult(count: 0, countStatistics: [], minStatistics: [], maxStatistics: [],
+            avgStatistics: [], sumStatistics: [new StatisticsResult { AttributePath = "Power", Value = 250.0 }]);
+        MockTenantRepository
+            .Setup(r => r.GetRtEntitiesByTypeAsync(It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(), It.IsAny<int?>(), It.IsAny<int?>()))
+            .ReturnsAsync(new ResultSet<RtEntity>([], 0, scalar, null));
 
         var result = await RuntimeAggregationTools.ExecuteRuntimeQuery(MockServer.Object, QueryRtId);
 
-        result.Paging.Should().BeNull();
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.QuerySubtype.Should().Be(nameof(RtAggregationRtQuery));
+        result.Rows.Should().NotBeNull().And.HaveCount(1);
+        result.Rows![0]["sum_Power"].Should().Be(250.0);
+        result.Paging.Should().BeNull("aggregation results are not paged");
     }
 
     [Fact]
@@ -299,5 +331,23 @@ public class RuntimeQueryPagingTests : TestBase
         result.Status.Should().Be(HealthStatus.Degraded);
         result.Description.Should().Contain("MaxQueryResultLimit 5000 exceeds the platform maximum of 1000");
         result.Data["max_query_limit"].Should().Be(1000);
+    }
+
+    [Fact]
+    public async Task HealthCheck_ReportsADefaultAboveTheEffectiveMaximum()
+    {
+        var toolService = new Mock<IDynamicToolService>();
+        toolService.Setup(t => t.GetDomainOptions()).Returns(new DomainToolOptions());
+        toolService.Setup(t => t.ValidateQueryParameters(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<DateTime?>(),
+            It.IsAny<DateTime?>())).Returns((true, null));
+        var healthCheck = new DynamicToolHealthCheck(toolService.Object,
+            Options.Create(new DynamicToolOptions { MaxQueryResultLimit = 5000, DefaultQueryLimit = 2000 }),
+            NullLogger<DynamicToolHealthCheck>.Instance);
+
+        var result = await healthCheck.CheckHealthAsync(new HealthCheckContext(), TestContext.Current.CancellationToken);
+
+        result.Status.Should().Be(HealthStatus.Degraded);
+        result.Description.Should().Contain("DefaultQueryLimit 2000 must be between 1 and the effective maximum of 1000");
+        result.Data["default_query_limit"].Should().Be(1000);
     }
 }

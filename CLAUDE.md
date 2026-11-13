@@ -404,7 +404,8 @@ The family-2/3 tools read the engine directly, so the asset-repo API guard again
   applied to `RtSimpleRtQuery`).
 - **Rules**: no page size = `DynamicToolOptions.GetEffectiveDefaultQueryLimit()` (100); a page size above
   `GetEffectiveMaxQueryResultLimit()` (1000) is **refused, never capped** (decision of Feature AB#8793), with the message
-  `<arg> <n> exceeds the maximum of <max>; page with <skipArg> (...)`; a page size below 1 or a negative skip is refused.
+  `<arg> <n> exceeds the maximum of <max>; page with <skipArg> (...)`; a page size below 1, a negative skip and a
+  skip above `int.MaxValue - max` (the next page's skip must fit an int) are refused.
   `QueryPaging.Resolve` runs **before** the session is opened or anything is loaded (`execute_runtime_query`: before the
   persisted query is read), so a refused call never reaches the engine.
 - **Config**: `MaxQueryResultLimit` can be lowered, never raised: `DynamicToolOptions.MaxPageSize` (1000) is a constant,
