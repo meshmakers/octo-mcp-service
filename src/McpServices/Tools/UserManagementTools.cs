@@ -63,7 +63,7 @@ public sealed class UserManagementTools
     [McpRisk(McpRiskLevel.Medium)]
     [Description("Create a new user account. Equivalent to octo-cli CreateUser. Username and email are lower-cased. " +
                  "Runs the CK method System.Identity/User.CreateUser-1; refusals (USER_ALREADY_EXISTS, USER_NAME_RESERVED, " +
-                 "PASSWORD_POLICY_VIOLATION with the policy description) come from the server as code and message.")]
+                 "PASSWORD_POLICY_VIOLATION with the codes of the failed rules) come from the server as code and message.")]
     public static async Task<UserResponse> CreateUser(
         McpServer server,
         [Description("Username (will be lower-cased).")] string userName,
@@ -225,8 +225,8 @@ public sealed class UserManagementTools
     [McpRisk(McpRiskLevel.High)]
     [Description(
         "Reset the password of a user. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli ResetPassword. " +
-        "Runs the CK method System.Identity/User.ResetPassword-1; refusals (PASSWORD_POLICY_VIOLATION with the policy " +
-        "description, SHADOW_USER_PASSWORD_NOT_ALLOWED, METHOD_FORBIDDEN) come from the server as code and message.")]
+        "Runs the CK method System.Identity/User.ResetPassword-1; refusals (PASSWORD_POLICY_VIOLATION with the codes " +
+        "of the failed rules, SHADOW_USER_PASSWORD_NOT_ALLOWED, METHOD_FORBIDDEN) come from the server as code and message.")]
     public static async Task<UserResponse> ResetPassword(
         McpServer server,
         [Description("Username or e-mail of the user.")] string userNameOrEmail,
@@ -498,9 +498,19 @@ public sealed class UserManagementTools
             IsSuccess = false,
             TenantId = ctx.TenantId,
             User = user,
-            ErrorMessage = Scrub(message, password)
+            // The password first, then credentials a server echoed (developer exception page with the request headers).
+            ErrorMessage = ErrorTextRedactor.Redact(Scrub(message, password))
         };
 
-    private static string WithCode(CkMethodError error) =>
-        string.IsNullOrWhiteSpace(error.Message) ? error.Code : $"{error.Code}: {error.Message}";
+    /// <summary>
+    ///     <c>CODE: message</c>, followed by the codes of the error's details in brackets (AB#8418): the asset repository sends
+    ///     the failed password rules of a <c>PASSWORD_POLICY_VIOLATION</c> only as detail codes
+    ///     (<c>[PasswordTooShort, PasswordRequiresUpper]</c>). Detail parameters are not included.
+    /// </summary>
+    internal static string WithCode(CkMethodError error)
+    {
+        var text = string.IsNullOrWhiteSpace(error.Message) ? error.Code : $"{error.Code}: {error.Message}";
+        var codes = error.Details.Select(d => d.Code).Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+        return codes.Count == 0 ? text : $"{text} [{string.Join(", ", codes)}]";
+    }
 }

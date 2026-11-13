@@ -128,12 +128,21 @@ public class UserManagementToolsTests : ToolTestBase
     }
 
     /// <summary>The asset repository answers the method call with a GraphQL error carrying <paramref name="code"/>.</summary>
-    private void GivenMethodFails(string code, string message = "refused")
+    private void GivenMethodFails(string code, string message = "refused", IReadOnlyList<string>? detailCodes = null)
     {
+        var extensions = new Map { ["code"] = code };
+        if (detailCodes is { Count: > 0 })
+        {
+            extensions["details"] = detailCodes
+                .Select(c => (object?)new Dictionary<string, object?>
+                    { ["code"] = c, ["parameters"] = new Dictionary<string, object?>() })
+                .ToList();
+        }
+
         var error = new GraphQLError
         {
             Message = message,
-            Extensions = new Map { ["code"] = code }
+            Extensions = extensions
         };
         MockTenantClient
             .Setup(c => c.SendMutationAsync<It.IsAnyType>(It.IsAny<GraphQLRequest>()))
@@ -501,6 +510,27 @@ public class UserManagementToolsTests : ToolTestBase
         AssertNoRestPasswordCall();
     }
 
+    [Theory]
+    [InlineData("create")]
+    [InlineData("reset")]
+    public async Task PasswordPolicyViolation_AsTheServerSendsIt_ReturnsTheFailedRuleCodes(string tool)
+    {
+        // The asset repository answers with "The CK method call failed: <code>" and the failed rules as detail codes
+        // only - the one description of the policy it sends (found in the AB#8418 E2E run).
+        GivenUser();
+        GivenMethodFails("PASSWORD_POLICY_VIOLATION", "The CK method call failed: PASSWORD_POLICY_VIOLATION",
+            ["PasswordTooShort", "PasswordRequiresUpper"]);
+
+        var result = tool == "create"
+            ? await UserManagementTools.CreateUser(MockServer.Object, "alice", "alice@example.com", _canary)
+            : await UserManagementTools.ResetPassword(MockServer.Object, "alice", _canary, confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be(
+            "PASSWORD_POLICY_VIOLATION: The CK method call failed: PASSWORD_POLICY_VIOLATION [PasswordTooShort, PasswordRequiresUpper]");
+        AssertCanaryNotIn(result);
+    }
+
     [Fact]
     public async Task ServerEchoingThePassword_IsRedactedInTheResponse()
     {
@@ -526,6 +556,37 @@ public class UserManagementToolsTests : ToolTestBase
         result.ErrorMessage.Should().Be("boom [REDACTED]");
         AssertCanaryNotIn(result);
     }
+
+    [Fact]
+    public async Task UserLookupFailing_WithDeveloperExceptionPage_DoesNotReturnTheCallersToken()
+    {
+        // AB#8418 E2E: identity answered the lookup of an unknown name with a 500 developer exception page, whose
+        // HEADERS section echoes the request's Authorization header; the tool returned it to the MCP client.
+        const string jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0LW9ubHkifQ.c2lnbmF0dXJlLXRlc3Qtb25seQ";
+        var page = "InternalServerError: System.FormatException: 'bob' is not a valid 24 digit hex string.\n" +
+                   "   at OctoUserStore.FindByIdAsync()\n\nHEADERS\n=======\nHost: localhost:5003\n" +
+                   $"Authorization: bearer {jwt}\ntraceparent: 00-1-2-01\n";
+        MockIdentityClient
+            .Setup(c => c.GetUserByNameEmailOrId("bob"))
+            .ThrowsAsync(new InvalidOperationException(page));
+
+        var result = await UserManagementTools.ResetPassword(MockServer.Object, "bob", _canary, confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().StartWith("InternalServerError: System.FormatException")
+            .And.Contain("HEADERS").And.Contain("[request headers removed]")
+            .And.NotContain(jwt).And.NotContain("Authorization").And.NotContain("Host: localhost");
+        AssertCanaryNotIn(result);
+        _methodRequests.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("Authorization: Bearer abc.def-123", "Authorization: [REDACTED]")]
+    [InlineData("proxy said bearer abcdefgh12345678 failed", "proxy said bearer [REDACTED] failed")]
+    [InlineData("token eyJhbGciOiJIUzI1NiJ9.eyJhIjoiYiJ9.sig here", "token [REDACTED] here")]
+    [InlineData("NotFound: user 'bob' was not found", "NotFound: user 'bob' was not found")]
+    public void ErrorTextRedactor_RemovesCredentials_AndKeepsTheRest(string input, string expected) =>
+        ErrorTextRedactor.Redact(input).Should().Be(expected);
 
     [Theory]
     [InlineData(nameof(UserManagementTools.CreateUser), "password")]

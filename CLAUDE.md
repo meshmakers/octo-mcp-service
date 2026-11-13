@@ -108,7 +108,12 @@ asset repository rejects the document (GraphQL validation, every error with `ext
 `METHOD_HANDLER_NOT_AVAILABLE` (identity too old or `Methods:Identity:EnablePasswordMethods=false`), the tool returns a message
 that names the needed identity version (`UserManagementTools.CreateUserMinimumIdentityVersion` 3.5.57,
 `ResetPasswordMinimumIdentityVersion` 3.5.52) and says nothing was changed. Refusals are the server's (declared errors and
-`METHOD_FORBIDDEN` / `METHOD_TARGET_NOT_FOUND` as `"{Code}: {message}"`); the tools keep no copy of the password policy.
+`METHOD_FORBIDDEN` / `METHOD_TARGET_NOT_FOUND` as `"{Code}: {message}"`, followed by the detail codes in brackets —
+`UserManagementTools.WithCode`; the failed rules of a `PASSWORD_POLICY_VIOLATION` arrive only as detail codes, e.g.
+`[PasswordTooShort, PasswordRequiresUpper]`); the tools keep no copy of the password policy. Every `ErrorMessage` of the two
+password tools also passes `ErrorTextRedactor.Redact` (same patterns as the octo-cli `ErrorOutputRedactor`): the AB#8418 E2E
+run showed the local identity answering the user lookup with a 500 developer exception page whose `HEADERS` section echoed
+the caller's bearer token. Other tools still return `ex.Message` unredacted.
 `reset_user_password` still requires `confirm=true` and makes no call without it.
 
 **Sensitive parameters.** A password parameter's `[Description]` starts with `UserManagementTools.SensitivePasswordDescription`

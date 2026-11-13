@@ -7,11 +7,13 @@
 - **AB#8418** — `create_user` and `reset_user_password` call the CK methods `System.Identity/User.CreateUser-1` /
   `User.ResetPassword-1` through the generated `RtUserMethodClient` instead of the REST endpoints. Names, parameters and the
   response shape are unchanged; `reset_user_password` still needs `confirm=true`. Refusals come from the server as
-  `"{Code}: {message}"` (`USER_ALREADY_EXISTS`, `USER_NAME_RESERVED`, `PASSWORD_POLICY_VIOLATION`,
+  `"{Code}: {message} [detail codes]"` — the failed rules of a `PASSWORD_POLICY_VIOLATION` arrive only as detail codes (`USER_ALREADY_EXISTS`, `USER_NAME_RESERVED`, `PASSWORD_POLICY_VIOLATION`,
   `SHADOW_USER_PASSWORD_NOT_ALLOWED`, `METHOD_FORBIDDEN`, `METHOD_TARGET_NOT_FOUND`). No REST fallback: a server without the
   method gets a message naming the needed identity version (3.5.57 / 3.5.52 with `Methods:Identity:EnablePasswordMethods`).
   The password parameters are described as `SENSITIVE`, never echoed (error texts are scrubbed), and the new
   `McpPayloadLogFilter` keeps the SDK's Trace-level JSON-RPC payload logging (tool arguments) out of the service log.
+  The error texts of both tools also pass the new `ErrorTextRedactor`: a developer exception page a service answered
+  with (header section with `Authorization`), bearer tokens and JWTs are removed before the text reaches the client.
 
 ### Added
 
