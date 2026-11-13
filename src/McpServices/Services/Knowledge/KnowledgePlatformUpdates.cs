@@ -105,15 +105,26 @@ internal static class KnowledgePlatformUpdates
         author.Length > BlueprintAuthorPrefix.Length &&
         !string.IsNullOrEmpty(version.GetAttributeStringValueOrDefault("RtBlueprintSource"));
 
-    /// <summary>Every version of a page (well-known name <c>&lt;slug&gt;@&lt;n&gt;</c>).</summary>
+    /// <summary>Every version of a page (well-known name <c>&lt;slug&gt;@&lt;n&gt;</c>), read page by page.</summary>
     public static async Task<IReadOnlyList<KnowledgeVersionInfo>> ListVersionsAsync(ITenantRepository repository,
         IOctoSession session, string slug)
     {
-        var options = RtEntityQueryOptions.Create();
-        options.FieldStartsWith("rtWellKnownName", slug + "@");
-        var result = await repository.GetRtEntitiesByTypeAsync(session, KnowledgePages.VersionTypeId, options, 0,
-            MaxBlueprintVersions);
-        return result.Items.Select(v => Info(v, slug)).Where(v => v != null).Select(v => v!).ToList();
+        var versions = new List<RtEntity>();
+        for (var skip = 0;; skip += QueryPageSize)
+        {
+            var options = RtEntityQueryOptions.Create();
+            options.FieldStartsWith("rtWellKnownName", slug + "@");
+            var page = (await repository.GetRtEntitiesByTypeAsync(session, KnowledgePages.VersionTypeId, options, skip,
+                QueryPageSize)).Items.ToList();
+            versions.AddRange(page);
+            if (page.Count < QueryPageSize)
+            {
+                break;
+            }
+        }
+
+        return versions.Select(v => Info(v, slug)).Where(v => v != null).Select(v => v!).DistinctBy(v => v.Entity.RtId)
+            .ToList();
     }
 
     /// <summary>The highest version number of a page; 0 when it has none.</summary>
@@ -190,6 +201,10 @@ internal static class KnowledgePlatformUpdates
                 .ToList();
         }
 
+        // A chain longer than MaxChainRounds is incomplete: a Blueprint version behind the cut may be reported although
+        // the tenant saw it (safe direction), and the caller learns it from Truncated.
+        truncated |= next.Count > 0;
+
         var loadedBySlug = loaded
             .Select(v => (Slug: SlugOf(v.RtWellKnownName), Version: v))
             .Where(x => x.Slug != null)
@@ -263,7 +278,7 @@ internal static class KnowledgePlatformUpdates
                 : new PlatformUpdate(page, slug, current, PlatformUpdateState.Adoptable, target, dismissed);
         }
 
-        var superseded = NewestBlueprintAncestor(versions, current);
+        var superseded = Ancestors(versions, current).NewestBlueprint;
         var pending = blueprint
             .Where(v => v.Number > superseded && (dismissed == null || v.Number > dismissed.Value))
             .MaxBy(v => v.Number);
@@ -273,28 +288,32 @@ internal static class KnowledgePlatformUpdates
     }
 
     /// <summary>
-    ///     The highest Blueprint version number in the ancestor chain of the current version (0 when none): every Blueprint
-    ///     version up to it is superseded. The chain follows <c>BaseVersion</c> and <c>RestoredFromVersion</c> of the tenant
-    ///     versions and always contains the first version <c>@1</c>. Where a number has a tenant version and a Blueprint
-    ///     version, the tenant version is the one in the chain (it was written first; the seed arrived with a used number).
+    ///     The ancestor chain of the current version: the versions in it and the highest Blueprint version number in it
+    ///     (0 when none; every Blueprint version up to it is superseded). The chain follows <c>BaseVersion</c> and
+    ///     <c>RestoredFromVersion</c> of the tenant versions and always contains the first version <c>@1</c>. Where a
+    ///     number has a tenant version and a Blueprint version, the tenant version is the one in the chain (it was written
+    ///     first; the seed arrived with a used number). A version that is missing ends its chain.
     /// </summary>
-    public static int NewestBlueprintAncestor(IReadOnlyList<KnowledgeVersionInfo> versions, int current)
+    public static (IReadOnlyList<KnowledgeVersionInfo> Versions, int NewestBlueprint) Ancestors(
+        IReadOnlyList<KnowledgeVersionInfo> versions, int current)
     {
         var byNumber = versions.GroupBy(v => v.Number)
             .ToDictionary(g => g.Key, g => g.Any(v => !v.IsBlueprint) ? g.Where(v => !v.IsBlueprint).ToList() : g.ToList());
+        var chain = new List<KnowledgeVersionInfo>();
         var newest = 0;
         var seen = new HashSet<int>();
         var queue = new Queue<int>([current, 1]);
         while (queue.Count > 0)
         {
             var number = queue.Dequeue();
-            if (!seen.Add(number) || !byNumber.TryGetValue(number, out var chain))
+            if (!seen.Add(number) || !byNumber.TryGetValue(number, out var atNumber))
             {
                 continue;
             }
 
-            foreach (var version in chain)
+            foreach (var version in atNumber)
             {
+                chain.Add(version);
                 if (version.IsBlueprint)
                 {
                     newest = Math.Max(newest, version.Number);
@@ -313,7 +332,9 @@ internal static class KnowledgePlatformUpdates
             }
         }
 
-        return newest;
+        // Superseded Blueprint versions belong to the chain too (the tenant moved past them).
+        chain.AddRange(versions.Where(v => v.IsBlueprint && v.Number <= newest && !chain.Contains(v)));
+        return (chain, newest);
     }
 
     /// <summary>The names of the versions a tenant version descends from (<c>BaseVersion</c>, <c>RestoredFromVersion</c>).</summary>

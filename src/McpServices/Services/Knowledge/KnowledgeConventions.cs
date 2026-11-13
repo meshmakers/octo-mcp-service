@@ -101,7 +101,7 @@ internal static class KnowledgeConventions
             var version = KnowledgePages.CurrentVersion(page);
             if (content.Status == KnowledgePages.StatusDraft)
             {
-                var fallback = await NewestVerifiedVersionAsync(repository, session);
+                var fallback = await NewestVerifiedVersionAsync(repository, session, version);
                 if (fallback == null)
                 {
                     return Default;
@@ -134,14 +134,18 @@ internal static class KnowledgeConventions
     }
 
     /// <summary>
-    ///     The content and number of the newest Verified version of the schema page, read with the caller's session;
-    ///     <c>null</c> when there is none, or when a newer version is Rejected (a person turned the text down later).
+    ///     The content and number of the newest Verified version in the ancestor chain of the schema page's current
+    ///     version (<see cref="KnowledgePlatformUpdates.Ancestors" />), read with the caller's session; <c>null</c> when
+    ///     there is none, or when a newer version of the chain is Rejected (a person turned the text down later). A
+    ///     Blueprint version the tenant never adopted is not in the chain: a blueprint update does not replace the text a
+    ///     person approved.
     /// </summary>
     public static async Task<(KnowledgeContent Content, int Version)?> NewestVerifiedVersionAsync(
-        ITenantRepository repository, IOctoSession session)
+        ITenantRepository repository, IOctoSession session, int current)
     {
         var versions = await KnowledgePlatformUpdates.ListVersionsAsync(repository, session, SchemaSlug);
-        foreach (var version in versions.OrderByDescending(v => v.Number))
+        foreach (var version in KnowledgePlatformUpdates.Ancestors(versions, current).Versions
+                     .OrderByDescending(v => v.Number))
         {
             var content = KnowledgePages.ReadContent(version.Entity);
             if (content.Status == KnowledgePages.StatusRejected)

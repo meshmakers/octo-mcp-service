@@ -520,6 +520,40 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
     }
 
     [Fact]
+    public async Task AChainLongerThanTheRoundLimit_MarksTheScanTruncated()
+    {
+        var page = SeedPage("page-a");
+        SeedVersion(page, 2, "v2");
+        var last = KnowledgePlatformUpdates.MaxChainRounds + 5;
+        for (var n = 3; n <= last; n++)
+        {
+            SeedVersion(page, n, $"edit {n}", blueprint: false, status: KnowledgePages.StatusDraft)
+                .SetAttributeValue("BaseVersion", AttributeValueTypesDto.Int, n - 1);
+        }
+
+        page.SetAttributeValue("CurrentVersion", AttributeValueTypesDto.Int, last);
+
+        var list = await ListAsync();
+
+        list.Truncated.Should().BeTrue("the chain was cut before it reached @2");
+        list.Updates.Should().ContainSingle(u => u.State == "Available" && u.NewerVersion == 2, "safe direction");
+    }
+
+    [Fact]
+    public async Task VersionHistories_AreReadPageByPage_BeyondOneQueryPage()
+    {
+        var page = SeedPage("page-a");
+        var last = KnowledgePlatformUpdates.QueryPageSize + 205;
+        for (var n = 2; n <= last; n++)
+        {
+            SeedVersion(page, n, $"edit {n}", blueprint: false, status: KnowledgePages.StatusDraft);
+        }
+
+        (await KnowledgePlatformUpdates.HighestVersionAsync(MockTenantRepository.Object, Mock.Of<IOctoSession>(), "page-a"))
+            .Should().Be(last);
+    }
+
+    [Fact]
     public void Decide_FollowsTheChain_AcrossAMissingVersion_InTheSafeDirection()
     {
         // @3 was written on @2, but @2 is not readable: the chain ends, @1 stays the root, Blueprint @2 is pending.

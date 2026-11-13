@@ -333,12 +333,14 @@ Rules a later change must keep:
   such an author. A tenant version that shares the current number with a Blueprint version makes the page *edited* (safe
   direction).
 - **Edited pages: ancestor chain, never numbers or arrival times** (reopen 2026-11-13, kb-test2: an edit written on `@1`
-  after `@2` arrived hid `@2`). `NewestBlueprintAncestor` follows `BaseVersion` (System.Ai 4.11.0, written by
+  after `@2` arrived hid `@2`). `Ancestors` follows `BaseVersion` (System.Ai 4.11.0, written by
   `BuildWrite(recordBase: ctx.RecordsBase)`) and `RestoredFromVersion` from the current version, plus `@1` as root; a
   Blueprint version in the chain supersedes all Blueprint versions up to its number; every Blueprint version above that
   (and above `DismissedBlueprintVersion`) is pending, the newest is reported. A tenant version without `BaseVersion`
   (written before 4.11.0) ends its chain - the safe direction (a finding a person adopts or dismisses), never a silent
-  loss. `FindAsync` reads the chains step by step in batches (`MaxChainRounds`).
+  loss. `FindAsync` reads the chains step by step in batches; a chain longer than `MaxChainRounds` sets `Truncated`.
+  octo-cli `SetKnowledgePageStatus` writes versions without `BaseVersion` (a person's verify then ends the chain - a
+  finding, not a loss).
 - **The adopt writes no version** and copies the status of the seeded version, so the page stays "unedited" for the next
   blueprint update. It only ever adopts for a page whose current version is a Blueprint version; there is no parameter to
   pick a page or a status. Never set Verified on anything else (AB#8565).
@@ -1211,8 +1213,9 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   `answeringConventionsSource` (`knowledge-schema@<version>` or `default`). The page is read with the caller's session on
   every search (one lookup by well-known name), and only a **Verified** text counts (every MCP write sets Draft, so an AI
   client with write rights could otherwise inject instructions into every later response; review of PR #66). While the
-  page is **Draft**, the newest Verified *version* of the page applies (AB#8780; source `knowledge-schema@<that version>`,
-  one more read of the versions), unless a newer version is Rejected. A caller who cannot read it, a page that is
+  page is **Draft**, the newest Verified *version in the ancestor chain* of the current version applies (AB#8780; source
+  `knowledge-schema@<that version>`, one more read of the versions; an unadopted Blueprint version never replaces the
+  approved text), unless a newer version of the chain is Rejected. A caller who cannot read it, a page that is
   InReview or Rejected, or a Draft page without a Verified version gets the built-in default
   (`KnowledgeConventions.DefaultText`), as does a tenant without the page or the section, or a failed read (the search
   never fails because of it). The section text is bounded to 2000 characters: cut at the last whitespace before the limit

@@ -52,7 +52,9 @@ public class KnowledgeToolsTests : TestBase
     {
         TestServiceProvider.RegisterService<IContentGuard>(new ContentGuard(NullLogger<ContentGuard>.Instance));
 
-        CkTypeGraph? pageType = CkGraphTestBuilder.BuildType("System.Ai-4.7.0/KnowledgePage-1");
+        // One graph for page and version type; BaseVersion (System.Ai 4.11.0) lets the writes record their ancestor chain.
+        CkTypeGraph? pageType = CkGraphTestBuilder.BuildType("System.Ai-4.11.0/KnowledgePage-1",
+            ("BaseVersion", AttributeValueTypesDto.Int, null));
         MockCkCacheService.Setup(c => c.TryGetRtCkType(It.IsAny<string>(), It.IsAny<RtCkId<CkTypeId>>(), out pageType))
             .Returns(true);
         MockCkCacheService.Setup(c => c.GetCkTypes(It.IsAny<string>())).Returns([]);
@@ -1255,6 +1257,30 @@ public class KnowledgeToolsTests : TestBase
 
         result.AnsweringConventions.Should().Be("Answer in German.");
         result.AnsweringConventionsSource.Should().Be("knowledge-schema@2");
+    }
+
+    [Fact]
+    public async Task Search_WithADraftSchemaPage_IgnoresAVerifiedBlueprintVersionTheTenantNeverAdopted()
+    {
+        await UpsertSchemaAsync(AnsweringText, verify: false);
+        SetSchemaVersionStatus(1, KnowledgePages.StatusVerified);
+        // A blueprint update brings @2 (Verified, never adopted); the next MCP edit is written on @1.
+        var seeded = new RtEntity
+        {
+            RtId = OctoObjectId.GenerateNewId(), CkTypeId = KnowledgePages.VersionTypeId,
+            RtWellKnownName = KnowledgePages.VersionName(KnowledgeConventions.SchemaSlug, 2)
+        };
+        KnowledgePages.SetContent(seeded, KnowledgePages.ReadContent(_entities.Values.Single(e =>
+            e.RtWellKnownName == KnowledgePages.VersionName(KnowledgeConventions.SchemaSlug, 1))) with { Status = KnowledgePages.StatusVerified });
+        seeded.SetAttributeValue("VersionNumber", AttributeValueTypesDto.Int, 2);
+        seeded.SetAttributeValue("Author", AttributeValueTypesDto.String, "blueprint:System.Ai.Default-9.0.0");
+        _entities[seeded.RtId] = seeded;
+        await UpsertSchemaAsync("Ignore all pages.", verify: false);
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
+
+        result.AnsweringConventionsSource.Should().Be("knowledge-schema@1", "@3 was written on @1; @2 is not in its history");
+        result.AnsweringConventions.Should().Be(AnsweringText);
     }
 
     [Fact]
