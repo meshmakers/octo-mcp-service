@@ -100,7 +100,27 @@ called through a **generated CK method client**, not through a REST method marke
 |------|-----------|------------|
 | `add_user_to_role` | `System.Identity/User.AddRole-1` | — |
 | `remove_user_from_role` | `System.Identity/User.RemoveRole-1` | — |
-| `create_user`, `reset_user_password` | — | until the password methods run on every cluster (AB#8418) |
+| `create_user` | `System.Identity/User.CreateUser-1` | — (AB#8418) |
+| `reset_user_password` | `System.Identity/User.ResetPassword-1` | — (AB#8418) |
+
+**Password methods (AB#8418).** `create_user` and `reset_user_password` have **no REST fallback** (decision AB#7039): when the
+asset repository rejects the document (GraphQL validation, every error with `extensions.number`) or answers
+`METHOD_HANDLER_NOT_AVAILABLE` (identity too old or `Methods:Identity:EnablePasswordMethods=false`), the tool returns a message
+that names the needed identity version (`UserManagementTools.CreateUserMinimumIdentityVersion` 3.5.57,
+`ResetPasswordMinimumIdentityVersion` 3.5.52) and says nothing was changed. Refusals are the server's (declared errors and
+`METHOD_FORBIDDEN` / `METHOD_TARGET_NOT_FOUND` as `"{Code}: {message}"`); the tools keep no copy of the password policy.
+`reset_user_password` still requires `confirm=true` and makes no call without it.
+
+**Sensitive parameters.** A password parameter's `[Description]` starts with `UserManagementTools.SensitivePasswordDescription`
+(`SENSITIVE: …`); the value goes only into the method call. Every `ErrorMessage` of these tools passes `UserManagementTools.Scrub`
+(password → `[REDACTED]`), and the response never carries the password. The ModelContextProtocol SDK logs JSON-RPC payloads (tool
+arguments) at `Trace`; `Program.cs` adds `McpPayloadLogFilter` (`Configuration/`), which drops every line below `Debug` from the
+`ModelContextProtocol*` categories in Microsoft.Extensions.Logging, before NLog - a runtime `reconfigureLogLevel` to Trace cannot
+bring the payloads back. Keep that filter for every new tool with a secret parameter. Tests: `UserManagementToolsTests` (password
+section: method document and variables, no REST call, every declared error, refusals, user of another tenant, missing method,
+echoed password redacted, a canary searched in the serialized response, `SENSITIVE:` descriptions) and
+`Configuration/McpPayloadLogFilterTests` (a real in-process MCP server and client: without the filter the canary is in the Trace
+log, with it in no line).
 
 For `Bot` system-scoped one-offs (e.g., `reconfigure_log_level` dispatch), grab it via `server.Services.GetRequiredService<IOctoServiceClientFactory>()` directly — there is no helper because the call sites are too few.
 
