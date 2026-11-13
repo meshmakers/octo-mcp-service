@@ -31,7 +31,8 @@ public sealed class RuntimeAggregationTools
         "columns; RtAggregationRtQuery returns one row with the persisted aggregation columns; " +
         "RtGroupingAggregationRtQuery returns one row per distinct group. Optional extraFilters are " +
         "AND-combined with the persisted query's field filters. Mirrors GraphQL Runtime.RuntimeQuery. " +
-        "RtSimpleRtQuery results are paged: without take the default page size is 100, the maximum is 1000 and a " +
+        "RtSimpleRtQuery results are paged: without take the default page size is 100, the maximum is 1000 (lower " +
+        "if configured; see paging.maxTake) and a " +
         "larger take is refused (never silently capped). The result's paging block says whether more entities may " +
         "exist (hasMore) and gives nextSkip; pass it as skip to fetch the next page.")]
     public static async Task<PersistedRuntimeQueryResponse> ExecuteRuntimeQuery(
@@ -42,7 +43,7 @@ public sealed class RuntimeAggregationTools
         [Description("Number of entities to skip (default 0; paging, RtSimpleRtQuery only). Use nextSkip of the " +
                      "previous result's paging block.")]
         int? skip = null,
-        [Description("Page size (default 100, maximum 1000; a larger value is refused for every subtype). Applies to " +
+        [Description("Page size (default 100, maximum 1000 unless configured lower; a larger value is refused for every subtype). Applies to " +
                      "RtSimpleRtQuery; aggregation subtypes ignore it.")]
         int? take = null,
         [Description("Tenant id. Falls back to URL route.")] string? tenantId = null)

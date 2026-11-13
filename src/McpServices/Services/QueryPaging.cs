@@ -58,6 +58,13 @@ internal sealed class QueryPaging
             return (null, $"{skipArgument} {requestedSkip} is negative; {skipArgument} must be 0 or greater.");
         }
 
+        // The next page's skip (skip + page size) must stay representable as an int.
+        if (requestedSkip > int.MaxValue - max)
+        {
+            return (null, $"{skipArgument} {requestedSkip} is too large; {skipArgument} must be at most " +
+                          $"{int.MaxValue - max}.");
+        }
+
         if (requestedTake is <= 0)
         {
             return (null, $"{takeArgument} {requestedTake} is invalid; {takeArgument} must be between 1 and {max}.");

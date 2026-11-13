@@ -78,9 +78,12 @@ public class DynamicToolHealthCheck : IHealthCheck
                            $"{DynamicToolOptions.MaxPageSize}; the query tools enforce {DynamicToolOptions.MaxPageSize}");
             }
 
-            if (_options.DefaultQueryLimit <= 0 || _options.DefaultQueryLimit > _options.MaxQueryResultLimit)
+            // Compared with the maximum the tools enforce, so the report matches the applied default (AB#8904).
+            var effectiveMax = _options.GetEffectiveMaxQueryResultLimit();
+            if (_options.DefaultQueryLimit <= 0 || _options.DefaultQueryLimit > effectiveMax)
             {
-                issues.Add("DefaultQueryLimit must be between 1 and MaxQueryResultLimit");
+                issues.Add($"DefaultQueryLimit {_options.DefaultQueryLimit} must be between 1 and the effective " +
+                           $"maximum of {effectiveMax}; the query tools use {_options.GetEffectiveDefaultQueryLimit()}");
             }
 
             if (_options.AnalyticsTimeoutSeconds <= 0)

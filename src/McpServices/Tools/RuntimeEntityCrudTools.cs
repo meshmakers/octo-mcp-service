@@ -31,12 +31,13 @@ public sealed class RuntimeEntityCrudTools
     ///     Paging rules appended to the description of every entity query tool (AB#8904).
     /// </summary>
     internal const string PagingDescription =
-        " Returns one page: without a page size (limit/take) the default is 100, the maximum is 1000 and a larger " +
-        "page size is refused (never silently capped). The result's paging block says whether more items may exist " +
+        " Returns one page: without a page size (limit/take) the default is 100, the maximum is 1000 (an installation " +
+        "may configure lower values; the result's paging block reports the applied take and maxTake) and a larger " +
+        "page size is refused (never silently capped). The paging block also says whether more items may exist " +
         "(hasMore) and gives nextSkip; pass it as the offset/skip argument of the next call to fetch the next page.";
 
     private const string LimitDescription =
-        "Page size: maximum number of entities to return (default 100, maximum 1000; a larger value is refused).";
+        "Page size: maximum number of entities to return (default 100, maximum 1000 unless configured lower; a larger value is refused).";
 
     private const string OffsetDescription =
         "Number of entities to skip (default 0). Use the nextSkip value of the previous result's paging block to " +
@@ -1106,7 +1107,7 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="targetTypeId">Optional target type ID to filter results</param>
     /// <param name="filters">Optional filters for the target entities as a JSON array (e.g., [{attributePath: "FirstName", value: "Gerald"}, {attributePath: "LastName", value: "Lochner"}])</param>
     /// <param name="attributePaths">Optional list of attribute paths to include in the response. If null, all attributes are returned.</param>
-    /// <param name="take">Page size of the related entities (default 100, maximum 1000; larger is refused)</param>
+    /// <param name="take">Page size of the related entities (default 100, maximum 1000 unless configured lower; larger is refused)</param>
     /// <param name="skip">Number of related entities to skip (paging)</param>
     /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Related entities following the association path</returns>
@@ -1123,7 +1124,7 @@ public sealed class RuntimeEntityCrudTools
         string targetTypeId,
         List<SimpleFilterDto>? filters = null,
         List<string>? attributePaths = null,
-        [Description("Page size: maximum number of related entities to return (default 100, maximum 1000; a larger " +
+        [Description("Page size: maximum number of related entities to return (default 100, maximum 1000 unless configured lower; a larger " +
                      "value is refused).")]
         int? take = null,
         [Description("Number of related entities to skip (default 0). Use the nextSkip value of the previous " +
@@ -1272,7 +1273,7 @@ public sealed class RuntimeEntityCrudTools
     /// <param name="maxDepth">Maximum depth to traverse (1 = direct children only, 2 = children + grandchildren, etc.)</param>
     /// <param name="attributePaths">Optional list of attribute paths to include per entity</param>
     /// <param name="rootFilters">Optional filters for root entities</param>
-    /// <param name="rootTake">Page size of the root entities (default 100, maximum 1000; larger is refused)</param>
+    /// <param name="rootTake">Page size of the root entities (default 100, maximum 1000 unless configured lower; larger is refused)</param>
     /// <param name="rootSkip">Number of root entities to skip (paging)</param>
     /// <param name="tenantId">Optional tenant ID. If not specified, the tenant is resolved from the URL route.</param>
     /// <returns>Tree structure with root entities and their nested children</returns>
@@ -1281,7 +1282,8 @@ public sealed class RuntimeEntityCrudTools
         "Traverse an association tree recursively. Starts from all entities of rootCkTypeId, then follows the specified association (ckRoleId) to find children at each depth level. " +
         "Example: rootCkTypeId='Loxone/Room', ckRoleId='System/ParentChild', direction='Inbound', maxDepth=2 returns all Rooms with their Categories and Controls. " +
         "Use attributePaths to reduce response size. The root entities are paged: without rootTake the default " +
-        "page size is 100, the maximum is 1000 and a larger rootTake is refused (never silently capped). The " +
+        "page size is 100, the maximum is 1000 (lower if configured; see paging.maxTake) and a larger rootTake is " +
+        "refused (never silently capped). The " +
         "result's paging block says whether more roots may exist (hasMore) and gives nextSkip; pass it as rootSkip " +
         "to fetch the next page of roots.")]
     public static async Task<AssociationTreeResponse> GetAssociationTree(
@@ -1292,7 +1294,7 @@ public sealed class RuntimeEntityCrudTools
         int maxDepth = 2,
         List<string>? attributePaths = null,
         List<SimpleFilterDto>? rootFilters = null,
-        [Description("Page size for the root entities (default 100, maximum 1000; a larger value is refused).")]
+        [Description("Page size for the root entities (default 100, maximum 1000 unless configured lower; a larger value is refused).")]
         int? rootTake = null,
         [Description("Number of root entities to skip (default 0). Use the nextSkip value of the previous " +
                      "result's paging block to fetch the next page of roots.")]
