@@ -54,7 +54,7 @@ public sealed class UserManagementTools
         }
         catch (Exception ex)
         {
-            return new GetUsersResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new GetUsersResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
@@ -166,7 +166,7 @@ public sealed class UserManagementTools
         }
         catch (Exception ex)
         {
-            return new UserResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new UserResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
@@ -214,7 +214,7 @@ public sealed class UserManagementTools
         }
         catch (Exception ex)
         {
-            return new UserResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new UserResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
@@ -344,7 +344,7 @@ public sealed class UserManagementTools
         }
         catch (Exception ex)
         {
-            return new UserResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new UserResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
@@ -414,7 +414,7 @@ public sealed class UserManagementTools
         }
         catch (Exception ex)
         {
-            return new UserResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new UserResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 

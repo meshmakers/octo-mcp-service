@@ -581,6 +581,27 @@ public class UserManagementToolsTests : ToolTestBase
     }
 
     [Theory]
+    [InlineData("add")]
+    [InlineData("remove")]
+    public async Task RoleTools_UserLookupFailing_WithDeveloperExceptionPage_DoNotReturnTheCallersToken(string tool)
+    {
+        // CodeRabbit (octo-mcp-service#74): the role tools use the same user lookup as reset_user_password.
+        const string jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0LW9ubHkifQ.c2lnbmF0dXJlLXRlc3Qtb25seQ";
+        MockIdentityClient
+            .Setup(c => c.GetUserByNameEmailOrId("bob"))
+            .ThrowsAsync(new InvalidOperationException(
+                $"InternalServerError: boom\n\nHEADERS\n=======\nAuthorization: bearer {jwt}\n"));
+
+        var result = tool == "add"
+            ? await UserManagementTools.AddUserToRole(MockServer.Object, "bob", "Admins")
+            : await UserManagementTools.RemoveUserFromRole(MockServer.Object, "bob", "Admins", confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().StartWith("InternalServerError: boom").And.NotContain(jwt)
+            .And.NotContain("Authorization");
+    }
+
+    [Theory]
     [InlineData("Authorization: Bearer abc.def-123", "Authorization: [REDACTED]")]
     [InlineData("proxy said bearer abcdefgh12345678 failed", "proxy said bearer [REDACTED] failed")]
     [InlineData("token eyJhbGciOiJIUzI1NiJ9.eyJhIjoiYiJ9.sig here", "token [REDACTED] here")]

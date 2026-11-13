@@ -110,10 +110,12 @@ that names the needed identity version (`UserManagementTools.CreateUserMinimumId
 `ResetPasswordMinimumIdentityVersion` 3.5.52) and says nothing was changed. Refusals are the server's (declared errors and
 `METHOD_FORBIDDEN` / `METHOD_TARGET_NOT_FOUND` as `"{Code}: {message}"`, followed by the detail codes in brackets —
 `UserManagementTools.WithCode`; the failed rules of a `PASSWORD_POLICY_VIOLATION` arrive only as detail codes, e.g.
-`[PasswordTooShort, PasswordRequiresUpper]`); the tools keep no copy of the password policy. Every `ErrorMessage` of the two
-password tools also passes `ErrorTextRedactor.Redact` (same patterns as the octo-cli `ErrorOutputRedactor`): the AB#8418 E2E
+`[PasswordTooShort, PasswordRequiresUpper]`); the tools keep no copy of the password policy. Every exception text the user tools
+return also passes `ErrorTextRedactor.Redact` (same patterns as the octo-cli `ErrorOutputRedactor`): the AB#8418 E2E
 run showed the local identity answering the user lookup with a 500 developer exception page whose `HEADERS` section echoed
-the caller's bearer token. Other tools still return `ex.Message` unredacted.
+the caller's bearer token. Other tools still return `ex.Message` unredacted (AB#8972). `AddMcpPayloadLogFilter` adds its
+rule per provider as well: `UseNLog()` registers a provider rule for `NLogLoggerProvider`, and a provider rule beats a
+category rule without a provider (`McpPayloadLogFilterNLogTests` wires the logging like `Program.cs`).
 `reset_user_password` still requires `confirm=true` and makes no call without it.
 
 **Sensitive parameters.** A password parameter's `[Description]` starts with `UserManagementTools.SensitivePasswordDescription`

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Meshmakers.Octo.Backend.McpServices.Configuration;
@@ -20,7 +21,28 @@ public static class McpPayloadLogFilter
     /// <summary>The lowest level the SDK's categories may log; its message payload lines are <c>Trace</c>.</summary>
     public const LogLevel MinimumSdkLevel = LogLevel.Debug;
 
-    /// <summary>Adds the filter; call it after <c>SetMinimumLevel</c>.</summary>
-    public static ILoggingBuilder AddMcpPayloadLogFilter(this ILoggingBuilder builder) =>
+    /// <summary>
+    ///     Adds the filter; call it after <c>SetMinimumLevel</c>. Besides the category rule, a post-configuration adds the same
+    ///     rule for every provider that has a provider-specific rule: Microsoft.Extensions.Logging prefers a provider rule
+    ///     over a category rule without a provider, and <c>UseNLog()</c> adds such a rule for <c>NLogLoggerProvider</c>
+    ///     (<c>RemoveLoggerFactoryFilter</c>, Trace) - without the provider rule the SDK's Trace payloads would reach NLog
+    ///     (CodeRabbit finding on octo-mcp-service#74, proven by <c>McpPayloadLogFilterNLogTests</c>).
+    /// </summary>
+    public static ILoggingBuilder AddMcpPayloadLogFilter(this ILoggingBuilder builder)
+    {
         builder.AddFilter(SdkCategory, MinimumSdkLevel);
+        builder.Services.PostConfigure<LoggerFilterOptions>(options =>
+        {
+            var providers = options.Rules
+                .Select(r => r.ProviderName)
+                .Where(p => !string.IsNullOrEmpty(p))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            foreach (var provider in providers)
+            {
+                options.Rules.Add(new LoggerFilterRule(provider, SdkCategory, MinimumSdkLevel, null));
+            }
+        });
+        return builder;
+    }
 }

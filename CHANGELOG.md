@@ -12,8 +12,11 @@
   method gets a message naming the needed identity version (3.5.57 / 3.5.52 with `Methods:Identity:EnablePasswordMethods`).
   The password parameters are described as `SENSITIVE`, never echoed (error texts are scrubbed), and the new
   `McpPayloadLogFilter` keeps the SDK's Trace-level JSON-RPC payload logging (tool arguments) out of the service log.
-  The error texts of both tools also pass the new `ErrorTextRedactor`: a developer exception page a service answered
-  with (header section with `Authorization`), bearer tokens and JWTs are removed before the text reaches the client.
+  The error texts of the user tools (`get_users`, `create_user`, `update_user`, `delete_user`, `reset_user_password`,
+  `add_user_to_role`, `remove_user_from_role`) also pass the new `ErrorTextRedactor`: a developer exception page a service
+  answered with (header section with `Authorization`), bearer tokens and JWTs are removed before the text reaches the client.
+  `AddMcpPayloadLogFilter` also adds its rule per logging provider, because the provider rule `UseNLog()` adds for
+  `NLogLoggerProvider` would otherwise win over the category rule and let the Trace payloads reach NLog.
 
 ### Added
 
