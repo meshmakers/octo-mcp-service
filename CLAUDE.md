@@ -1213,9 +1213,10 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   `answeringConventionsSource` (`knowledge-schema@<version>` or `default`). The page is read with the caller's session on
   every search (one lookup by well-known name), and only a **Verified** text counts (every MCP write sets Draft, so an AI
   client with write rights could otherwise inject instructions into every later response; review of PR #66). While the
-  page is **Draft**, the newest Verified *version in the ancestor chain* of the current version applies (AB#8780; source
-  `knowledge-schema@<that version>`, one more read of the versions; an unadopted Blueprint version never replaces the
-  approved text), unless a newer version of the chain is Rejected. A caller who cannot read it, a page that is
+  page is **Draft**, the newest Verified version the tenant approved or adopted applies (AB#8780; source
+  `knowledge-schema@<that version>`, one more read of the versions): every tenant version (only a person verifies), and a
+  Blueprint version only when it is in the ancestor chain of the current version - a seeded version the tenant never
+  adopted (new or superseded) never replaces the approved text. A newer Rejected version of that set gives the default. A caller who cannot read it, a page that is
   InReview or Rejected, or a Draft page without a Verified version gets the built-in default
   (`KnowledgeConventions.DefaultText`), as does a tenant without the page or the section, or a failed read (the search
   never fails because of it). The section text is bounded to 2000 characters: cut at the last whitespace before the limit

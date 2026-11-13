@@ -134,17 +134,20 @@ internal static class KnowledgeConventions
     }
 
     /// <summary>
-    ///     The content and number of the newest Verified version in the ancestor chain of the schema page's current
-    ///     version (<see cref="KnowledgePlatformUpdates.Ancestors" />), read with the caller's session; <c>null</c> when
-    ///     there is none, or when a newer version of the chain is Rejected (a person turned the text down later). A
-    ///     Blueprint version the tenant never adopted is not in the chain: a blueprint update does not replace the text a
-    ///     person approved.
+    ///     The content and number of the newest Verified version of the schema page that the tenant approved or adopted,
+    ///     read with the caller's session; <c>null</c> when there is none, or when a newer such version is Rejected (a
+    ///     person turned the text down later). Tenant versions are Verified only by a person (MCP writes Draft), so each of
+    ///     them counts, also behind a version without <c>BaseVersion</c>. A Blueprint version counts only when it is in
+    ///     the ancestor chain of the current version (<see cref="KnowledgePlatformUpdates.Ancestors" />): a seeded version
+    ///     the tenant never adopted - new or superseded - does not replace the text a person approved.
     /// </summary>
     public static async Task<(KnowledgeContent Content, int Version)?> NewestVerifiedVersionAsync(
         ITenantRepository repository, IOctoSession session, int current)
     {
         var versions = await KnowledgePlatformUpdates.ListVersionsAsync(repository, session, SchemaSlug);
-        foreach (var version in KnowledgePlatformUpdates.Ancestors(versions, current).Versions
+        var chain = KnowledgePlatformUpdates.Ancestors(versions, current).Versions
+            .Select(v => v.Entity.RtId).ToHashSet();
+        foreach (var version in versions.Where(v => !v.IsBlueprint || chain.Contains(v.Entity.RtId))
                      .OrderByDescending(v => v.Number))
         {
             var content = KnowledgePages.ReadContent(version.Entity);

@@ -288,8 +288,9 @@ internal static class KnowledgePlatformUpdates
     }
 
     /// <summary>
-    ///     The ancestor chain of the current version: the versions in it and the highest Blueprint version number in it
-    ///     (0 when none; every Blueprint version up to it is superseded). The chain follows <c>BaseVersion</c> and
+    ///     The ancestor chain of the current version: the versions actually in it (no superseded Blueprint versions) and
+    ///     the highest Blueprint version number in it (0 when none; every Blueprint version up to it is superseded for the
+    ///     update rule). The chain follows <c>BaseVersion</c> and
     ///     <c>RestoredFromVersion</c> of the tenant versions and always contains the first version <c>@1</c>. Where a
     ///     number has a tenant version and a Blueprint version, the tenant version is the one in the chain (it was written
     ///     first; the seed arrived with a used number). A version that is missing ends its chain.
@@ -332,8 +333,6 @@ internal static class KnowledgePlatformUpdates
             }
         }
 
-        // Superseded Blueprint versions belong to the chain too (the tenant moved past them).
-        chain.AddRange(versions.Where(v => v.IsBlueprint && v.Number <= newest && !chain.Contains(v)));
         return (chain, newest);
     }
 

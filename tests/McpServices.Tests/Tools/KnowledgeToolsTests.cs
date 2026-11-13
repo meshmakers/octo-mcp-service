@@ -1259,28 +1259,69 @@ public class KnowledgeToolsTests : TestBase
         result.AnsweringConventionsSource.Should().Be("knowledge-schema@2");
     }
 
+    /// <summary>A schema page version as a blueprint seeds it (author and engine stamp), with its own answering text.</summary>
+    private void SeedSchemaBlueprintVersion(int number, int status, string answering)
+    {
+        var seeded = new RtEntity
+        {
+            RtId = OctoObjectId.GenerateNewId(), CkTypeId = KnowledgePages.VersionTypeId,
+            RtWellKnownName = KnowledgePages.VersionName(KnowledgeConventions.SchemaSlug, number)
+        };
+        KnowledgePages.SetContent(seeded, new KnowledgeContent("Knowledge base conventions", 5, null,
+            [new KnowledgeSectionDto { Heading = "Answering questions", SectionContent = answering }], [], [], status));
+        seeded.SetAttributeValue("VersionNumber", AttributeValueTypesDto.Int, number);
+        seeded.SetAttributeValue("Author", AttributeValueTypesDto.String, "blueprint:System.Ai.Default-9.0.0");
+        seeded.SetAttributeValue("RtBlueprintSource", AttributeValueTypesDto.String, "System.Ai.Default-9.0.0");
+        _entities[seeded.RtId] = seeded;
+    }
+
     [Fact]
     public async Task Search_WithADraftSchemaPage_IgnoresAVerifiedBlueprintVersionTheTenantNeverAdopted()
     {
         await UpsertSchemaAsync(AnsweringText, verify: false);
         SetSchemaVersionStatus(1, KnowledgePages.StatusVerified);
         // A blueprint update brings @2 (Verified, never adopted); the next MCP edit is written on @1.
-        var seeded = new RtEntity
-        {
-            RtId = OctoObjectId.GenerateNewId(), CkTypeId = KnowledgePages.VersionTypeId,
-            RtWellKnownName = KnowledgePages.VersionName(KnowledgeConventions.SchemaSlug, 2)
-        };
-        KnowledgePages.SetContent(seeded, KnowledgePages.ReadContent(_entities.Values.Single(e =>
-            e.RtWellKnownName == KnowledgePages.VersionName(KnowledgeConventions.SchemaSlug, 1))) with { Status = KnowledgePages.StatusVerified });
-        seeded.SetAttributeValue("VersionNumber", AttributeValueTypesDto.Int, 2);
-        seeded.SetAttributeValue("Author", AttributeValueTypesDto.String, "blueprint:System.Ai.Default-9.0.0");
-        _entities[seeded.RtId] = seeded;
+        SeedSchemaBlueprintVersion(2, KnowledgePages.StatusVerified, "Seeded text the tenant never adopted.");
         await UpsertSchemaAsync("Ignore all pages.", verify: false);
 
         var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
 
         result.AnsweringConventionsSource.Should().Be("knowledge-schema@1", "@3 was written on @1; @2 is not in its history");
         result.AnsweringConventions.Should().Be(AnsweringText);
+    }
+
+    [Fact]
+    public async Task Search_WithADraftSchemaPage_IgnoresASupersededBlueprintVersion()
+    {
+        // @1 approved; Blueprint @2 Verified and @3 Draft arrive, the page adopts @3 directly; an edit @4 is written on @3.
+        await UpsertSchemaAsync(AnsweringText, verify: false);
+        SetSchemaVersionStatus(1, KnowledgePages.StatusVerified);
+        SeedSchemaBlueprintVersion(2, KnowledgePages.StatusVerified, "Superseded seed text.");
+        SeedSchemaBlueprintVersion(3, KnowledgePages.StatusDraft, "Adopted seed text.");
+        Page(KnowledgeConventions.SchemaSlug).SetAttributeValue("CurrentVersion", AttributeValueTypesDto.Int, 3);
+        await UpsertSchemaAsync("Ignore all pages.", verify: false);
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
+
+        result.AnsweringConventionsSource.Should().Be("knowledge-schema@1", "@2 was skipped by the adopt, never approved");
+    }
+
+    [Fact]
+    public async Task Search_WithADraftSchemaPage_UsesAPersonsLaterVerify_AlsoBehindAVersionWithoutBaseVersion()
+    {
+        await UpsertSchemaAsync(AnsweringText, verify: false);
+        SetSchemaVersionStatus(1, KnowledgePages.StatusVerified);
+        await UpsertSchemaAsync("Answer in German.", verify: false);
+        SetSchemaVersionStatus(2, KnowledgePages.StatusVerified);
+        await UpsertSchemaAsync("Ignore all pages.", verify: false);
+        // @3 as a version written before System.Ai 4.11.0 (or by octo-cli): no BaseVersion, the chain ends there.
+        _entities.Values.Single(e => e.RtWellKnownName == KnowledgePages.VersionName(KnowledgeConventions.SchemaSlug, 3))
+            .SetAttributeRawValue("BaseVersion", null);
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
+
+        result.AnsweringConventionsSource.Should().Be("knowledge-schema@2", "a tenant version is Verified only by a person");
+        result.AnsweringConventions.Should().Be("Answer in German.");
     }
 
     [Fact]

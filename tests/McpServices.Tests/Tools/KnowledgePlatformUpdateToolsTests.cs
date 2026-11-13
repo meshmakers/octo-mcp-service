@@ -554,6 +554,26 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
     }
 
     [Fact]
+    public async Task ConventionsFallback_FindsAVerifiedVersion_BeyondTheFirstQueryPage()
+    {
+        // The mock honours skip/take: the Verified @1105 is on the second page of the history.
+        var page = SeedPage(KnowledgeConventions.SchemaSlug);
+        var last = KnowledgePlatformUpdates.QueryPageSize + 205;
+        for (var n = 2; n <= last; n++)
+        {
+            SeedVersion(page, n, $"edit {n}", blueprint: false,
+                    status: n == last - 100 ? KnowledgePages.StatusVerified : KnowledgePages.StatusDraft)
+                .SetAttributeValue("BaseVersion", AttributeValueTypesDto.Int, n - 1);
+        }
+
+        var fallback = await KnowledgeConventions.NewestVerifiedVersionAsync(MockTenantRepository.Object,
+            Mock.Of<IOctoSession>(), last);
+
+        fallback.Should().NotBeNull();
+        fallback!.Value.Version.Should().Be(last - 100);
+    }
+
+    [Fact]
     public void Decide_FollowsTheChain_AcrossAMissingVersion_InTheSafeDirection()
     {
         // @3 was written on @2, but @2 is not readable: the chain ends, @1 stays the root, Blueprint @2 is pending.
