@@ -70,6 +70,7 @@ internal static class KnowledgePages
 
     public const int StatusDraft = 0;
     public const int StatusVerified = 2;
+    public const int StatusRejected = 3;
 
     public static RtCkId<CkTypeId> PageTypeId => new(PageType);
     public static RtCkId<CkTypeId> VersionTypeId => new(VersionType);
@@ -283,9 +284,15 @@ internal static class KnowledgePages
     ///     versions of a deleted page stay; the new version takes the next free number, so a version name is never used
     ///     twice.
     /// </param>
+    /// <param name="recordBase">
+    ///     True when the tenant's model has <c>KnowledgePageVersion.BaseVersion</c> (System.Ai 4.11.0): the new version
+    ///     records the page's current version as the one it was written on, so the platform-update rule can tell which
+    ///     Blueprint versions the edit already saw (AB#8780, ancestor chain).
+    /// </param>
     public static (RtEntity Page, RtEntity Version, List<IEntityUpdateInfo<RtEntity>> Updates, int VersionNumber)
         BuildWrite(RtEntity? existing, string slug, KnowledgeContent content, int origin, string author,
-            string changeNote, int? restoredFrom, KnowledgeRunMetadata? run, DateTime now, int highestVersion = 0)
+            string changeNote, int? restoredFrom, KnowledgeRunMetadata? run, DateTime now, int highestVersion = 0,
+            bool recordBase = false)
     {
         var versionNumber = Math.Max(existing == null ? 0 : CurrentVersion(existing), highestVersion) + 1;
         var hash = Hash(Render(content, slug, 0));
@@ -317,6 +324,12 @@ internal static class KnowledgePages
         version.SetAttributeValue("Author", AttributeValueTypesDto.String, author);
         version.SetAttributeValue("AuthoredAt", AttributeValueTypesDto.DateTime, now);
         version.SetAttributeValue("ChangeNote", AttributeValueTypesDto.String, changeNote);
+        if (recordBase && existing != null)
+        {
+            version.SetAttributeValue(KnowledgePlatformUpdates.BaseVersionAttribute, AttributeValueTypesDto.Int,
+                CurrentVersion(existing));
+        }
+
         if (restoredFrom != null)
         {
             version.SetAttributeValue("RestoredFromVersion", AttributeValueTypesDto.Int, restoredFrom.Value);

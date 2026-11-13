@@ -230,7 +230,7 @@ and the resource template `knowledge-page://{tenantId}/{slug}`. Pages are System
 every content or status write is a new `KnowledgePageVersion` and passes the content guard (credentials and tenant secret values are refused with
 `ContentRejected`; AB#8702 adds GitHub tokens, AWS access key ids and `password=`/`secret:`/`token=`-style assignments, while
 prose that names a credential without a value passes). Every `knowledge_search` result carries `answeringConventions`, the
-"Answering questions" section of the conventions page `knowledge-schema` (Verified page only, max. 2000 characters, otherwise a built-in default),
+"Answering questions" section of the conventions page `knowledge-schema` (Verified page only; while the page is Draft the newest Verified version (AB#8780); max. 2000 characters, otherwise a built-in default),
 with `answeringConventionsSource` (AB#8712).
 - `knowledge_upsert_page` on an existing page: title and sections replace; an omitted `kind`, `summary`, `citations` or
   `hallucinationFlags` keeps the current value, an explicit `""` / `[]` clears it (AB#8567). `origin` applies to new pages only,
@@ -272,8 +272,10 @@ with `answeringConventionsSource` (AB#8712).
   `blueprint:<id>-<version>` and the engine's `rtBlueprintSource` stamp. `knowledge_list_platform_updates` (read) lists
   the pages with a newer Blueprint version: `Adoptable` (unedited - the current version is a Blueprint version) or
   `Available` (edited - the current version was written in the tenant, or the page content differs from its current
-  Blueprint version after a direct edit; newer = higher number or arrived after the tenant's current version; only a
-  version above `DismissedBlueprintVersion` counts). `knowledge_adopt_platform_updates` (medium risk,
+  Blueprint version after a direct edit; a Blueprint version is newer when it is not in the ancestor chain of the current
+  version - `BaseVersion` (System.Ai 4.11.0) and `RestoredFromVersion`, with `@1` as root - so an edit written on `@1`
+  after `@2` arrived still reports `@2`; only a version above `DismissedBlueprintVersion` counts). Page writes record
+  `BaseVersion` (the version the write was based on) on tenants with System.Ai 4.11.0. `knowledge_adopt_platform_updates` (medium risk,
   `runRef` required; caller: the `knowledge-platform-updates` pipeline of System.Ai.Knowledge) switches every Adoptable
   page to the newest Blueprint version **without writing a version**: title, kind, summary, sections, citations and
   status from that version, `CurrentVersion`, `BlueprintVersion`, `AdoptedByRun` = `runRef`, and `LinksTo` = the

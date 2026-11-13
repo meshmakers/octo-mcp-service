@@ -33,6 +33,7 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
     private readonly List<IEntityUpdateInfo<RtEntity>> _writes = [];
     private DateTime _clock = new(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc);
     private bool _modelHasPlatformUpdates = true;
+    private bool _modelRecordsBase = true;
 
     public KnowledgePlatformUpdateToolsTests()
     {
@@ -42,10 +43,15 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
             .Setup(c => c.TryGetRtCkType(It.IsAny<string>(), It.IsAny<RtCkId<CkTypeId>>(), out It.Ref<CkTypeGraph?>.IsAny))
             .Returns(new TryGetType((string _, RtCkId<CkTypeId> _, out CkTypeGraph? graph) =>
             {
-                graph = _modelHasPlatformUpdates
-                    ? CkGraphTestBuilder.BuildType("System.Ai-4.10.0/KnowledgePage-1",
-                        ("DismissedBlueprintVersion", AttributeValueTypesDto.Int, null))
-                    : CkGraphTestBuilder.BuildType("System.Ai-4.9.0/KnowledgePage-1");
+                // One graph for page and version type: 4.11.0 adds KnowledgePageVersion.BaseVersion (AB#8780 reopen).
+                graph = !_modelHasPlatformUpdates
+                    ? CkGraphTestBuilder.BuildType("System.Ai-4.9.0/KnowledgePage-1")
+                    : _modelRecordsBase
+                        ? CkGraphTestBuilder.BuildType("System.Ai-4.11.0/KnowledgePage-1",
+                            ("DismissedBlueprintVersion", AttributeValueTypesDto.Int, null),
+                            ("BaseVersion", AttributeValueTypesDto.Int, null))
+                        : CkGraphTestBuilder.BuildType("System.Ai-4.10.0/KnowledgePage-1",
+                            ("DismissedBlueprintVersion", AttributeValueTypesDto.Int, null));
                 return true;
             }));
         MockTenantRepository
@@ -411,15 +417,126 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
                 : _inner.CheckAsync(context, fields, cancellationToken);
     }
 
+    // ---- AB#8780 reopen: ancestor chain instead of version numbers / arrival times ----
+
+    private RtEntity Version(string slug, int number) => _entities.Values.Single(e =>
+        Equals(e.CkTypeId, KnowledgePages.VersionTypeId) && e.RtWellKnownName == KnowledgePages.VersionName(slug, number) &&
+        !KnowledgePlatformUpdates.IsBlueprintVersion(e));
+
     [Fact]
-    public async Task Edited_AfterTheUpdateArrived_WithAHigherNumber_IsNotListed()
+    public async Task Edited_OnTheFirstVersion_AfterANewerBlueprintVersionArrived_IsAvailable()
     {
-        var page = SeedPage("page-a");
+        // kb-test2 2026-11-12: @2 arrived 06:47Z, the edit @3 at 07:11Z was written on @1 (@2 was never adopted).
+        var page = SeedPage("knowledge-schema");
         SeedVersion(page, 2, "v2 from the blueprint");
-        await EditAsync("page-a");
+        await EditAsync("knowledge-schema");
 
         Current(page).Should().Be(3, "the edit takes the next free number, not the number of the seeded version 2");
-        (await ListAsync()).Updates.Should().BeEmpty("the edit was written after version 2 arrived (it is in the history)");
+        Version("knowledge-schema", 3).GetAttributeValueOrDefault("BaseVersion").Should().Be(1);
+        var result = await AdoptAsync();
+        result.Adopted.Should().BeEmpty("an edited page is never switched");
+        result.Available.Should().ContainSingle(u => u.Slug == "knowledge-schema" && u.CurrentVersion == 3 &&
+                                                     u.NewerVersion == 2,
+            "the edit never saw version 2, so its content would be lost silently");
+    }
+
+    [Fact]
+    public async Task Edited_OnTheNewerBlueprintVersion_IsNotListed()
+    {
+        // Restore of @2 (= adopt), then an edit on top of it: @2 is in the chain of the current version.
+        var page = SeedPage("page-a");
+        SeedVersion(page, 2, "v2 from the blueprint");
+        await EditAsync("page-a", "edit on v1");
+        (await KnowledgeTools.KnowledgeRestoreVersion(MockServer.Object, "page-a", 2, cancellationToken: Ct))
+            .IsSuccess.Should().BeTrue();
+        await EditAsync("page-a", "edit on v2");
+
+        Current(page).Should().Be(5);
+        (await ListAsync()).Updates.Should().BeEmpty("@5 was written on @4, which restored @2");
+    }
+
+    [Fact]
+    public async Task Edited_TheChainSupersedesOlderBlueprintVersions_ButNotNewerOnes()
+    {
+        var page = SeedPage("page-a");
+        SeedVersion(page, 2, "v2");
+        (await KnowledgeTools.KnowledgeRestoreVersion(MockServer.Object, "page-a", 2, cancellationToken: Ct))
+            .IsSuccess.Should().BeTrue();
+        await EditAsync("page-a");
+        SeedVersion(page, 5, "v5");
+
+        (await ListAsync()).Updates.Should().ContainSingle(u => u.State == "Available" && u.NewerVersion == 5);
+    }
+
+    [Fact]
+    public async Task Legacy_ATenantVersionWithoutBaseVersion_OnlyReportsBlueprintVersionsAboveTheFirstOne()
+    {
+        // Versions written before System.Ai 4.11.0 carry no BaseVersion: the chain ends there, @1 is still the root.
+        _modelRecordsBase = false;
+        var page = SeedPage("page-a");
+        await EditAsync("page-a");
+        Version("page-a", 2).GetAttributeValueOrDefault("BaseVersion").Should().BeNull();
+
+        (await ListAsync()).Updates.Should().BeEmpty("no false 'edited' finding for the page's own first version");
+
+        SeedVersion(page, 3, "v3");
+        (await ListAsync()).Updates.Should().ContainSingle(u => u.State == "Available" && u.NewerVersion == 3);
+    }
+
+    [Fact]
+    public async Task Legacy_AnEditWrittenAfterANewerBlueprintVersionArrived_IsAvailable()
+    {
+        // The kb-test2 history as it is stored today (no BaseVersion): @1 seed, @2 seed, @3 tenant edit.
+        _modelRecordsBase = false;
+        var page = SeedPage("knowledge-schema");
+        SeedVersion(page, 2, "v2 from the blueprint");
+        await EditAsync("knowledge-schema");
+
+        (await ListAsync()).Updates.Should().ContainSingle(u => u.State == "Available" && u.NewerVersion == 2);
+    }
+
+    [Fact]
+    public async Task Legacy_AnUneditedBlueprintPage_IsStillAdopted()
+    {
+        _modelRecordsBase = false;
+        var page = SeedPage("page-a");
+        SeedVersion(page, 2, "v2");
+
+        (await AdoptAsync()).Adopted.Should().ContainSingle(a => a.Slug == "page-a" && a.ToVersion == 2);
+        Current(page).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Legacy_ARestoreWithoutBaseVersion_StillCountsTheRestoredBlueprintVersion()
+    {
+        _modelRecordsBase = false;
+        var page = SeedPage("page-a");
+        SeedVersion(page, 2, "v2");
+        await EditAsync("page-a");
+        (await KnowledgeTools.KnowledgeRestoreVersion(MockServer.Object, "page-a", 2, cancellationToken: Ct))
+            .IsSuccess.Should().BeTrue();
+
+        (await ListAsync()).Updates.Should().BeEmpty("the restore names @2 in RestoredFromVersion");
+    }
+
+    [Fact]
+    public void Decide_FollowsTheChain_AcrossAMissingVersion_InTheSafeDirection()
+    {
+        // @3 was written on @2, but @2 is not readable: the chain ends, @1 stays the root, Blueprint @2 is pending.
+        var page = SeedPage("page-a");
+        var bp2 = SeedVersion(page, 2, "v2");
+        var tenant = SeedVersion(page, 3, "tenant", blueprint: false, status: KnowledgePages.StatusDraft);
+        tenant.SetAttributeValue("BaseVersion", AttributeValueTypesDto.Int, 4);
+        page.SetAttributeValue("CurrentVersion", AttributeValueTypesDto.Int, 3);
+        var v1 = _entities.Values.Single(e => e.RtWellKnownName == "page-a@1");
+        KnowledgeVersionInfo Info(RtEntity e, int n, bool bp, int? b = null) => new(e, n, bp, b, null);
+
+        var update = KnowledgePlatformUpdates.Decide(page, "page-a", 3,
+            [Info(v1, 1, true), Info(bp2, 2, true), Info(tenant, 3, false, 4)], null);
+
+        update.Should().NotBeNull();
+        update!.State.Should().Be(PlatformUpdateState.Available);
+        update.Target.Number.Should().Be(2);
     }
 
     [Fact]
