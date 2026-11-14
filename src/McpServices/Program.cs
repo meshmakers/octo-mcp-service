@@ -88,6 +88,8 @@ try
     // NLog: Setup NLog for Dependency injection
     builder.Logging.ClearProviders();
     builder.Logging.SetMinimumLevel(LogLevel.Trace);
+    // AB#8418: the MCP SDK logs JSON-RPC payloads (tool arguments such as passwords) at Trace - never let them through.
+    builder.Logging.AddMcpPayloadLogFilter();
     builder.Host.UseNLog();
 
     // additional providers here needed.

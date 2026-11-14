@@ -18,8 +18,11 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 ///     <c>System.Identity/User.AddRole-1</c> / <c>User.RemoveRole-1</c> through the generated
 ///     <see cref="RtUserMethodClient" /> (AB#8440, generated from <c>System.Identity-[3.2,4.0)</c> in
 ///     <c>construction-kits.yaml</c>); the REST methods <c>AddRoleToUser</c> / <c>RemoveRoleFromUser</c> are obsolete
-///     (AB#8416). <c>create_user</c> and <c>reset_user_password</c> stay on REST until the password methods are
-///     enabled on every cluster (AB#8418).
+///     (AB#8416). <c>create_user</c> and <c>reset_user_password</c> call <c>User.CreateUser-1</c> /
+///     <c>User.ResetPassword-1</c> the same way (AB#8418), without a REST fallback (AB#7039): a server without the method
+///     gets a message naming the needed identity version. The password is a sensitive parameter: it goes only into the
+///     method call, every text a tool returns is scrubbed of it (<see cref="Scrub" />), and the SDK's payload logging is
+///     filtered (<see cref="Configuration.McpPayloadLogFilter" />).
 /// </remarks>
 [McpServerToolType]
 public sealed class UserManagementTools
@@ -51,19 +54,22 @@ public sealed class UserManagementTools
         }
         catch (Exception ex)
         {
-            return new GetUsersResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new GetUsersResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
-    /// <summary>Create a new user. Optionally with a password.</summary>
+    /// <summary>Create a new user. Optionally with a password. Runs <c>System.Identity/User.CreateUser-1</c>.</summary>
     [McpServerTool(Name = "create_user")]
     [McpRisk(McpRiskLevel.Medium)]
-    [Description("Create a new user account. Equivalent to octo-cli CreateUser. Username and email are lower-cased.")]
+    [Description("Create a new user account. Equivalent to octo-cli CreateUser. Username and email are lower-cased. " +
+                 "Runs the CK method System.Identity/User.CreateUser-1; refusals (USER_ALREADY_EXISTS, USER_NAME_RESERVED, " +
+                 "PASSWORD_POLICY_VIOLATION with the codes of the failed rules) come from the server as code and message.")]
     public static async Task<UserResponse> CreateUser(
         McpServer server,
         [Description("Username (will be lower-cased).")] string userName,
         [Description("E-mail address (will be lower-cased).")] string email,
-        [Description("Optional initial password.")] string? password = null,
+        [Description(SensitivePasswordDescription + " Optional initial password; without it the user gets no password.")]
+        string? password = null,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
         if (string.IsNullOrWhiteSpace(userName) || string.IsNullOrWhiteSpace(email))
@@ -71,22 +77,22 @@ public sealed class UserManagementTools
             return new UserResponse { IsSuccess = false, ErrorMessage = "userName and email are required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new UserResponse { IsSuccess = false, ErrorMessage = ctx.Error };
         }
 
+        var normalizedName = userName.ToLowerInvariant();
         try
         {
-            var normalizedName = userName.ToLowerInvariant();
             var normalizedEmail = email.ToLowerInvariant();
-            await ctx.Client!.CreateUser(new RegisterUserDto
+            var result = await new RtUserMethodClient(ctx.TenantClient!).CreateUserAsync(normalizedName,
+                normalizedEmail, password: password);
+            if (!result.IsSuccess)
             {
-                Email = normalizedEmail,
-                Name = normalizedName,
-                Password = password
-            });
+                return Failure(ctx, normalizedName, WithCode(result.Error!), password);
+            }
 
             return new UserResponse
             {
@@ -96,9 +102,15 @@ public sealed class UserManagementTools
                 Message = $"User '{normalizedName}' created."
             };
         }
+        catch (CkMethodCallException ex)
+        {
+            return Failure(ctx, normalizedName,
+                DescribePasswordMethodCallError(ex, RtUserMethodClient.CreateUserMethodId,
+                    CreateUserMinimumIdentityVersion, "The user was not created."), password);
+        }
         catch (Exception ex)
         {
-            return new UserResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return Failure(ctx, normalizedName, ex.Message, password);
         }
     }
 
@@ -154,7 +166,7 @@ public sealed class UserManagementTools
         }
         catch (Exception ex)
         {
-            return new UserResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new UserResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
@@ -202,19 +214,24 @@ public sealed class UserManagementTools
         }
         catch (Exception ex)
         {
-            return new UserResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new UserResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
-    /// <summary>Reset the password of a user. Destructive: requires confirm=true.</summary>
+    /// <summary>
+    ///     Reset the password of a user. Destructive: requires confirm=true. Runs <c>System.Identity/User.ResetPassword-1</c>.
+    /// </summary>
     [McpServerTool(Name = "reset_user_password")]
     [McpRisk(McpRiskLevel.High)]
     [Description(
-        "Reset the password of a user. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli ResetPassword.")]
+        "Reset the password of a user. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli ResetPassword. " +
+        "Runs the CK method System.Identity/User.ResetPassword-1; refusals (PASSWORD_POLICY_VIOLATION with the codes " +
+        "of the failed rules, SHADOW_USER_PASSWORD_NOT_ALLOWED, METHOD_FORBIDDEN) come from the server as code and message.")]
     public static async Task<UserResponse> ResetPassword(
         McpServer server,
         [Description("Username or e-mail of the user.")] string userNameOrEmail,
-        [Description("New password.")] string newPassword,
+        [Description(SensitivePasswordDescription + " The new password; must satisfy the tenant's password policy.")]
+        string newPassword,
         [Description("Must be true to actually reset.")] bool confirm = false,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
@@ -236,16 +253,22 @@ public sealed class UserManagementTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new UserResponse { IsSuccess = false, ErrorMessage = ctx.Error };
         }
 
+        var identifier = userNameOrEmail.ToLowerInvariant();
         try
         {
-            var identifier = userNameOrEmail.ToLowerInvariant();
-            await ctx.Client!.ResetPassword(identifier, newPassword);
+            var userRtId = await ResolveUserRtIdAsync(ctx, identifier);
+            var result = await new RtUserMethodClient(ctx.TenantClient!).ResetPasswordAsync(userRtId, newPassword);
+            if (!result.IsSuccess)
+            {
+                return Failure(ctx, identifier, WithCode(result.Error!), newPassword);
+            }
+
             return new UserResponse
             {
                 IsSuccess = true,
@@ -254,9 +277,15 @@ public sealed class UserManagementTools
                 Message = $"Password reset for user '{identifier}'."
             };
         }
+        catch (CkMethodCallException ex)
+        {
+            return Failure(ctx, identifier,
+                DescribePasswordMethodCallError(ex, RtUserMethodClient.ResetPasswordMethodId,
+                    ResetPasswordMinimumIdentityVersion, "The password was not changed."), newPassword);
+        }
         catch (Exception ex)
         {
-            return new UserResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return Failure(ctx, identifier, ex.Message, newPassword);
         }
     }
 
@@ -315,7 +344,7 @@ public sealed class UserManagementTools
         }
         catch (Exception ex)
         {
-            return new UserResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new UserResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
@@ -385,7 +414,7 @@ public sealed class UserManagementTools
         }
         catch (Exception ex)
         {
-            return new UserResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new UserResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
@@ -424,6 +453,64 @@ public sealed class UserManagementTools
     /// </summary>
     internal static string DescribeMethodCallError(CkMethodCallException exception) => WithCode(exception.Error);
 
-    private static string WithCode(CkMethodError error) =>
-        string.IsNullOrWhiteSpace(error.Message) ? error.Code : $"{error.Code}: {error.Message}";
+    /// <summary>The first identity release that hosts <c>User.CreateUser-1</c>.</summary>
+    internal const string CreateUserMinimumIdentityVersion = "3.5.57";
+
+    /// <summary>The first identity release that hosts <c>User.ResetPassword-1</c>.</summary>
+    internal const string ResetPasswordMinimumIdentityVersion = "3.5.52";
+
+    /// <summary>Prefix of the description of every password parameter (AB#8418).</summary>
+    internal const string SensitivePasswordDescription =
+        "SENSITIVE: a password. It is sent only in the CK method call, never echoed in the response and never logged.";
+
+    internal const string Redacted = "[REDACTED]";
+
+    /// <summary>
+    ///     Text of a <see cref="CkMethodCallException" /> of a password method. A server without the method - the asset
+    ///     repository rejects the document in GraphQL validation, or no handler is live (<c>METHOD_HANDLER_NOT_AVAILABLE</c>:
+    ///     identity too old or <c>Methods:Identity:EnablePasswordMethods=false</c>) - gets a message naming the needed identity
+    ///     version; there is no REST fallback (AB#7039). Any other refusal is reported with code and message.
+    /// </summary>
+    internal static string DescribePasswordMethodCallError(CkMethodCallException exception, string methodId,
+        string minimumIdentityVersion, string outcome) =>
+        IsMethodUnavailable(exception)
+            ? $"The service does not offer the CK method {methodId}. It needs identity services {minimumIdentityVersion} " +
+              "or newer with the password methods switched on (Methods:Identity:EnablePasswordMethods). " +
+              $"{outcome} The tool sends passwords only through the CK method and does not fall back to the REST endpoint."
+            : DescribeMethodCallError(exception);
+
+    /// <summary>
+    ///     The call was certainly not executed: no live handler, or a document the schema rejects (every GraphQL error carries
+    ///     the spec section <c>extensions.number</c>).
+    /// </summary>
+    private static bool IsMethodUnavailable(CkMethodCallException exception) =>
+        string.Equals(exception.Code, "METHOD_HANDLER_NOT_AVAILABLE", StringComparison.Ordinal) ||
+        exception.Errors is { Count: > 0 } errors &&
+        errors.All(e => e.Extensions != null && e.Extensions.ContainsKey("number"));
+
+    /// <summary>Replaces every occurrence of <paramref name="secret" /> in <paramref name="text" /> with <see cref="Redacted" />.</summary>
+    internal static string Scrub(string text, string? secret) =>
+        string.IsNullOrEmpty(secret) ? text : text.Replace(secret, Redacted, StringComparison.Ordinal);
+
+    private static UserResponse Failure(IdentityClientContext ctx, string user, string message, string? password) =>
+        new()
+        {
+            IsSuccess = false,
+            TenantId = ctx.TenantId,
+            User = user,
+            // The password first, then credentials a server echoed (developer exception page with the request headers).
+            ErrorMessage = ErrorTextRedactor.Redact(Scrub(message, password))
+        };
+
+    /// <summary>
+    ///     <c>CODE: message</c>, followed by the codes of the error's details in brackets (AB#8418): the asset repository sends
+    ///     the failed password rules of a <c>PASSWORD_POLICY_VIOLATION</c> only as detail codes
+    ///     (<c>[PasswordTooShort, PasswordRequiresUpper]</c>). Detail parameters are not included.
+    /// </summary>
+    internal static string WithCode(CkMethodError error)
+    {
+        var text = string.IsNullOrWhiteSpace(error.Message) ? error.Code : $"{error.Code}: {error.Message}";
+        var codes = error.Details.Select(d => d.Code).Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+        return codes.Count == 0 ? text : $"{text} [{string.Join(", ", codes)}]";
+    }
 }
