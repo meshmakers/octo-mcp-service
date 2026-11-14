@@ -43,7 +43,8 @@ internal sealed class KnowledgeConventionsCache
 /// <summary>
 ///     The answering conventions of a tenant's knowledge base (AB#8712): the "Answering questions" section of the schema
 ///     page <c>knowledge-schema</c>, bounded to <see cref="MaxLength" /> characters, or a built-in default when the tenant
-///     has no schema page, the caller cannot read it, the page is not Verified, or it has no such section. <c>knowledge_search</c> returns it with
+///     has no schema page, the caller cannot read it, neither the page nor (while the page is Draft) an earlier version is
+///     Verified, or the text has no such section. <c>knowledge_search</c> returns it with
 ///     every result, so a client cites pages and does not invent without first reading the schema page.
 /// </summary>
 internal static class KnowledgeConventions
@@ -91,16 +92,28 @@ internal static class KnowledgeConventions
                 return Default;
             }
 
-            // Only a Verified page speaks for the tenant (review of PR #66): every MCP write sets a page to Draft, so an
+            // Only a Verified text speaks for the tenant (review of PR #66): every MCP write sets a page to Draft, so an
             // AI client with write rights could otherwise put its own instructions into every later search response.
-            // A person verifies the page outside MCP; until then the built-in default applies.
+            // A person verifies outside MCP. AB#8780: while the current version is Draft (an MCP edit not yet verified),
+            // the newest Verified version of the page applies instead of the default - the text a person last approved
+            // (kb-test2 2026-11-13: a Draft edit dropped the conventions to the default, eval 1/12).
             var content = KnowledgePages.ReadContent(page);
-            if (content.Status != KnowledgePages.StatusVerified)
+            var version = KnowledgePages.CurrentVersion(page);
+            if (content.Status == KnowledgePages.StatusDraft)
+            {
+                var fallback = await NewestVerifiedVersionAsync(repository, session, version);
+                if (fallback == null)
+                {
+                    return Default;
+                }
+
+                (content, version) = fallback.Value;
+            }
+            else if (content.Status != KnowledgePages.StatusVerified)
             {
                 return Default;
             }
 
-            var version = KnowledgePages.CurrentVersion(page);
             var pageRtId = page.RtId.ToString();
             var source = $"{SchemaSlug}@{version.ToString(CultureInfo.InvariantCulture)}";
             if (cache != null && cache.TryGet(tenantId, pageRtId, version, out var cached))
@@ -118,6 +131,38 @@ internal static class KnowledgeConventions
         {
             return Default;
         }
+    }
+
+    /// <summary>
+    ///     The content and number of the newest Verified version of the schema page that the tenant approved or adopted,
+    ///     read with the caller's session; <c>null</c> when there is none, or when a newer such version is Rejected (a
+    ///     person turned the text down later). Tenant versions are Verified only by a person (MCP writes Draft), so each of
+    ///     them counts, also behind a version without <c>BaseVersion</c>. A Blueprint version counts only when it is in
+    ///     the ancestor chain of the current version (<see cref="KnowledgePlatformUpdates.Ancestors" />): a seeded version
+    ///     the tenant never adopted - new or superseded - does not replace the text a person approved.
+    /// </summary>
+    public static async Task<(KnowledgeContent Content, int Version)?> NewestVerifiedVersionAsync(
+        ITenantRepository repository, IOctoSession session, int current)
+    {
+        var versions = await KnowledgePlatformUpdates.ListVersionsAsync(repository, session, SchemaSlug);
+        var chain = KnowledgePlatformUpdates.Ancestors(versions, current).Versions
+            .Select(v => v.Entity.RtId).ToHashSet();
+        foreach (var version in versions.Where(v => !v.IsBlueprint || chain.Contains(v.Entity.RtId))
+                     .OrderByDescending(v => v.Number))
+        {
+            var content = KnowledgePages.ReadContent(version.Entity);
+            if (content.Status == KnowledgePages.StatusRejected)
+            {
+                return null;
+            }
+
+            if (content.Status == KnowledgePages.StatusVerified)
+            {
+                return (content, version.Number);
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

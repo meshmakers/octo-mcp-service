@@ -18,7 +18,8 @@ internal enum PlatformUpdateState
 }
 
 /// <summary>One version of a knowledge page, as far as the platform-update rule needs it.</summary>
-internal sealed record KnowledgeVersionInfo(RtEntity Entity, int Number, bool IsBlueprint, DateTime? ArrivedAt)
+internal sealed record KnowledgeVersionInfo(RtEntity Entity, int Number, bool IsBlueprint, int? BaseVersion,
+    int? RestoredFromVersion)
 {
     /// <summary>The blueprint id and version of a Blueprint version (<c>blueprint:System.Ai.Builder-1.1.0</c> → <c>System.Ai.Builder-1.1.0</c>).</summary>
     public string? Blueprint => IsBlueprint
@@ -42,19 +43,27 @@ internal sealed record PlatformUpdate(
 ///     AB#8780: completes the blueprint update rule of AB#8778 for knowledge pages. The engine does not refresh an existing
 ///     page (its content is <c>TenantOwned</c>, <c>CurrentVersion</c> is <c>RuntimeState</c>, pages with <c>LinksTo</c>
 ///     are skipped); only the new <c>KnowledgePageVersion</c> entities of a blueprint update arrive. This class finds the
-///     pages they belong to and decides, from the data alone:
+///     pages they belong to and decides, from the version history alone:
 ///     <list type="bullet">
 ///         <item>
-///             <b>Unedited</b> — the current version is a Blueprint version (the tenant never wrote one): the newest
-///             Blueprint version with a higher number is <see cref="PlatformUpdateState.Adoptable" />.
+///             <b>Unedited</b> — the current version is a Blueprint version (the tenant never wrote one) and the page
+///             still shows its content: the newest Blueprint version with a higher number is
+///             <see cref="PlatformUpdateState.Adoptable" />.
 ///         </item>
 ///         <item>
-///             <b>Edited</b> — the current version was written in the tenant (or cannot be found): the newest Blueprint
-///             version is <see cref="PlatformUpdateState.Available" /> when it is newer than the current one (a higher
-///             number, or it arrived in the tenant after the current version was written) and its number is above the
-///             version a person dismissed.
+///             <b>Edited</b> — the current version was written in the tenant (or the page was changed directly): a
+///             Blueprint version is <i>pending</i> when it is not an ancestor of the current version, and the newest
+///             pending one above the dismissed version is <see cref="PlatformUpdateState.Available" />. Edited pages are
+///             never switched.
 ///         </item>
 ///     </list>
+///     <b>Ancestors</b> (reopen of AB#8780, kb-test2 2026-11-12): the chain of a version is the version itself, the
+///     version it was written on (<c>BaseVersion</c>, System.Ai 4.11.0) and the version a restore copied
+///     (<c>RestoredFromVersion</c>), followed recursively, plus the page's first version <c>@1</c> (every version of a
+///     page descends from it). A Blueprint version in the chain supersedes every Blueprint version with a lower or equal
+///     number. Version numbers and arrival times are not compared: an edit written on <c>@1</c> after <c>@2</c>
+///     arrived keeps <c>@2</c> pending. A tenant version without <c>BaseVersion</c> (written before 4.11.0) ends the
+///     chain - the safe direction: its newer Blueprint versions are reported, a person adopts or dismisses them.
 ///     A Blueprint version is one a blueprint seeded: its author is <c>blueprint:&lt;id&gt;-&lt;version&gt;</c> and it
 ///     carries the engine's <c>rtBlueprintSource</c> stamp. The knowledge tools never write such an author (they write
 ///     <c>user:</c> or <c>client:</c>), and client-credentials callers cannot write versions directly (writeAccess,
@@ -70,6 +79,12 @@ internal static class KnowledgePlatformUpdates
 
     /// <summary>The page attribute (System.Ai attribute <c>RunRef</c>) naming the run that last adopted a Blueprint version.</summary>
     public const string AdoptedByRunAttribute = "AdoptedByRun";
+
+    /// <summary>The version attribute (System.Ai 4.11.0) naming the version a write was based on (the page's current one).</summary>
+    public const string BaseVersionAttribute = "BaseVersion";
+
+    /// <summary>Upper bound of query rounds when the ancestor chains are read (one round per chain step).</summary>
+    public const int MaxChainRounds = 200;
 
     /// <summary>The version attribute with the LinksTo slugs a Blueprint version declares.</summary>
     public const string DeclaredLinksAttribute = "DeclaredLinks";
@@ -90,15 +105,26 @@ internal static class KnowledgePlatformUpdates
         author.Length > BlueprintAuthorPrefix.Length &&
         !string.IsNullOrEmpty(version.GetAttributeStringValueOrDefault("RtBlueprintSource"));
 
-    /// <summary>Every version of a page (well-known name <c>&lt;slug&gt;@&lt;n&gt;</c>).</summary>
+    /// <summary>Every version of a page (well-known name <c>&lt;slug&gt;@&lt;n&gt;</c>), read page by page.</summary>
     public static async Task<IReadOnlyList<KnowledgeVersionInfo>> ListVersionsAsync(ITenantRepository repository,
         IOctoSession session, string slug)
     {
-        var options = RtEntityQueryOptions.Create();
-        options.FieldStartsWith("rtWellKnownName", slug + "@");
-        var result = await repository.GetRtEntitiesByTypeAsync(session, KnowledgePages.VersionTypeId, options, 0,
-            MaxBlueprintVersions);
-        return result.Items.Select(v => Info(v, slug)).Where(v => v != null).Select(v => v!).ToList();
+        var versions = new List<RtEntity>();
+        for (var skip = 0;; skip += QueryPageSize)
+        {
+            var options = RtEntityQueryOptions.Create();
+            options.FieldStartsWith("rtWellKnownName", slug + "@");
+            var page = (await repository.GetRtEntitiesByTypeAsync(session, KnowledgePages.VersionTypeId, options, skip,
+                QueryPageSize)).Items.ToList();
+            versions.AddRange(page);
+            if (page.Count < QueryPageSize)
+            {
+                break;
+            }
+        }
+
+        return versions.Select(v => Info(v, slug)).Where(v => v != null).Select(v => v!).DistinctBy(v => v.Entity.RtId)
+            .ToList();
     }
 
     /// <summary>The highest version number of a page; 0 when it has none.</summary>
@@ -153,12 +179,37 @@ internal static class KnowledgePlatformUpdates
             .Where(p => p.RtWellKnownName != null && blueprintBySlug.ContainsKey(p.RtWellKnownName))
             .DistinctBy(p => p.RtWellKnownName)
             .ToList();
-        var currentNames = pages.ToDictionary(p => KnowledgePages.VersionName(p.RtWellKnownName!, KnowledgePages.CurrentVersion(p)),
-            p => p.RtWellKnownName!, StringComparer.Ordinal);
-        var currentBySlug = (await ByNamesAsync(repository, session, KnowledgePages.VersionTypeId, currentNames.Keys))
-            .Where(v => v.RtWellKnownName != null && currentNames.ContainsKey(v.RtWellKnownName))
-            .GroupBy(v => currentNames[v.RtWellKnownName!], StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.Select(v => Info(v, g.Key)).Where(v => v != null).Select(v => v!).ToList(),
+        // The current version and the first version of every page, then the ancestor chains step by step (BaseVersion,
+        // RestoredFromVersion of the tenant versions), each step one batched query.
+        var slugs = pages.Select(p => p.RtWellKnownName!).ToHashSet(StringComparer.Ordinal);
+        var requested = new HashSet<string>(StringComparer.Ordinal);
+        var loaded = new List<RtEntity>();
+        var next = pages.SelectMany(p => new[]
+        {
+            KnowledgePages.VersionName(p.RtWellKnownName!, KnowledgePages.CurrentVersion(p)),
+            KnowledgePages.VersionName(p.RtWellKnownName!, 1)
+        }).ToList();
+        for (var round = 0; next.Count > 0 && round < MaxChainRounds; round++)
+        {
+            requested.UnionWith(next);
+            var items = await ByNamesAsync(repository, session, KnowledgePages.VersionTypeId, next);
+            loaded.AddRange(items);
+            next = items.Where(v => !IsBlueprintVersion(v))
+                .SelectMany(v => ParentNames(v))
+                .Where(n => !requested.Contains(n) && SlugOf(n) is { } s && slugs.Contains(s))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+        }
+
+        // A chain longer than MaxChainRounds is incomplete: a Blueprint version behind the cut may be reported although
+        // the tenant saw it (safe direction), and the caller learns it from Truncated.
+        truncated |= next.Count > 0;
+
+        var loadedBySlug = loaded
+            .Select(v => (Slug: SlugOf(v.RtWellKnownName), Version: v))
+            .Where(x => x.Slug != null)
+            .GroupBy(x => x.Slug!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Select(x => Info(x.Version, g.Key)).Where(v => v != null).Select(v => v!).ToList(),
                 StringComparer.Ordinal);
 
         var updates = new List<PlatformUpdate>();
@@ -166,7 +217,7 @@ internal static class KnowledgePlatformUpdates
         {
             var slug = page.RtWellKnownName!;
             var versions = blueprintBySlug[slug]
-                .Concat(currentBySlug.TryGetValue(slug, out var current) ? current : [])
+                .Concat(loadedBySlug.TryGetValue(slug, out var history) ? history : [])
                 .DistinctBy(v => v.Entity.RtId)
                 .ToList();
             var update = Decide(page, slug, KnowledgePages.CurrentVersion(page), versions, Dismissed(page));
@@ -198,6 +249,8 @@ internal static class KnowledgePlatformUpdates
 
     /// <summary>
     ///     The rule for one page (see the class remarks); <c>null</c> when there is nothing to adopt or report.
+    ///     <paramref name="versions" /> holds the Blueprint versions of the page and its known history (current version,
+    ///     first version, ancestor chain); a version that is missing ends its chain.
     /// </summary>
     public static PlatformUpdate? Decide(RtEntity page, string slug, int current,
         IReadOnlyList<KnowledgeVersionInfo> versions, int? dismissed)
@@ -225,27 +278,87 @@ internal static class KnowledgePlatformUpdates
                 : new PlatformUpdate(page, slug, current, PlatformUpdateState.Adoptable, target, dismissed);
         }
 
-        var newest = blueprint.MaxBy(v => v.Number)!;
-        if (dismissed != null && newest.Number <= dismissed.Value)
+        var superseded = Ancestors(versions, current).NewestBlueprint;
+        var pending = blueprint
+            .Where(v => v.Number > superseded && (dismissed == null || v.Number > dismissed.Value))
+            .MaxBy(v => v.Number);
+        return pending == null
+            ? null
+            : new PlatformUpdate(page, slug, current, PlatformUpdateState.Available, pending, dismissed);
+    }
+
+    /// <summary>
+    ///     The ancestor chain of the current version: the versions actually in it (no superseded Blueprint versions) and
+    ///     the highest Blueprint version number in it (0 when none; every Blueprint version up to it is superseded for the
+    ///     update rule). The chain follows <c>BaseVersion</c> and
+    ///     <c>RestoredFromVersion</c> of the tenant versions and always contains the first version <c>@1</c>. Where a
+    ///     number has a tenant version and a Blueprint version, the tenant version is the one in the chain (it was written
+    ///     first; the seed arrived with a used number). A version that is missing ends its chain.
+    /// </summary>
+    public static (IReadOnlyList<KnowledgeVersionInfo> Versions, int NewestBlueprint) Ancestors(
+        IReadOnlyList<KnowledgeVersionInfo> versions, int current)
+    {
+        var byNumber = versions.GroupBy(v => v.Number)
+            .ToDictionary(g => g.Key, g => g.Any(v => !v.IsBlueprint) ? g.Where(v => !v.IsBlueprint).ToList() : g.ToList());
+        var chain = new List<KnowledgeVersionInfo>();
+        var newest = 0;
+        var seen = new HashSet<int>();
+        var queue = new Queue<int>([current, 1]);
+        while (queue.Count > 0)
         {
-            return null;
+            var number = queue.Dequeue();
+            if (!seen.Add(number) || !byNumber.TryGetValue(number, out var atNumber))
+            {
+                continue;
+            }
+
+            foreach (var version in atNumber)
+            {
+                chain.Add(version);
+                if (version.IsBlueprint)
+                {
+                    newest = Math.Max(newest, version.Number);
+                    continue;
+                }
+
+                if (version.BaseVersion is { } parent)
+                {
+                    queue.Enqueue(parent);
+                }
+
+                if (version.RestoredFromVersion is { } restored)
+                {
+                    queue.Enqueue(restored);
+                }
+            }
         }
 
-        // When the edit happened: the tenant-written current version (a Blueprint version with the same number that
-        // arrived later must not count), else the page's compile time (a direct page edit has no version).
-        var tenantCurrent = currentVersions.Where(v => !v.IsBlueprint).ToList();
-        var currentArrived = tenantCurrent.Count > 0
-            ? tenantCurrent.Select(v => v.ArrivedAt).Where(t => t != null).DefaultIfEmpty(null).Max()
-            : CompiledAt(page) ?? currentVersions.Select(v => v.ArrivedAt).Where(t => t != null).DefaultIfEmpty(null).Max();
-        var newer = newest.Number > current ||
-                    currentArrived == null ||
-                    (newest.ArrivedAt != null && newest.ArrivedAt > currentArrived);
-        return newer ? new PlatformUpdate(page, slug, current, PlatformUpdateState.Available, newest, dismissed) : null;
+        return (chain, newest);
+    }
+
+    /// <summary>The names of the versions a tenant version descends from (<c>BaseVersion</c>, <c>RestoredFromVersion</c>).</summary>
+    private static IEnumerable<string> ParentNames(RtEntity version)
+    {
+        var slug = SlugOf(version.RtWellKnownName);
+        if (slug == null)
+        {
+            yield break;
+        }
+
+        foreach (var attribute in new[] { BaseVersionAttribute, "RestoredFromVersion" })
+        {
+            if (IntOrNull(version.GetAttributeValueOrDefault(attribute)) is { } number)
+            {
+                yield return KnowledgePages.VersionName(slug, number);
+            }
+        }
     }
 
     /// <summary>The dismissed Blueprint version of a page, if any.</summary>
-    public static int? Dismissed(RtEntity page) =>
-        page.GetAttributeValueOrDefault(DismissedAttribute) switch
+    public static int? Dismissed(RtEntity page) => IntOrNull(page.GetAttributeValueOrDefault(DismissedAttribute));
+
+    private static int? IntOrNull(object? value) =>
+        value switch
         {
             null => null,
             int i => i,
@@ -292,15 +405,13 @@ internal static class KnowledgePlatformUpdates
             _ => int.Parse(version.RtWellKnownName![(version.RtWellKnownName!.LastIndexOf('@') + 1)..],
                 CultureInfo.InvariantCulture)
         };
-        var arrived = version.RtCreationDateTime ?? version.GetAttributeValueOrDefault("AuthoredAt") as DateTime?;
-        return new KnowledgeVersionInfo(version, number, IsBlueprintVersion(version), arrived?.ToUniversalTime());
+        return new KnowledgeVersionInfo(version, number, IsBlueprintVersion(version),
+            IntOrNull(version.GetAttributeValueOrDefault(BaseVersionAttribute)),
+            IntOrNull(version.GetAttributeValueOrDefault("RestoredFromVersion")));
     }
 
     /// <summary>True when the page shows exactly the content (and status) of the version.</summary>
     public static bool SameContent(RtEntity page, RtEntity version, string slug) =>
         KnowledgePages.Render(KnowledgePages.ReadContent(page), slug, 0) ==
         KnowledgePages.Render(KnowledgePages.ReadContent(version), slug, 0);
-
-    private static DateTime? CompiledAt(RtEntity page) =>
-        page.GetAttributeValueOrDefault("CompiledAt") is DateTime t ? t.ToUniversalTime() : null;
 }

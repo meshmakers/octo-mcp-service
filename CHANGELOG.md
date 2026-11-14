@@ -19,6 +19,16 @@
 
 ### Fixed
 
+- **AB#8780** (reopen, kb-test2 2026-11-12) — an edited page no longer hides a Blueprint version it never saw. The rule
+  compared version numbers and arrival times, so an edit written on `@1` after `@2` arrived reported nothing and the
+  `@2` content was lost silently. `KnowledgePlatformUpdates.Decide` now walks the ancestor chain of the current version
+  (`BaseVersion`, `RestoredFromVersion`, root `@1`); every Blueprint version outside it (and above the dismissed one) is
+  reported as `Available`. Page writes record `BaseVersion` on tenants with System.Ai 4.11.0; older versions without it
+  end their chain (safe direction: a finding). Unedited pages are adopted as before.
+- **AB#8780** — the answering conventions of `knowledge_search` fall back to the newest Verified version of
+  `knowledge-schema` the tenant approved or adopted while the page is Draft (an MCP edit not yet verified), instead of
+  the built-in default; a Blueprint version counts only in the ancestor chain of the current version (never an unadopted
+  or superseded seed), a newer Rejected version still gives the default. Version histories are read page by page; a chain longer than 200 steps marks the scan `Truncated`.
 - **AB#8780** — a page write (`knowledge_upsert_page`, `knowledge_restore_version`, `knowledge_set_status`) takes the next
   free version number of the page instead of `CurrentVersion + 1`. A blueprint update brings versions above the current
   one (`<slug>@<n>`), and the versions of a deleted page stay; the old rule wrote a second version with the same name.

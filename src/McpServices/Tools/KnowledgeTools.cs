@@ -34,7 +34,8 @@ public static class KnowledgeTools
         "the message to say so. Words shorter than 3 " +
         "characters are ignored; a query without a longer word returns the index of all pages, like no query (sorted by " +
         "title). Every result carries answeringConventions: the 'Answering questions' section of the tenant's schema page " +
-        "'knowledge-schema' (or a built-in default, see answeringConventionsSource). Follow them when you answer: answer " +
+        "'knowledge-schema' (its newest Verified version while the page is Draft, or a built-in default, see " +
+        "answeringConventionsSource). Follow them when you answer: answer " +
         "only from pages, cite every page you read by its slug, and say so when no page answers instead of inventing.")]
     public static async Task<KnowledgeSearchResponse> KnowledgeSearch(
         McpServer server,
@@ -328,7 +329,7 @@ public static class KnowledgeTools
                 changeNote ?? (existing == null ? "created" : "updated"), null,
                 new KnowledgeRunMetadata(promptName, promptVersion, modelId, runRef, inputTokens, outputTokens, cost,
                     reviewerRounds, latencySeconds), DateTime.UtcNow,
-                await KnowledgePlatformUpdates.HighestVersionAsync(ctx.Repo, session, slug));
+                await KnowledgePlatformUpdates.HighestVersionAsync(ctx.Repo, session, slug), ctx.RecordsBase);
 
             var associations = new List<AssociationUpdateInfo> { KnowledgePages.VersionOf(write.Version, write.Page) };
             var response = new KnowledgeWriteResponse();
@@ -484,7 +485,8 @@ public static class KnowledgeTools
             }
 
             var write = KnowledgePages.BuildWrite(page, slug, content, 0, ctx.Author!, $"restore of version {version}",
-                version, null, DateTime.UtcNow, await KnowledgePlatformUpdates.HighestVersionAsync(ctx.Repo, session, slug));
+                version, null, DateTime.UtcNow, await KnowledgePlatformUpdates.HighestVersionAsync(ctx.Repo, session, slug),
+                ctx.RecordsBase);
             var failure = await ApplyAsync(ctx.Repo, session, ctx.TenantId!, write.Updates,
                 [KnowledgePages.VersionOf(write.Version, write.Page)], slug, page);
             return failure ?? new KnowledgeWriteResponse
@@ -596,7 +598,8 @@ public static class KnowledgeTools
 
             var write = KnowledgePages.BuildWrite(page, slug, content, 0, ctx.Author!,
                 changeNote ?? $"status {KnowledgePages.Name(KnowledgePages.StatusNames, statusValue.Value)}", null, null,
-                DateTime.UtcNow, await KnowledgePlatformUpdates.HighestVersionAsync(ctx.Repo, session, slug));
+                DateTime.UtcNow, await KnowledgePlatformUpdates.HighestVersionAsync(ctx.Repo, session, slug),
+                ctx.RecordsBase);
             var failure = await ApplyAsync(ctx.Repo, session, ctx.TenantId!, write.Updates,
                 [KnowledgePages.VersionOf(write.Version, write.Page)], slug, page);
             return failure ?? new KnowledgeWriteResponse
@@ -618,7 +621,8 @@ public static class KnowledgeTools
         RtSecurityContext? Security,
         string? TenantId,
         string? Author,
-        string? Error)
+        string? Error,
+        bool RecordsBase = false)
     {
         /// <summary>The repository of a context without error.</summary>
         public ITenantRepository Repo => Repository ?? throw new InvalidOperationException("No repository.");
@@ -660,7 +664,12 @@ public static class KnowledgeTools
         var securityContext = write
             ? security.SecurityContext?.WithWriteChannel(KnowledgePages.WriteChannel)
             : security.SecurityContext;
-        return new KnowledgeContext(repository, securityContext, repository.TenantId, author, null);
+        // AB#8780: System.Ai 4.11.0 adds KnowledgePageVersion.BaseVersion; older tenants get versions without it.
+        var recordsBase = ckCache.TryGetRtCkType(repository.TenantId, KnowledgePages.VersionTypeId, out var versionType) &&
+                          versionType != null &&
+                          versionType.AllAttributes.Values.Any(a =>
+                              a.AttributeName == KnowledgePlatformUpdates.BaseVersionAttribute);
+        return new KnowledgeContext(repository, securityContext, repository.TenantId, author, null, recordsBase);
     }
 
     internal static async Task<KnowledgeWriteResponse?> GuardAsync(McpServer server, KnowledgeContext ctx,
