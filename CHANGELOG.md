@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- **AB#9015** — `validate_pipeline_definition` leaked the adapter's composite pipeline schema on every call. JsonSchema.Net
+  registers each schema it builds in the process-wide `SchemaRegistry.Global`; the composite schema has no `$id`, so every
+  build got a new random base URI and stayed there for the life of the pod (measured in a test: 100 calls with a 0.7 MB
+  schema retained ~680 MB). The MCP pod on test-2 was OOM-killed at its 512 MiB limit during agent runs. The schema is now
+  built into a per-call registry (`PipelineSchemaCompiler`) and is collected after the call; `PipelineSchemaCompilerTests`
+  guards it (no global registration, 40 repeated calls retain < 20 MB).
+
 ### Changed
 
 - **AB#8418** — `create_user` and `reset_user_password` call the CK methods `System.Identity/User.CreateUser-1` /

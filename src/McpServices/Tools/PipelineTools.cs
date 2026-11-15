@@ -523,7 +523,9 @@ public sealed class PipelineTools
         JsonSchema schema;
         try
         {
-            schema = JsonSchema.FromText(schemaJson);
+            // AB#9015: never JsonSchema.FromText(schemaJson) with the default options - that registers the
+            // schema in the process-wide SchemaRegistry.Global and leaks it on every call.
+            schema = PipelineSchemaCompiler.Compile(schemaJson);
         }
         catch (Exception ex)
         {
