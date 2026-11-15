@@ -35,6 +35,10 @@
 
 ### Fixed
 
+- **AB#8860** — The test build compiles again against an SDK that marks `IIdentityServicesClient.CreateUser(UserDto)` and
+  `ResetPassword(string, string)` `[Obsolete]` (octo-sdk #113): the assertions in `UserManagementToolsTests` that check the REST
+  methods are *not* called suppress CS0618 locally with `#pragma warning disable/restore`. No product code changed.
+
 - **AB#8780** (reopen, kb-test2 2026-11-12) — an edited page no longer hides a Blueprint version it never saw. The rule
   compared version numbers and arrival times, so an edit written on `@1` after `@2` arrived reported nothing and the
   `@2` content was lost silently. `KnowledgePlatformUpdates.Decide` now walks the ancestor chain of the current version

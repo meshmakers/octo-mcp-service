@@ -54,7 +54,10 @@ public class UserManagementToolsTests : ToolTestBase
         var result = await UserManagementTools.CreateUser(MockServer.Object, "", "");
 
         result.IsSuccess.Should().BeFalse();
+        // AB#8860: CreateUser(UserDto) is [Obsolete]; this assertion checks that the REST method is NOT called.
+#pragma warning disable CS0618
         MockIdentityClient.Verify(c => c.CreateUser(It.IsAny<UserDto>()), Times.Never);
+#pragma warning restore CS0618
     }
 
     [Fact]
@@ -328,8 +331,11 @@ public class UserManagementToolsTests : ToolTestBase
 
     private void AssertNoRestPasswordCall()
     {
+        // AB#8860: the REST methods are [Obsolete]; these assertions check that they are NOT called.
+#pragma warning disable CS0618
         MockIdentityClient.Verify(c => c.CreateUser(It.IsAny<UserDto>()), Times.Never);
         MockIdentityClient.Verify(c => c.ResetPassword(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+#pragma warning restore CS0618
     }
 
     /// <summary>The response, serialized as the MCP client receives it, does not contain the canary.</summary>
