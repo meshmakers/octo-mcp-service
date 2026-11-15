@@ -205,6 +205,15 @@ The SDK clients cache their `ServiceUri` on first use. Sharing one client across
 
 The `*ClientContext.TryBuild` helpers handle this for you. Don't manually construct SDK clients in tool code.
 
+### 7a. Never build a JSON Schema into the global registry (AB#9015)
+
+JsonSchema.Net registers every schema built with default options (`JsonSchema.FromText(json)`, `JsonSchema.Build(...)`)
+in the process-wide `SchemaRegistry.Global`. A schema without `$id` gets a new random base URI per build, so a schema
+built per request stays in memory for the life of the pod — `validate_pipeline_definition` leaked the adapter's whole
+composite schema on every call this way and the pod was OOM-killed. Build request-scoped schemas with
+`PipelineSchemaCompiler.Compile` (a per-call `SchemaRegistry`, which still falls back to the global one for the
+meta-schemas). Guard: `tests/McpServices.Tests/Services/PipelineSchemaCompilerTests.cs`.
+
 ### 8. Risk classification (`[McpRisk]`) for AI Adapter approval gating
 
 Tools have an optional `[McpRisk(McpRiskLevel.Low|Medium|High)]` attribute that classifies their blast radius. The AI Adapter worker calls `get_tool_risk_metadata` once at session start and uses the result to decide whether a tool call needs to be routed through its user-facing approval gate before running.
