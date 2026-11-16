@@ -95,6 +95,12 @@ public class KnowledgeToolsTests : TestBase
                     // The probe filters on Kind == Skill (field filter) and takes one page.
                     items = items.Where(e => KnowledgePages.ReadContent(e).Kind == KnowledgeFirst.SkillKind).Take(1).ToList();
                 }
+                else if (take != null && take != 2)
+                {
+                    // Page lists like the engine: at most `take` pages (AB#9165, the preselection cap of knowledge_search).
+                    // Not the slug lookup (take 2): the mock does not apply its well-known-name filter.
+                    items = items.Take(take.Value).ToList();
+                }
 
                 return new ResultSet<RtEntity>(items, items.Count, null, null);
             });
@@ -1064,6 +1070,180 @@ public class KnowledgeToolsTests : TestBase
     public void Terms_SplitTheQueryLikeThePageText_AndKeepWordsOf3PlusCharacters(string query, string[] expected)
     {
         KnowledgeTools.Terms(query).Should().Equal(expected);
+    }
+
+    // AB#9165: function words add noise to the score and never say what a page lacks; a query of only function words
+    // keeps them, so it is still a search.
+    [Theory]
+    [InlineData("build an HTTP API for my app", new[] { "build", "http", "api", "app" })]
+    [InlineData("How do I deploy with the CLI?", new[] { "deploy", "cli" })]
+    [InlineData("how and the", new[] { "how", "and", "the" })]
+    public void Terms_LeaveOutFunctionWords_UnlessTheQueryHasNoOtherWord(string query, string[] expected)
+    {
+        KnowledgeTools.Terms(query).Should().Equal(expected);
+    }
+
+    [Fact]
+    public void Match_APageWhoseTitleOrSlugNamesTheWords_RanksAboveALongPageThatOnlyMentionsThemOften()
+    {
+        // AB#9165 finding 3: the broad page mentions every word often, the specific page names them in title and slug.
+        var mentions = string.Join(" ", Enumerable.Repeat("build the app with an HTTP API", 10));
+        var broad = new KnowledgeContent("Building an app", 4, "Build an app: model, HTTP API, web app.",
+            [new KnowledgeSectionDto { Heading = "Steps", SectionContent = mentions }], [], [], 0);
+        var specific = new KnowledgeContent("HTTP APIs on the Mesh Adapter", 4, "Route security and patterns.",
+            [new KnowledgeSectionDto { Heading = "Patterns", SectionContent = "Create an entity from a request." }], [], [], 0);
+        var terms = KnowledgeTools.Terms("HTTP API for my app");
+
+        var broadMatch = KnowledgeTools.Match(broad, "app-build-sequence", terms);
+        var specificMatch = KnowledgeTools.Match(specific, "app-http-api-pipelines", terms);
+
+        specificMatch.Score.Should().BeGreaterThan(broadMatch.Score);
+        specificMatch.MatchedTerms.Should().Equal("http", "api", "app");
+        KnowledgeTools.Score(specific, terms).Should().BeLessThan(KnowledgeTools.Score(broad, terms),
+            "the field score alone ranked the broad page first");
+    }
+
+    [Fact]
+    public void Match_ListsOnlyTheWordsThePageContains_AndIsZeroWithoutAny()
+    {
+        var content = new KnowledgeContent("Promoting an app", 4, "Publish, install, deploy.", [], [], [], 0);
+
+        KnowledgeTools.Match(content, "deploy-promotion", ["deploy", "aws", "lambda"]).MatchedTerms.Should()
+            .Equal("deploy");
+        KnowledgeTools.Match(content, "deploy-promotion", ["aws", "lambda"]).Score.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Search_WhenTwoQueryWordsAreOnNoPage_ListsThem_AndTheMessageGivesTheNoAnswerSentence()
+    {
+        // AB#9165 finding 14 (eval q20): the deploy pages match "roll out deploy app", but no page names AWS Lambda.
+        await UpsertAsync("deploy-promotion", "Promoting an app to a shared environment", "Publish, install and deploy the app.");
+        await UpsertAsync("deploy-index", "Deploy and promote", "Deploy workloads and roll out blueprints.");
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "roll out deploy app AWS Lambda function");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Pages.Should().HaveCount(2);
+        result.UnmatchedTerms.Should().Equal("aws", "lambda", "function");
+        result.Pages.Should().OnlyContain(p => !p.MatchedTerms!.Contains("aws") && p.MatchedTerms!.Contains("deploy"));
+        result.Message.Should().StartWith("2 page(s), but no knowledge page contains 'aws', 'lambda', 'function'")
+            .And.Contain("`" + KnowledgeConventions.NoAnswerSentence + "`")
+            .And.Contain("do not answer a neighbouring question");
+        result.AnsweringRules.Should().Be(KnowledgeConventions.AnsweringRules);
+    }
+
+    [Fact]
+    public async Task Search_WhenOneContentWordIsOnNoPage_GivesTheNoAnswerHint()
+    {
+        // Eval q23: only "laptop" is missing - a single content word is enough.
+        await UpsertAsync("studio-troubleshooting", "Refinery Studio does not load", "Network and Wi-Fi checks for Studio.");
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Why does my laptop's Wi-Fi drop in Refinery Studio?");
+
+        result.UnmatchedTerms.Should().Contain("laptop");
+        result.Message.Should().StartWith("1 page(s), but no knowledge page contains 'laptop'")
+            .And.Contain(KnowledgeConventions.NoAnswerSentence);
+    }
+
+    [Theory]
+    [InlineData("deploy app quickly")] // a manner adverb says how, not what
+    [InlineData("deploy app something three minutes ago")] // filler words are no query words at all
+    [InlineData("deploy the aplication")] // a typo of "application", one edit away
+    public async Task Search_WhenOnlyAFillerAdverbOrTypoIsOnNoPage_GivesNoNoAnswerHint(string query)
+    {
+        await UpsertAsync("deploy-promotion", "Promoting an application to a shared environment",
+            "Publish, install and deploy the app; it takes minutes.");
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, query);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Message.Should().Be("1 page(s).");
+    }
+
+    [Fact]
+    public async Task Search_WithAKindFilter_CountsWordsOnPagesOfOtherKindsAsMatched()
+    {
+        // A word on a page the kind filter leaves out is in the knowledge base; the hint must not claim otherwise.
+        await KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, "lambda-concept", "AWS Lambda functions",
+            [new KnowledgeSectionDto { Heading = "Summary", SectionContent = "What Lambda is." }], kind: "Concept",
+            cancellationToken: Ct);
+        await KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, "deploy-howto", "Deploy an app",
+            [new KnowledgeSectionDto { Heading = "Summary", SectionContent = "Deploy the app." }], kind: "HowTo",
+            cancellationToken: Ct);
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "deploy app AWS Lambda", kind: "HowTo");
+
+        result.Pages.Select(p => p.Slug).Should().Equal("deploy-howto");
+        result.UnmatchedTerms.Should().BeEmpty();
+        result.Message.Should().Be("1 page(s).");
+    }
+
+    [Fact]
+    public async Task Search_WhenTheCandidateCapLeavesOutThePageWithTheWord_GivesNoNoAnswerHint()
+    {
+        // AB#9165 review: common words fill the 200-page preselection; the page that names "lambda" is not among them.
+        for (var i = 0; i < KnowledgeTools.MaxSearchCandidates; i++)
+        {
+            await UpsertAsync($"deploy-{i}", $"Deploy step {i}", "Deploy the app.");
+        }
+
+        await UpsertAsync("lambda-page", "Lambda functions", "What Lambda is.");
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "deploy lambda");
+
+        result.Pages.Should().NotContain(p => p.Slug == "lambda-page");
+        result.UnmatchedTerms.Should().BeEmpty("the search for the word alone found lambda-page");
+        _textSearches.Should().EndWith("lambda");
+        result.Message.Should().Be("10 page(s).");
+    }
+
+    [Fact]
+    public async Task Search_WithOnlyStopWordsUnmatched_GivesNoNoAnswerHint()
+    {
+        await UpsertAsync("three-steps", "Three steps", "Three steps to deploy.");
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "three four");
+
+        result.UnmatchedTerms.Should().Equal("four");
+        result.Message.Should().Be("1 page(s).");
+    }
+
+    [Fact]
+    public async Task Search_WhenANounEndingInLyIsOnNoPage_GivesTheNoAnswerHint()
+    {
+        // Only listed manner adverbs are left out, not every word in -ly.
+        await UpsertAsync("deploy-promotion", "Promoting an app", "Publish and deploy the app.");
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "deploy app anomaly");
+
+        result.Message.Should().StartWith("1 page(s), but no knowledge page contains 'anomaly'");
+    }
+
+    [Fact]
+    public void NoAnswerHint_KeepsToolAnswersAndPartialAnswers_AndNamesTheOwnNameCase()
+    {
+        var hint = KnowledgeTools.NoAnswerHint(2, ["lambda"]);
+
+        hint.Should().Contain("neither a page you opened nor one of this server's tools answers it")
+            .And.Contain("A part of the question that pages or tools do answer stays answered")
+            .And.Contain("A name of the user's own app, tenant or entity");
+    }
+
+    [Fact]
+    public async Task Index_HasNoMatchedOrUnmatchedTerms()
+    {
+        await UpsertAsync("deploy-promotion", "Promoting an app", "Publish and deploy.");
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
+
+        result.UnmatchedTerms.Should().BeNull();
+        result.Pages.Should().OnlyContain(p => p.MatchedTerms == null);
     }
 
     [Fact]

@@ -33,6 +33,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Resources\*.yaml" />
+    <None Update="Tools\Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

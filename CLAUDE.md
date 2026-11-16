@@ -1279,6 +1279,24 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   MongoDB's `textScore` (the engine only sorts by it), which is why the tool scores itself. Words shorter than 3 characters are ignored; a
   query without a longer word is treated as no query (index of all pages, the message says it is not a match). Without
   a query it is the index of all pages.
+- **Ranking and the no-answer hint** (AB#9165, `KnowledgeTools.Match`): field score (title 3, summary 2, sections 1
+  capped at 5 per word) + slug 3 (one hit) + `TopicBonus` 15 per query word the title or slug names; `Terms` drops
+  `StopWords` (function and filler words) unless the query has no other word; the stemmer reduces `apis`/`uris`/`kpis`
+  (4-letter `-is`, not `this`). Each page carries `matchedTerms`, the response `unmatchedTerms`: query words no
+  searchable page contains - any kind or status (Rejected only with `status: Rejected`), also beyond `limit`, so a
+  filter never makes a word "missing". `HintTerms` drops `StopWords`, `MannerAdverbs` (a list, not the suffix -ly:
+  "anomaly" must count) and typos (`TypoMinLength` 6+ letters, one edit from a page word; 5 would turn q12's "apple"
+  into "apply"); `ProbeHintTermsAsync` then searches each remaining word on its own (`HintProbeCandidates` 20, at most
+  `MaxHintProbes` 5 words, the rest give no hint), because the 200-page preselection can leave out the page with a rare
+  word; a word it finds leaves `unmatchedTerms` too. A probe failure counts as found (no hint).
+  From one confirmed word the message is `NoAnswerHint`: it keeps tool answers (AB#9148) and answered parts, and says
+  a name of the user's own app or tenant is no reason by itself. Limit: a question whose words are all on some page
+  gets no hint (q23 "Refinery Studio Wi-Fi network"); slugs are not in the text index. `KnowledgeSearchRankingTests` pins,
+  against the eval tenant's pages (`Tools/Fixtures/knowledge-search-eval-1.1.2.json`: builder pages + eval corpus,
+  section text as `word:count`) and both forms of every eval question (recorded queries of the live eval 1.1.2 and
+  the question texts): top 3 for all 38 answerable forms, 0 hints on them, the hint on every no-answer question text.
+  Re-cut the fixture when the pages change much (provenance in its description). Cause: M1 live eval 2026-11-16
+  (finding 3 ranking, finding 14 q20).
 - **Answering rules** (AB#9088, `KnowledgeConventions.AnsweringRules`): every successful `knowledge_search` response
   also carries `answeringRules`, a code constant on top of the tenant's conventions that no schema page replaces: cite
   only pages opened with `knowledge_get` for this answer (a slug from a search result, index page or earlier answer is

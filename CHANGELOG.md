@@ -29,6 +29,26 @@
 
 ### Fixed
 
+- **AB#9165** — `knowledge_search` ranked broad overview pages above the specific page and gave no sign when the pages
+  missed what a question was about (M1 live eval 1.1.2 on m1-e2e: "build an HTTP API for my app" listed
+  `app-http-api-pipelines` 13th; q20 "AWS Lambda" cited `deploy-index` and `deploy-promotion`).
+  Ranking: function and filler words (for, how, the, ago, something, number words, ...) are no longer query words
+  when the query has others, the slug counts as a field (weight 3), every query word the title or slug names adds a
+  bonus of 15, and the stemmer reduces the plural of three-letter acronyms (APIs -> api). Each listed page now carries
+  `matchedTerms`; the response carries `unmatchedTerms`, the query words no searchable page contains (any kind or
+  status, Rejected only when asked for). When one of them is a content word, the message says the pages match only
+  the other words and, if the question is about the missing ones, to reply with exactly
+  `No knowledge page answers this question.` - unless a page or one of this server's tools answers it; a part they
+  answer stays answered, a name of the user's own app or tenant is no reason by itself. Stop words, manner adverbs
+  ("instantly") and typos (6+ letters, one edit away from a page word) do not count, and each counted word is searched
+  on its own first, so a page outside the 200-page preselection that contains it removes it. `answeringRules` is
+  unchanged.
+  Offline evidence against the eval tenant's pages (builder blueprint + eval corpus) and two forms of every eval
+  question - the queries the model sent in the live eval 1.1.2 and the whole question text (fixture in the tests):
+  an expected page in the top 3 for 38 of 38 answerable forms (was 34), top 1 for 31 (was 21); 0 no-answer hints on
+  the 38 answerable forms; the hint on all 5 no-answer question texts and on 8 of 9 recorded no-answer queries (not on
+  "Refinery Studio Wi-Fi network", q23, whose words are all on some page).
+
 - **AB#9114** — `knowledge_adopt_platform_updates` (and the `knowledge-platform-updates` pipeline that calls it) adopted
   only one page per run: every further page was skipped with `Failed: Session already started.`, because all pages
   shared one session and a session carries exactly one transaction. Each page is now adopted in its own session and

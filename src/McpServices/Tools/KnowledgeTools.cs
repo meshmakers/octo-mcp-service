@@ -24,13 +24,38 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 [McpServerToolType]
 public static class KnowledgeTools
 {
-    private const int MaxSearchCandidates = 200;
+    internal const int MaxSearchCandidates = 200;
+
+    /// <summary>
+    ///     AB#9165: pages read per hint word to confirm that no page contains it. The search reads at most
+    ///     <see cref="MaxSearchCandidates" /> pages, so a page with a rare word can be left out when common words fill the
+    ///     preselection; a text-index query for the word alone finds it.
+    /// </summary>
+    internal const int HintProbeCandidates = 20;
+
+    /// <summary>AB#9165: at most this many hint words are confirmed with a query of their own.</summary>
+    internal const int MaxHintProbes = 5;
 
     /// <summary>
     ///     Take of the Skill page probe (AB#9087): one page of kind Skill, found by a field filter, decides whether the
     ///     tenant has the builder knowledge when the matched pages hold none.
     /// </summary>
     internal const int SkillProbeCandidates = 1;
+
+    /// <summary>
+    ///     AB#9165: bonus per query word that the page's title or slug names. A page whose title or slug names a query
+    ///     word is about it; that must outweigh a long page that only mentions the word often (section hits count at most
+    ///     5 per word), or broad overview pages rank above the specific page.
+    /// </summary>
+    internal const double TopicBonus = 15;
+
+    /// <summary>
+    ///     AB#9165: a search whose result leaves at least this many content words of the query unmatched (no listed or
+    ///     unlisted match contains them, <see cref="HintTerms" />) tells the caller that the pages may not answer the
+    ///     question. One is enough: the eval's no-answer questions q12 ("Apple") and q23 ("laptop") miss a single word.
+    ///     Function and filler words (<see cref="StopWords" />), manner adverbs and typos never count (<see cref="HintTerms" />).
+    /// </summary>
+    internal const int NoAnswerHintMinUnmatchedTerms = 1;
 
     /// <summary>Searches the knowledge pages of the tenant, best match first.</summary>
     [McpServerTool(Name = "knowledge_search")]
@@ -41,7 +66,10 @@ public static class KnowledgeTools
         "one of its words or an inflected form of it (plural, -ing, -ed) are returned; no match is an empty result with " +
         "the message to say so. Words shorter than 3 " +
         "characters are ignored; a query without a longer word returns the index of all pages, like no query (sorted by " +
-        "title). Every result carries answeringConventions: the 'Answering questions' section of the tenant's schema page " +
+        "title). Function words (for, how, the, ...) are ignored when the query has other words. A page whose title or " +
+        "slug names a query word ranks above one that only mentions it. Each page lists its matchedTerms; " +
+        "unmatchedTerms are the query words no page contains - when one of them is a content word, the message says " +
+        "the pages may answer a neighbouring question, not this one. Every result carries answeringConventions: the 'Answering questions' section of the tenant's schema page " +
         "'knowledge-schema' (its newest Verified version while the page is Draft, or a built-in default, see " +
         "answeringConventionsSource). Follow them when you answer: answer " +
         "only from pages and the descriptions of this server's tools, cite each page that supports the answer by its " +
@@ -101,21 +129,40 @@ public static class KnowledgeTools
             var contents = candidates
                 .Select(p => (Page: p, Content: KnowledgePages.ReadContent(p)))
                 .ToList();
-            var pages = contents
+            // AB#9088: without a status filter, Rejected pages are left out - a person turned them down, yet on kb-test2
+            // three rejected file-back Drafts still ranked first. status=Rejected lists them; knowledge_get still serves
+            // them by slug.
+            var searchable = contents
+                .Where(x => statusFilter == KnowledgePages.StatusRejected ||
+                            x.Content.Status != KnowledgePages.StatusRejected)
+                .Select(x => (x.Page, x.Content, Match: Match(x.Content, x.Page.RtWellKnownName, terms)))
+                .ToList();
+            var matches = searchable
                 .Where(x => kindFilter == null || x.Content.Kind == kindFilter)
-                // AB#9088: without a status filter, Rejected pages are left out - a person turned them down, yet on
-                // kb-test2 three rejected file-back Drafts still ranked first. status=Rejected lists them;
-                // knowledge_get still serves them by slug.
-                .Where(x => statusFilter == null
-                    ? x.Content.Status != KnowledgePages.StatusRejected
-                    : x.Content.Status == statusFilter)
-                .Select(x => KnowledgePages.Summarize(ctx.TenantId!, x.Page, Score(x.Content, terms)))
+                .Where(x => statusFilter == null || x.Content.Status == statusFilter)
+                .Select(x =>
+                {
+                    var summary = KnowledgePages.Summarize(ctx.TenantId!, x.Page, x.Match.Score);
+                    summary.MatchedTerms = isSearch ? x.Match.MatchedTerms.ToList() : null;
+                    return summary;
+                })
                 // A page without any query word or its English stem (score 0) does not match, whatever the text index
                 // preselected.
                 .Where(p => !isSearch || p.Score > 0)
                 .OrderByDescending(p => p.Score).ThenBy(p => p.Title, StringComparer.OrdinalIgnoreCase)
-                .Take(limit)
                 .ToList();
+            // AB#9165: the query words no searchable page contains - of any kind and status (Rejected only when asked
+            // for), also beyond the limit; they say what the knowledge base lacks, not what a filter left out.
+            var unmatchedTerms = isSearch
+                ? terms.Where(t => !searchable.Any(x => x.Match.MatchedTerms.Contains(t))).ToList()
+                : null;
+            var hintTerms = unmatchedTerms == null
+                ? []
+                : HintTerms(unmatchedTerms, searchable.SelectMany(x => PageWords(x.Content, x.Page.RtWellKnownName)));
+            var foundByProbe = await ProbeHintTermsAsync(ctx.Repo, session, hintTerms, statusFilter);
+            unmatchedTerms?.RemoveAll(foundByProbe.Contains);
+            hintTerms = hintTerms.Take(MaxHintProbes).Where(t => !foundByProbe.Contains(t)).ToList();
+            var pages = matches.Take(limit).ToList();
 
             var ignoredQuery = !isSearch && !string.IsNullOrWhiteSpace(query);
             // AB#9087: without a Skill page the tenant lacks the builder knowledge (System.Ai.Builder); say how to get it.
@@ -132,6 +179,7 @@ public static class KnowledgeTools
                 AnsweringConventionsSource = conventions.Source,
                 AnsweringRules = KnowledgeConventions.AnsweringRules,
                 BuilderKnowledgeHint = hasSkillPages ? null : KnowledgeFirst.BuilderKnowledgeHint,
+                UnmatchedTerms = unmatchedTerms,
                 Message = pages.Count == 0
                     ? "No knowledge page matches. If neither a page you opened for this answer nor one of this server's " +
                       "tools supports any part of the question and a search with other words (or without a filter) finds " +
@@ -140,13 +188,53 @@ public static class KnowledgeTools
                       "support stays answered."
                     : ignoredQuery
                         ? $"The query has no word of 3 or more characters, so this is the index of all pages, not a match: {pages.Count} page(s)."
-                        : $"{pages.Count} page(s)."
+                        : hintTerms.Count >= NoAnswerHintMinUnmatchedTerms
+                            ? NoAnswerHint(pages.Count, hintTerms)
+                            : $"{pages.Count} page(s)."
             };
         }
         catch (Exception ex)
         {
             return new KnowledgeSearchResponse { TenantId = ctx.TenantId, ErrorMessage = ex.Message };
         }
+    }
+
+    /// <summary>
+    ///     AB#9165: the hint words a page contains outside the preselected candidates: each of the first
+    ///     <see cref="MaxHintProbes" /> words is searched on its own (<see cref="HintProbeCandidates" /> pages); a searchable
+    ///     page (Rejected only when asked for) that contains it marks it found. Words beyond the first five are not
+    ///     searched and give no hint (absence not confirmed). Limit: when all pages a probe reads are Rejected, the word
+    ///     counts as absent.
+    /// </summary>
+    private static async Task<HashSet<string>> ProbeHintTermsAsync(ITenantRepository repository, IOctoSession session,
+        List<string> hintTerms, int? statusFilter)
+    {
+        var found = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var term in hintTerms.Take(MaxHintProbes))
+        {
+            IReadOnlyList<RtEntity> pages;
+            try
+            {
+                pages = await KnowledgePages.ListPagesAsync(repository, session, term, HintProbeCandidates);
+            }
+            catch (Exception)
+            {
+                // Absence not confirmed: treat the word as found (no hint), and the search does not fail because of it.
+                found.Add(term);
+                continue;
+            }
+
+            if (pages
+                .Select(p => (Page: p, Content: KnowledgePages.ReadContent(p)))
+                .Where(x => statusFilter == KnowledgePages.StatusRejected ||
+                            x.Content.Status != KnowledgePages.StatusRejected)
+                .Any(x => Match(x.Content, x.Page.RtWellKnownName, [term]).MatchedTerms.Count > 0))
+            {
+                found.Add(term);
+            }
+        }
+
+        return found;
     }
 
     /// <summary>
@@ -966,12 +1054,170 @@ public static class KnowledgeTools
     }
 
     /// <summary>
+    ///     AB#9165: English function and filler words of 3+ characters ("for", "how", "the", "ago", "something", "three",
+    ///     ...). They occur on nearly every page or say nothing about the subject of a question, so as query words they
+    ///     only add noise to the score and are never a sign of what a page lacks (a whole question sent as the query is
+    ///     full of them).
+    /// </summary>
+    internal static readonly IReadOnlySet<string> StopWords = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "the", "and", "for", "are", "but", "not", "you", "your", "with", "this", "that", "these", "those", "from",
+        "into", "onto", "over", "how", "what", "when", "where", "which", "who", "whom", "why", "can", "could", "should",
+        "would", "will", "shall", "may", "might", "must", "does", "did", "has", "have", "had", "was", "were", "been",
+        "being", "its", "our", "ours", "out", "off", "all", "any", "some", "such", "than", "then", "them", "they",
+        "their", "there", "here", "about", "after", "before", "also", "just", "only", "very", "too", "get", "got",
+        "via", "mine", "his", "her", "hers", "him", "she", "yes",
+        // Filler: indefinite pronouns, adverbs of time and degree, quantifiers, number words.
+        "ago", "something", "anything", "nothing", "everything", "someone", "anyone", "everyone", "somebody", "anybody",
+        "almost", "always", "never", "still", "already", "again", "really", "quite", "rather", "often", "sometimes",
+        "soon", "now", "today", "yesterday", "tomorrow", "maybe", "perhaps", "please", "thanks", "since", "until",
+        "while", "because", "though", "although", "whether", "each", "every", "other", "another", "same", "more", "most",
+        "less", "much", "many", "few", "own", "even", "ever", "else", "instead", "one", "two", "three", "four", "five",
+        "six", "seven", "eight", "nine", "ten", "first", "second", "last", "next"
+    };
+
+    /// <summary>
+    ///     AB#9165: adverbs that describe how something happens ("instantly", "quickly"), not what a question is about. A
+    ///     list, not the suffix -ly: nouns and verbs such as "family", "anomaly" or "supply" must still count.
+    /// </summary>
+    internal static readonly IReadOnlySet<string> MannerAdverbs = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "instantly", "quickly", "immediately", "directly", "suddenly", "finally", "usually", "actually", "basically",
+        "simply", "easily", "properly", "correctly", "automatically", "manually", "recently", "currently", "completely",
+        "exactly", "probably", "possibly", "slowly", "randomly", "constantly", "repeatedly", "silently", "successfully",
+        "safely", "fully", "partly", "mostly", "nearly", "hardly", "briefly", "regularly", "occasionally"
+    };
+
+    /// <summary>
+    ///     AB#9165: an unmatched word of at least this length that is one edit away from a word of the searched pages is
+    ///     taken as a typo of it ("pipline" -> "pipeline") and does not count for the no-answer hint. Five letters is too
+    ///     short: "apple" (eval q12, a no-answer question) is one edit away from "apply".
+    /// </summary>
+    internal const int TypoMinLength = 6;
+
+    /// <summary>
+    ///     AB#9165: the unmatched words that count for the no-answer hint. <see cref="StopWords" /> (kept as query words
+    ///     when a query has no other word) and <see cref="MannerAdverbs" /> say nothing about the subject; a word of
+    ///     <see cref="TypoMinLength" />+ letters one edit (insert, delete, replace) away from a word of
+    ///     <paramref name="pageWords" /> is a typo of it. All are left out.
+    /// </summary>
+    internal static List<string> HintTerms(IEnumerable<string> unmatchedTerms, IEnumerable<string> pageWords)
+    {
+        var content = unmatchedTerms
+            .Where(t => !StopWords.Contains(t) && !MannerAdverbs.Contains(t))
+            .ToList();
+        if (!content.Any(t => t.Length >= TypoMinLength))
+        {
+            return content;
+        }
+
+        var vocabulary = pageWords.Where(w => w.Length >= TypoMinLength - 1).ToHashSet(StringComparer.Ordinal);
+        return content
+            .Where(t => t.Length < TypoMinLength || !vocabulary.Any(w => IsOneEditAway(t, w)))
+            .ToList();
+    }
+
+    /// <summary>The words of the title, summary, sections and slug of a page.</summary>
+    internal static IEnumerable<string> PageWords(KnowledgeContent content, string? slug) =>
+        KnowledgeStemmer.Words(content.Title)
+            .Concat(KnowledgeStemmer.Words(content.Summary ?? string.Empty))
+            .Concat(content.Sections.SelectMany(s =>
+                KnowledgeStemmer.Words(s.Heading + " " + s.SectionContent)))
+            .Concat(KnowledgeStemmer.Words(slug ?? string.Empty));
+
+    /// <summary>True when <paramref name="a" /> becomes <paramref name="b" /> by one insert, delete or replace.</summary>
+    internal static bool IsOneEditAway(string a, string b)
+    {
+        if (a == b || Math.Abs(a.Length - b.Length) > 1)
+        {
+            return false;
+        }
+
+        if (a.Length > b.Length)
+        {
+            (a, b) = (b, a);
+        }
+
+        var i = 0;
+        while (i < a.Length && a[i] == b[i])
+        {
+            i++;
+        }
+
+        // Same length: the rest after one replaced character must agree; otherwise b has one extra character at i.
+        return a.Length == b.Length
+            ? a.AsSpan(i + 1).SequenceEqual(b.AsSpan(i + 1))
+            : a.AsSpan(i).SequenceEqual(b.AsSpan(i + 1));
+    }
+
+    /// <summary>
     ///     The query words of 3+ characters, split like the page text (<see cref="KnowledgeStemmer.Words" />): a term such
     ///     as "zebrafisch-pipelines" or "(pipelines)" is tokenized as the text index does, not stemmed as one token.
+    ///     AB#9165: <see cref="StopWords" /> are left out unless the query has no other word.
     /// </summary>
-    internal static string[] Terms(string? query) => string.IsNullOrWhiteSpace(query)
-        ? []
-        : KnowledgeStemmer.Words(query).Where(t => t.Length > 2).Distinct().ToArray();
+    internal static string[] Terms(string? query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return [];
+        }
+
+        var words = KnowledgeStemmer.Words(query).Where(t => t.Length > 2).Distinct().ToArray();
+        var content = words.Where(t => !StopWords.Contains(t)).ToArray();
+        return content.Length > 0 ? content : words;
+    }
+
+    /// <summary>
+    ///     AB#9165: the message of a search whose pages leave at least <see cref="NoAnswerHintMinUnmatchedTerms" /> content
+    ///     words of the query unmatched: the pages match only the other words, so they may answer a neighbouring question,
+    ///     not this one.
+    /// </summary>
+    internal static string NoAnswerHint(int pageCount, IEnumerable<string> unmatchedTerms) =>
+        $"{pageCount} page(s), but no knowledge page contains " +
+        string.Join(", ", unmatchedTerms.Select(t => $"'{t}'")) +
+        " (nor an inflected form); the pages match only the other words of the query. If the question is about what " +
+        "these words name and neither a page you opened nor one of this server's tools answers it, reply with exactly " +
+        "the sentence `" + KnowledgeConventions.NoAnswerSentence + "` and cite nothing. A part of the question that " +
+        "pages or tools do answer stays answered, but do not answer a neighbouring question from these pages instead " +
+        "(for example the general procedure without the thing asked about). A name of the user's own app, tenant or " +
+        "entity that no page mentions is no reason by itself: the pages may still explain how to do it.";
+
+    /// <summary>The rank of a page for a search (AB#9165): its score and the query words it contains.</summary>
+    internal sealed record KnowledgeMatch(double Score, IReadOnlyList<string> MatchedTerms);
+
+    /// <summary>
+    ///     AB#9165: ranks a page for the query words. <see cref="Score" /> (title, summary, sections) plus the slug as a
+    ///     field of weight 3 (one hit per word) plus <see cref="TopicBonus" /> for every query word the title or the slug
+    ///     names. <see cref="KnowledgeMatch.MatchedTerms" /> are the query words the page contains in any field.
+    /// </summary>
+    internal static KnowledgeMatch Match(KnowledgeContent content, string? slug, IReadOnlyCollection<string> terms)
+    {
+        if (terms.Count == 0)
+        {
+            return new KnowledgeMatch(0, []);
+        }
+
+        var fields = KnowledgeFields.Of(content);
+        var slugField = KnowledgeFields.Field(slug ?? string.Empty);
+        var score = 0d;
+        var matched = new List<string>();
+        foreach (var term in terms)
+        {
+            var stem = KnowledgeStemmer.Stem(term);
+            var titleHits = KnowledgeFields.Hits(fields.Title, term, stem);
+            var slugHit = Math.Min(KnowledgeFields.Hits(slugField, term, stem), 1);
+            var termScore = fields.TermScore(term, stem) + 3 * slugHit;
+            if (termScore <= 0)
+            {
+                continue;
+            }
+
+            matched.Add(term);
+            score += termScore + (titleHits > 0 || slugHit > 0 ? TopicBonus : 0);
+        }
+
+        return new KnowledgeMatch(score, matched);
+    }
 
     /// <summary>
     ///     Title matches weigh 3, summary 2, section text 1 (same weights as the text index). A term counts its literal
@@ -985,23 +1231,32 @@ public static class KnowledgeTools
             return 0;
         }
 
-        var title = Field(content.Title);
-        var summary = Field(content.Summary ?? string.Empty);
-        var body = Field(string.Join("\n", content.Sections.Select(s => s.Heading + " " + s.SectionContent)));
-        return terms.Sum(t =>
-        {
-            var stem = KnowledgeStemmer.Stem(t);
-            return 3 * Hits(title, t, stem) + 2 * Hits(summary, t, stem) + Math.Min(Hits(body, t, stem), 5);
-        });
+        var fields = KnowledgeFields.Of(content);
+        return terms.Sum(t => fields.TermScore(t, KnowledgeStemmer.Stem(t)));
+    }
 
-        static (string[] Words, string[] Stems) Field(string text)
+    /// <summary>The words and stems of the scored fields of a page.</summary>
+    private sealed record KnowledgeFields(
+        (string[] Words, string[] Stems) Title,
+        (string[] Words, string[] Stems) Summary,
+        (string[] Words, string[] Stems) Body)
+    {
+        public static KnowledgeFields Of(KnowledgeContent content) => new(Field(content.Title),
+            Field(content.Summary ?? string.Empty),
+            Field(string.Join("\n", content.Sections.Select(s => s.Heading + " " + s.SectionContent))));
+
+        /// <summary>Title matches weigh 3, summary 2, section text 1 (at most 5 per word).</summary>
+        public int TermScore(string term, string stem) =>
+            3 * Hits(Title, term, stem) + 2 * Hits(Summary, term, stem) + Math.Min(Hits(Body, term, stem), 5);
+
+        public static (string[] Words, string[] Stems) Field(string text)
         {
             var words = KnowledgeStemmer.Words(text).ToArray();
             return (words, words.Select(KnowledgeStemmer.Stem).ToArray());
         }
 
         // AB#8580: a literal hit is a whole word ("use" is not a hit in "because"), split like the query terms.
-        static int Hits((string[] Words, string[] Stems) field, string term, string stem)
+        public static int Hits((string[] Words, string[] Stems) field, string term, string stem)
         {
             var literal = field.Words.Count(w => w == term);
             return literal > 0 ? literal : field.Stems.Count(s => s == stem);

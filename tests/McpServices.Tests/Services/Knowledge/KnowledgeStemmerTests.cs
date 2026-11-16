@@ -30,6 +30,8 @@ public class KnowledgeStemmerTests
     [InlineData("owe", "owed")]
     [InlineData("be", "being")]
     [InlineData("do", "doing")]
+    [InlineData("api", "apis")] // AB#9165: "build an HTTP API" must match the title "HTTP APIs"
+    [InlineData("uri", "uris")]
     public void InflectedForms_ShareTheStem(string word, string inflected)
     {
         KnowledgeStemmer.Stem(inflected).Should().Be(KnowledgeStemmer.Stem(word));
@@ -43,6 +45,8 @@ public class KnowledgeStemmerTests
     [InlineData("thing")]
     [InlineData("bring")]
     [InlineData("sing")]
+    [InlineData("this")]
+    [InlineData("basis")]
     public void WordsThatOnlyLookInflected_KeepTheirStem(string word)
     {
         KnowledgeStemmer.Stem(word).Should().Be(word);

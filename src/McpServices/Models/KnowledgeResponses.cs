@@ -87,8 +87,17 @@ public class KnowledgePageSummaryDto
     /// <summary>Current version number.</summary>
     public int CurrentVersion { get; set; }
 
-    /// <summary>Relevance score of a search (higher first); 0 in the index.</summary>
+    /// <summary>
+    ///     Relevance score of a search (higher first); 0 in the index. Title, summary, section and slug hits of the query
+    ///     words, plus a bonus for every query word the title or slug names (AB#9165).
+    /// </summary>
     public double Score { get; set; }
+
+    /// <summary>
+    ///     The query words this page contains (or an inflected form of them), AB#9165; <c>null</c> in the index. A page
+    ///     that lacks the words a question is about does not answer it, however high its score.
+    /// </summary>
+    public List<string>? MatchedTerms { get; set; }
 
     /// <summary>The MCP resource URI of the page (<c>knowledge-page://{tenantId}/{slug}</c>).</summary>
     public string Uri { get; set; } = string.Empty;
@@ -149,6 +158,13 @@ public class KnowledgeSearchResponse : KnowledgeResponse
     ///     <c>null</c> when the tenant has Skill pages.
     /// </summary>
     public string? BuilderKnowledgeHint { get; set; }
+
+    /// <summary>
+    ///     The query words no matching page contains, not even beyond the limit (AB#9165); <c>null</c> in the index. When
+    ///     one of them is a content word (not a stop word, manner adverb or typo) the message says that the pages may answer a neighbouring
+    ///     question, not this one.
+    /// </summary>
+    public List<string>? UnmatchedTerms { get; set; }
 }
 
 /// <summary>Result of <c>knowledge_get</c>.</summary>
