@@ -1279,6 +1279,16 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   MongoDB's `textScore` (the engine only sorts by it), which is why the tool scores itself. Words shorter than 3 characters are ignored; a
   query without a longer word is treated as no query (index of all pages, the message says it is not a match). Without
   a query it is the index of all pages.
+- **Ranking and the no-answer hint** (AB#9165, `KnowledgeTools.Match`): field score (title 3, summary 2, sections 1
+  capped at 5 per word) + slug 3 (one hit) + `TopicBonus` 15 per query word the title or slug names; `Terms` drops
+  `StopWords` unless the query has no other word; the stemmer reduces `apis`/`uris`/`kpis` (4-letter `-is`, not `this`).
+  Each page carries `matchedTerms`, the response `unmatchedTerms` (query words no match contains, also beyond `limit`);
+  from `NoAnswerHintMinUnmatchedTerms` (2) on, the message is `NoAnswerHint` (names the words and the no-answer
+  sentence). Keep the threshold at 2 or above: `KnowledgeSearchRankingTests` pins 0 hints on the 19 answerable queries
+  of the live eval 1.1.2 and the hint on q20, against the builder pages
+  (`Tools/Fixtures/knowledge-search-eval-1.1.2.json`, section text as `word:count`). Re-cut the fixture when the
+  builder pages change much (provenance in its description). Cause: M1 live eval 2026-11-16 (finding 3 ranking,
+  finding 14 q20).
 - **Answering rules** (AB#9088, `KnowledgeConventions.AnsweringRules`): every successful `knowledge_search` response
   also carries `answeringRules`, a code constant on top of the tenant's conventions that no schema page replaces: cite
   only pages opened with `knowledge_get` for this answer (a slug from a search result, index page or earlier answer is

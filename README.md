@@ -248,6 +248,10 @@ answers reply with exactly `No knowledge page answers this question.` and cite n
   result with the message to say so (AB#8566). A query without such a word returns the index of all pages, like no query.
   Pages whose status is **Rejected** are left out of results and the index unless `status` is `Rejected`; `knowledge_get`
   still reads them by slug (AB#9088).
+  Ranking (AB#9165): title 3, summary 2, sections 1 (at most 5 per word), slug 3, plus 15 for every query word the title
+  or slug names; function words are ignored when the query has other words. Each page lists `matchedTerms`, the result
+  lists `unmatchedTerms` (query words no matching page contains); with two or more the message tells the client that the
+  pages may answer a neighbouring question and when to give the no-answer sentence.
 - The knowledge tools are the **only** write path (AB#8568): `create_entity`, `create_entity_with_secrets`, `update_entity`,
   `set_entity_secrets`, `delete_entity` and `import_runtime_model` refuse `System.Ai/KnowledgePage`, `System.Ai/KnowledgePageVersion`
   (and derived types; for the import also the associations `LinksTo`, `GeneratedFrom`, `VersionOf`, judged on the decoded ids, so

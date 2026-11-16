@@ -1066,6 +1066,91 @@ public class KnowledgeToolsTests : TestBase
         KnowledgeTools.Terms(query).Should().Equal(expected);
     }
 
+    // AB#9165: function words add noise to the score and never say what a page lacks; a query of only function words
+    // keeps them, so it is still a search.
+    [Theory]
+    [InlineData("build an HTTP API for my app", new[] { "build", "http", "api", "app" })]
+    [InlineData("How do I deploy with the CLI?", new[] { "deploy", "cli" })]
+    [InlineData("how and the", new[] { "how", "and", "the" })]
+    public void Terms_LeaveOutFunctionWords_UnlessTheQueryHasNoOtherWord(string query, string[] expected)
+    {
+        KnowledgeTools.Terms(query).Should().Equal(expected);
+    }
+
+    [Fact]
+    public void Match_APageWhoseTitleOrSlugNamesTheWords_RanksAboveALongPageThatOnlyMentionsThemOften()
+    {
+        // AB#9165 finding 3: the broad page mentions every word often, the specific page names them in title and slug.
+        var mentions = string.Join(" ", Enumerable.Repeat("build the app with an HTTP API", 10));
+        var broad = new KnowledgeContent("Building an app", 4, "Build an app: model, HTTP API, web app.",
+            [new KnowledgeSectionDto { Heading = "Steps", SectionContent = mentions }], [], [], 0);
+        var specific = new KnowledgeContent("HTTP APIs on the Mesh Adapter", 4, "Route security and patterns.",
+            [new KnowledgeSectionDto { Heading = "Patterns", SectionContent = "Create an entity from a request." }], [], [], 0);
+        var terms = KnowledgeTools.Terms("HTTP API for my app");
+
+        var broadMatch = KnowledgeTools.Match(broad, "app-build-sequence", terms);
+        var specificMatch = KnowledgeTools.Match(specific, "app-http-api-pipelines", terms);
+
+        specificMatch.Score.Should().BeGreaterThan(broadMatch.Score);
+        specificMatch.MatchedTerms.Should().Equal("http", "api", "app");
+        KnowledgeTools.Score(specific, terms).Should().BeLessThan(KnowledgeTools.Score(broad, terms),
+            "the field score alone ranked the broad page first");
+    }
+
+    [Fact]
+    public void Match_ListsOnlyTheWordsThePageContains_AndIsZeroWithoutAny()
+    {
+        var content = new KnowledgeContent("Promoting an app", 4, "Publish, install, deploy.", [], [], [], 0);
+
+        KnowledgeTools.Match(content, "deploy-promotion", ["deploy", "aws", "lambda"]).MatchedTerms.Should()
+            .Equal("deploy");
+        KnowledgeTools.Match(content, "deploy-promotion", ["aws", "lambda"]).Score.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Search_WhenTwoQueryWordsAreOnNoPage_ListsThem_AndTheMessageGivesTheNoAnswerSentence()
+    {
+        // AB#9165 finding 14 (eval q20): the deploy pages match "roll out deploy app", but no page names AWS Lambda.
+        await UpsertAsync("deploy-promotion", "Promoting an app to a shared environment", "Publish, install and deploy the app.");
+        await UpsertAsync("deploy-index", "Deploy and promote", "Deploy workloads and roll out blueprints.");
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "roll out deploy app AWS Lambda function");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Pages.Should().HaveCount(2);
+        result.UnmatchedTerms.Should().Equal("aws", "lambda", "function");
+        result.Pages.Should().OnlyContain(p => !p.MatchedTerms!.Contains("aws") && p.MatchedTerms!.Contains("deploy"));
+        result.Message.Should().StartWith("2 page(s), but no knowledge page contains the words 'aws', 'lambda', 'function'")
+            .And.Contain("`" + KnowledgeConventions.NoAnswerSentence + "`")
+            .And.Contain("Do not answer a neighbouring question");
+        result.AnsweringRules.Should().Be(KnowledgeConventions.AnsweringRules);
+    }
+
+    [Fact]
+    public async Task Search_WhenOnlyOneQueryWordIsOnNoPage_GivesNoNoAnswerHint()
+    {
+        // A typo, a filler word or a product name must not turn an answerable question into a no-answer one.
+        await UpsertAsync("deploy-promotion", "Promoting an app to a shared environment", "Publish, install and deploy the app.");
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "deploy app quickly");
+
+        result.UnmatchedTerms.Should().Equal("quickly");
+        result.Message.Should().Be("1 page(s).");
+    }
+
+    [Fact]
+    public async Task Index_HasNoMatchedOrUnmatchedTerms()
+    {
+        await UpsertAsync("deploy-promotion", "Promoting an app", "Publish and deploy.");
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
+
+        result.UnmatchedTerms.Should().BeNull();
+        result.Pages.Should().OnlyContain(p => p.MatchedTerms == null);
+    }
+
     [Fact]
     public void Score_AHyphenatedOrBracketedQueryWord_MatchesThePageWord()
     {

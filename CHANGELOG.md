@@ -29,6 +29,19 @@
 
 ### Fixed
 
+- **AB#9165** — `knowledge_search` ranked broad overview pages above the specific page and gave no sign when the pages
+  missed what a question was about (M1 live eval 1.1.2 on m1-e2e: "build an HTTP API for my app" listed
+  `app-http-api-pipelines` 13th on the builder pages; q20 "AWS Lambda" cited `deploy-index` and `deploy-promotion`).
+  Ranking: function words (for, how, the, ...) are no longer query words when the query has others, the slug counts as
+  a field (weight 3), every query word the title or slug names adds a bonus of 15, and the stemmer reduces the
+  plural of three-letter acronyms (APIs -> api). Each listed page now carries `matchedTerms`; the response carries
+  `unmatchedTerms`, the query words no matching page contains. With two or more of them the message says the pages
+  match only the other words and, if the question is about the missing ones, to reply with exactly
+  `No knowledge page answers this question.`. A single unmatched word never triggers it. `answeringRules` is unchanged.
+  Offline evidence against the eval pages and the 28 queries the model sent in the live eval 1.1.2 (fixture in the
+  tests): an expected page in the top 3 for all 19 answerable queries (top 1: 16, was 15), 0 no-answer hints on them,
+  the hint on both q20 queries.
+
 - **AB#9114** — `knowledge_adopt_platform_updates` (and the `knowledge-platform-updates` pipeline that calls it) adopted
   only one page per run: every further page was skipped with `Failed: Session already started.`, because all pages
   shared one session and a session carries exactly one transaction. Each page is now adopted in its own session and

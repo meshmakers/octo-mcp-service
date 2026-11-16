@@ -92,6 +92,13 @@ internal static class KnowledgeStemmer
             return word[..^1];
         }
 
+        // AB#9165: the plural of a three-letter acronym (APIs, URIs, KPIs) loses its "s" like other plurals, so "api"
+        // matches the title "HTTP APIs". Longer words ending in "is" (analysis, basis) and "this" keep it.
+        if (word.Length == 4 && word[^2] == 'i' && word[^1] == 's' && word != "this")
+        {
+            return word[..^1];
+        }
+
         return word;
     }
 
