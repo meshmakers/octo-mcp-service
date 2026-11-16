@@ -4,6 +4,13 @@
 
 ### Added
 
+- **AB#9148** — Knowledge clients may rely on the descriptions of this server's own tools. `answeringRules` gains a
+  third rule (`KnowledgeConventions.ToolRule`): the description of one of this server's tools is a source when the
+  answer recommends or uses that tool, cited as `[tool:<name>]` (e.g. `[tool:add_client_to_role]`). Page citations still
+  need `knowledge_get`; the sentence `No knowledge page answers this question.` is unchanged and applies only when
+  neither a page nor a tool answers (then nothing is cited). The server instructions, the prompt
+  `octomesh-knowledge-first`, the built-in default conventions, the no-match message and the `knowledge_search`
+  description say the same.
 - **AB#9088** — Stricter answering rules for knowledge clients. `knowledge_search` results carry the new field
   `answeringRules` (a code constant, not tenant-writable, applies whatever the schema page's conventions say): cite only
   pages opened with `knowledge_get` for this answer, and when no opened page answers reply with exactly

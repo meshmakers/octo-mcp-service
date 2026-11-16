@@ -39,7 +39,8 @@ internal static class KnowledgeFirst
         "3. Cite each page you used by its slug in square brackets right after the statement it supports, e.g. " +
         "[admin-index].\n" +
         "4. Follow the answeringRules and the answeringConventions that knowledge_search returns.\n" +
-        KnowledgeConventions.CitationRule + "\n" + KnowledgeConventions.NoAnswerRule;
+        KnowledgeConventions.CitationRule + "\n" + KnowledgeConventions.ToolRule + "\n" +
+        KnowledgeConventions.NoAnswerRule;
 
     /// <summary>The area index pages as text, shared by the server instructions and the prompt.</summary>
     public const string AreaIndexText =
@@ -50,7 +51,8 @@ internal static class KnowledgeFirst
     public const string FallbackText =
         "If the tenant has no Skill pages, the OctoMesh builder knowledge (blueprint " + BuilderBlueprintName +
         ") is not installed: knowledge_search then returns builderKnowledgeHint. Tell the user that a tenant " +
-        "administrator can install it (opt-in), and answer only from the pages that exist.";
+        "administrator can install it (opt-in), and answer only from the pages that exist and the descriptions of this " +
+        "server's tools.";
 
     /// <summary>The <c>instructions</c> of the MCP <c>initialize</c> result.</summary>
     public const string ServerInstructions =
@@ -64,7 +66,8 @@ internal static class KnowledgeFirst
         "This tenant has no Skill pages: the OctoMesh builder knowledge (blueprint " + BuilderBlueprintName +
         ") is not installed. It is opt-in; a tenant administrator installs it with octo-cli `InstallBlueprint -b " +
         BuilderBlueprintName + "-<version>` or the MCP tool install_blueprint (blueprintId '" + BuilderBlueprintName +
-        "-<version>'); list_blueprints shows the available versions. Until then answer only from the pages that exist.";
+        "-<version>'); list_blueprints shows the available versions. Until then answer only from the pages that exist " +
+        "and the descriptions of this server's tools.";
 
     /// <summary>The prompt text: the question wrapped with the knowledge-first steps.</summary>
     public static string BuildPrompt(string question) =>

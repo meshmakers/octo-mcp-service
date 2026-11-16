@@ -133,8 +133,10 @@ public class KnowledgeSearchResponse : KnowledgeResponse
     public string? AnsweringConventionsSource { get; set; }
 
     /// <summary>
-    ///     The fixed answering rules (AB#9088): cite only pages opened with <c>knowledge_get</c> for this answer, and when
-    ///     no page answers reply with exactly <c>No knowledge page answers this question.</c> and cite nothing. A server
+    ///     The fixed answering rules (AB#9088, AB#9148): cite only pages opened with <c>knowledge_get</c> for this answer,
+    ///     cite a tool of this server whose description the answer relies on as <c>[tool:&lt;name&gt;]</c>, and when
+    ///     neither a page nor a tool answers reply with exactly <c>No knowledge page answers this question.</c> and cite
+    ///     nothing. A server
     ///     constant that applies on top of <see cref="AnsweringConventions" />, which a tenant cannot replace. Set on every
     ///     successful search.
     /// </summary>

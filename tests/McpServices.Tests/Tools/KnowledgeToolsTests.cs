@@ -1448,8 +1448,9 @@ public class KnowledgeToolsTests : TestBase
             result.AnsweringRules.Should()
                 .Contain("Cite only pages you opened with knowledge_get for this answer.")
                 .And.Contain("A slug from a knowledge_search result, an index page, a link or an earlier answer is not enough")
-                .And.Contain("reply with exactly the sentence `No knowledge page answers this question.`, cite no page")
-                .And.Contain("cite only those pages and say what is missing", "a partial answer still cites opened pages only");
+                .And.Contain("reply with exactly the sentence `No knowledge page answers this question.`, cite nothing")
+                .And.Contain("cite only those pages and tools and say what is missing",
+                    "a partial answer still cites opened pages (and tools) only");
         }
 
         var failed = await KnowledgeTools.KnowledgeSearch(MockServer.Object, limit: 0);
@@ -1465,9 +1466,58 @@ public class KnowledgeToolsTests : TestBase
         var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Okapi");
 
         result.Message.Should().StartWith("No knowledge page matches.")
-            .And.Contain("If no page you opened for this answer supports any part of the question")
-            .And.Contain("A part that opened pages support stays answered.")
-            .And.Contain("reply with exactly the sentence `No knowledge page answers this question.`, cite no page");
+            .And.Contain("If neither a page you opened for this answer nor one of this server's tools supports any part " +
+                         "of the question")
+            .And.Contain("A part that opened pages or tools support stays answered.")
+            .And.Contain("reply with exactly the sentence `No knowledge page answers this question.`, cite nothing");
+    }
+
+    [Fact]
+    public async Task Search_AnsweringRules_AllowThisServersToolDescriptions_CitedAsToolName()
+    {
+        // AB#9148: the M1 end-to-end test on m1-e2e could not recommend add_client_to_role, a tool it had, because the
+        // rules allowed page content as the only source. Pages stay strict; tools are cited as [tool:<name>].
+        await GivenSchemaAndZebrafischPagesAsync();
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch");
+
+        result.AnsweringRules.Should()
+            .Contain("The description of one of this server's own tools is also a source when you recommend or use " +
+                         "that tool")
+            .And.Contain("cite it as [tool:<name>]")
+            .And.Contain("right after the statement it supports, e.g. [tool:add_client_to_role].")
+            .And.Contain("Cite only a tool in this server's tool list, and only for what its description says.")
+            .And.Contain("Cite only pages you opened with knowledge_get for this answer.", "page citations stay strict")
+            .And.Contain("If neither a page you opened nor one of this server's tools answers the question",
+                "the no-answer sentence applies only when neither a page nor a tool answers");
+        result.AnsweringRules!.IndexOf(KnowledgeConventions.CitationRule, StringComparison.Ordinal).Should()
+            .BeLessThan(result.AnsweringRules.IndexOf(KnowledgeConventions.ToolRule, StringComparison.Ordinal));
+        result.AnsweringRules.IndexOf(KnowledgeConventions.ToolRule, StringComparison.Ordinal).Should()
+            .BeLessThan(result.AnsweringRules.IndexOf(KnowledgeConventions.NoAnswerRule, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PageOnlyTexts_AlsoAllowThisServersToolDescriptions()
+    {
+        // AB#9148 (local review): the search description, the fallback and the builder hint must not contradict the rule.
+        var description = typeof(KnowledgeTools).GetMethod(nameof(KnowledgeTools.KnowledgeSearch))!
+            .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+            .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+        description.Should().Contain("answer only from pages and the descriptions of this server's tools")
+            .And.Contain("[tool:<name>]");
+        foreach (var text in new[] { KnowledgeFirst.FallbackText, KnowledgeFirst.BuilderKnowledgeHint })
+        {
+            text.Should().Contain("answer only from the pages that exist and the descriptions of this server's tools");
+        }
+    }
+
+    [Fact]
+    public void NoAnswerSentence_StaysWordForWord()
+    {
+        // AB#9148: the eval (kq_eval.py NO_ANSWER_SENTENCE) and the seeded schema page match this exact text.
+        KnowledgeConventions.NoAnswerSentence.Should().Be("No knowledge page answers this question.");
+        KnowledgeConventions.NoAnswerRule.Should()
+            .Contain("reply with exactly the sentence `No knowledge page answers this question.`");
     }
 
     [Fact]
@@ -1479,7 +1529,10 @@ public class KnowledgeToolsTests : TestBase
         field.IsLiteral.Should().BeTrue("a tenant must not be able to change the rules");
         KnowledgeConventions.DefaultText.Should()
             .Contain("Never cite a page you did not open with knowledge_get for this answer.")
-            .And.Contain("write exactly `No knowledge page answers this question.`, cite no page");
+            .And.Contain("Cite a tool of this server you recommend or use as [tool:<name>].", "AB#9148")
+            .And.Contain("If neither a page nor a tool answers the question, write exactly " +
+                         "`No knowledge page answers this question.`, cite nothing");
+        KnowledgeConventions.DefaultText.Length.Should().BeLessThanOrEqualTo(KnowledgeConventions.MaxLength);
     }
 
     [Fact]
