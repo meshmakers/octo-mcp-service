@@ -1,3 +1,5 @@
+using System.IO.Compression;
+using System.Runtime.CompilerServices;
 using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
@@ -129,5 +131,260 @@ public class CkModelValidationToolsTests : ToolTestBase
     {
         new ToolRiskRegistry(typeof(CkModelValidationTools).Assembly).GetRiskLevel("validate_ck_model")
             .Should().Be(McpRiskLevel.Low);
+    }
+
+    // ---- AB#9005: inline drafts for MCP-only clients ----
+
+    private static List<CkDraftFileDto> SourceDraft() =>
+    [
+        new() { Name = "ckModel.yaml", Content = "modelId: Demo-1.0.0\n" },
+        new() { Name = "types/pump.yaml", Content = "types:\n  - typeId: Pump\n" }
+    ];
+
+    [Fact]
+    public async Task ValidateCkModel_InlineFiles_Valid_PostsAZipOfTheFiles_AndDeletesItAfterwards()
+    {
+        string? postedPath = null;
+        List<string>? entries = null;
+        string? pumpContent = null;
+        MockAssetClient.Setup(c => c.ValidateCkModelAsync(DefaultTenantId, It.IsAny<string>()))
+            .Callback<string, string>((_, path) =>
+            {
+                postedPath = path;
+                using var zip = ZipFile.OpenRead(path);
+                entries = zip.Entries.Select(e => e.FullName).ToList();
+                using var reader = new StreamReader(zip.GetEntry("types/pump.yaml")!.Open());
+                pumpContent = reader.ReadToEnd();
+            })
+            .ReturnsAsync(new CkModelValidationResponseDto { IsValid = true, ModelId = "Demo-1.0.0", SourceKind = "Source" });
+
+        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object, files: SourceDraft());
+
+        result.IsSuccess.Should().BeTrue();
+        result.IsValid.Should().BeTrue();
+        result.SourceKind.Should().Be("Source");
+        result.ModelId.Should().Be("Demo-1.0.0");
+        entries.Should().BeEquivalentTo("ckModel.yaml", "types/pump.yaml");
+        pumpContent.Should().Contain("typeId: Pump");
+        postedPath.Should().EndWith(".zip");
+        File.Exists(postedPath).Should().BeFalse("an inline draft lives only for the call");
+        MockAssetClient.Verify(c => c.ImportCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ValidateCkModel_InlineFiles_Invalid_ReturnsTheSameErrorContract()
+    {
+        MockAssetClient.Setup(c => c.ValidateCkModelAsync(DefaultTenantId, It.IsAny<string>()))
+            .ReturnsAsync(new CkModelValidationResponseDto
+            {
+                IsValid = false, ModelId = "Demo-1.0.0", SourceKind = "Source",
+                Errors =
+                [
+                    new CkModelValidationMessageDto
+                    {
+                        MessageNumber = 3, Level = "Error", File = "types/pump.yaml",
+                        ElementPath = "Demo-1.0.0/Pump-1.Demo/NoSuchAttribute", Message = "unknown attribute"
+                    }
+                ]
+            });
+
+        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object, files: SourceDraft());
+
+        result.IsSuccess.Should().BeTrue();
+        result.IsValid.Should().BeFalse();
+        result.Message.Should().Contain("1 error");
+        var error = result.Errors.Should().ContainSingle().Subject;
+        error.MessageNumber.Should().Be(3);
+        error.File.Should().Be("types/pump.yaml");
+    }
+
+    [Fact]
+    public async Task ValidateCkModel_InlineZipBase64_PostsTheDecodedZip()
+    {
+        byte[] zipBytes;
+        using (var ms = new MemoryStream())
+        {
+            using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, true))
+            {
+                using var w = new StreamWriter(zip.CreateEntry("ConstructionKit/ckModel.yaml").Open());
+                w.Write("modelId: Demo-1.0.0");
+            }
+
+            zipBytes = ms.ToArray();
+        }
+
+        byte[]? posted = null;
+        string? postedPath = null;
+        MockAssetClient.Setup(c => c.ValidateCkModelAsync(DefaultTenantId, It.IsAny<string>()))
+            .Callback<string, string>((_, path) => { postedPath = path; posted = File.ReadAllBytes(path); })
+            .ReturnsAsync(new CkModelValidationResponseDto { IsValid = true, ModelId = "Demo-1.0.0" });
+
+        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object,
+            zipBase64: Convert.ToBase64String(zipBytes));
+
+        result.IsSuccess.Should().BeTrue();
+        posted.Should().Equal(zipBytes);
+        File.Exists(postedPath).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ValidateCkModel_InlineFilesOverTheLimit_AreRefusedWithTheMessageNumber_AndCallNothing()
+    {
+        var files = new List<CkDraftFileDto>
+        {
+            new() { Name = "ckModel.yaml", Content = "modelId: Demo-1.0.0" },
+            new() { Name = "types/big.yaml", Content = new string('x', CkDraftInlinePackager.MaxInlineBytes) }
+        };
+
+        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object, files: files);
+
+        result.IsSuccess.Should().BeFalse();
+        result.IsValid.Should().BeFalse();
+        result.ErrorCode.Should().Be("InlineDraftTooLarge");
+        result.ErrorMessage.Should().Contain("prepare_file_upload").And.Contain("9005");
+        result.Errors.Should().ContainSingle().Which.MessageNumber.Should().Be(9005);
+        MockAssetClient.Verify(c => c.ValidateCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ValidateCkModel_InlineZipOverTheLimit_IsRefusedBeforeDecoding()
+    {
+        // Not valid base64 either: the length check must refuse it before anything is decoded.
+        var oversized = new string('!', CkDraftInlinePackager.MaxInlineBytes * 2);
+
+        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object, zipBase64: oversized);
+
+        result.ErrorCode.Should().Be("InlineDraftTooLarge");
+        result.Errors.Should().ContainSingle().Which.MessageNumber.Should().Be(9005);
+        MockAssetClient.Verify(c => c.ValidateCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ValidateCkModel_InlineZipDecodedOverTheLimit_IsRefused()
+    {
+        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object,
+            zipBase64: Convert.ToBase64String(new byte[CkDraftInlinePackager.MaxInlineBytes + 1]));
+
+        result.ErrorCode.Should().Be("InlineDraftTooLarge");
+        MockAssetClient.Verify(c => c.ValidateCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ValidateCkModel_TooManyInlineFiles_AreRefused()
+    {
+        var files = Enumerable.Range(0, CkDraftInlinePackager.MaxInlineFiles + 1)
+            .Select(i => new CkDraftFileDto { Name = $"types/t{i}.yaml", Content = "x" }).ToList();
+
+        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object, files: files);
+
+        result.ErrorCode.Should().Be("InlineDraftTooLarge");
+    }
+
+    [Theory]
+    [InlineData("../ckModel.yaml")]
+    [InlineData("/etc/passwd")]
+    [InlineData("types/../../x.yaml")]
+    [InlineData("C:\\x.yaml")]
+    [InlineData(" ")]
+    public async Task ValidateCkModel_UnsafeInlineFileName_IsRejected_AndCallsNothing(string name)
+    {
+        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object,
+            files: [new CkDraftFileDto { Name = name, Content = "x" }]);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().BeNull();
+        result.ErrorMessage.Should().Contain("Invalid file name");
+        MockAssetClient.Verify(c => c.ValidateCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ValidateCkModel_DuplicateInlineFileName_IsRejected()
+    {
+        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object,
+            files: [new CkDraftFileDto { Name = "a.yaml" }, new CkDraftFileDto { Name = "./A.yaml" }]);
+
+        result.IsSuccess.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ValidateCkModel_InvalidBase64_IsRejected()
+    {
+        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object, zipBase64: "not base64!");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("base64");
+    }
+
+    [Fact]
+    public async Task ValidateCkModel_TwoDraftSources_AreRejected()
+    {
+        var transferId = StageUpload();
+
+        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object, transferId, files: SourceDraft());
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("exactly one");
+        MockAssetClient.Verify(c => c.ValidateCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ValidateCkModel_InlineDraft_AServiceError_StillDeletesTheTempZip()
+    {
+        string? postedPath = null;
+        MockAssetClient.Setup(c => c.ValidateCkModelAsync(DefaultTenantId, It.IsAny<string>()))
+            .Callback<string, string>((_, path) => postedPath = path)
+            .ThrowsAsync(new InvalidOperationException("asset repository unreachable"));
+
+        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object, files: SourceDraft());
+
+        result.IsSuccess.Should().BeFalse();
+        postedPath.Should().NotBeNull();
+        File.Exists(postedPath).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ValidateCkModel_InlineDraft_Unauthenticated_CallsNothing_AndLeavesNoTempZip()
+    {
+        GivenUnauthenticated();
+        var before = Directory.GetFiles(Path.GetTempPath(), "octo-mcp-ck-inline-*.zip").ToHashSet();
+
+        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object, files: SourceDraft());
+
+        result.ErrorMessage.Should().Contain("Not authenticated");
+        Directory.GetFiles(Path.GetTempPath(), "octo-mcp-ck-inline-*.zip").Where(f => !before.Contains(f))
+            .Should().BeEmpty();
+        MockAssetClient.Verify(c => c.ValidateCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ValidateCkModel_RepeatedInlineCalls_DoNotRetainTheDraft()
+    {
+        // AB#9015 guard: the inline draft is per-call state. 200 calls with a ~0.5 MB draft must not keep the drafts
+        // (strings, zips) reachable or leave temp files behind.
+        MockAssetClient.Setup(c => c.ValidateCkModelAsync(DefaultTenantId, It.IsAny<string>()))
+            .ReturnsAsync(new CkModelValidationResponseDto { IsValid = true });
+        var before = Directory.GetFiles(Path.GetTempPath(), "octo-mcp-ck-inline-*.zip").Length;
+
+        var weak = await CallAndForget();
+        for (var i = 0; i < 199; i++)
+        {
+            await CkModelValidationTools.ValidateCkModel(MockServer.Object, zipBase64: Convert.ToBase64String(new byte[512 * 1024]));
+        }
+
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
+
+        weak.IsAlive.Should().BeFalse("the tool must not keep the inline draft after the call");
+        Directory.GetFiles(Path.GetTempPath(), "octo-mcp-ck-inline-*.zip").Length.Should().BeLessThanOrEqualTo(before);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private async Task<WeakReference> CallAndForget()
+    {
+        var files = new List<CkDraftFileDto> { new() { Name = "ckModel.yaml", Content = new string('y', 512 * 1024) } };
+        var weak = new WeakReference(files);
+        await CkModelValidationTools.ValidateCkModel(MockServer.Object, files: files);
+        return weak;
     }
 }

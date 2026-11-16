@@ -29,6 +29,14 @@
 
 ### Added
 
+- **AB#9005** — `validate_ck_model` accepts the CK model draft inline, so an MCP-only client (e.g. a `claude -p` builder
+  agent) validates it in one call without `prepare_file_upload` and an HTTP PUT: `files` (name/content pairs relative to
+  `ConstructionKit/`) or `zipBase64` (a base64 zip), up to 1 MiB (content or decoded zip) and 2000 files. Exactly one of
+  `transferId`, `files` and `zipBase64` is given; the result contract (AB#8492) is unchanged. Over the limit the call is
+  refused with `errorCode` `InlineDraftTooLarge` and an error with `messageNumber` 9005 that points to the upload path;
+  the size is checked before anything is decoded. The inline draft is written to a temporary zip that is deleted when the
+  call ends (no process-wide state, AB#9015); file names with `..` or absolute paths are rejected. Risk stays Low.
+
 - **AB#8780** — platform updates of Blueprint knowledge pages (System.Ai 4.10.0). A blueprint update brings new
   `KnowledgePageVersion` entities but never refreshes an existing page (AB#8778). New tools:
   `knowledge_list_platform_updates` (read), `knowledge_adopt_platform_updates` (medium risk, `runRef` required) and

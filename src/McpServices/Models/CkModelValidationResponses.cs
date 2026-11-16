@@ -29,3 +29,15 @@ public class CkModelValidationResponse : FileTransferResponse
     /// <summary>The installed models the import would break.</summary>
     public List<CkUpgradeBlockerDto> Blockers { get; set; } = [];
 }
+
+/// <summary>
+///     AB#9005: one file of a CK model draft passed inline to <c>validate_ck_model</c>.
+/// </summary>
+public class CkDraftFileDto
+{
+    /// <summary>Path relative to the <c>ConstructionKit/</c> folder, e.g. <c>ckModel.yaml</c> or <c>types/pump.yaml</c>.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>The file's text content.</summary>
+    public string Content { get; set; } = string.Empty;
+}

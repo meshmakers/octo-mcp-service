@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.CkModelCatalog;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -14,50 +15,111 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 [McpServerToolType]
 public sealed class CkModelValidationTools
 {
-    /// <summary>Validate an uploaded CK model draft against the tenant's installed models; nothing is imported.</summary>
+    /// <summary>
+    ///     Validate a CK model draft against the tenant's installed models; nothing is imported. The draft is an upload
+    ///     (<paramref name="transferId" />) or, for MCP-only clients, inline (<paramref name="files" /> or
+    ///     <paramref name="zipBase64" />, AB#9005).
+    /// </summary>
     [McpServerTool(Name = "validate_ck_model")]
     [McpRisk(McpRiskLevel.Low)]
     [Description(
-        "Validate a Construction Kit model draft against the target tenant WITHOUT importing it. Call " +
-        "prepare_file_upload first, PUT the file to the returned URL, then call this tool with the transferId. " +
-        "Accepted: a zip of the source ConstructionKit/ folder (ckModel.yaml + types/ attributes/ enums/ records/ " +
+        "Validate a Construction Kit model draft against the target tenant WITHOUT importing it. Pass the draft in " +
+        "exactly one way: inline as files (name/content pairs, names relative to ConstructionKit/, e.g. ckModel.yaml, " +
+        "types/pump.yaml) or as zipBase64 (a base64 zip), up to 1 MiB (1048576 bytes of content or decoded zip) and " +
+        "2000 files; or, for larger drafts, call prepare_file_upload, PUT the file to the returned URL and pass the " +
+        "transferId. An inline draft over the limit is refused with errorCode InlineDraftTooLarge (message 9005). " +
+        "Accepted: the source ConstructionKit/ folder (ckModel.yaml + types/ attributes/ enums/ records/ " +
         "associations/ ...; compiled on the server, dependencies resolved from the server's catalogs), or a compiled " +
         "model (yaml, json or a zip of one). The compiled model is checked with the import's own checks against the " +
         "models installed in the tenant (CK language, engine version, system model references, dependencies) and, " +
         "without errors, with the tenant upgrade guard. Returns isValid, or errors with messageNumber, file (relative " +
         "to ConstructionKit/), elementPath and message; a missing dependency is an error, not a failed call. " +
-        "isBlocked/blockers name installed models the import would break. Nothing is written; the upload is kept so " +
+        "isBlocked/blockers name installed models the import would break. Nothing is written; an upload is kept so " +
         "the same transferId can be fixed and validated again or imported.")]
     public static async Task<CkModelValidationResponse> ValidateCkModel(
         McpServer server,
-        [Description("Transfer id from prepare_file_upload (file name ending .zip, .yaml or .json).")] string transferId,
-        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+        [Description("Transfer id from prepare_file_upload (file name ending .zip, .yaml or .json). Omit when the " +
+                     "draft is passed inline.")]
+        string? transferId = null,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null,
+        [Description("Inline draft: the files of the ConstructionKit/ folder as name/content pairs (or one compiled " +
+                     "model file). At most 1 MiB of content and 2000 files.")]
+        List<CkDraftFileDto>? files = null,
+        [Description("Inline draft: a zip (source ConstructionKit/ folder or compiled model) as base64. At most " +
+                     "1 MiB decoded.")]
+        string? zipBase64 = null)
     {
-        if (string.IsNullOrWhiteSpace(transferId))
-        {
-            return new CkModelValidationResponse { IsSuccess = false, ErrorMessage = "transferId is required." };
-        }
-
-        var store = server.Services!.GetRequiredService<IFileTransferStore>();
-        var upload = store.GetUpload(transferId, McpSessionContext.GetCallerLabel(server));
-        if (upload == null)
+        var hasUpload = !string.IsNullOrWhiteSpace(transferId);
+        var hasFiles = files is { Count: > 0 };
+        var hasZip = !string.IsNullOrWhiteSpace(zipBase64);
+        var sources = (hasUpload ? 1 : 0) + (hasFiles ? 1 : 0) + (hasZip ? 1 : 0);
+        if (sources != 1)
         {
             return new CkModelValidationResponse
             {
                 IsSuccess = false,
-                ErrorMessage = $"Upload '{transferId}' not found or expired."
+                ErrorMessage = sources == 0
+                    ? "transferId is required, or pass the draft inline as files or zipBase64."
+                    : "Pass the draft in exactly one way: transferId, files or zipBase64."
             };
         }
 
-        var asset = await AssetClientContext.TryBuildAsync(server, tenantId);
-        if (asset.Error != null)
+        string filePath;
+        string? inlinePath = null;
+        if (hasUpload)
         {
-            return new CkModelValidationResponse { IsSuccess = false, ErrorMessage = asset.Error };
+            var store = server.Services!.GetRequiredService<IFileTransferStore>();
+            var upload = store.GetUpload(transferId!, McpSessionContext.GetCallerLabel(server));
+            if (upload == null)
+            {
+                return new CkModelValidationResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = $"Upload '{transferId}' not found or expired."
+                };
+            }
+
+            filePath = upload.FilePath;
+        }
+        else
+        {
+            var packaged = CkDraftInlinePackager.Package(files, zipBase64, Path.GetTempPath());
+            if (packaged.TooLarge != null)
+            {
+                return new CkModelValidationResponse
+                {
+                    IsSuccess = false,
+                    ErrorCode = CkDraftInlinePackager.InlineDraftTooLargeCode,
+                    ErrorMessage = packaged.TooLarge,
+                    Errors =
+                    [
+                        new CkModelValidationMessageDto
+                        {
+                            MessageNumber = CkDraftInlinePackager.InlineDraftTooLargeNumber,
+                            Level = "Error",
+                            Message = packaged.TooLarge
+                        }
+                    ]
+                };
+            }
+
+            if (packaged.Error != null)
+            {
+                return new CkModelValidationResponse { IsSuccess = false, ErrorMessage = packaged.Error };
+            }
+
+            filePath = inlinePath = packaged.FilePath!;
         }
 
         try
         {
-            var result = await asset.Client!.ValidateCkModelAsync(asset.TenantId!, upload.FilePath);
+            var asset = await AssetClientContext.TryBuildAsync(server, tenantId);
+            if (asset.Error != null)
+            {
+                return new CkModelValidationResponse { IsSuccess = false, ErrorMessage = asset.Error };
+            }
+
+            var result = await asset.Client!.ValidateCkModelAsync(asset.TenantId!, filePath);
             return new CkModelValidationResponse
             {
                 IsSuccess = true,
@@ -78,6 +140,11 @@ public sealed class CkModelValidationTools
         catch (Exception ex)
         {
             return new CkModelValidationResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+        finally
+        {
+            // An inline draft lives only for this call (AB#9005/AB#9015); an upload is kept for the fix loop.
+            CkDraftInlinePackager.TryDelete(inlinePath);
         }
     }
 }

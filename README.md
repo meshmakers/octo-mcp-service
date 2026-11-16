@@ -192,7 +192,7 @@ dotnet run
 ### **File I/O** (17 tools + 2 HTTP endpoints)
 - Foundation: `prepare_file_upload` · `cancel_file_transfer`
 - CK Model Imports: `import_ck_model` · `import_runtime_model`
-- CK Model Validation: `validate_ck_model` (AB#8492, Risk Low: a zipped source `ConstructionKit/` folder or a compiled model is compiled and checked against the tenant's installed models; returns `isValid` or errors with `messageNumber`, `file`, `elementPath`; nothing is imported, the upload is kept)
+- CK Model Validation: `validate_ck_model` (AB#8492, Risk Low: a zipped source `ConstructionKit/` folder or a compiled model is compiled and checked against the tenant's installed models; returns `isValid` or errors with `messageNumber`, `file`, `elementPath`; nothing is imported, the upload is kept; AB#9005: the draft can also be passed inline as `files` name/content pairs or `zipBase64`, up to 1 MiB and 2000 files, over the limit refused with `InlineDraftTooLarge` / message 9005)
 - CK Model Exports: `export_runtime_model_by_query` · `export_runtime_model_by_deep_graph`
 - Tenant Backup: `dump_tenant` · `restore_tenant`<sup>‡</sup>
 - Archive Data: `export_archive_data` · `import_archive_data`
