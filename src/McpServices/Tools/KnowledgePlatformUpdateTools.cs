@@ -115,6 +115,8 @@ public static class KnowledgePlatformUpdateTools
             return new KnowledgeAdoptPlatformUpdatesResponse { TenantId = ctx.TenantId, ErrorMessage = modelError };
         }
 
+        // Built before the run: when it fails part-way, the pages already switched (committed) stay in the answer.
+        var response = new KnowledgeAdoptPlatformUpdatesResponse { TenantId = ctx.TenantId, RunRef = runRef };
         try
         {
             PlatformUpdateScan scan;
@@ -123,10 +125,7 @@ public static class KnowledgePlatformUpdateTools
                 scan = await KnowledgePlatformUpdates.FindAsync(ctx.Repo, scanSession);
             }
 
-            var response = new KnowledgeAdoptPlatformUpdatesResponse
-            {
-                TenantId = ctx.TenantId, RunRef = runRef, Truncated = scan.Truncated
-            };
+            response.Truncated = scan.Truncated;
             foreach (var update in scan.Updates)
             {
                 if (update.State == PlatformUpdateState.Available)
@@ -176,7 +175,9 @@ public static class KnowledgePlatformUpdateTools
         }
         catch (Exception ex)
         {
-            return new KnowledgeAdoptPlatformUpdatesResponse { TenantId = ctx.TenantId, ErrorMessage = ex.Message };
+            response.IsSuccess = false;
+            response.ErrorMessage = ex.Message;
+            return response;
         }
     }
 

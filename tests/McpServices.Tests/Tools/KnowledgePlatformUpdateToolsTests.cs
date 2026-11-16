@@ -131,8 +131,16 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
     private int _transactionsStarted;
     private readonly List<Mock<IOctoSession>> _sessions = [];
 
+    private int _sessionsOpened;
+    private int? _failSessionNumber;
+
     private IOctoSession OneTransactionSession()
     {
+        if (++_sessionsOpened == _failSessionNumber)
+        {
+            throw new InvalidOperationException("database unreachable");
+        }
+
         var started = false;
         var session = new Mock<IOctoSession>();
         _sessions.Add(session);
@@ -489,6 +497,26 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
         _sessions.Count(m => m.Invocations.Any(i => i.Method.Name == nameof(IOctoSession.CommitTransactionAsync)))
             .Should().Be(3, "each page commits on the session that started its transaction");
         (await ListAsync()).Updates.Should().NotContain(u => u.State == "Adoptable");
+    }
+
+    [Fact]
+    public async Task ASessionThatCannotBeOpened_FailsTheRun_AndKeepsThePagesAlreadyAdopted()
+    {
+        var first = SeedPage("page-a");
+        SeedVersion(first, 2, "a v2");
+        var second = SeedPage("page-b");
+        SeedVersion(second, 2, "b v2");
+        _sessionsOpened = 0;
+        _failSessionNumber = 3; // scan session, page-a, then page-b fails
+
+        var result = await AdoptAsync();
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be("database unreachable");
+        result.RunRef.Should().Be(RunRef);
+        result.Adopted.Should().ContainSingle(a => a.Slug == "page-a", "page-a was committed before the failure");
+        Current(first).Should().Be(2);
+        Current(second).Should().Be(1);
     }
 
     [Fact]
