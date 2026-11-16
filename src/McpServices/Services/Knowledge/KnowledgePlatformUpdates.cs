@@ -184,11 +184,9 @@ internal static class KnowledgePlatformUpdates
         var slugs = pages.Select(p => p.RtWellKnownName!).ToHashSet(StringComparer.Ordinal);
         var requested = new HashSet<string>(StringComparer.Ordinal);
         var loaded = new List<RtEntity>();
-        var next = pages.SelectMany(p => new[]
-        {
-            KnowledgePages.VersionName(p.RtWellKnownName!, KnowledgePages.CurrentVersion(p)),
-            KnowledgePages.VersionName(p.RtWellKnownName!, 1)
-        }).ToList();
+        var next = pages.SelectMany(p =>
+            KnowledgePages.VersionNames(p.RtWellKnownName!, KnowledgePages.CurrentVersion(p))
+                .Concat(KnowledgePages.VersionNames(p.RtWellKnownName!, 1))).ToList();
         for (var round = 0; next.Count > 0 && round < MaxChainRounds; round++)
         {
             requested.UnionWith(next);
@@ -292,28 +290,39 @@ internal static class KnowledgePlatformUpdates
     ///     the highest Blueprint version number in it (0 when none; every Blueprint version up to it is superseded for the
     ///     update rule). The chain follows <c>BaseVersion</c> and
     ///     <c>RestoredFromVersion</c> of the tenant versions and always contains the first version <c>@1</c>. Where a
-    ///     number has a tenant version and a Blueprint version, the tenant version is the one in the chain (it was written
-    ///     first; the seed arrived with a used number). A version that is missing ends its chain.
+    ///     number has a tenant version and a Blueprint version, the current version and <c>BaseVersion</c> name the tenant
+    ///     version (it was written first; the seed arrived with a used number) and <c>RestoredFromVersion</c> names the
+    ///     Blueprint version, as knowledge_restore_version resolves it (AB#9103). A version that is missing ends its chain.
     /// </summary>
     public static (IReadOnlyList<KnowledgeVersionInfo> Versions, int NewestBlueprint) Ancestors(
         IReadOnlyList<KnowledgeVersionInfo> versions, int current)
     {
-        var byNumber = versions.GroupBy(v => v.Number)
-            .ToDictionary(g => g.Key, g => g.Any(v => !v.IsBlueprint) ? g.Where(v => !v.IsBlueprint).ToList() : g.ToList());
+        // AB#9103: a number can name a tenant version (<slug>@t<n>) and a Blueprint version (<slug>@<n>) at once - the
+        // tenant wrote it first, the seed arrived later. The current version and BaseVersion name the page as it was
+        // (the tenant version); RestoredFromVersion names what a restore copied, and knowledge_restore_version resolves a
+        // shared number to the Blueprint version (KnowledgePages.FindVersionAsync) - so the chain does the same.
+        var byNumber = versions.GroupBy(v => v.Number).ToDictionary(g => g.Key, g => g.ToList());
         var chain = new List<KnowledgeVersionInfo>();
         var newest = 0;
-        var seen = new HashSet<int>();
-        var queue = new Queue<int>([current, 1]);
+        var seen = new HashSet<(int, bool)>();
+        var queue = new Queue<(int Number, bool PreferBlueprint)>([(current, false), (1, false)]);
         while (queue.Count > 0)
         {
-            var number = queue.Dequeue();
-            if (!seen.Add(number) || !byNumber.TryGetValue(number, out var atNumber))
+            var (number, preferBlueprint) = queue.Dequeue();
+            if (!seen.Add((number, preferBlueprint)) || !byNumber.TryGetValue(number, out var all))
             {
                 continue;
             }
 
+            var preferred = all.Where(v => v.IsBlueprint == preferBlueprint).ToList();
+            var atNumber = preferred.Count > 0 ? preferred : all;
             foreach (var version in atNumber)
             {
+                if (chain.Any(c => c.Entity.RtId == version.Entity.RtId))
+                {
+                    continue;
+                }
+
                 chain.Add(version);
                 if (version.IsBlueprint)
                 {
@@ -323,12 +332,12 @@ internal static class KnowledgePlatformUpdates
 
                 if (version.BaseVersion is { } parent)
                 {
-                    queue.Enqueue(parent);
+                    queue.Enqueue((parent, false));
                 }
 
                 if (version.RestoredFromVersion is { } restored)
                 {
-                    queue.Enqueue(restored);
+                    queue.Enqueue((restored, true));
                 }
             }
         }
@@ -349,7 +358,11 @@ internal static class KnowledgePlatformUpdates
         {
             if (IntOrNull(version.GetAttributeValueOrDefault(attribute)) is { } number)
             {
-                yield return KnowledgePages.VersionName(slug, number);
+                // AB#9103: a parent may be a Blueprint version (<slug>@<n>) or a tenant version (<slug>@t<n>).
+                foreach (var name in KnowledgePages.VersionNames(slug, number))
+                {
+                    yield return name;
+                }
             }
         }
     }
@@ -386,7 +399,7 @@ internal static class KnowledgePlatformUpdates
         }
 
         var at = versionName.LastIndexOf('@');
-        return at > 0 && int.TryParse(versionName[(at + 1)..], NumberStyles.None, CultureInfo.InvariantCulture, out _)
+        return at > 0 && NumberOfKey(versionName[(at + 1)..]) != null
             ? versionName[..at]
             : null;
     }
@@ -402,12 +415,21 @@ internal static class KnowledgePlatformUpdates
         {
             int i => i,
             long l => (int)l,
-            _ => int.Parse(version.RtWellKnownName![(version.RtWellKnownName!.LastIndexOf('@') + 1)..],
-                CultureInfo.InvariantCulture)
+            _ => NumberOfKey(version.RtWellKnownName![(version.RtWellKnownName!.LastIndexOf('@') + 1)..])!.Value
         };
         return new KnowledgeVersionInfo(version, number, IsBlueprintVersion(version),
             IntOrNull(version.GetAttributeValueOrDefault(BaseVersionAttribute)),
             IntOrNull(version.GetAttributeValueOrDefault("RestoredFromVersion")));
+    }
+
+    /// <summary>
+    ///     The number of a version key suffix: <c>3</c> (Blueprint, or a tenant version written before AB#9103) or
+    ///     <c>t3</c> (tenant version, AB#9103); <c>null</c> for anything else.
+    /// </summary>
+    internal static int? NumberOfKey(string suffix)
+    {
+        var digits = suffix.StartsWith('t') ? suffix[1..] : suffix;
+        return int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var number) ? number : null;
     }
 
     /// <summary>True when the page shows exactly the content (and status) of the version.</summary>

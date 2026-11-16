@@ -2,7 +2,29 @@
 
 ## Unreleased
 
+### Added
+
+- **AB#9087** — Knowledge first. The MCP `initialize` result carries `instructions` (a code constant, not tenant-writable):
+  for questions on how to build, administer, deploy or diagnose on OctoMesh call `knowledge_search` first, read pages with
+  `knowledge_get`, cite `[slug]`, follow the returned answering conventions; it lists the area index pages `admin-index`,
+  `app-index`, `pipeline-index`, `deploy-index` and `diagnose-index`. New MCP prompt `octomesh-knowledge-first` (argument
+  `question`) wraps a question with these steps. `knowledge_search` gets the new field `builderKnowledgeHint` when the
+  tenant has no Skill page (blueprint `System.Ai.Builder` not installed; opt-in via `InstallBlueprint -b
+  System.Ai.Builder-<version>` or `install_blueprint`); existing fields are unchanged. When the listed or matched pages
+  hold no Skill page, one query for a single page of kind Skill decides (independent of the tenant's page count). Server options and capabilities are
+  registered through `McpServerSetup` (host and protocol tests).
+
 ### Fixed
+
+- **AB#9103** — An edited knowledge page lost its platform update silently: the tenant's edit took the key `<slug>@2`,
+  the blueprint update shipped its own `<slug>@2`, and UpdateBlueprint kept the tenant entity under the shared key
+  (found by the local M1 verification, System.Ai.Builder 1.0.0 -> 1.1.0). Versions written by the knowledge tools are
+  now keyed `<slug>@t<n>` (decision Odin 2026-11-16); `<slug>@<n>` belongs to the blueprint. `VersionNumber` stays one
+  sequence; version lookups by number read both keys (`KnowledgePages.VersionNames`, `FindVersionAsync`); a shared
+  number names the Blueprint version for `knowledge_get` / `knowledge_restore_version` and in `RestoredFromVersion`
+  chains, the tenant version for the current version and `BaseVersion`; `knowledge_get` and `knowledge_restore_version`
+  take `tenantVersion: true` to name the tenant one. Existing tenant versions keep their plain key (no migration), so a
+  blueprint version with the number of such an old tenant version is still held back - only test tenants have them.
 
 - **AB#9023** — `validate_pipeline_definition` reported `nodeCount: 0` for pipelines without a root `nodes` array. It now
   counts every node: the root `triggers`, `transformations` and legacy `nodes` lists and the node lists nested in control

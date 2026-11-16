@@ -131,6 +131,14 @@ public class KnowledgeSearchResponse : KnowledgeResponse
     ///     for the built-in text.
     /// </summary>
     public string? AnsweringConventionsSource { get; set; }
+
+    /// <summary>
+    ///     Set when the tenant has no Skill page (AB#9087): the OctoMesh builder knowledge (blueprint
+    ///     <c>System.Ai.Builder</c>) is not installed, and the hint says how a tenant administrator installs it (opt-in,
+    ///     <c>InstallBlueprint -b System.Ai.Builder-&lt;version&gt;</c> or the MCP tool <c>install_blueprint</c>).
+    ///     <c>null</c> when the tenant has Skill pages.
+    /// </summary>
+    public string? BuilderKnowledgeHint { get; set; }
 }
 
 /// <summary>Result of <c>knowledge_get</c>.</summary>

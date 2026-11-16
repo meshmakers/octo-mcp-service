@@ -288,7 +288,31 @@ with `answeringConventionsSource` (AB#8712).
   refused with `NotEdited` for an unedited page, whose update is adopted). Verified
   (AB#8565): the adopt copies the status of a seeded Blueprint version onto a page whose current version is itself a
   seeded Blueprint version; no caller chooses it, and edited pages never get it. Page writes take the next free version
-  number (`<slug>@<n>` is never written twice).
+  number. **Version keys** (AB#9103): a version written in the tenant is keyed `<slug>@t<n>`; `<slug>@<n>` belongs to the
+  blueprint seed. So an edit made before a platform update never takes the key of the blueprint's next version (before,
+  UpdateBlueprint kept the tenant entity under the shared key and the update was lost without a finding). The number
+  (`VersionNumber`) stays one sequence; when a tenant version and a later Blueprint version share it, `knowledge_get` /
+  `knowledge_restore_version` with that number name the Blueprint version (the one a PlatformUpdateAvailable finding
+  reports; `tenantVersion: true` names the tenant one), while the page's current version and `BaseVersion` name the tenant one. Tenant versions written before
+  AB#9103 keep their plain key (no migration).
+
+### **Knowledge first: server instructions, prompt and fallback** (AB#9087)
+Every MCP client connected to OctoMesh is told to consult the knowledge base first.
+- **Server instructions.** The `initialize` result carries `instructions`: for questions on how to build, administer,
+  deploy or diagnose something on OctoMesh, call `knowledge_search` first, read the pages used with `knowledge_get`, cite
+  each by `[slug]` and follow the `answeringConventions` of the search. The text lists the five area index pages
+  `admin-index` (Administer a tenant), `app-index` (Build an app), `pipeline-index` (Build data pipelines),
+  `deploy-index` (Deploy and promote) and `diagnose-index` (Diagnose and fix). It is a code constant
+  (`KnowledgeFirst.ServerInstructions`), not tenant data, so no tenant can put instructions into client sessions (same
+  reason as the built-in answering conventions). Host and tests register the server through `McpServerSetup`.
+- **Prompt `octomesh-knowledge-first`** (argument `question`, required). `prompts/get` returns one user message: the same
+  steps and index pages, then `Question: <question>`. An empty question is an error.
+- **Fallback for tenants without System.Ai.Builder.** The builder knowledge (Skill pages) comes with the opt-in blueprint
+  `System.Ai.Builder`. When the tenant has no Skill page the caller can read, `knowledge_search` adds
+  `builderKnowledgeHint`: how a tenant administrator installs it (`octo-cli InstallBlueprint -b System.Ai.Builder-<version>`
+  or the MCP tool `install_blueprint`, versions from `list_blueprints`); it is `null` otherwise. The other fields of the
+  result are unchanged. The search decides from the pages it read when one is a Skill page or when it listed the index;
+  otherwise it reads one page list (without text search, at most 100 pages) with the caller's session.
 
 ### **CK attribute access in the generic tools** (AB#8043)
 - The generic CRUD, query and aggregation tools read and write the tenant database directly, so they apply the CK `access` rules themselves, with the same error codes as the asset-repo GraphQL API.
