@@ -1465,7 +1465,8 @@ public class KnowledgeToolsTests : TestBase
         var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Okapi");
 
         result.Message.Should().StartWith("No knowledge page matches.")
-            .And.Contain("If a search with other words (or without a filter) finds no page either")
+            .And.Contain("If no page you opened for this answer supports any part of the question")
+            .And.Contain("A part that opened pages support stays answered.")
             .And.Contain("reply with exactly the sentence `No knowledge page answers this question.`, cite no page");
     }
 

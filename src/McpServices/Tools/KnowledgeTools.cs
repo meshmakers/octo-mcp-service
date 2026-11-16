@@ -44,7 +44,8 @@ public static class KnowledgeTools
         "title). Every result carries answeringConventions: the 'Answering questions' section of the tenant's schema page " +
         "'knowledge-schema' (its newest Verified version while the page is Draft, or a built-in default, see " +
         "answeringConventionsSource). Follow them when you answer: answer " +
-        "only from pages, cite every page you opened with knowledge_get by its slug, and do not invent. " +
+        "only from pages, cite each page that supports the answer by its slug (only pages opened with knowledge_get), " +
+        "and do not invent. " +
         "Every result also carries answeringRules, fixed rules on top of the conventions: cite only pages you opened " +
         "with knowledge_get for this answer, and when no page answers reply with exactly 'No knowledge page answers " +
         "this question.' and cite no page. " +
@@ -130,9 +131,10 @@ public static class KnowledgeTools
                 AnsweringRules = KnowledgeConventions.AnsweringRules,
                 BuilderKnowledgeHint = hasSkillPages ? null : KnowledgeFirst.BuilderKnowledgeHint,
                 Message = pages.Count == 0
-                    ? "No knowledge page matches. If a search with other words (or without a filter) finds no page either, " +
-                      "reply with exactly the sentence `" + KnowledgeConventions.NoAnswerSentence +
-                      "`, cite no page and do not answer from general knowledge."
+                    ? "No knowledge page matches. If no page you opened for this answer supports any part of the question and a " +
+                      "search with other words (or without a filter) finds no page either, reply with exactly the sentence `" +
+                      KnowledgeConventions.NoAnswerSentence + "`, cite no page and do not answer from general knowledge. " +
+                      "A part that opened pages support stays answered."
                     : ignoredQuery
                         ? $"The query has no word of 3 or more characters, so this is the index of all pages, not a match: {pages.Count} page(s)."
                         : $"{pages.Count} page(s)."
