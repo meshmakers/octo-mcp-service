@@ -25,6 +25,12 @@ public static class KnowledgeTools
 {
     private const int MaxSearchCandidates = 200;
 
+    /// <summary>
+    ///     Pages read (without text search) to find out whether the tenant has a Skill page when the matched pages hold
+    ///     none (AB#9087). Different from <see cref="MaxSearchCandidates" /> so the probe is told apart from the page list.
+    /// </summary>
+    internal const int SkillProbeCandidates = 100;
+
     /// <summary>Searches the knowledge pages of the tenant, best match first.</summary>
     [McpServerTool(Name = "knowledge_search")]
     [Description(
@@ -36,7 +42,9 @@ public static class KnowledgeTools
         "title). Every result carries answeringConventions: the 'Answering questions' section of the tenant's schema page " +
         "'knowledge-schema' (its newest Verified version while the page is Draft, or a built-in default, see " +
         "answeringConventionsSource). Follow them when you answer: answer " +
-        "only from pages, cite every page you read by its slug, and say so when no page answers instead of inventing.")]
+        "only from pages, cite every page you read by its slug, and say so when no page answers instead of inventing. " +
+        "When the tenant has no Skill pages (the OctoMesh builder knowledge, blueprint System.Ai.Builder, is not " +
+        "installed), builderKnowledgeHint says how a tenant administrator installs it.")]
     public static async Task<KnowledgeSearchResponse> KnowledgeSearch(
         McpServer server,
         [Description("Words to search for (title, summary and section content; words of 3 or more characters). Empty: " +
@@ -81,8 +89,10 @@ public static class KnowledgeTools
             var isSearch = terms.Length > 0;
             var candidates = await KnowledgePages.ListPagesAsync(ctx.Repo, session, isSearch ? query : null,
                 MaxSearchCandidates);
-            var pages = candidates
+            var contents = candidates
                 .Select(p => (Page: p, Content: KnowledgePages.ReadContent(p)))
+                .ToList();
+            var pages = contents
                 .Where(x => kindFilter == null || x.Content.Kind == kindFilter)
                 .Where(x => statusFilter == null || x.Content.Status == statusFilter)
                 .Select(x => KnowledgePages.Summarize(ctx.TenantId!, x.Page, Score(x.Content, terms)))
@@ -94,6 +104,8 @@ public static class KnowledgeTools
                 .ToList();
 
             var ignoredQuery = !isSearch && !string.IsNullOrWhiteSpace(query);
+            // AB#9087: without a Skill page the tenant lacks the builder knowledge (System.Ai.Builder); say how to get it.
+            var hasSkillPages = await HasSkillPagesAsync(ctx.Repo, session, contents.Select(x => x.Content), isSearch);
             // AB#8712: the answering conventions with every result, read with the caller's own session.
             var conventions = await KnowledgeConventions.ReadAsync(ctx.Repo, session, ctx.TenantId!,
                 server.Services?.GetService<KnowledgeConventionsCache>());
@@ -104,6 +116,7 @@ public static class KnowledgeTools
                 Pages = pages,
                 AnsweringConventions = conventions.Text,
                 AnsweringConventionsSource = conventions.Source,
+                BuilderKnowledgeHint = hasSkillPages ? null : KnowledgeFirst.BuilderKnowledgeHint,
                 Message = pages.Count == 0
                     ? "No knowledge page matches. Say so instead of answering from general knowledge."
                     : ignoredQuery
@@ -114,6 +127,36 @@ public static class KnowledgeTools
         catch (Exception ex)
         {
             return new KnowledgeSearchResponse { TenantId = ctx.TenantId, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>
+    ///     True when the tenant has a Skill page the caller can read (AB#9087). The pages already read decide when one of
+    ///     them is a Skill page, or when they are the unfiltered index (no text search); otherwise one page list without
+    ///     text search is read with the caller's session. Never fails the search: a failed probe counts as "has Skill
+    ///     pages" (no hint), since a wrong install hint is worse than a missing one.
+    /// </summary>
+    private static async Task<bool> HasSkillPagesAsync(ITenantRepository repository, IOctoSession session,
+        IEnumerable<KnowledgeContent> read, bool wasTextSearch)
+    {
+        if (read.Any(c => c.Kind == KnowledgeFirst.SkillKind))
+        {
+            return true;
+        }
+
+        if (!wasTextSearch)
+        {
+            return false;
+        }
+
+        try
+        {
+            var all = await KnowledgePages.ListPagesAsync(repository, session, null, SkillProbeCandidates);
+            return all.Any(p => KnowledgePages.ReadContent(p).Kind == KnowledgeFirst.SkillKind);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return true;
         }
     }
 

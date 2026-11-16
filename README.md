@@ -290,6 +290,24 @@ with `answeringConventionsSource` (AB#8712).
   seeded Blueprint version; no caller chooses it, and edited pages never get it. Page writes take the next free version
   number (`<slug>@<n>` is never written twice).
 
+### **Knowledge first: server instructions, prompt and fallback** (AB#9087)
+Every MCP client connected to OctoMesh is told to consult the knowledge base first.
+- **Server instructions.** The `initialize` result carries `instructions`: for questions on how to build, administer,
+  deploy or diagnose something on OctoMesh, call `knowledge_search` first, read the pages used with `knowledge_get`, cite
+  each by `[slug]` and follow the `answeringConventions` of the search. The text lists the five area index pages
+  `admin-index` (Administer a tenant), `app-index` (Build an app), `pipeline-index` (Build data pipelines),
+  `deploy-index` (Deploy and promote) and `diagnose-index` (Diagnose and fix). It is a code constant
+  (`KnowledgeFirst.ServerInstructions`), not tenant data, so no tenant can put instructions into client sessions (same
+  reason as the built-in answering conventions). Host and tests register the server through `McpServerSetup`.
+- **Prompt `octomesh-knowledge-first`** (argument `question`, required). `prompts/get` returns one user message: the same
+  steps and index pages, then `Question: <question>`. An empty question is an error.
+- **Fallback for tenants without System.Ai.Builder.** The builder knowledge (Skill pages) comes with the opt-in blueprint
+  `System.Ai.Builder`. When the tenant has no Skill page the caller can read, `knowledge_search` adds
+  `builderKnowledgeHint`: how a tenant administrator installs it (`octo-cli InstallBlueprint -b System.Ai.Builder-<version>`
+  or the MCP tool `install_blueprint`, versions from `list_blueprints`); it is `null` otherwise. The other fields of the
+  result are unchanged. The search decides from the pages it read when one is a Skill page or when it listed the index;
+  otherwise it reads one page list (without text search, at most 100 pages) with the caller's session.
+
 ### **CK attribute access in the generic tools** (AB#8043)
 - The generic CRUD, query and aggregation tools read and write the tenant database directly, so they apply the CK `access` rules themselves, with the same error codes as the asset-repo GraphQL API.
 - `Hidden` attributes (e.g. `passwordHash`, `securityStamp`, `userTokens` of `System.Identity/User`) are never returned — not by `get_entity_by_id`, `query_entities*`, `navigate_associations`, `get_association_tree`, `execute_runtime_query`, a write response or a conflict payload — and cannot be filtered on (any operator, `IsNull` included), aggregated or grouped by: `ATTRIBUTE_NOT_QUERYABLE`. A stored query whose filter, sort, columns or group-by reach a Hidden attribute is neither stored by `create_entity` / `update_entity` nor run by `execute_runtime_query`.

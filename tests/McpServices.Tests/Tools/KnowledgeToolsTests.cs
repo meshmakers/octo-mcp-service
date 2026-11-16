@@ -46,6 +46,9 @@ public class KnowledgeToolsTests : TestBase
     ///     knowledge-schema (score 0) for "Zebrafisch" in the hand test; the tool alone must drop such pages.
     /// </summary>
     private bool _textIndexReturnsEveryPage;
+
+    /// <summary>Number of Skill page probes of knowledge_search (AB#9087).</summary>
+    private int _skillProbes;
     private readonly List<(RtEntityId Origin, RtEntityId Target, string Role)> _associations = [];
 
     public KnowledgeToolsTests()
@@ -75,7 +78,12 @@ public class KnowledgeToolsTests : TestBase
                 // Page list queries only: KnowledgePages.FindBySlugAsync (take 2) looks up one page by its name, e.g.
                 // the schema page for the answering conventions (AB#8712); version reads (the Verified fallback of the
                 // conventions, AB#8780) are no page list either.
-                if (take != 2 && Equals(type, KnowledgePages.PageTypeId))
+                // The Skill page probe of knowledge_search (AB#9087) is counted on its own.
+                if (take == KnowledgeTools.SkillProbeCandidates && Equals(type, KnowledgePages.PageTypeId))
+                {
+                    _skillProbes++;
+                }
+                else if (take != 2 && Equals(type, KnowledgePages.PageTypeId))
                 {
                     _textSearches.Add(textSearch);
                 }
@@ -1585,5 +1593,97 @@ public class KnowledgeToolsTests : TestBase
                 It.IsAny<Meshmakers.Octo.Runtime.Contracts.Secrets.SecretAccessContext?>()))
             .Returns(plaintext);
         return protector.Object;
+    }
+
+    private Task<KnowledgeWriteResponse> UpsertSkillAsync(string slug, string title, string body) =>
+        KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, slug, title,
+            [new KnowledgeSectionDto { Heading = "Summary", SectionContent = body }], kind: "Skill",
+            cancellationToken: Ct);
+
+    [Fact]
+    public async Task Search_TenantWithoutSkillPages_CarriesTheBuilderKnowledgeHint()
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch");
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        // The result shape is unchanged; the hint is an extra field.
+        result.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-pipeline");
+        result.BuilderKnowledgeHint.Should().Be(KnowledgeFirst.BuilderKnowledgeHint);
+        result.BuilderKnowledgeHint.Should().Contain("InstallBlueprint -b System.Ai.Builder-<version>")
+            .And.Contain("install_blueprint").And.Contain("opt-in");
+        _skillProbes.Should().Be(1, "the matched pages hold no Skill page, so the tenant is probed once");
+    }
+
+    [Fact]
+    public async Task Search_NoMatch_InATenantWithoutSkillPages_CarriesTheHint()
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Walross");
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Pages.Should().BeEmpty();
+        result.Message.Should().StartWith("No knowledge page matches.");
+        result.BuilderKnowledgeHint.Should().Be(KnowledgeFirst.BuilderKnowledgeHint);
+    }
+
+    [Fact]
+    public async Task Search_MatchingASkillPage_HasNoHint_AndNoProbe()
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+        (await UpsertSkillAsync("deploy-index", "Deploy and promote", "Zebrafisch deployment steps.")).IsSuccess
+            .Should().BeTrue();
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch");
+
+        result.Pages.Should().Contain(p => p.Kind == "Skill");
+        result.BuilderKnowledgeHint.Should().BeNull();
+        _skillProbes.Should().Be(0, "a matched Skill page already shows the builder knowledge");
+    }
+
+    [Fact]
+    public async Task Search_WithoutSkillPageInTheResult_InATenantWithSkillPages_HasNoHint()
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+        await UpsertSkillAsync("admin-index", "Administer a tenant", "Users, roles and groups.");
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch", kind: "HowTo");
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Pages.Should().NotContain(p => p.Kind == "Skill");
+        result.BuilderKnowledgeHint.Should().BeNull("the tenant has the builder knowledge, only not for this query");
+        _skillProbes.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Index_DecidesTheHintFromTheListedPages_WithoutAProbe()
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+
+        var withoutSkill = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
+        await UpsertSkillAsync("app-index", "Build an app", "Model, pipelines, blueprint.");
+        var withSkill = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
+
+        withoutSkill.BuilderKnowledgeHint.Should().Be(KnowledgeFirst.BuilderKnowledgeHint);
+        withSkill.BuilderKnowledgeHint.Should().BeNull();
+        _skillProbes.Should().Be(0, "the index is the unfiltered page list");
+    }
+
+    [Fact]
+    public async Task Search_WhenTheSkillProbeFails_StillAnswers_WithoutAHint()
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+        MockTenantRepository
+            .Setup(r => r.GetRtEntitiesByTypeAsync(It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(), It.IsAny<int?>(), KnowledgeTools.SkillProbeCandidates))
+            .ThrowsAsync(new InvalidOperationException("probe failed"));
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch");
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-pipeline");
+        result.BuilderKnowledgeHint.Should().BeNull("a failed probe must not show a wrong install hint");
     }
 }

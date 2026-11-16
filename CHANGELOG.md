@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- **AB#9087** — Knowledge first. The MCP `initialize` result carries `instructions` (a code constant, not tenant-writable):
+  for questions on how to build, administer, deploy or diagnose on OctoMesh call `knowledge_search` first, read pages with
+  `knowledge_get`, cite `[slug]`, follow the returned answering conventions; it lists the area index pages `admin-index`,
+  `app-index`, `pipeline-index`, `deploy-index` and `diagnose-index`. New MCP prompt `octomesh-knowledge-first` (argument
+  `question`) wraps a question with these steps. `knowledge_search` gets the new field `builderKnowledgeHint` when the
+  tenant has no Skill page (blueprint `System.Ai.Builder` not installed; opt-in via `InstallBlueprint -b
+  System.Ai.Builder-<version>` or `install_blueprint`); existing fields are unchanged. Server options and capabilities are
+  registered through `McpServerSetup` (host and protocol tests).
+
 ### Fixed
 
 - **AB#9023** — `validate_pipeline_definition` reported `nodeCount: 0` for pipelines without a root `nodes` array. It now

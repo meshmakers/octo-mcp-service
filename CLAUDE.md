@@ -23,7 +23,7 @@ dotnet build src/McpServices/McpServices.csproj -c DebugL
 # Build the entire solution (server + tests + resources)
 dotnet build Octo.McpServices.sln -c DebugL
 
-# Run all tests (currently 1329, ~2 s)
+# Run all tests (currently 1893, ~2 s)
 dotnet test Octo.McpServices.sln -c DebugL
 
 # Filter tests by class
@@ -1275,6 +1275,22 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
 - **Only write path**: the generic entity tools and `import_runtime_model` refuse the knowledge types (AB#8568, see
   "Knowledge types are written only by the knowledge tools"). There is no knowledge delete tool; pages are set to `Rejected`.
 - Tests: `Tools/KnowledgeToolsTests` (in-memory repository that applies inserts, updates and associations like the engine).
+
+### Knowledge first: instructions, prompt, fallback (AB#9087)
+
+- The `initialize` result's `instructions` come from `KnowledgeFirst.ServerInstructions`
+  (`Services/Knowledge/KnowledgeFirst.cs`), a `const` - never make it tenant-configurable (tenant text in every client
+  session is an injection path; same reason as `KnowledgeConventions`). The five area index slugs live there too.
+- Server options and capabilities are registered only through `Configuration/McpServerSetup.cs`
+  (`AddMcpServer(McpServerSetup.ConfigureOptions)...WithOctoCapabilities()`: tools, resources, prompts of the
+  assembly). `tests/McpServices.Tests/Prompts/KnowledgeFirstProtocolTests.cs` registers the same setup over in-memory
+  pipes and asserts the real `initialize`, `prompts/list` and `prompts/get` responses - use that pattern for any other
+  protocol-level assertion.
+- Prompts are `[McpServerPromptType]` classes in `src/McpServices/Prompts/` (`octomesh-knowledge-first`, argument
+  `question`).
+- `knowledge_search` sets `builderKnowledgeHint` when the tenant has no Skill page (kind 4; blueprint
+  `System.Ai.Builder` missing). It decides from the read pages when possible, otherwise it reads one probe page list
+  (`KnowledgeTools.SkillProbeCandidates`, no text search); the test mock counts the probe separately (`_skillProbes`).
 
 ## Test Infrastructure
 
