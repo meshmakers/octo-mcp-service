@@ -44,7 +44,8 @@ public static class KnowledgeTools
         "title). Every result carries answeringConventions: the 'Answering questions' section of the tenant's schema page " +
         "'knowledge-schema' (its newest Verified version while the page is Draft, or a built-in default, see " +
         "answeringConventionsSource). Follow them when you answer: answer " +
-        "only from pages, cite each page that supports the answer by its slug (only pages opened with knowledge_get), " +
+        "only from pages and the descriptions of this server's tools, cite each page that supports the answer by its " +
+        "slug (only pages opened with knowledge_get), " +
         "and do not invent. " +
         "Every result also carries answeringRules, fixed rules on top of the conventions: cite only pages you opened " +
         "with knowledge_get for this answer, cite a tool of this server whose description you rely on as " +

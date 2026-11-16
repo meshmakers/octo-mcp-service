@@ -1482,11 +1482,11 @@ public class KnowledgeToolsTests : TestBase
         var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch");
 
         result.AnsweringRules.Should()
-            .Contain(KnowledgeConventions.ToolRule)
-            .And.Contain("The description of one of this server's own tools is also a source when you recommend or use " +
+            .Contain("The description of one of this server's own tools is also a source when you recommend or use " +
                          "that tool")
             .And.Contain("cite it as [tool:<name>]")
-            .And.Contain("[tool:add_client_to_role]")
+            .And.Contain("right after the statement it supports, e.g. [tool:add_client_to_role].")
+            .And.Contain("Cite only a tool in this server's tool list, and only for what its description says.")
             .And.Contain("Cite only pages you opened with knowledge_get for this answer.", "page citations stay strict")
             .And.Contain("If neither a page you opened nor one of this server's tools answers the question",
                 "the no-answer sentence applies only when neither a page nor a tool answers");
@@ -1494,6 +1494,21 @@ public class KnowledgeToolsTests : TestBase
             .BeLessThan(result.AnsweringRules.IndexOf(KnowledgeConventions.ToolRule, StringComparison.Ordinal));
         result.AnsweringRules.IndexOf(KnowledgeConventions.ToolRule, StringComparison.Ordinal).Should()
             .BeLessThan(result.AnsweringRules.IndexOf(KnowledgeConventions.NoAnswerRule, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PageOnlyTexts_AlsoAllowThisServersToolDescriptions()
+    {
+        // AB#9148 (local review): the search description, the fallback and the builder hint must not contradict the rule.
+        var description = typeof(KnowledgeTools).GetMethod(nameof(KnowledgeTools.KnowledgeSearch))!
+            .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+            .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+        description.Should().Contain("answer only from pages and the descriptions of this server's tools")
+            .And.Contain("[tool:<name>]");
+        foreach (var text in new[] { KnowledgeFirst.FallbackText, KnowledgeFirst.BuilderKnowledgeHint })
+        {
+            text.Should().Contain("answer only from the pages that exist and the descriptions of this server's tools");
+        }
     }
 
     [Fact]

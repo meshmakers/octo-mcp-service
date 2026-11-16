@@ -84,8 +84,8 @@ internal static class KnowledgeConventions
     /// </summary>
     public const string ToolRule =
         "The description of one of this server's own tools is also a source when you recommend or use that tool: cite " +
-        "it as [tool:<name>] right after the statement it supports, e.g. [tool:add_client_to_role]. Cite only tools " +
-        "this server lists.";
+        "it as [tool:<name>] right after the statement it supports, e.g. [tool:add_client_to_role]. Cite only a tool in " +
+        "this server's tool list, and only for what its description says.";
 
     /// <summary>
     ///     The no-answer rule of <see cref="AnsweringRules" /> (AB#9088, AB#9148): the fixed sentence and no citation, only
