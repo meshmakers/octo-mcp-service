@@ -82,7 +82,7 @@ internal static class CkDraftInlinePackager
         var path = NewTempPath(tempDirectory);
         try
         {
-            using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write);
+            using var stream = CreatePrivateFile(path);
             using var archive = new ZipArchive(stream, ZipArchiveMode.Create);
             foreach (var file in files)
             {
@@ -128,7 +128,8 @@ internal static class CkDraftInlinePackager
         var path = NewTempPath(tempDirectory);
         try
         {
-            File.WriteAllBytes(path, bytes);
+            using var stream = CreatePrivateFile(path);
+            stream.Write(bytes);
         }
         catch
         {
@@ -189,6 +190,18 @@ internal static class CkDraftInlinePackager
             $"{reason} Inline drafts are limited to {MaxInlineBytes} bytes and {MaxInlineFiles} files " +
             $"(message {InlineDraftTooLargeNumber}). Upload a larger draft with prepare_file_upload, PUT the zip to the " +
             "returned URL and call validate_ck_model with the transferId.");
+
+    /// <summary>Creates the temp zip readable by the service user only (the shared temp folder is world-readable).</summary>
+    private static FileStream CreatePrivateFile(string path)
+    {
+        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
+        if (!OperatingSystem.IsWindows())
+        {
+            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        }
+
+        return new FileStream(path, options);
+    }
 
     private static string NewTempPath(string tempDirectory) =>
         Path.Combine(tempDirectory, $"octo-mcp-ck-inline-{Guid.NewGuid():N}.zip");

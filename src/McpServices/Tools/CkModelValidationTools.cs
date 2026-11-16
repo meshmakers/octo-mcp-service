@@ -64,55 +64,55 @@ public sealed class CkModelValidationTools
             };
         }
 
-        string filePath;
         string? inlinePath = null;
-        if (hasUpload)
-        {
-            var store = server.Services!.GetRequiredService<IFileTransferStore>();
-            var upload = store.GetUpload(transferId!, McpSessionContext.GetCallerLabel(server));
-            if (upload == null)
-            {
-                return new CkModelValidationResponse
-                {
-                    IsSuccess = false,
-                    ErrorMessage = $"Upload '{transferId}' not found or expired."
-                };
-            }
-
-            filePath = upload.FilePath;
-        }
-        else
-        {
-            var packaged = CkDraftInlinePackager.Package(files, zipBase64, Path.GetTempPath());
-            if (packaged.TooLarge != null)
-            {
-                return new CkModelValidationResponse
-                {
-                    IsSuccess = false,
-                    ErrorCode = CkDraftInlinePackager.InlineDraftTooLargeCode,
-                    ErrorMessage = packaged.TooLarge,
-                    Errors =
-                    [
-                        new CkModelValidationMessageDto
-                        {
-                            MessageNumber = CkDraftInlinePackager.InlineDraftTooLargeNumber,
-                            Level = "Error",
-                            Message = packaged.TooLarge
-                        }
-                    ]
-                };
-            }
-
-            if (packaged.Error != null)
-            {
-                return new CkModelValidationResponse { IsSuccess = false, ErrorMessage = packaged.Error };
-            }
-
-            filePath = inlinePath = packaged.FilePath!;
-        }
-
         try
         {
+            string filePath;
+            if (hasUpload)
+            {
+                var store = server.Services!.GetRequiredService<IFileTransferStore>();
+                var upload = store.GetUpload(transferId!, McpSessionContext.GetCallerLabel(server));
+                if (upload == null)
+                {
+                    return new CkModelValidationResponse
+                    {
+                        IsSuccess = false,
+                        ErrorMessage = $"Upload '{transferId}' not found or expired."
+                    };
+                }
+
+                filePath = upload.FilePath;
+            }
+            else
+            {
+                var packaged = CkDraftInlinePackager.Package(files, zipBase64, Path.GetTempPath());
+                if (packaged.TooLarge != null)
+                {
+                    return new CkModelValidationResponse
+                    {
+                        IsSuccess = false,
+                        ErrorCode = CkDraftInlinePackager.InlineDraftTooLargeCode,
+                        ErrorMessage = packaged.TooLarge,
+                        Errors =
+                        [
+                            new CkModelValidationMessageDto
+                            {
+                                MessageNumber = CkDraftInlinePackager.InlineDraftTooLargeNumber,
+                                Level = "Error",
+                                Message = packaged.TooLarge
+                            }
+                        ]
+                    };
+                }
+
+                if (packaged.Error != null)
+                {
+                    return new CkModelValidationResponse { IsSuccess = false, ErrorMessage = packaged.Error };
+                }
+
+                filePath = inlinePath = packaged.FilePath!;
+            }
+
             var asset = await AssetClientContext.TryBuildAsync(server, tenantId);
             if (asset.Error != null)
             {

@@ -379,6 +379,74 @@ public class CkModelValidationToolsTests : ToolTestBase
         Directory.GetFiles(Path.GetTempPath(), "octo-mcp-ck-inline-*.zip").Length.Should().BeLessThanOrEqualTo(before);
     }
 
+    [Fact]
+    public async Task ValidateCkModel_InlineSingleCompiledModelFile_IsPostedAsAOneEntryZip()
+    {
+        List<string>? entries = null;
+        MockAssetClient.Setup(c => c.ValidateCkModelAsync(DefaultTenantId, It.IsAny<string>()))
+            .Callback<string, string>((_, path) =>
+            {
+                using var zip = ZipFile.OpenRead(path);
+                entries = zip.Entries.Select(e => e.FullName).ToList();
+            })
+            .ReturnsAsync(new CkModelValidationResponseDto { IsValid = true, SourceKind = "Compiled" });
+
+        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object,
+            files: [new CkDraftFileDto { Name = "ck-demo-1.yaml", Content = "modelId: Demo-1.0.0" }]);
+
+        result.SourceKind.Should().Be("Compiled");
+        entries.Should().Equal("ck-demo-1.yaml");
+    }
+
+    [Fact]
+    public async Task ValidateCkModel_InlineContentAtTheLimit_IsAccepted_CountedInUtf8Bytes()
+    {
+        MockAssetClient.Setup(c => c.ValidateCkModelAsync(DefaultTenantId, It.IsAny<string>()))
+            .ReturnsAsync(new CkModelValidationResponseDto { IsValid = true });
+        var atLimit = new string('x', CkDraftInlinePackager.MaxInlineBytes);
+        // 'ä' is two UTF-8 bytes: half the limit in characters is exactly the limit in bytes, one more is over it.
+        var umlautsAtLimit = new string('ä', CkDraftInlinePackager.MaxInlineBytes / 2);
+
+        (await CkModelValidationTools.ValidateCkModel(MockServer.Object,
+            files: [new CkDraftFileDto { Name = "a.yaml", Content = atLimit }])).IsSuccess.Should().BeTrue();
+        (await CkModelValidationTools.ValidateCkModel(MockServer.Object,
+            files: [new CkDraftFileDto { Name = "a.yaml", Content = umlautsAtLimit }])).IsSuccess.Should().BeTrue();
+        (await CkModelValidationTools.ValidateCkModel(MockServer.Object,
+                files: [new CkDraftFileDto { Name = "a.yaml", Content = umlautsAtLimit + "ä" }])).ErrorCode
+            .Should().Be("InlineDraftTooLarge");
+    }
+
+    [Fact]
+    public async Task ValidateCkModel_InlineZipAtTheLimit_WithLineBreaks_IsAccepted()
+    {
+        MockAssetClient.Setup(c => c.ValidateCkModelAsync(DefaultTenantId, It.IsAny<string>()))
+            .ReturnsAsync(new CkModelValidationResponseDto { IsValid = true });
+        var base64 = Convert.ToBase64String(new byte[CkDraftInlinePackager.MaxInlineBytes],
+            Base64FormattingOptions.InsertLineBreaks);
+
+        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object, zipBase64: base64);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ValidateCkModel_FilesAndZipTogether_AreRejected()
+    {
+        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object, files: SourceDraft(),
+            zipBase64: "UEs=");
+
+        result.ErrorMessage.Should().Contain("exactly one");
+    }
+
+    [Fact]
+    public async Task ValidateCkModel_EmptyFilesAndNoOtherSource_IsRejected()
+    {
+        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object, files: []);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("transferId is required");
+    }
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private async Task<WeakReference> CallAndForget()
     {

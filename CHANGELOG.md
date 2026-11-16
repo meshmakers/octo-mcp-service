@@ -34,7 +34,7 @@
   `ConstructionKit/`) or `zipBase64` (a base64 zip), up to 1 MiB (content or decoded zip) and 2000 files. Exactly one of
   `transferId`, `files` and `zipBase64` is given; the result contract (AB#8492) is unchanged. Over the limit the call is
   refused with `errorCode` `InlineDraftTooLarge` and an error with `messageNumber` 9005 that points to the upload path;
-  the size is checked before anything is decoded. The inline draft is written to a temporary zip that is deleted when the
+  the size is checked before anything is decoded. An inline zip is forwarded as is: its entries (paths, count, unpacked size) are checked by the asset repository like an uploaded zip. The inline draft is written to a temporary zip that is deleted when the
   call ends (no process-wide state, AB#9015); file names with `..` or absolute paths are rejected. Risk stays Low.
 
 - **AB#8780** — platform updates of Blueprint knowledge pages (System.Ai 4.10.0). A blueprint update brings new

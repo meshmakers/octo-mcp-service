@@ -555,7 +555,7 @@ Validates a CK model draft against the tenant **without importing it**: `prepare
 or inline for MCP-only clients (AB#9005): `validate_ck_model(files: [{name, content}])` with names relative to `ConstructionKit/`,
 or `validate_ck_model(zipBase64)`. Exactly one of the three. Inline limit (`CkDraftInlinePackager`): 1 MiB of UTF-8 content or
 decoded zip and 2000 files; over it the call is refused with `errorCode` `InlineDraftTooLarge` and an error with `messageNumber`
-9005 naming the upload path (the base64 length is checked before decoding). The inline draft becomes a temporary zip that is
+9005 naming the upload path (the base64 length is checked before decoding; about 1.46 M characters are decoded at most). An inline zip is forwarded unopened; the asset repository checks its entries (`..`/absolute paths, 2000 entries, 50 MB unpacked) like an uploaded zip. The inline draft becomes a temporary zip that is
 deleted in `finally`; nothing is kept per process (AB#9015 guard test `ValidateCkModel_RepeatedInlineCalls_DoNotRetainTheDraft`).
 Family 1 (`AssetClientContext`, SDK `IAssetServicesClient.ValidateCkModelAsync`, asset repository `POST {tenantId}/v1/Models/ValidateCk`,
 read-only scope). Accepts a zip of the source `ConstructionKit/` folder (the folder holding `ckModel.yaml`; compiled on the server,
