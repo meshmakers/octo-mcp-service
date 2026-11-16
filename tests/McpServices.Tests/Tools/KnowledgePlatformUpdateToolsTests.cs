@@ -129,11 +129,13 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
 
     private int _queries;
     private int _transactionsStarted;
+    private readonly List<Mock<IOctoSession>> _sessions = [];
 
     private IOctoSession OneTransactionSession()
     {
         var started = false;
         var session = new Mock<IOctoSession>();
+        _sessions.Add(session);
         session.Setup(x => x.StartTransaction()).Callback(() =>
         {
             if (started)
@@ -468,6 +470,7 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
             })
             .ToList();
         _transactionsStarted = 0;
+        _sessions.Clear();
 
         var result = await AdoptAsync();
 
@@ -477,6 +480,14 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
             .BeEquivalentTo("nodes-mesh-query", "nodes-mesh-update", "nodes-sdk-values-strings");
         pages.Should().OnlyContain(p => Current(p) == 2);
         _transactionsStarted.Should().Be(3, "one transaction per adopted page");
+        _sessions.Should().HaveCount(4, "one read-only scan session plus one session per page");
+        foreach (var session in _sessions)
+        {
+            session.Verify(x => x.Dispose(), Times.Once(), "every session is closed again");
+        }
+
+        _sessions.Count(m => m.Invocations.Any(i => i.Method.Name == nameof(IOctoSession.CommitTransactionAsync)))
+            .Should().Be(3, "each page commits on the session that started its transaction");
         (await ListAsync()).Updates.Should().NotContain(u => u.State == "Adoptable");
     }
 

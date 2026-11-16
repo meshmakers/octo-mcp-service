@@ -117,8 +117,12 @@ public static class KnowledgePlatformUpdateTools
 
         try
         {
-            using var session = await ctx.Repo.GetSessionAsync(ctx.Security!);
-            var scan = await KnowledgePlatformUpdates.FindAsync(ctx.Repo, session);
+            PlatformUpdateScan scan;
+            using (var scanSession = await ctx.Repo.GetSessionAsync(ctx.Security!))
+            {
+                scan = await KnowledgePlatformUpdates.FindAsync(ctx.Repo, scanSession);
+            }
+
             var response = new KnowledgeAdoptPlatformUpdatesResponse
             {
                 TenantId = ctx.TenantId, RunRef = runRef, Truncated = scan.Truncated
@@ -134,11 +138,12 @@ public static class KnowledgePlatformUpdateTools
                 // One transaction per page: a failure of one page is reported with it, the pages already switched
                 // in this run stay in the answer. An IOctoSession carries exactly one transaction (a second
                 // StartTransaction fails with "Session already started", AB#9114), so every page gets its own
-                // session; the scan session above only reads.
+                // session. Opening it stays outside the per-page catch: a session that cannot be opened is an
+                // infrastructure failure of the run, not a skipped page.
+                using var pageSession = await ctx.Repo.GetSessionAsync(ctx.Security!);
                 KnowledgePlatformAdoptionDto outcome;
                 try
                 {
-                    using var pageSession = await ctx.Repo.GetSessionAsync(ctx.Security!);
                     outcome = await AdoptAsync(server, ctx, pageSession, update, runRef, cancellationToken);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
