@@ -17,17 +17,16 @@ public sealed class CkModelValidationTools
 {
     /// <summary>
     ///     Validate a CK model draft against the tenant's installed models; nothing is imported. The draft is an upload
-    ///     (<paramref name="transferId" />) or, for MCP-only clients, inline (<paramref name="files" /> or
-    ///     <paramref name="zipBase64" />, AB#9005).
+    ///     (<paramref name="transferId" />) or, for MCP-only clients, inline (<paramref name="files" />, AB#9005).
     /// </summary>
     [McpServerTool(Name = "validate_ck_model")]
     [McpRisk(McpRiskLevel.Low)]
     [Description(
         "Validate a Construction Kit model draft against the target tenant WITHOUT importing it. Pass the draft in " +
         "exactly one way: inline as files (name/content pairs, names relative to ConstructionKit/, e.g. ckModel.yaml, " +
-        "types/pump.yaml) or as zipBase64 (a base64 zip), up to 1 MiB (1048576 bytes of content or decoded zip) and " +
-        "2000 files; or, for larger drafts, call prepare_file_upload, PUT the file to the returned URL and pass the " +
-        "transferId. An inline draft over the limit is refused with errorCode InlineDraftTooLarge (message 9005). " +
+        "types/pump.yaml), up to 1 MiB (1048576 bytes of UTF-8 content) and 2000 files; or, for larger drafts, call " +
+        "prepare_file_upload, PUT the file to the returned URL and pass the transferId. An inline draft over the " +
+        "limit is refused with errorCode InlineDraftTooLarge (message 9005). " +
         "Accepted: the source ConstructionKit/ folder (ckModel.yaml + types/ attributes/ enums/ records/ " +
         "associations/ ...; compiled on the server, dependencies resolved from the server's catalogs), or a compiled " +
         "model (yaml, json or a zip of one). The compiled model is checked with the import's own checks against the " +
@@ -41,27 +40,29 @@ public sealed class CkModelValidationTools
         [Description("Transfer id from prepare_file_upload (file name ending .zip, .yaml or .json). Omit when the " +
                      "draft is passed inline.")]
         string? transferId = null,
-        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null,
         [Description("Inline draft: the files of the ConstructionKit/ folder as name/content pairs (or one compiled " +
                      "model file). At most 1 MiB of content and 2000 files.")]
         List<CkDraftFileDto>? files = null,
-        [Description("Inline draft: a zip (source ConstructionKit/ folder or compiled model) as base64. At most " +
-                     "1 MiB decoded.")]
-        string? zipBase64 = null)
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
         var hasUpload = !string.IsNullOrWhiteSpace(transferId);
         var hasFiles = files is { Count: > 0 };
-        var hasZip = !string.IsNullOrWhiteSpace(zipBase64);
-        var sources = (hasUpload ? 1 : 0) + (hasFiles ? 1 : 0) + (hasZip ? 1 : 0);
-        if (sources != 1)
+        if (hasUpload == hasFiles)
         {
             return new CkModelValidationResponse
             {
                 IsSuccess = false,
-                ErrorMessage = sources == 0
-                    ? "transferId is required, or pass the draft inline as files or zipBase64."
-                    : "Pass the draft in exactly one way: transferId, files or zipBase64."
+                ErrorMessage = hasUpload
+                    ? "Pass the draft in exactly one way: transferId or files."
+                    : "transferId is required, or pass the draft inline as files."
             };
+        }
+
+        // Authentication first, so an unauthenticated call never makes the server stage a draft.
+        var asset = await AssetClientContext.TryBuildAsync(server, tenantId);
+        if (asset.Error != null)
+        {
+            return new CkModelValidationResponse { IsSuccess = false, ErrorMessage = asset.Error };
         }
 
         string? inlinePath = null;
@@ -88,7 +89,7 @@ public sealed class CkModelValidationTools
                 CkDraftInlinePackager.Result packaged;
                 try
                 {
-                    packaged = CkDraftInlinePackager.Package(files, zipBase64, Path.GetTempPath());
+                    packaged = CkDraftInlinePackager.Package(files!, Path.GetTempPath());
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
@@ -125,12 +126,6 @@ public sealed class CkModelValidationTools
                 }
 
                 filePath = inlinePath = packaged.FilePath!;
-            }
-
-            var asset = await AssetClientContext.TryBuildAsync(server, tenantId);
-            if (asset.Error != null)
-            {
-                return new CkModelValidationResponse { IsSuccess = false, ErrorMessage = asset.Error };
             }
 
             var result = await asset.Client!.ValidateCkModelAsync(asset.TenantId!, filePath);

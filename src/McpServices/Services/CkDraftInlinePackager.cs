@@ -5,8 +5,9 @@ using Meshmakers.Octo.Backend.McpServices.Models;
 namespace Meshmakers.Octo.Backend.McpServices.Services;
 
 /// <summary>
-///     AB#9005: turns a CK model draft passed inline to <c>validate_ck_model</c> (name/content file pairs or a base64
-///     zip) into a temporary zip file the SDK can post, so an MCP-only client needs no separate upload.
+///     AB#9005: turns a CK model draft passed inline to <c>validate_ck_model</c> (name/content file pairs) into a
+///     temporary zip file the SDK can post, so an MCP-only client needs no separate upload. Base64 file content is not
+///     accepted (CLAUDE.md: binary payloads go through the file-transfer endpoints).
 ///     <para>
 ///     Memory stays bounded per call (AB#9015): the size limit is checked before anything is decoded, file contents
 ///     are streamed into a zip on disk, and the caller deletes the file when the call is over. Nothing is cached or
@@ -15,11 +16,8 @@ namespace Meshmakers.Octo.Backend.McpServices.Services;
 /// </summary>
 internal static class CkDraftInlinePackager
 {
-    /// <summary>Most bytes an inline draft may have: the UTF-8 contents of all files, or the decoded zip.</summary>
+    /// <summary>Most bytes an inline draft may have: the UTF-8 contents of all files.</summary>
     public const int MaxInlineBytes = 1024 * 1024;
-
-    /// <summary>Most characters of <c>zipBase64</c> that are decoded at all (base64 needs 4/3 of the bytes, plus line breaks).</summary>
-    private const int MaxEncodedChars = MaxInlineBytes / 3 * 4 + MaxInlineBytes / 8;
 
     /// <summary>Most files an inline draft may have (the asset repository's limit for a source zip).</summary>
     public const int MaxInlineFiles = 2_000;
@@ -40,15 +38,9 @@ internal static class CkDraftInlinePackager
     public sealed record Result(string? FilePath, string? Error, string? TooLarge);
 
     /// <summary>
-    ///     Writes the inline draft (exactly one of <paramref name="files" /> and <paramref name="zipBase64" />) into a
-    ///     temporary zip in <paramref name="tempDirectory" />.
+    ///     Writes the inline draft files into a temporary zip in <paramref name="tempDirectory" />.
     /// </summary>
-    public static Result Package(IReadOnlyList<CkDraftFileDto>? files, string? zipBase64, string tempDirectory)
-    {
-        return files is { Count: > 0 } ? PackageFiles(files, tempDirectory) : PackageZip(zipBase64!, tempDirectory);
-    }
-
-    private static Result PackageFiles(IReadOnlyList<CkDraftFileDto> files, string tempDirectory)
+    public static Result Package(IReadOnlyList<CkDraftFileDto> files, string tempDirectory)
     {
         if (files.Count > MaxInlineFiles)
         {
@@ -90,46 +82,6 @@ internal static class CkDraftInlinePackager
                 using var writer = new StreamWriter(entry.Open(), new UTF8Encoding(false));
                 writer.Write(file.Content ?? string.Empty);
             }
-        }
-        catch
-        {
-            TryDelete(path);
-            throw;
-        }
-
-        return new Result(path, null, null);
-    }
-
-    private static Result PackageZip(string zipBase64, string tempDirectory)
-    {
-        // A first check on the encoded length, before decoding, so an oversized payload is never decoded into memory.
-        // It leaves room for line breaks in the base64 text; the exact limit is checked on the decoded bytes below.
-        var trimmed = zipBase64.Trim();
-        if (trimmed.Length > MaxEncodedChars)
-        {
-            return TooLarge($"The inline zip has more than {MaxInlineBytes} bytes.");
-        }
-
-        byte[] bytes;
-        try
-        {
-            bytes = Convert.FromBase64String(trimmed);
-        }
-        catch (FormatException)
-        {
-            return new Result(null, "zipBase64 is not valid base64.", null);
-        }
-
-        if (bytes.Length > MaxInlineBytes)
-        {
-            return TooLarge($"The inline zip has {bytes.Length} bytes.");
-        }
-
-        var path = NewTempPath(tempDirectory);
-        try
-        {
-            using var stream = CreatePrivateFile(path);
-            stream.Write(bytes);
         }
         catch
         {

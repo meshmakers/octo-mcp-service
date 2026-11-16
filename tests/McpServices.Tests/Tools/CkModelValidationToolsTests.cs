@@ -199,35 +199,6 @@ public class CkModelValidationToolsTests : ToolTestBase
     }
 
     [Fact]
-    public async Task ValidateCkModel_InlineZipBase64_PostsTheDecodedZip()
-    {
-        byte[] zipBytes;
-        using (var ms = new MemoryStream())
-        {
-            using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, true))
-            {
-                using var w = new StreamWriter(zip.CreateEntry("ConstructionKit/ckModel.yaml").Open());
-                w.Write("modelId: Demo-1.0.0");
-            }
-
-            zipBytes = ms.ToArray();
-        }
-
-        byte[]? posted = null;
-        string? postedPath = null;
-        MockAssetClient.Setup(c => c.ValidateCkModelAsync(DefaultTenantId, It.IsAny<string>()))
-            .Callback<string, string>((_, path) => { postedPath = path; posted = File.ReadAllBytes(path); })
-            .ReturnsAsync(new CkModelValidationResponseDto { IsValid = true, ModelId = "Demo-1.0.0" });
-
-        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object,
-            zipBase64: Convert.ToBase64String(zipBytes));
-
-        result.IsSuccess.Should().BeTrue();
-        posted.Should().Equal(zipBytes);
-        File.Exists(postedPath).Should().BeFalse();
-    }
-
-    [Fact]
     public async Task ValidateCkModel_InlineFilesOverTheLimit_AreRefusedWithTheMessageNumber_AndCallNothing()
     {
         var files = new List<CkDraftFileDto>
@@ -243,29 +214,6 @@ public class CkModelValidationToolsTests : ToolTestBase
         result.ErrorCode.Should().Be("InlineDraftTooLarge");
         result.ErrorMessage.Should().Contain("prepare_file_upload").And.Contain("9005");
         result.Errors.Should().ContainSingle().Which.MessageNumber.Should().Be(9005);
-        MockAssetClient.Verify(c => c.ValidateCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task ValidateCkModel_InlineZipOverTheLimit_IsRefusedBeforeDecoding()
-    {
-        // Not valid base64 either: the length check must refuse it before anything is decoded.
-        var oversized = new string('!', CkDraftInlinePackager.MaxInlineBytes * 2);
-
-        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object, zipBase64: oversized);
-
-        result.ErrorCode.Should().Be("InlineDraftTooLarge");
-        result.Errors.Should().ContainSingle().Which.MessageNumber.Should().Be(9005);
-        MockAssetClient.Verify(c => c.ValidateCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task ValidateCkModel_InlineZipDecodedOverTheLimit_IsRefused()
-    {
-        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object,
-            zipBase64: Convert.ToBase64String(new byte[CkDraftInlinePackager.MaxInlineBytes + 1]));
-
-        result.ErrorCode.Should().Be("InlineDraftTooLarge");
         MockAssetClient.Verify(c => c.ValidateCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
@@ -301,18 +249,10 @@ public class CkModelValidationToolsTests : ToolTestBase
     public async Task ValidateCkModel_DuplicateInlineFileName_IsRejected()
     {
         var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object,
-            files: [new CkDraftFileDto { Name = "a.yaml" }, new CkDraftFileDto { Name = "./A.yaml" }]);
+            files: [new CkDraftFileDto { Name = "types/a.yaml" }, new CkDraftFileDto { Name = "types//A.yaml" }]);
 
         result.IsSuccess.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task ValidateCkModel_InvalidBase64_IsRejected()
-    {
-        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object, zipBase64: "not base64!");
-
-        result.IsSuccess.Should().BeFalse();
-        result.ErrorMessage.Should().Contain("base64");
+        result.ErrorMessage.Should().Contain("given more than once");
     }
 
     [Fact]
@@ -368,7 +308,8 @@ public class CkModelValidationToolsTests : ToolTestBase
         var weak = await CallAndForget();
         for (var i = 0; i < 199; i++)
         {
-            await CkModelValidationTools.ValidateCkModel(MockServer.Object, zipBase64: Convert.ToBase64String(new byte[512 * 1024]));
+            await CkModelValidationTools.ValidateCkModel(MockServer.Object,
+                files: [new CkDraftFileDto { Name = "ckModel.yaml", Content = new string('z', 512 * 1024) }]);
         }
 
         GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
@@ -414,28 +355,6 @@ public class CkModelValidationToolsTests : ToolTestBase
         (await CkModelValidationTools.ValidateCkModel(MockServer.Object,
                 files: [new CkDraftFileDto { Name = "a.yaml", Content = umlautsAtLimit + "ä" }])).ErrorCode
             .Should().Be("InlineDraftTooLarge");
-    }
-
-    [Fact]
-    public async Task ValidateCkModel_InlineZipAtTheLimit_WithLineBreaks_IsAccepted()
-    {
-        MockAssetClient.Setup(c => c.ValidateCkModelAsync(DefaultTenantId, It.IsAny<string>()))
-            .ReturnsAsync(new CkModelValidationResponseDto { IsValid = true });
-        var base64 = Convert.ToBase64String(new byte[CkDraftInlinePackager.MaxInlineBytes],
-            Base64FormattingOptions.InsertLineBreaks);
-
-        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object, zipBase64: base64);
-
-        result.IsSuccess.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task ValidateCkModel_FilesAndZipTogether_AreRejected()
-    {
-        var result = await CkModelValidationTools.ValidateCkModel(MockServer.Object, files: SourceDraft(),
-            zipBase64: "UEs=");
-
-        result.ErrorMessage.Should().Contain("exactly one");
     }
 
     [Fact]
