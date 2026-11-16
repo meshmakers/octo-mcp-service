@@ -1284,10 +1284,14 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   `StopWords` (function and filler words) unless the query has no other word; the stemmer reduces `apis`/`uris`/`kpis`
   (4-letter `-is`, not `this`). Each page carries `matchedTerms`, the response `unmatchedTerms`: query words no
   searchable page contains - any kind or status (Rejected only with `status: Rejected`), also beyond `limit`, so a
-  filter never makes a word "missing". `HintTerms` drops adverbs in -ly and typos (`TypoMinLength` 6+ letters, one edit
-  from a page word; 5 would turn q12's "apple" into "apply"); from one remaining word the message is `NoAnswerHint`.
-  Limits: candidates are the 200 pages of the text-index preselection (slugs are not indexed), and a question whose
-  words are all on some page gets no hint (q23 "Refinery Studio Wi-Fi network"). `KnowledgeSearchRankingTests` pins,
+  filter never makes a word "missing". `HintTerms` drops `StopWords`, `MannerAdverbs` (a list, not the suffix -ly:
+  "anomaly" must count) and typos (`TypoMinLength` 6+ letters, one edit from a page word; 5 would turn q12's "apple"
+  into "apply"); `ProbeHintTermsAsync` then searches each remaining word on its own (`HintProbeCandidates` 20, at most
+  `MaxHintProbes` 5 words, the rest give no hint), because the 200-page preselection can leave out the page with a rare
+  word; a word it finds leaves `unmatchedTerms` too. A probe failure counts as found (no hint).
+  From one confirmed word the message is `NoAnswerHint`: it keeps tool answers (AB#9148) and answered parts, and says
+  a name of the user's own app or tenant is no reason by itself. Limit: a question whose words are all on some page
+  gets no hint (q23 "Refinery Studio Wi-Fi network"); slugs are not in the text index. `KnowledgeSearchRankingTests` pins,
   against the eval tenant's pages (`Tools/Fixtures/knowledge-search-eval-1.1.2.json`: builder pages + eval corpus,
   section text as `word:count`) and both forms of every eval question (recorded queries of the live eval 1.1.2 and
   the question texts): top 3 for all 38 answerable forms, 0 hints on them, the hint on every no-answer question text.

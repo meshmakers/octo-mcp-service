@@ -24,7 +24,17 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 [McpServerToolType]
 public static class KnowledgeTools
 {
-    private const int MaxSearchCandidates = 200;
+    internal const int MaxSearchCandidates = 200;
+
+    /// <summary>
+    ///     AB#9165: pages read per hint word to confirm that no page contains it. The search reads at most
+    ///     <see cref="MaxSearchCandidates" /> pages, so a page with a rare word can be left out when common words fill the
+    ///     preselection; a text-index query for the word alone finds it.
+    /// </summary>
+    internal const int HintProbeCandidates = 20;
+
+    /// <summary>AB#9165: at most this many hint words are confirmed with a query of their own.</summary>
+    internal const int MaxHintProbes = 5;
 
     /// <summary>
     ///     Take of the Skill page probe (AB#9087): one page of kind Skill, found by a field filter, decides whether the
@@ -43,7 +53,7 @@ public static class KnowledgeTools
     ///     AB#9165: a search whose result leaves at least this many content words of the query unmatched (no listed or
     ///     unlisted match contains them, <see cref="HintTerms" />) tells the caller that the pages may not answer the
     ///     question. One is enough: the eval's no-answer questions q12 ("Apple") and q23 ("laptop") miss a single word.
-    ///     Function and filler words (<see cref="StopWords" />) and adverbs in -ly never count.
+    ///     Function and filler words (<see cref="StopWords" />), manner adverbs and typos never count (<see cref="HintTerms" />).
     /// </summary>
     internal const int NoAnswerHintMinUnmatchedTerms = 1;
 
@@ -149,6 +159,9 @@ public static class KnowledgeTools
             var hintTerms = unmatchedTerms == null
                 ? []
                 : HintTerms(unmatchedTerms, searchable.SelectMany(x => PageWords(x.Content, x.Page.RtWellKnownName)));
+            var foundByProbe = await ProbeHintTermsAsync(ctx.Repo, session, hintTerms, statusFilter);
+            unmatchedTerms?.RemoveAll(foundByProbe.Contains);
+            hintTerms = hintTerms.Take(MaxHintProbes).Where(t => !foundByProbe.Contains(t)).ToList();
             var pages = matches.Take(limit).ToList();
 
             var ignoredQuery = !isSearch && !string.IsNullOrWhiteSpace(query);
@@ -184,6 +197,44 @@ public static class KnowledgeTools
         {
             return new KnowledgeSearchResponse { TenantId = ctx.TenantId, ErrorMessage = ex.Message };
         }
+    }
+
+    /// <summary>
+    ///     AB#9165: the hint words a page contains outside the preselected candidates: each of the first
+    ///     <see cref="MaxHintProbes" /> words is searched on its own (<see cref="HintProbeCandidates" /> pages); a searchable
+    ///     page (Rejected only when asked for) that contains it marks it found. Words beyond the first five are not
+    ///     searched and give no hint (absence not confirmed). Limit: when all pages a probe reads are Rejected, the word
+    ///     counts as absent.
+    /// </summary>
+    private static async Task<HashSet<string>> ProbeHintTermsAsync(ITenantRepository repository, IOctoSession session,
+        List<string> hintTerms, int? statusFilter)
+    {
+        var found = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var term in hintTerms.Take(MaxHintProbes))
+        {
+            IReadOnlyList<RtEntity> pages;
+            try
+            {
+                pages = await KnowledgePages.ListPagesAsync(repository, session, term, HintProbeCandidates);
+            }
+            catch (Exception)
+            {
+                // Absence not confirmed: treat the word as found (no hint), and the search does not fail because of it.
+                found.Add(term);
+                continue;
+            }
+
+            if (pages
+                .Select(p => (Page: p, Content: KnowledgePages.ReadContent(p)))
+                .Where(x => statusFilter == KnowledgePages.StatusRejected ||
+                            x.Content.Status != KnowledgePages.StatusRejected)
+                .Any(x => Match(x.Content, x.Page.RtWellKnownName, [term]).MatchedTerms.Count > 0))
+            {
+                found.Add(term);
+            }
+        }
+
+        return found;
     }
 
     /// <summary>
@@ -1026,6 +1077,18 @@ public static class KnowledgeTools
     };
 
     /// <summary>
+    ///     AB#9165: adverbs that describe how something happens ("instantly", "quickly"), not what a question is about. A
+    ///     list, not the suffix -ly: nouns and verbs such as "family", "anomaly" or "supply" must still count.
+    /// </summary>
+    internal static readonly IReadOnlySet<string> MannerAdverbs = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "instantly", "quickly", "immediately", "directly", "suddenly", "finally", "usually", "actually", "basically",
+        "simply", "easily", "properly", "correctly", "automatically", "manually", "recently", "currently", "completely",
+        "exactly", "probably", "possibly", "slowly", "randomly", "constantly", "repeatedly", "silently", "successfully",
+        "safely", "fully", "partly", "mostly", "nearly", "hardly", "briefly", "regularly", "occasionally"
+    };
+
+    /// <summary>
     ///     AB#9165: an unmatched word of at least this length that is one edit away from a word of the searched pages is
     ///     taken as a typo of it ("pipline" -> "pipeline") and does not count for the no-answer hint. Five letters is too
     ///     short: "apple" (eval q12, a no-answer question) is one edit away from "apply".
@@ -1033,14 +1096,15 @@ public static class KnowledgeTools
     internal const int TypoMinLength = 6;
 
     /// <summary>
-    ///     AB#9165: the unmatched words that count for the no-answer hint. Adverbs in -ly ("instantly", "quickly") describe
-    ///     how, not what; a word of <see cref="TypoMinLength" />+ letters one edit (insert, delete, replace) away from a
-    ///     word of <paramref name="pageWords" /> is a typo of it. Both are left out.
+    ///     AB#9165: the unmatched words that count for the no-answer hint. <see cref="StopWords" /> (kept as query words
+    ///     when a query has no other word) and <see cref="MannerAdverbs" /> say nothing about the subject; a word of
+    ///     <see cref="TypoMinLength" />+ letters one edit (insert, delete, replace) away from a word of
+    ///     <paramref name="pageWords" /> is a typo of it. All are left out.
     /// </summary>
     internal static List<string> HintTerms(IEnumerable<string> unmatchedTerms, IEnumerable<string> pageWords)
     {
         var content = unmatchedTerms
-            .Where(t => !(t.Length >= 5 && t.EndsWith("ly", StringComparison.Ordinal)))
+            .Where(t => !StopWords.Contains(t) && !MannerAdverbs.Contains(t))
             .ToList();
         if (!content.Any(t => t.Length >= TypoMinLength))
         {
@@ -1112,9 +1176,11 @@ public static class KnowledgeTools
         $"{pageCount} page(s), but no knowledge page contains " +
         string.Join(", ", unmatchedTerms.Select(t => $"'{t}'")) +
         " (nor an inflected form); the pages match only the other words of the query. If the question is about what " +
-        "these words name, no page answers it: reply with exactly the sentence `" +
-        KnowledgeConventions.NoAnswerSentence + "` and cite nothing. Do not answer a neighbouring question from these " +
-        "pages instead (for example the general procedure without the thing asked about).";
+        "these words name and neither a page you opened nor one of this server's tools answers it, reply with exactly " +
+        "the sentence `" + KnowledgeConventions.NoAnswerSentence + "` and cite nothing. A part of the question that " +
+        "pages or tools do answer stays answered, but do not answer a neighbouring question from these pages instead " +
+        "(for example the general procedure without the thing asked about). A name of the user's own app, tenant or " +
+        "entity that no page mentions is no reason by itself: the pages may still explain how to do it.";
 
     /// <summary>The rank of a page for a search (AB#9165): its score and the query words it contains.</summary>
     internal sealed record KnowledgeMatch(double Score, IReadOnlyList<string> MatchedTerms);

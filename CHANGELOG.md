@@ -38,8 +38,11 @@
   `matchedTerms`; the response carries `unmatchedTerms`, the query words no searchable page contains (any kind or
   status, Rejected only when asked for). When one of them is a content word, the message says the pages match only
   the other words and, if the question is about the missing ones, to reply with exactly
-  `No knowledge page answers this question.`. Adverbs in -ly and typos (6+ letters, one edit away from a page word)
-  do not count. `answeringRules` is unchanged.
+  `No knowledge page answers this question.` - unless a page or one of this server's tools answers it; a part they
+  answer stays answered, a name of the user's own app or tenant is no reason by itself. Stop words, manner adverbs
+  ("instantly") and typos (6+ letters, one edit away from a page word) do not count, and each counted word is searched
+  on its own first, so a page outside the 200-page preselection that contains it removes it. `answeringRules` is
+  unchanged.
   Offline evidence against the eval tenant's pages (builder blueprint + eval corpus) and two forms of every eval
   question - the queries the model sent in the live eval 1.1.2 and the whole question text (fixture in the tests):
   an expected page in the top 3 for 38 of 38 answerable forms (was 34), top 1 for 31 (was 21); 0 no-answer hints on

@@ -95,6 +95,12 @@ public class KnowledgeToolsTests : TestBase
                     // The probe filters on Kind == Skill (field filter) and takes one page.
                     items = items.Where(e => KnowledgePages.ReadContent(e).Kind == KnowledgeFirst.SkillKind).Take(1).ToList();
                 }
+                else if (take != null && take != 2)
+                {
+                    // Page lists like the engine: at most `take` pages (AB#9165, the preselection cap of knowledge_search).
+                    // Not the slug lookup (take 2): the mock does not apply its well-known-name filter.
+                    items = items.Take(take.Value).ToList();
+                }
 
                 return new ResultSet<RtEntity>(items, items.Count, null, null);
             });
@@ -1123,7 +1129,7 @@ public class KnowledgeToolsTests : TestBase
         result.Pages.Should().OnlyContain(p => !p.MatchedTerms!.Contains("aws") && p.MatchedTerms!.Contains("deploy"));
         result.Message.Should().StartWith("2 page(s), but no knowledge page contains 'aws', 'lambda', 'function'")
             .And.Contain("`" + KnowledgeConventions.NoAnswerSentence + "`")
-            .And.Contain("Do not answer a neighbouring question");
+            .And.Contain("do not answer a neighbouring question");
         result.AnsweringRules.Should().Be(KnowledgeConventions.AnsweringRules);
     }
 
@@ -1142,7 +1148,7 @@ public class KnowledgeToolsTests : TestBase
     }
 
     [Theory]
-    [InlineData("deploy app quickly")] // an adverb in -ly says how, not what
+    [InlineData("deploy app quickly")] // a manner adverb says how, not what
     [InlineData("deploy app something three minutes ago")] // filler words are no query words at all
     [InlineData("deploy the aplication")] // a typo of "application", one edit away
     public async Task Search_WhenOnlyAFillerAdverbOrTypoIsOnNoPage_GivesNoNoAnswerHint(string query)
@@ -1174,6 +1180,59 @@ public class KnowledgeToolsTests : TestBase
         result.Pages.Select(p => p.Slug).Should().Equal("deploy-howto");
         result.UnmatchedTerms.Should().BeEmpty();
         result.Message.Should().Be("1 page(s).");
+    }
+
+    [Fact]
+    public async Task Search_WhenTheCandidateCapLeavesOutThePageWithTheWord_GivesNoNoAnswerHint()
+    {
+        // AB#9165 review: common words fill the 200-page preselection; the page that names "lambda" is not among them.
+        for (var i = 0; i < KnowledgeTools.MaxSearchCandidates; i++)
+        {
+            await UpsertAsync($"deploy-{i}", $"Deploy step {i}", "Deploy the app.");
+        }
+
+        await UpsertAsync("lambda-page", "Lambda functions", "What Lambda is.");
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "deploy lambda");
+
+        result.Pages.Should().NotContain(p => p.Slug == "lambda-page");
+        result.UnmatchedTerms.Should().BeEmpty("the search for the word alone found lambda-page");
+        _textSearches.Should().EndWith("lambda");
+        result.Message.Should().Be("10 page(s).");
+    }
+
+    [Fact]
+    public async Task Search_WithOnlyStopWordsUnmatched_GivesNoNoAnswerHint()
+    {
+        await UpsertAsync("three-steps", "Three steps", "Three steps to deploy.");
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "three four");
+
+        result.UnmatchedTerms.Should().Equal("four");
+        result.Message.Should().Be("1 page(s).");
+    }
+
+    [Fact]
+    public async Task Search_WhenANounEndingInLyIsOnNoPage_GivesTheNoAnswerHint()
+    {
+        // Only listed manner adverbs are left out, not every word in -ly.
+        await UpsertAsync("deploy-promotion", "Promoting an app", "Publish and deploy the app.");
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "deploy app anomaly");
+
+        result.Message.Should().StartWith("1 page(s), but no knowledge page contains 'anomaly'");
+    }
+
+    [Fact]
+    public void NoAnswerHint_KeepsToolAnswersAndPartialAnswers_AndNamesTheOwnNameCase()
+    {
+        var hint = KnowledgeTools.NoAnswerHint(2, ["lambda"]);
+
+        hint.Should().Contain("neither a page you opened nor one of this server's tools answers it")
+            .And.Contain("A part of the question that pages or tools do answer stays answered")
+            .And.Contain("A name of the user's own app, tenant or entity");
     }
 
     [Fact]

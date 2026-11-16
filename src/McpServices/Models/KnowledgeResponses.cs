@@ -161,7 +161,7 @@ public class KnowledgeSearchResponse : KnowledgeResponse
 
     /// <summary>
     ///     The query words no matching page contains, not even beyond the limit (AB#9165); <c>null</c> in the index. When
-    ///     one of them is a content word (not an adverb in -ly) the message says that the pages may answer a neighbouring
+    ///     one of them is a content word (not a stop word, manner adverb or typo) the message says that the pages may answer a neighbouring
     ///     question, not this one.
     /// </summary>
     public List<string>? UnmatchedTerms { get; set; }
