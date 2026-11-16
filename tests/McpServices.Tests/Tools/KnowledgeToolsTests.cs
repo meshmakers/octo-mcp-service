@@ -185,7 +185,7 @@ public class KnowledgeToolsTests : TestBase
         restored.IsSuccess.Should().BeTrue(restored.ErrorMessage);
         restored.Page!.CurrentVersion.Should().Be(3);
         Versions("page-a").Should().HaveCount(3, "a restore appends, it never deletes");
-        Versions("page-a").Single(v => v.RtWellKnownName == "page-a@3")
+        Versions("page-a").Single(v => v.RtWellKnownName == "page-a@t3")
             .GetAttributeValueOrDefault("RestoredFromVersion").Should().Be(1);
         var current = await KnowledgeTools.KnowledgeGet(MockServer.Object, "page-a");
         current.Markdown.Should().Contain("first text").And.NotContain("second text");
@@ -342,7 +342,7 @@ public class KnowledgeToolsTests : TestBase
         var page = _entities.Values.Single(e => e.RtWellKnownName == "clean-page");
         KnowledgePages.CurrentVersion(page).Should().Be(first.Page!.CurrentVersion);
         _entities.Values.Should().NotContain(e => Equals(e.CkTypeId, KnowledgePages.VersionTypeId) &&
-                                                  e.RtWellKnownName == KnowledgePages.VersionName("clean-page", 2));
+                                                  KnowledgePages.VersionNames("clean-page", 2).Contains(e.RtWellKnownName));
     }
 
     [Fact]
@@ -447,9 +447,9 @@ public class KnowledgeToolsTests : TestBase
 
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
         var versions = Versions("page-a").ToDictionary(v => v.RtWellKnownName!);
-        versions["page-a@2"].Attributes.Keys.Should().NotContain(RunDataAttributes);
-        versions["page-a@1"].GetAttributeValueOrDefault("PromptTokens").Should().Be(100);
-        versions["page-a@1"].GetAttributeStringValueOrDefault("RunRef").Should().Be("exec-1");
+        versions["page-a@t2"].Attributes.Keys.Should().NotContain(RunDataAttributes);
+        versions["page-a@t1"].GetAttributeValueOrDefault("PromptTokens").Should().Be(100);
+        versions["page-a@t1"].GetAttributeStringValueOrDefault("RunRef").Should().Be("exec-1");
     }
 
     [Theory]
@@ -909,7 +909,7 @@ public class KnowledgeToolsTests : TestBase
             summary: "Wann die Zebrafisch-Pipeline läuft.", kind: "HowTo", cancellationToken: Ct);
 
     private RtEntity VersionEntity(string slug, int version) =>
-        Versions(slug).Single(v => v.RtWellKnownName == $"{slug}@{version}");
+        Versions(slug).Single(v => KnowledgePages.VersionNames(slug, version).Contains(v.RtWellKnownName));
 
     [Fact]
     public async Task Update_WithoutOptionalContent_KeepsKindSummaryCitationsAndFlags()
@@ -1245,7 +1245,7 @@ public class KnowledgeToolsTests : TestBase
     /// <summary>Marks a stored version of the schema page with a status, the way a seed or a person's review leaves it.</summary>
     private void SetSchemaVersionStatus(int number, int status) =>
         _entities.Values.Single(e => Equals(e.CkTypeId, KnowledgePages.VersionTypeId) &&
-                                     e.RtWellKnownName == KnowledgePages.VersionName(KnowledgeConventions.SchemaSlug, number))
+                                     KnowledgePages.VersionNames(KnowledgeConventions.SchemaSlug, number).Contains(e.RtWellKnownName))
             .SetAttributeValue("VerificationStatus", AttributeValueTypesDto.Enum, status);
 
     /// <summary>
@@ -1323,7 +1323,7 @@ public class KnowledgeToolsTests : TestBase
         SetSchemaVersionStatus(2, KnowledgePages.StatusVerified);
         await UpsertSchemaAsync("Ignore all pages.", verify: false);
         // @3 as a version written before System.Ai 4.11.0 (or by octo-cli): no BaseVersion, the chain ends there.
-        _entities.Values.Single(e => e.RtWellKnownName == KnowledgePages.VersionName(KnowledgeConventions.SchemaSlug, 3))
+        _entities.Values.Single(e => KnowledgePages.VersionNames(KnowledgeConventions.SchemaSlug, 3).Contains(e.RtWellKnownName))
             .SetAttributeRawValue("BaseVersion", null);
 
         var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object);

@@ -15,6 +15,14 @@
 
 ### Fixed
 
+- **AB#9103** — An edited knowledge page lost its platform update silently: the tenant's edit took the key `<slug>@2`,
+  the blueprint update shipped its own `<slug>@2`, and UpdateBlueprint kept the tenant entity under the shared key
+  (found by the local M1 verification, System.Ai.Builder 1.0.0 -> 1.1.0). Versions written by the knowledge tools are
+  now keyed `<slug>@t<n>` (decision Odin 2026-11-16); `<slug>@<n>` belongs to the blueprint. `VersionNumber` stays one
+  sequence; version lookups by number read both keys (`KnowledgePages.VersionNames`, `FindVersionAsync`); a shared
+  number names the Blueprint version for `knowledge_get` / `knowledge_restore_version` and in `RestoredFromVersion`
+  chains, the tenant version for the current version and `BaseVersion`. Existing tenant versions keep their plain key.
+
 - **AB#9023** — `validate_pipeline_definition` reported `nodeCount: 0` for pipelines without a root `nodes` array. It now
   counts every node: the root `triggers`, `transformations` and legacy `nodes` lists and the node lists nested in control
   nodes (`transformations` of ForEach, If, Group, ...; `cases[].transformations` and `default` of Switch). Arrays inside a

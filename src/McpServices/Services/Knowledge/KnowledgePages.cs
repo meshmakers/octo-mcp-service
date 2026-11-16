@@ -78,8 +78,43 @@ internal static class KnowledgePages
     /// <summary>Resource URI of a page.</summary>
     public static string Uri(string tenantId, string slug) => $"knowledge-page://{tenantId}/{slug}";
 
-    /// <summary>Well-known name of a version entity.</summary>
-    public static string VersionName(string slug, int version) => $"{slug}@{version}";
+    /// <summary>
+    ///     Well-known name of a Blueprint (seeded) version: <c>&lt;slug&gt;@&lt;n&gt;</c>. The key belongs to the blueprint
+    ///     (AB#9103): the knowledge tools never write it.
+    /// </summary>
+    public static string VersionName(string slug, int version) => $"{slug}@{version.ToString(CultureInfo.InvariantCulture)}";
+
+    /// <summary>
+    ///     Well-known name of a version written in the tenant: <c>&lt;slug&gt;@t&lt;n&gt;</c> (AB#9103, Odin 2026-11-16).
+    ///     Tenant and Blueprint versions share the number sequence (<c>VersionNumber</c>) but not the key, so a later
+    ///     blueprint version <c>&lt;slug&gt;@&lt;n&gt;</c> is never held back by a tenant edit that took the same number.
+    ///     Tenant versions written before AB#9103 keep their plain key.
+    /// </summary>
+    public static string TenantVersionName(string slug, int version) => $"{slug}@t{version.ToString(CultureInfo.InvariantCulture)}";
+
+    /// <summary>Both keys a version number can have: the Blueprint key first, then the tenant key.</summary>
+    public static string[] VersionNames(string slug, int version) => [VersionName(slug, version), TenantVersionName(slug, version)];
+
+    /// <summary>
+    ///     The version of a page with that number. When a tenant version and a Blueprint version share the number (the
+    ///     tenant wrote it first, the seed arrived later), the Blueprint version is returned: it is the one a
+    ///     PlatformUpdateAvailable finding names, and the tenant one is the page's current content or part of its
+    ///     <c>BaseVersion</c> chain.
+    /// </summary>
+    public static async Task<RtEntity?> FindVersionAsync(ITenantRepository repository, IOctoSession session, string slug,
+        int version)
+    {
+        foreach (var name in VersionNames(slug, version))
+        {
+            var entity = await FindBySlugAsync(repository, session, VersionType, name);
+            if (entity != null)
+            {
+                return entity;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>Lower-case words joined by hyphens: letters, digits, '-', '.', '_'; 2-120 characters.</summary>
     public static bool IsValidSlug(string? slug) =>
@@ -316,7 +351,7 @@ internal static class KnowledgePages
         {
             RtId = OctoObjectId.GenerateNewId(),
             CkTypeId = VersionTypeId,
-            RtWellKnownName = VersionName(slug, versionNumber)
+            RtWellKnownName = TenantVersionName(slug, versionNumber)
         };
         SetContent(version, content);
         version.SetAttributeValue("VersionNumber", AttributeValueTypesDto.Int, versionNumber);

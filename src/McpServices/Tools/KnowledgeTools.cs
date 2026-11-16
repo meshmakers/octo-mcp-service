@@ -195,8 +195,7 @@ public static class KnowledgeTools
             var source = page;
             if (version != null && version != KnowledgePages.CurrentVersion(page))
             {
-                source = await KnowledgePages.FindBySlugAsync(ctx.Repo, session, KnowledgePages.VersionType,
-                    KnowledgePages.VersionName(slug, version.Value));
+                source = await KnowledgePages.FindVersionAsync(ctx.Repo, session, slug, version.Value);
                 if (source == null)
                 {
                     return NotFound<KnowledgePageResponse>(ctx.TenantId!, $"Version {version} of '{slug}' not found.");
@@ -512,8 +511,7 @@ public static class KnowledgeTools
                 return conflict;
             }
 
-            var old = await KnowledgePages.FindBySlugAsync(ctx.Repo, session, KnowledgePages.VersionType,
-                KnowledgePages.VersionName(slug, version));
+            var old = await KnowledgePages.FindVersionAsync(ctx.Repo, session, slug, version);
             if (old == null)
             {
                 return NotFound<KnowledgeWriteResponse>(ctx.TenantId!, $"Version {version} of '{slug}' not found.");

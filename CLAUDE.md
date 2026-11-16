@@ -1200,7 +1200,8 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
 `src/SystemAiCkModel/README.md`); a tenant without them gets a clear error naming System.Ai 4.7.0.
 
 - **Every page write goes through `KnowledgePages.BuildWrite`**: page insert/update plus a new `KnowledgePageVersion`
-  (`rtWellKnownName` `<slug>@<n>`, full content, `Author` = `user:<sub>` or `client:<client_id>`, `AuthoredAt`, `ChangeNote`,
+  (`rtWellKnownName` `<slug>@t<n>` - the tenant key namespace of AB#9103; `<slug>@<n>` is the blueprint's, read both with
+  `KnowledgePages.VersionNames` / `FindVersionAsync`; full content, `Author` = `user:<sub>` or `client:<client_id>`, `AuthoredAt`, `ChangeNote`,
   run metadata) and the `VersionOf` association, in one transaction. The page's `CurrentVersion` points at it. A restore writes
   a new version with `RestoredFromVersion`; nothing is ever deleted. Links (`LinksTo`) are not content and make no version.
 - **Write channel** (AB#8575): the write tools open their session with `OpenAsync(server, tenantId, write: true)`, which adds

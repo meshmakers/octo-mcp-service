@@ -339,6 +339,52 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
     }
 
     [Fact]
+    public async Task EditBeforeUpdate_TakesTheTenantKey_SoTheBlueprintsVersionWithTheSameNumberArrives_AndIsAvailable()
+    {
+        // AB#9103 (local M1 verification, 2026-11-16): the tenant's edit took <slug>@2, the blueprint update shipped its
+        // own <slug>@2, and UpdateBlueprint kept the tenant entity under that key - the platform update was lost
+        // silently. Tenant versions now use <slug>@t<n>, so the seed key stays free for the blueprint.
+        SeedPage("nodes-sdk-values-strings");
+        await EditAsync("nodes-sdk-values-strings");
+        var page = Page("nodes-sdk-values-strings");
+        var edit = Version("nodes-sdk-values-strings", 2);
+        edit.RtWellKnownName.Should().Be("nodes-sdk-values-strings@t2");
+        _entities.Values.Should().NotContain(e => e.RtWellKnownName == "nodes-sdk-values-strings@2",
+            "the key of the blueprint's next version is not taken by the tenant");
+
+        var seeded = SeedVersion(page, 2, "Moved to pipeline-nodes-sdk-values-strings");
+        seeded.RtWellKnownName.Should().Be("nodes-sdk-values-strings@2");
+
+        var list = await ListAsync();
+        list.Updates.Should().ContainSingle(u => u.Slug == "nodes-sdk-values-strings" && u.State == "Available" &&
+                                                 u.CurrentVersion == 2 && u.NewerVersion == 2);
+        (await AdoptAsync()).Adopted.Should().BeEmpty("an edited page is never switched");
+        KnowledgePages.ReadContent(page).Title.Should().NotBe("Moved to pipeline-nodes-sdk-values-strings");
+
+        // A person adopts the finding: version 2 now names the Blueprint version, the restore copies it as a tenant version.
+        var restored = await KnowledgeTools.KnowledgeRestoreVersion(MockServer.Object, "nodes-sdk-values-strings", 2,
+            cancellationToken: Ct);
+        restored.IsSuccess.Should().BeTrue();
+        Current(page).Should().Be(3);
+        KnowledgePages.ReadContent(page).Title.Should().Be("Moved to pipeline-nodes-sdk-values-strings");
+        Version("nodes-sdk-values-strings", 3).RtWellKnownName.Should().Be("nodes-sdk-values-strings@t3");
+        (await ListAsync()).Updates.Should().BeEmpty("the restore of @2 put the Blueprint version into the chain");
+    }
+
+    [Fact]
+    public async Task TenantVersionsWithThePlainKey_WrittenBeforeAB9103_StillCountInTheChain()
+    {
+        // No migration: an existing tenant version keyed <slug>@2 (before AB#9103) is read like before.
+        var page = SeedPage("page-a");
+        SeedVersion(page, 2, "an old tenant edit", blueprint: false).SetAttributeValue("BaseVersion", AttributeValueTypesDto.Int, 1);
+        page.SetAttributeValue("CurrentVersion", AttributeValueTypesDto.Int, 2);
+        KnowledgePages.SetContent(page, Content("an old tenant edit"));
+        SeedVersion(page, 3, "v3 from the blueprint");
+
+        (await ListAsync()).Updates.Should().ContainSingle(u => u.Slug == "page-a" && u.State == "Available" && u.NewerVersion == 3);
+    }
+
+    [Fact]
     public async Task APageEditedDirectlyWithoutAVersion_CountsAsEdited_AndIsNotOverwritten()
     {
         // A signed-in user may write the page directly (writeAccess Interactive): CurrentVersion stays on the seed.
@@ -420,7 +466,7 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
     // ---- AB#8780 reopen: ancestor chain instead of version numbers / arrival times ----
 
     private RtEntity Version(string slug, int number) => _entities.Values.Single(e =>
-        Equals(e.CkTypeId, KnowledgePages.VersionTypeId) && e.RtWellKnownName == KnowledgePages.VersionName(slug, number) &&
+        Equals(e.CkTypeId, KnowledgePages.VersionTypeId) && KnowledgePages.VersionNames(slug, number).Contains(e.RtWellKnownName) &&
         !KnowledgePlatformUpdates.IsBlueprintVersion(e));
 
     [Fact]

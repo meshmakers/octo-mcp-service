@@ -288,7 +288,13 @@ with `answeringConventionsSource` (AB#8712).
   refused with `NotEdited` for an unedited page, whose update is adopted). Verified
   (AB#8565): the adopt copies the status of a seeded Blueprint version onto a page whose current version is itself a
   seeded Blueprint version; no caller chooses it, and edited pages never get it. Page writes take the next free version
-  number (`<slug>@<n>` is never written twice).
+  number. **Version keys** (AB#9103): a version written in the tenant is keyed `<slug>@t<n>`; `<slug>@<n>` belongs to the
+  blueprint seed. So an edit made before a platform update never takes the key of the blueprint's next version (before,
+  UpdateBlueprint kept the tenant entity under the shared key and the update was lost without a finding). The number
+  (`VersionNumber`) stays one sequence; when a tenant version and a later Blueprint version share it, `knowledge_get` /
+  `knowledge_restore_version` with that number name the Blueprint version (the one a PlatformUpdateAvailable finding
+  reports), while the page's current version and `BaseVersion` name the tenant one. Tenant versions written before
+  AB#9103 keep their plain key (no migration).
 
 ### **Knowledge first: server instructions, prompt and fallback** (AB#9087)
 Every MCP client connected to OctoMesh is told to consult the knowledge base first.
