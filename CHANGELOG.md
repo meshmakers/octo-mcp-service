@@ -32,6 +32,22 @@
   `AddMcpPayloadLogFilter` also adds its rule per logging provider, because the provider rule `UseNLog()` adds for
   `NLogLoggerProvider` would otherwise win over the category rule and let the Trace payloads reach NLog.
 
+- **AB#8904** — the entity query tools page and refuse unbounded loads (Feature AB#8793). They read the tenant database
+  directly, so the asset-repo API guard (AB#8898) never sees them. `query_entities`, `query_entities_simple`,
+  `navigate_associations`, `get_association_tree` (root entities) and `execute_runtime_query` (`RtSimpleRtQuery`) used to
+  load every matching entity when no limit was given. Now: without a page size the engine gets take = 100
+  (`DynamicTools:DefaultQueryLimit`); a page size above 1000 (`DynamicTools:MaxQueryResultLimit`) is refused with an error
+  that names the limit, before any engine query runs (never silently capped); a page size below 1, a negative skip or a
+  skip whose next page would overflow an int is refused too. New arguments: `skip`/`take` on `navigate_associations`,
+  `rootSkip`/`rootTake` on `get_association_tree`.
+  Every result carries a `paging` block (`skip`, `take`, `defaultTakeApplied`, `maxTake`, `returnedCount`, `hasMore`,
+  `nextSkip`, `hint`); the tool descriptions state default, maximum and how to page. `MaxQueryResultLimit` can be lowered
+  but not raised above 1000 (`DynamicToolOptions.MaxPageSize`): a higher value is ignored, logged at startup and reported
+  by the health check (Degraded). Behaviour change for MCP clients: a call without a limit returns at most 100 items plus
+  the paging hint. Unchanged: `query_entities_aggregation` / `query_entities_grouping` (aggregates, no entities; pinned by
+  their `PassesNullPagingToEngine` tests) and the children per level of `get_association_tree`. Tests:
+  `Tools/RuntimeQueryPagingTests`.
+
 ### Added
 
 - **AB#9005** — `validate_ck_model` accepts the CK model draft inline, so an MCP-only client (e.g. a `claude -p` builder

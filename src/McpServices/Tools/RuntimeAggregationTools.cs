@@ -30,14 +30,22 @@ public sealed class RuntimeAggregationTools
         "dispatches on its CK subtype: RtSimpleRtQuery returns entity DTOs filtered to the configured " +
         "columns; RtAggregationRtQuery returns one row with the persisted aggregation columns; " +
         "RtGroupingAggregationRtQuery returns one row per distinct group. Optional extraFilters are " +
-        "AND-combined with the persisted query's field filters. Mirrors GraphQL Runtime.RuntimeQuery.")]
+        "AND-combined with the persisted query's field filters. Mirrors GraphQL Runtime.RuntimeQuery. " +
+        "RtSimpleRtQuery results are paged: without take the default page size is 100, the maximum is 1000 (lower " +
+        "if configured; see paging.maxTake) and a " +
+        "larger take is refused (never silently capped). The result's paging block says whether more entities may " +
+        "exist (hasMore) and gives nextSkip; pass it as skip to fetch the next page.")]
     public static async Task<PersistedRuntimeQueryResponse> ExecuteRuntimeQuery(
         McpServer server,
         [Description("Runtime id of the persisted RtPersistentQuery entity to execute.")] string queryRtId,
         [Description("Optional additional field filters AND-combined with the persisted query's filters.")]
         FieldFilterCriteriaDto? extraFilters = null,
-        [Description("Optional skip (offset) — only honored for RtSimpleRtQuery.")] int? skip = null,
-        [Description("Optional take (limit) — only honored for RtSimpleRtQuery.")] int? take = null,
+        [Description("Number of entities to skip (default 0; paging, RtSimpleRtQuery only). Use nextSkip of the " +
+                     "previous result's paging block.")]
+        int? skip = null,
+        [Description("Page size (default 100, maximum 1000 unless configured lower; a larger value is refused for every subtype). Applies to " +
+                     "RtSimpleRtQuery; aggregation subtypes ignore it.")]
+        int? take = null,
         [Description("Tenant id. Falls back to URL route.")] string? tenantId = null)
     {
         if (string.IsNullOrWhiteSpace(queryRtId))
@@ -46,6 +54,19 @@ public sealed class RuntimeAggregationTools
             {
                 IsSuccess = false,
                 ErrorMessage = "queryRtId is required."
+            };
+        }
+
+        // AB#8904: default page size 100, a take above the maximum (1000) is refused before any engine query —
+        // also before the persisted query is loaded, so the subtype does not matter.
+        var (paging, pagingError) = QueryPaging.Resolve(server, take, skip, "take", "skip");
+        if (paging == null)
+        {
+            return new PersistedRuntimeQueryResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = pagingError,
+                QueryRtId = queryRtId
             };
         }
 
@@ -107,7 +128,7 @@ public sealed class RuntimeAggregationTools
             {
                 RtSimpleRtQuery simple => await ExecutePersistedSimpleAsync(
                     simple, tenantRepository, session, rtEntityToDtoMapper,
-                    extraFilters, skip, take, queryRtId, resolvedTenantId),
+                    extraFilters, paging, queryRtId, resolvedTenantId),
                 RtAggregationRtQuery aggregation => await ExecutePersistedAggregationAsync(
                     aggregation, tenantRepository, session, extraFilters, queryRtId, resolvedTenantId),
                 RtGroupingAggregationRtQuery grouping => await ExecutePersistedGroupingAsync(
@@ -372,8 +393,7 @@ public sealed class RuntimeAggregationTools
         IOctoSession session,
         IRtEntityToDtoMapper rtEntityToDtoMapper,
         FieldFilterCriteriaDto? extraFilters,
-        int? skip,
-        int? take,
+        QueryPaging paging,
         string queryRtId,
         string resolvedTenantId)
     {
@@ -387,7 +407,7 @@ public sealed class RuntimeAggregationTools
         }
 
         var results = await tenantRepository.GetRtEntitiesByTypeAsync(
-            session, ckTypeId, queryOptions, skip, take);
+            session, ckTypeId, queryOptions, paging.Skip, paging.Take);
 
         var entities = results.Items
             .Select(e => rtEntityToDtoMapper.ConvertToDto(
@@ -414,7 +434,8 @@ public sealed class RuntimeAggregationTools
             CkTypeId = ckTypeId.ToString(),
             Entities = entities,
             RowCount = entities.Count,
-            TotalCount = results.TotalCount
+            TotalCount = results.TotalCount,
+            Paging = paging.ToInfo(entities.Count, results.TotalCount)
         };
     }
 
