@@ -85,7 +85,21 @@ public sealed class CkModelValidationTools
             }
             else
             {
-                var packaged = CkDraftInlinePackager.Package(files, zipBase64, Path.GetTempPath());
+                CkDraftInlinePackager.Result packaged;
+                try
+                {
+                    packaged = CkDraftInlinePackager.Package(files, zipBase64, Path.GetTempPath());
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // The exception text names the server's temp path: not for the client.
+                    return new CkModelValidationResponse
+                    {
+                        IsSuccess = false,
+                        ErrorMessage = "The inline draft could not be staged on the MCP server (temporary storage)."
+                    };
+                }
+
                 if (packaged.TooLarge != null)
                 {
                     return new CkModelValidationResponse

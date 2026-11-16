@@ -586,41 +586,55 @@ public sealed class PipelineTools
         };
     }
 
-    /// <summary>Property names whose array holds pipeline nodes (<c>NodeDefinitionRoot</c> and the control nodes).</summary>
-    private static readonly string[] NodeListProperties = ["triggers", "transformations", "nodes"];
-
     /// <summary>
-    ///     Counts the nodes of a pipeline definition (AB#9023): every object in a <c>triggers</c>, <c>transformations</c>
-    ///     or <c>nodes</c> array anywhere in the definition, so nested node lists (ForEach, If, Switch cases, Group,
-    ///     Buffer, ...) count as well.
+    ///     Counts the nodes of a pipeline definition (AB#9023). The walk follows the node containers of the pipeline SDK
+    ///     only, never arbitrary node properties (a node's data may hold an array named like a container): the root
+    ///     <c>triggers</c>, <c>transformations</c> and the legacy <c>nodes</c> list, and inside a node its
+    ///     <c>transformations</c> (ForEach, For, If, Group, Buffer, ObjectIterator, ...), the <c>cases[].transformations</c>
+    ///     and the <c>default</c> list of a Switch.
     /// </summary>
-    internal static int CountPipelineNodes(JsonNode? node)
+    internal static int CountPipelineNodes(JsonNode? definition)
     {
-        var count = 0;
-        switch (node)
+        if (definition is not JsonObject root)
         {
-            case JsonObject obj:
-                foreach (var (name, value) in obj)
-                {
-                    if (value is JsonArray list &&
-                        NodeListProperties.Contains(name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        count += list.Count(item => item is JsonObject);
-                    }
+            return 0;
+        }
 
-                    count += CountPipelineNodes(value);
+        return CountNodeList(Property(root, "triggers")) + CountNodeList(Property(root, "transformations")) +
+               CountNodeList(Property(root, "nodes"));
+    }
+
+    private static int CountNodeList(JsonNode? list)
+    {
+        if (list is not JsonArray array)
+        {
+            return 0;
+        }
+
+        var count = 0;
+        foreach (var item in array)
+        {
+            if (item is not JsonObject node)
+            {
+                continue;
+            }
+
+            count++;
+            count += CountNodeList(Property(node, "transformations"));
+            if (Property(node, "cases") is JsonArray cases)
+            {
+                foreach (var switchCase in cases.OfType<JsonObject>())
+                {
+                    count += CountNodeList(Property(switchCase, "transformations"));
                 }
 
-                break;
-            case JsonArray array:
-                foreach (var item in array)
-                {
-                    count += CountPipelineNodes(item);
-                }
-
-                break;
+                count += CountNodeList(Property(node, "default"));
+            }
         }
 
         return count;
     }
+
+    private static JsonNode? Property(JsonObject obj, string name) =>
+        obj.FirstOrDefault(p => string.Equals(p.Key, name, StringComparison.OrdinalIgnoreCase)).Value;
 }
