@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- **AB#9023** — `validate_pipeline_definition` reported `nodeCount: 0` for pipelines without a root `nodes` array. It now
+  counts every node: the root `triggers`, `transformations` and legacy `nodes` lists and the node lists nested in control
+  nodes (`transformations` of ForEach, If, Group, ...; `cases[].transformations` and `default` of Switch). Arrays inside a
+  node's own data are not counted. The rest of the result is unchanged.
+
 - **AB#9015** — `validate_pipeline_definition` leaked the adapter's composite pipeline schema on every call. JsonSchema.Net
   registers each schema it builds in the process-wide `SchemaRegistry.Global`; the composite schema has no `$id`, so every
   build got a new random base URI and stayed there for the life of the pod (measured in a test: 100 calls with a 0.7 MB
@@ -28,6 +33,15 @@
   `NLogLoggerProvider` would otherwise win over the category rule and let the Trace payloads reach NLog.
 
 ### Added
+
+- **AB#9005** — `validate_ck_model` accepts the CK model draft inline, so an MCP-only client (e.g. a `claude -p` builder
+  agent) validates it in one call without `prepare_file_upload` and an HTTP PUT: `files` (name/content pairs relative to
+  `ConstructionKit/`), up to 1 MiB of UTF-8 content and 2000 files. Exactly one of `transferId` and `files` is given; the
+  result contract (AB#8492) is unchanged. Over the limit the call is refused with `errorCode` `InlineDraftTooLarge` and an
+  error with `messageNumber` 9005 that points to the upload path. No base64 zip parameter: binary payloads stay on the
+  file-transfer endpoints. Authentication is checked before the draft is staged; the draft becomes an owner-only temporary
+  zip that is deleted when the call ends (no process-wide state, AB#9015); file names with `..` or absolute paths and
+  duplicates are rejected. Risk stays Low.
 
 - **AB#8780** — platform updates of Blueprint knowledge pages (System.Ai 4.10.0). A blueprint update brings new
   `KnowledgePageVersion` entities but never refreshes an existing page (AB#8778). New tools:

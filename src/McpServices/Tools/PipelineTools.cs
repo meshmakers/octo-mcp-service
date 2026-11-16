@@ -568,12 +568,9 @@ public sealed class PipelineTools
             }
         }
 
-        // 4. Cheap node-count sanity: count nodes[] entries if present in the root object.
-        int nodeCount = 0;
-        if (definitionNode is JsonObject root && root.TryGetPropertyValue("nodes", out var nodes) && nodes is JsonArray arr)
-        {
-            nodeCount = arr.Count;
-        }
+        // 4. Node-count sanity (AB#9023): every node of the definition - triggers, transformations and the node lists
+        //    nested in control nodes (ForEach, If, Switch cases, Group, ...) - not only a root nodes[] array.
+        var nodeCount = CountPipelineNodes(definitionNode);
 
         return new ValidatePipelineDefinitionResponse
         {
@@ -588,4 +585,56 @@ public sealed class PipelineTools
                 : $"Definition has {errors.Count} schema error(s); see Errors for details.",
         };
     }
+
+    /// <summary>
+    ///     Counts the nodes of a pipeline definition (AB#9023). The walk follows the node containers of the pipeline SDK
+    ///     only, never arbitrary node properties (a node's data may hold an array named like a container): the root
+    ///     <c>triggers</c>, <c>transformations</c> and the legacy <c>nodes</c> list, and inside a node its
+    ///     <c>transformations</c> (ForEach, For, If, Group, Buffer, ObjectIterator, ...), the <c>cases[].transformations</c>
+    ///     and the <c>default</c> list of a Switch.
+    /// </summary>
+    internal static int CountPipelineNodes(JsonNode? definition)
+    {
+        if (definition is not JsonObject root)
+        {
+            return 0;
+        }
+
+        return CountNodeList(Property(root, "triggers")) + CountNodeList(Property(root, "transformations")) +
+               CountNodeList(Property(root, "nodes"));
+    }
+
+    private static int CountNodeList(JsonNode? list)
+    {
+        if (list is not JsonArray array)
+        {
+            return 0;
+        }
+
+        var count = 0;
+        foreach (var item in array)
+        {
+            if (item is not JsonObject node)
+            {
+                continue;
+            }
+
+            count++;
+            count += CountNodeList(Property(node, "transformations"));
+            if (Property(node, "cases") is JsonArray cases)
+            {
+                foreach (var switchCase in cases.OfType<JsonObject>())
+                {
+                    count += CountNodeList(Property(switchCase, "transformations"));
+                }
+
+                count += CountNodeList(Property(node, "default"));
+            }
+        }
+
+        return count;
+    }
+
+    private static JsonNode? Property(JsonObject obj, string name) =>
+        obj.FirstOrDefault(p => string.Equals(p.Key, name, StringComparison.OrdinalIgnoreCase)).Value;
 }

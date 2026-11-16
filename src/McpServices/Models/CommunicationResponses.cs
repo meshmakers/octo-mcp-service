@@ -334,7 +334,8 @@ public class ValidatePipelineDefinitionResponse : CommunicationResponse
     public bool IsValid { get; set; }
 
     /// <summary>
-    ///     Number of nodes the validator counted in the definition's <c>nodes[]</c> array.
+    ///     Number of nodes in the definition: every entry of a <c>triggers</c>, <c>transformations</c> or <c>nodes</c>
+    ///     list, nested node lists of control nodes included (AB#9023).
     ///     Sanity gauge — an empty pipeline can pass schema but is rarely intended.
     /// </summary>
     public int NodeCount { get; set; }

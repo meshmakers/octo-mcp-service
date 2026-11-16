@@ -457,6 +457,101 @@ public class PipelineToolsTests : ToolTestBase
         result.NodeCount.Should().Be(3);
     }
 
+    // AB#9023: nodeCount counts triggers, transformations and nested node lists, not only a root nodes[] array.
+    private const string OpenPipelineSchema = """{ "type": "object" }""";
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_FlatTriggersAndTransformations_AreCounted()
+    {
+        MockCommunicationClient.Setup(c => c.GetPipelineSchemaAsync(AdapterId)).ReturnsAsync(OpenPipelineSchema);
+
+        const string yaml = """
+            triggers:
+              - type: FromPipelineTriggerEvent@1
+            transformations:
+              - type: GetRtEntitiesByType@1
+                ckTypeId: Basic/Asset
+              - type: Project@1
+              - type: ApplyChanges@1
+            """;
+
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, AdapterId, yaml);
+
+        result.IsValid.Should().BeTrue();
+        result.NodeCount.Should().Be(4);
+        result.Message.Should().Contain("(4 node(s))");
+    }
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_NestedNodeLists_AreCounted()
+    {
+        MockCommunicationClient.Setup(c => c.GetPipelineSchemaAsync(AdapterId)).ReturnsAsync(OpenPipelineSchema);
+
+        const string yaml = """
+            triggers:
+              - type: FromHttpRequest@1
+              - type: FromPipelineTriggerEvent@1
+            transformations:
+              - type: ForEach@1
+                iterationPath: $.items
+                transformations:
+                  - type: SetPrimitiveValue@1
+                  - type: If@1
+                    transformations:
+                      - type: Logger@1
+              - type: Switch@1
+                cases:
+                  - value: a
+                    transformations:
+                      - type: Logger@1
+                      - type: Logger@1
+                  - value: b
+                    transformations:
+                      - type: Logger@1
+                default:
+                  - type: Logger@1
+                fieldFilters:
+                  - attributePath: name
+              - type: SetPrimitiveValue@1
+                value:
+                  nodes:
+                    - id: not-a-pipeline-node
+                  transformations:
+                    - id: not-a-pipeline-node
+            """;
+
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, AdapterId, yaml);
+
+        // 2 triggers + ForEach + its 2 children + If's child + Switch + 3 case nodes + 1 default node
+        // + SetPrimitiveValue; fieldFilters and arrays inside a node's data are not nodes.
+        result.NodeCount.Should().Be(12);
+    }
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_NestedJson_IsCountedLikeYaml()
+    {
+        MockCommunicationClient.Setup(c => c.GetPipelineSchemaAsync(AdapterId)).ReturnsAsync(OpenPipelineSchema);
+
+        const string json = """
+            {"triggers":[{"type":"FromHttpRequest@1"}],
+             "transformations":[{"type":"ForEach@1","transformations":[{"type":"Logger@1"}, "not-a-node"]}]}
+            """;
+
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, AdapterId, json);
+
+        result.NodeCount.Should().Be(3, "only objects in a node list are nodes");
+    }
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_NoNodes_CountsZero()
+    {
+        MockCommunicationClient.Setup(c => c.GetPipelineSchemaAsync(AdapterId)).ReturnsAsync(OpenPipelineSchema);
+
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, AdapterId, "name: empty");
+
+        result.NodeCount.Should().Be(0);
+    }
+
     [Fact]
     public async Task ValidatePipelineDefinition_SameDefinitionAsYamlAndJson_GivesTheSameVerdict()
     {

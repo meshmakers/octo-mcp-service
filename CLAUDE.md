@@ -551,7 +551,13 @@ The tool description says "PUT the file to the returned URL" — historically sa
 
 ### validate_ck_model (AB#8492, `CkModelValidationTools`)
 
-Validates a CK model draft against the tenant **without importing it**: `prepare_file_upload` → PUT → `validate_ck_model(transferId)`.
+Validates a CK model draft against the tenant **without importing it**: `prepare_file_upload` → PUT → `validate_ck_model(transferId)`,
+or inline for MCP-only clients (AB#9005): `validate_ck_model(files: [{name, content}])` with names relative to `ConstructionKit/`.
+Exactly one of the two. Inline limit (`CkDraftInlinePackager`): 1 MiB of UTF-8 content and 2000 files; over it the call is refused
+with `errorCode` `InlineDraftTooLarge` and an error with `messageNumber` 9005 naming the upload path. Deliberately no base64 zip
+parameter (see "Don't accept base64-encoded file content"): text files of a draft are not binary payloads, a zip is. Authentication
+runs before the draft is staged; the draft becomes an owner-only temporary zip deleted in `finally`; nothing is kept per process
+(AB#9015 guard test `ValidateCkModel_RepeatedInlineCalls_DoNotRetainTheDraft`).
 Family 1 (`AssetClientContext`, SDK `IAssetServicesClient.ValidateCkModelAsync`, asset repository `POST {tenantId}/v1/Models/ValidateCk`,
 read-only scope). Accepts a zip of the source `ConstructionKit/` folder (the folder holding `ckModel.yaml`; compiled on the server,
 dependencies from the server's catalogs) or a compiled model (yaml, json or a zip of one). The compiled model then runs through the
