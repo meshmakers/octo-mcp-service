@@ -57,7 +57,8 @@ public sealed class KnowledgeFirstProtocolTests : IAsyncDisposable
             .And.Contain("knowledge_get")
             .And.Contain("[admin-index]", "citations by [slug]")
             .And.Contain("answeringConventions")
-            .And.Contain("answeringRules")
+            .And.Contain("2. Open every page you use with knowledge_get.")
+            .And.Contain("4. Follow the answeringRules and the answeringConventions")
             .And.Contain("Cite only pages you opened with knowledge_get for this answer.", "AB#9088: q7/q18")
             .And.Contain("reply with exactly the sentence `No knowledge page answers this question.`, cite no page",
                 "AB#9088: q20")

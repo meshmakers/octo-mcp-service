@@ -83,7 +83,8 @@ internal static class KnowledgeConventions
     public const string NoAnswerRule =
         "If none of the pages you opened answers the question - pages that only touch the topic or describe neighbouring " +
         "tasks do not count - reply with exactly the sentence `" + NoAnswerSentence + "`, cite no page and do not " +
-        "answer from general knowledge.";
+        "answer from general knowledge. When opened pages answer part of the question, answer that part, cite only " +
+        "those pages and say what is missing.";
 
     /// <summary>
     ///     The answering rules every <c>knowledge_search</c> result carries in <c>answeringRules</c> (AB#9088). A code

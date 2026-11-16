@@ -1271,7 +1271,8 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   pages without any query word, e.g. `knowledge-schema` for "Zebrafisch"); no match = 0 pages, `isSuccess: true` and the
   message "No knowledge page matches …", also with a kind/status filter. Without a `status` filter, pages whose current
   status is Rejected are left out (search and index); `status: Rejected` lists them, `knowledge_get` still serves them by
-  slug (AB#9088: three rejected file-back Drafts on kb-test2 still ranked #1/#2/#5). The text index stems English words, so a term
+  slug (AB#9088: three rejected file-back Drafts on kb-test2 still ranked #1/#2/#5). The filter runs after the
+  200-page text-index preselection, like the kind/status filters, so many Rejected pages can push matches out of it. The text index stems English words, so a term
   also scores on words with the same stem (`Services/Knowledge/KnowledgeStemmer.cs`: plural, -ing, -ed; "pipelines"
   scores on "pipeline"; a two-letter rest gets its "e" back only as vowel + consonant: using -> use, but being -> be,
   doing -> do, eyed -> ey) — otherwise the score-0 filter would drop real index matches. The repository API does not return
