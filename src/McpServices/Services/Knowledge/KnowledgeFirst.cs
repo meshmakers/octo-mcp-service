@@ -35,10 +35,11 @@ internal static class KnowledgeFirst
     /// <summary>The steps, shared by the server instructions and the prompt.</summary>
     public const string Steps =
         "1. Call knowledge_search first, with the words of the question, before you answer or call other tools.\n" +
-        "2. Read every page you use with knowledge_get.\n" +
+        "2. Open every page you use with knowledge_get.\n" +
         "3. Cite each page you used by its slug in square brackets right after the statement it supports, e.g. " +
         "[admin-index].\n" +
-        "4. Follow the answeringConventions that knowledge_search returns.";
+        "4. Follow the answeringRules and the answeringConventions that knowledge_search returns.\n" +
+        KnowledgeConventions.CitationRule + "\n" + KnowledgeConventions.NoAnswerRule;
 
     /// <summary>The area index pages as text, shared by the server instructions and the prompt.</summary>
     public const string AreaIndexText =

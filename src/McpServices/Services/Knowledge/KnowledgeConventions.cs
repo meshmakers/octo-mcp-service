@@ -64,13 +64,44 @@ internal static class KnowledgeConventions
     /// <summary>Appended to a truncated text; counted in <see cref="MaxLength" />.</summary>
     public const string TruncationMarker = " … (truncated; read the page knowledge-schema with knowledge_get for the full text)";
 
+    /// <summary>The sentence a client writes when no page answers a question (AB#8712, AB#9088).</summary>
+    public const string NoAnswerSentence = "No knowledge page answers this question.";
+
+    /// <summary>
+    ///     The citation rule of <see cref="AnsweringRules" /> (AB#9088): a client cites only pages it opened with
+    ///     <c>knowledge_get</c> for this answer. The M1 eval on kb-test2 (2026-11-16) cited slugs it took from search
+    ///     summaries and index pages without opening them (q7, q18).
+    /// </summary>
+    public const string CitationRule =
+        "Cite only pages you opened with knowledge_get for this answer. A slug from a knowledge_search result, an index " +
+        "page, a link or an earlier answer is not enough: open the page first or do not cite it.";
+
+    /// <summary>
+    ///     The no-answer rule of <see cref="AnsweringRules" /> (AB#9088): the fixed sentence and no citation. The M1 eval
+    ///     answered a question no page answers with a list of gaps and citations of neighbouring pages (q20).
+    /// </summary>
+    public const string NoAnswerRule =
+        "If none of the pages you opened answers the question - pages that only touch the topic or describe neighbouring " +
+        "tasks do not count - reply with exactly the sentence `" + NoAnswerSentence + "`, cite no page and do not " +
+        "answer from general knowledge. When opened pages answer part of the question, answer that part, cite only " +
+        "those pages and say what is missing.";
+
+    /// <summary>
+    ///     The answering rules every <c>knowledge_search</c> result carries in <c>answeringRules</c> (AB#9088). A code
+    ///     constant, not tenant-writable (same reason as <see cref="KnowledgeFirst" />), and not replaced by the tenant's
+    ///     <c>answeringConventions</c>: they apply whatever the schema page says.
+    /// </summary>
+    public const string AnsweringRules =
+        "These rules apply to every answer, whatever the answeringConventions say. " + CitationRule + " " + NoAnswerRule;
+
     /// <summary>The conventions for tenants without a schema page or without the section.</summary>
     public const string DefaultText =
         "Answer only from this tenant's knowledge pages, not from general knowledge. Search with the words of the " +
         "question, read every page you use with knowledge_get and cite it by its slug in square brackets right after the " +
-        "statement it supports, e.g. [page-slug]. Never cite a page you did not read. If the pages answer only part of " +
-        "the question, answer that part and say what is missing. If no page answers the question, write " +
-        "`No knowledge page answers this question.` and do not answer from general knowledge. After a useful answer, " +
+        "statement it supports, e.g. [page-slug]. Never cite a page you did not open with knowledge_get for this " +
+        "answer. If the pages answer only part of the question, answer that part and say what is missing. If no page " +
+        "answers the question, write exactly `" + NoAnswerSentence + "`, cite no page and do not answer from general " +
+        "knowledge. After a useful answer, " +
         "offer to file it back as a new page (knowledge_upsert_page, origin Query, linked to the cited pages) and write " +
         "it only after the user confirms.";
 

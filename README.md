@@ -231,7 +231,9 @@ every content or status write is a new `KnowledgePageVersion` and passes the con
 `ContentRejected`; AB#8702 adds GitHub tokens, AWS access key ids and `password=`/`secret:`/`token=`-style assignments, while
 prose that names a credential without a value passes). Every `knowledge_search` result carries `answeringConventions`, the
 "Answering questions" section of the conventions page `knowledge-schema` (Verified page only; while the page is Draft the newest Verified version in its history (AB#8780); max. 2000 characters, otherwise a built-in default),
-with `answeringConventionsSource` (AB#8712).
+with `answeringConventionsSource` (AB#8712), and `answeringRules`, fixed rules a tenant cannot replace (AB#9088): cite only
+pages opened with `knowledge_get` for this answer, and when no page answers reply with exactly
+`No knowledge page answers this question.` and cite no page.
 - `knowledge_upsert_page` on an existing page: title and sections replace; an omitted `kind`, `summary`, `citations` or
   `hallucinationFlags` keeps the current value, an explicit `""` / `[]` clears it (AB#8567). `origin` applies to new pages only,
   `linksTo` / `sourceRtIds` only add links, `changeNote` and run metadata belong to the new version.
@@ -243,6 +245,8 @@ with `answeringConventionsSource` (AB#8712).
 - `knowledge_search` with a query returns only pages that contain at least one of its words (3+ characters) or an inflected
   form of it ("pipelines" finds "pipeline"); no match is an empty
   result with the message to say so (AB#8566). A query without such a word returns the index of all pages, like no query.
+  Pages whose status is **Rejected** are left out of results and the index unless `status` is `Rejected`; `knowledge_get`
+  still reads them by slug (AB#9088).
 - The knowledge tools are the **only** write path (AB#8568): `create_entity`, `create_entity_with_secrets`, `update_entity`,
   `set_entity_secrets`, `delete_entity` and `import_runtime_model` refuse `System.Ai/KnowledgePage`, `System.Ai/KnowledgePageVersion`
   (and derived types; for the import also the associations `LinksTo`, `GeneratedFrom`, `VersionOf`, judged on the decoded ids, so
@@ -300,7 +304,9 @@ with `answeringConventionsSource` (AB#8712).
 Every MCP client connected to OctoMesh is told to consult the knowledge base first.
 - **Server instructions.** The `initialize` result carries `instructions`: for questions on how to build, administer,
   deploy or diagnose something on OctoMesh, call `knowledge_search` first, read the pages used with `knowledge_get`, cite
-  each by `[slug]` and follow the `answeringConventions` of the search. The text lists the five area index pages
+  each by `[slug]` and follow the `answeringRules` and `answeringConventions` of the search; it also carries the two fixed
+  rules (cite only pages opened with `knowledge_get` for this answer; no answer = exactly
+  `No knowledge page answers this question.` and no citation, AB#9088). The text lists the five area index pages
   `admin-index` (Administer a tenant), `app-index` (Build an app), `pipeline-index` (Build data pipelines),
   `deploy-index` (Deploy and promote) and `diagnose-index` (Diagnose and fix). It is a code constant
   (`KnowledgeFirst.ServerInstructions`), not tenant data, so no tenant can put instructions into client sessions (same

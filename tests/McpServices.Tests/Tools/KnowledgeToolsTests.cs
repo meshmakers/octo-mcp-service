@@ -1405,6 +1405,84 @@ public class KnowledgeToolsTests : TestBase
     }
 
     [Fact]
+    public async Task Search_LeavesRejectedPagesOut_UnlessTheStatusFilterAsksForThem()
+    {
+        // AB#9088: on kb-test2 three file-back Drafts a person had set to Rejected still ranked #1/#2/#5.
+        await UpsertAsync("zebrafisch-pipeline", "Pipeline schedule", "Die Zebrafisch-Pipeline läuft nachts.");
+        await UpsertAsync("zebrafisch-duplicate", "Zebrafisch pipeline schedule (duplicate)",
+            "Die Zebrafisch-Pipeline läuft nachts um drei, Zebrafisch Zebrafisch.");
+        Page("zebrafisch-duplicate").SetAttributeValue("VerificationStatus", AttributeValueTypesDto.Enum,
+            KnowledgePages.StatusRejected);
+
+        var search = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch");
+        var index = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
+        var rejected = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch", status: "Rejected");
+        var draft = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch", status: "Draft");
+        var lowerCase = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch", status: "rejected");
+        var get = await KnowledgeTools.KnowledgeGet(MockServer.Object, "zebrafisch-duplicate");
+
+        search.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-pipeline");
+        index.Pages.Select(p => p.Slug).Should().NotContain("zebrafisch-duplicate");
+        rejected.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-duplicate");
+        draft.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-pipeline");
+        lowerCase.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-duplicate");
+        get.IsSuccess.Should().BeTrue(get.ErrorMessage);
+        get.Page!.Slug.Should().Be("zebrafisch-duplicate", "knowledge_get still serves a Rejected page by slug");
+        get.Page.Status.Should().Be("Rejected");
+    }
+
+    [Fact]
+    public async Task Search_CarriesTheFixedAnsweringRules_EvenWhenTheTenantHasItsOwnConventions()
+    {
+        // AB#9088: the M1 eval on kb-test2 cited pages it never opened (q7, q18) and answered a no-answer question with
+        // citations (q20). The rules come from the server, not from the schema page, so a tenant text cannot drop them.
+        await UpsertSchemaAsync("Answer in German. Cite pages as [slug].");
+
+        var match = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
+        var noMatch = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Okapi");
+
+        foreach (var result in new[] { match, noMatch })
+        {
+            result.AnsweringConventions.Should().Be("Answer in German. Cite pages as [slug].");
+            result.AnsweringRules.Should().Be(KnowledgeConventions.AnsweringRules);
+            result.AnsweringRules.Should()
+                .Contain("Cite only pages you opened with knowledge_get for this answer.")
+                .And.Contain("A slug from a knowledge_search result, an index page, a link or an earlier answer is not enough")
+                .And.Contain("reply with exactly the sentence `No knowledge page answers this question.`, cite no page")
+                .And.Contain("cite only those pages and say what is missing", "a partial answer still cites opened pages only");
+        }
+
+        var failed = await KnowledgeTools.KnowledgeSearch(MockServer.Object, limit: 0);
+        failed.IsSuccess.Should().BeFalse();
+        failed.AnsweringRules.Should().BeNull("only a successful search carries the rules");
+    }
+
+    [Fact]
+    public async Task Search_WithoutAMatch_TellsTheClientToReplyWithTheFixedSentence()
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Okapi");
+
+        result.Message.Should().StartWith("No knowledge page matches.")
+            .And.Contain("If no page you opened for this answer supports any part of the question")
+            .And.Contain("A part that opened pages support stays answered.")
+            .And.Contain("reply with exactly the sentence `No knowledge page answers this question.`, cite no page");
+    }
+
+    [Fact]
+    public void AnsweringRules_AreACodeConstant_AndTheDefaultConventionsCarryThem()
+    {
+        var field = typeof(KnowledgeConventions).GetField(nameof(KnowledgeConventions.AnsweringRules),
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic |
+            System.Reflection.BindingFlags.Static)!;
+        field.IsLiteral.Should().BeTrue("a tenant must not be able to change the rules");
+        KnowledgeConventions.DefaultText.Should()
+            .Contain("Never cite a page you did not open with knowledge_get for this answer.")
+            .And.Contain("write exactly `No knowledge page answers this question.`, cite no page");
+    }
+
+    [Fact]
     public async Task Search_WithoutAMatch_AndTheIndex_CarryTheConventionsToo()
     {
         await UpsertSchemaAsync(AnsweringText);

@@ -1269,13 +1269,23 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
 - **Search**: the engine text index (title, summary, section content) preselects up to 200 pages; the tool ranks them by
   term hits (title 3, summary 2, body 1, capped) and **drops pages with score 0** (AB#8566: the preselection returned
   pages without any query word, e.g. `knowledge-schema` for "Zebrafisch"); no match = 0 pages, `isSuccess: true` and the
-  message "No knowledge page matches …", also with a kind/status filter. The text index stems English words, so a term
+  message "No knowledge page matches …", also with a kind/status filter. Without a `status` filter, pages whose current
+  status is Rejected are left out (search and index); `status: Rejected` lists them, `knowledge_get` still serves them by
+  slug (AB#9088: three rejected file-back Drafts on kb-test2 still ranked #1/#2/#5). The filter runs after the
+  200-page text-index preselection, like the kind/status filters, so many Rejected pages can push matches out of it. The text index stems English words, so a term
   also scores on words with the same stem (`Services/Knowledge/KnowledgeStemmer.cs`: plural, -ing, -ed; "pipelines"
   scores on "pipeline"; a two-letter rest gets its "e" back only as vowel + consonant: using -> use, but being -> be,
   doing -> do, eyed -> ey) — otherwise the score-0 filter would drop real index matches. The repository API does not return
   MongoDB's `textScore` (the engine only sorts by it), which is why the tool scores itself. Words shorter than 3 characters are ignored; a
   query without a longer word is treated as no query (index of all pages, the message says it is not a match). Without
   a query it is the index of all pages.
+- **Answering rules** (AB#9088, `KnowledgeConventions.AnsweringRules`): every successful `knowledge_search` response
+  also carries `answeringRules`, a code constant on top of the tenant's conventions that no schema page replaces: cite
+  only pages opened with `knowledge_get` for this answer (a slug from a search result, index page or earlier answer is
+  not enough), and when no opened page answers reply with exactly `No knowledge page answers this question.` and cite
+  no page. The server instructions and the prompt `octomesh-knowledge-first` carry the same two rules
+  (`CitationRule`, `NoAnswerRule`), and the no-match message of the search names the sentence. Cause: M1 eval on kb-test2
+  2026-11-16 (q7/q18 cited unopened pages, q20 listed gaps with citations instead of the sentence).
 - **Answering conventions** (AB#8712, `Services/Knowledge/KnowledgeConventions.cs`): every successful `knowledge_search`
   response carries `answeringConventions`, the section "Answering questions" of the schema page `knowledge-schema`, and
   `answeringConventionsSource` (`knowledge-schema@<version>` or `default`). The page is read with the caller's session on
