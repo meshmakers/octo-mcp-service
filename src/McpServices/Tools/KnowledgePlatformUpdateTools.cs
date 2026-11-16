@@ -132,11 +132,14 @@ public static class KnowledgePlatformUpdateTools
                 }
 
                 // One transaction per page: a failure of one page is reported with it, the pages already switched
-                // in this run stay in the answer.
+                // in this run stay in the answer. An IOctoSession carries exactly one transaction (a second
+                // StartTransaction fails with "Session already started", AB#9114), so every page gets its own
+                // session; the scan session above only reads.
                 KnowledgePlatformAdoptionDto outcome;
                 try
                 {
-                    outcome = await AdoptAsync(server, ctx, session, update, runRef, cancellationToken);
+                    using var pageSession = await ctx.Repo.GetSessionAsync(ctx.Security!);
+                    outcome = await AdoptAsync(server, ctx, pageSession, update, runRef, cancellationToken);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {

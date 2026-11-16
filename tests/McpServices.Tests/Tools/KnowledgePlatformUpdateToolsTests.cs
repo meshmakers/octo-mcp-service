@@ -38,6 +38,11 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
     public KnowledgePlatformUpdateToolsTests()
     {
         TestServiceProvider.RegisterService<IContentGuard>(new ContentGuard(NullLogger<ContentGuard>.Instance));
+        // AB#9114: like the engine's OctoSession, every session carries exactly one transaction. A shared mock session
+        // that accepts any number of StartTransaction calls hid that the adopt run reused one session for all pages.
+        MockSecureSessionFactory
+            .Setup(f => f.GetSessionAsync(It.IsAny<RtSecurityContext>()))
+            .ReturnsAsync(() => OneTransactionSession());
         MockCkCacheService.Setup(c => c.GetCkTypes(It.IsAny<string>())).Returns([]);
         MockCkCacheService
             .Setup(c => c.TryGetRtCkType(It.IsAny<string>(), It.IsAny<RtCkId<CkTypeId>>(), out It.Ref<CkTypeGraph?>.IsAny))
@@ -123,6 +128,24 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
     }
 
     private int _queries;
+    private int _transactionsStarted;
+
+    private IOctoSession OneTransactionSession()
+    {
+        var started = false;
+        var session = new Mock<IOctoSession>();
+        session.Setup(x => x.StartTransaction()).Callback(() =>
+        {
+            if (started)
+            {
+                throw new InvalidOperationException("Session already started.");
+            }
+
+            started = true;
+            _transactionsStarted++;
+        });
+        return session.Object;
+    }
 
     private static bool Matches(RtEntity e, FieldFilter f)
     {
@@ -430,6 +453,31 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
         list.Updates.Should().HaveCount(150).And.OnlyContain(u => u.State == "Adoptable");
         list.Truncated.Should().BeFalse();
         _queries.Should().BeLessThan(12, "Blueprint versions page by page, pages and current versions in batches of 200");
+    }
+
+    [Fact]
+    public async Task SeveralAdoptablePages_AreAllAdoptedInOneCall_EachInItsOwnTransaction()
+    {
+        // AB#9114: test-2 adopted one page per run, every further page failed with "Session already started.".
+        var pages = new[] { "nodes-mesh-query", "nodes-mesh-update", "nodes-sdk-values-strings" }
+            .Select(slug =>
+            {
+                var page = SeedPage(slug);
+                SeedVersion(page, 2, slug + " v2");
+                return page;
+            })
+            .ToList();
+        _transactionsStarted = 0;
+
+        var result = await AdoptAsync();
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Skipped.Should().BeEmpty();
+        result.Adopted.Select(a => a.Slug).Should()
+            .BeEquivalentTo("nodes-mesh-query", "nodes-mesh-update", "nodes-sdk-values-strings");
+        pages.Should().OnlyContain(p => Current(p) == 2);
+        _transactionsStarted.Should().Be(3, "one transaction per adopted page");
+        (await ListAsync()).Updates.Should().NotContain(u => u.State == "Adoptable");
     }
 
     [Fact]
