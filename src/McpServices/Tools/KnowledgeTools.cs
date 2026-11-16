@@ -44,6 +44,9 @@ public static class KnowledgeTools
         "'knowledge-schema' (its newest Verified version while the page is Draft, or a built-in default, see " +
         "answeringConventionsSource). Follow them when you answer: answer " +
         "only from pages, cite every page you read by its slug, and say so when no page answers instead of inventing. " +
+        "Every result also carries answeringRules, fixed rules on top of the conventions: cite only pages you opened " +
+        "with knowledge_get for this answer, and when no page answers reply with exactly 'No knowledge page answers " +
+        "this question.' and cite no page. " +
         "When the tenant has no Skill pages (the OctoMesh builder knowledge, blueprint System.Ai.Builder, is not " +
         "installed), builderKnowledgeHint says how a tenant administrator installs it.")]
     public static async Task<KnowledgeSearchResponse> KnowledgeSearch(
@@ -117,9 +120,11 @@ public static class KnowledgeTools
                 Pages = pages,
                 AnsweringConventions = conventions.Text,
                 AnsweringConventionsSource = conventions.Source,
+                AnsweringRules = KnowledgeConventions.AnsweringRules,
                 BuilderKnowledgeHint = hasSkillPages ? null : KnowledgeFirst.BuilderKnowledgeHint,
                 Message = pages.Count == 0
-                    ? "No knowledge page matches. Say so instead of answering from general knowledge."
+                    ? "No knowledge page matches. Reply with exactly the sentence `" + KnowledgeConventions.NoAnswerSentence +
+                      "`, cite no page and do not answer from general knowledge."
                     : ignoredQuery
                         ? $"The query has no word of 3 or more characters, so this is the index of all pages, not a match: {pages.Count} page(s)."
                         : $"{pages.Count} page(s)."

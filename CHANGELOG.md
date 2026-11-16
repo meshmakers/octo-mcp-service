@@ -46,6 +46,13 @@
 
 ### Changed
 
+- **AB#9088** — Stricter answering rules for knowledge clients. `knowledge_search` results carry the new field
+  `answeringRules` (a code constant, not tenant-writable, applies whatever the schema page's conventions say): cite only
+  pages opened with `knowledge_get` for this answer, and when no opened page answers reply with exactly
+  `No knowledge page answers this question.` and cite no page. The server instructions, the prompt
+  `octomesh-knowledge-first`, the built-in default conventions and the no-match message carry the same rules. Existing
+  fields are unchanged.
+
 - **AB#8418** — `create_user` and `reset_user_password` call the CK methods `System.Identity/User.CreateUser-1` /
   `User.ResetPassword-1` through the generated `RtUserMethodClient` instead of the REST endpoints. Names, parameters and the
   response shape are unchanged; `reset_user_password` still needs `confirm=true`. Refusals come from the server as

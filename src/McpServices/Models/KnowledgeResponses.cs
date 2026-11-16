@@ -133,6 +133,14 @@ public class KnowledgeSearchResponse : KnowledgeResponse
     public string? AnsweringConventionsSource { get; set; }
 
     /// <summary>
+    ///     The fixed answering rules (AB#9088): cite only pages opened with <c>knowledge_get</c> for this answer, and when
+    ///     no page answers reply with exactly <c>No knowledge page answers this question.</c> and cite nothing. A server
+    ///     constant that applies on top of <see cref="AnsweringConventions" />, which a tenant cannot replace. Set on every
+    ///     successful search.
+    /// </summary>
+    public string? AnsweringRules { get; set; }
+
+    /// <summary>
     ///     Set when the tenant has no Skill page (AB#9087): the OctoMesh builder knowledge (blueprint
     ///     <c>System.Ai.Builder</c>) is not installed, and the hint says how a tenant administrator installs it (opt-in,
     ///     <c>InstallBlueprint -b System.Ai.Builder-&lt;version&gt;</c> or the MCP tool <c>install_blueprint</c>).

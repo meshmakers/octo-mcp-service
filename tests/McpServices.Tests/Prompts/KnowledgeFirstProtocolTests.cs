@@ -57,6 +57,10 @@ public sealed class KnowledgeFirstProtocolTests : IAsyncDisposable
             .And.Contain("knowledge_get")
             .And.Contain("[admin-index]", "citations by [slug]")
             .And.Contain("answeringConventions")
+            .And.Contain("answeringRules")
+            .And.Contain("Cite only pages you opened with knowledge_get for this answer.", "AB#9088: q7/q18")
+            .And.Contain("reply with exactly the sentence `No knowledge page answers this question.`, cite no page",
+                "AB#9088: q20")
             .And.Contain("System.Ai.Builder", "the fallback for tenants without the builder knowledge");
         foreach (var slug in new[] { "admin-index", "app-index", "pipeline-index", "deploy-index", "diagnose-index" })
         {
@@ -91,6 +95,7 @@ public sealed class KnowledgeFirstProtocolTests : IAsyncDisposable
         var text = message.Content.Should().BeOfType<TextContentBlock>().Subject.Text;
         text.Should().Be(KnowledgeFirst.BuildPrompt(Question));
         text.Should().Contain(KnowledgeFirst.Steps).And.Contain(KnowledgeFirst.AreaIndexText)
+            .And.Contain(KnowledgeConventions.CitationRule).And.Contain(KnowledgeConventions.NoAnswerRule)
             .And.EndWith("Question: " + Question);
         text.IndexOf("knowledge_search", StringComparison.Ordinal).Should()
             .BeLessThan(text.IndexOf(Question, StringComparison.Ordinal), "the steps wrap the question");

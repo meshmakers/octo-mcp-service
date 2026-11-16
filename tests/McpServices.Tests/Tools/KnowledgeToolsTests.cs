@@ -1405,6 +1405,50 @@ public class KnowledgeToolsTests : TestBase
     }
 
     [Fact]
+    public async Task Search_CarriesTheFixedAnsweringRules_EvenWhenTheTenantHasItsOwnConventions()
+    {
+        // AB#9088: the M1 eval on kb-test2 cited pages it never opened (q7, q18) and answered a no-answer question with
+        // citations (q20). The rules come from the server, not from the schema page, so a tenant text cannot drop them.
+        await UpsertSchemaAsync("Answer in German. Cite pages as [slug].");
+
+        var match = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
+        var noMatch = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Okapi");
+
+        foreach (var result in new[] { match, noMatch })
+        {
+            result.AnsweringConventions.Should().Be("Answer in German. Cite pages as [slug].");
+            result.AnsweringRules.Should().Be(KnowledgeConventions.AnsweringRules);
+            result.AnsweringRules.Should()
+                .Contain("Cite only pages you opened with knowledge_get for this answer.")
+                .And.Contain("A slug from a knowledge_search result, an index page, a link or an earlier answer is not enough")
+                .And.Contain("reply with exactly the sentence `No knowledge page answers this question.`, cite no page");
+        }
+    }
+
+    [Fact]
+    public async Task Search_WithoutAMatch_TellsTheClientToReplyWithTheFixedSentence()
+    {
+        await GivenSchemaAndZebrafischPagesAsync();
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Okapi");
+
+        result.Message.Should().StartWith("No knowledge page matches.")
+            .And.Contain("Reply with exactly the sentence `No knowledge page answers this question.`, cite no page");
+    }
+
+    [Fact]
+    public void AnsweringRules_AreACodeConstant_AndTheDefaultConventionsCarryThem()
+    {
+        var field = typeof(KnowledgeConventions).GetField(nameof(KnowledgeConventions.AnsweringRules),
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic |
+            System.Reflection.BindingFlags.Static)!;
+        field.IsLiteral.Should().BeTrue("a tenant must not be able to change the rules");
+        KnowledgeConventions.DefaultText.Should()
+            .Contain("Never cite a page you did not open with knowledge_get for this answer.")
+            .And.Contain("write exactly `No knowledge page answers this question.`, cite no page");
+    }
+
+    [Fact]
     public async Task Search_WithoutAMatch_AndTheIndex_CarryTheConventionsToo()
     {
         await UpsertSchemaAsync(AnsweringText);
