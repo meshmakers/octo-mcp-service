@@ -115,14 +115,17 @@ public static class KnowledgePlatformUpdateTools
             return new KnowledgeAdoptPlatformUpdatesResponse { TenantId = ctx.TenantId, ErrorMessage = modelError };
         }
 
+        // Built before the run: when it fails part-way, the pages already switched (committed) stay in the answer.
+        var response = new KnowledgeAdoptPlatformUpdatesResponse { TenantId = ctx.TenantId, RunRef = runRef };
         try
         {
-            using var session = await ctx.Repo.GetSessionAsync(ctx.Security!);
-            var scan = await KnowledgePlatformUpdates.FindAsync(ctx.Repo, session);
-            var response = new KnowledgeAdoptPlatformUpdatesResponse
+            PlatformUpdateScan scan;
+            using (var scanSession = await ctx.Repo.GetSessionAsync(ctx.Security!))
             {
-                TenantId = ctx.TenantId, RunRef = runRef, Truncated = scan.Truncated
-            };
+                scan = await KnowledgePlatformUpdates.FindAsync(ctx.Repo, scanSession);
+            }
+
+            response.Truncated = scan.Truncated;
             foreach (var update in scan.Updates)
             {
                 if (update.State == PlatformUpdateState.Available)
@@ -132,11 +135,15 @@ public static class KnowledgePlatformUpdateTools
                 }
 
                 // One transaction per page: a failure of one page is reported with it, the pages already switched
-                // in this run stay in the answer.
+                // in this run stay in the answer. An IOctoSession carries exactly one transaction (a second
+                // StartTransaction fails with "Session already started", AB#9114), so every page gets its own
+                // session. Opening it stays outside the per-page catch: a session that cannot be opened is an
+                // infrastructure failure of the run, not a skipped page.
+                using var pageSession = await ctx.Repo.GetSessionAsync(ctx.Security!);
                 KnowledgePlatformAdoptionDto outcome;
                 try
                 {
-                    outcome = await AdoptAsync(server, ctx, session, update, runRef, cancellationToken);
+                    outcome = await AdoptAsync(server, ctx, pageSession, update, runRef, cancellationToken);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -168,7 +175,9 @@ public static class KnowledgePlatformUpdateTools
         }
         catch (Exception ex)
         {
-            return new KnowledgeAdoptPlatformUpdatesResponse { TenantId = ctx.TenantId, ErrorMessage = ex.Message };
+            response.IsSuccess = false;
+            response.ErrorMessage = ex.Message;
+            return response;
         }
     }
 

@@ -16,6 +16,12 @@
 
 ### Fixed
 
+- **AB#9114** — `knowledge_adopt_platform_updates` (and the `knowledge-platform-updates` pipeline that calls it) adopted
+  only one page per run: every further page was skipped with `Failed: Session already started.`, because all pages
+  shared one session and a session carries exactly one transaction. Each page is now adopted in its own session and
+  transaction, so one run switches every unedited page. A run that fails part-way (a session cannot be opened) answers
+  with the error and still lists the pages it already switched.
+
 - **AB#9103** — An edited knowledge page lost its platform update silently: the tenant's edit took the key `<slug>@2`,
   the blueprint update shipped its own `<slug>@2`, and UpdateBlueprint kept the tenant entity under the shared key
   (found by the local M1 verification, System.Ai.Builder 1.0.0 -> 1.1.0). Versions written by the knowledge tools are

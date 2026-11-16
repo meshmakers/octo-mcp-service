@@ -839,6 +839,8 @@ public static class KnowledgeTools
     ///     committed in between) nothing is written and the result is <c>VersionConflict</c>. A writer that commits
     ///     after that re-read makes this transaction's page update a MongoDB write conflict, which maps to
     ///     <c>VersionConflict</c> as well, so two writers can never both write version <c>n + 1</c> of an existing page.
+    ///     The transaction is started on <paramref name="session" />, and a session carries exactly one transaction:
+    ///     a caller that writes several times (one transaction per page) opens a session per write (AB#9114).
     /// </summary>
     /// <returns>The failure response, or <c>null</c> when the write was committed.</returns>
     internal static async Task<KnowledgeWriteResponse?> ApplyAsync(ITenantRepository repository, IOctoSession session,
