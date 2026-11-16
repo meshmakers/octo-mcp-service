@@ -369,6 +369,12 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
         KnowledgePages.ReadContent(page).Title.Should().Be("Moved to pipeline-nodes-sdk-values-strings");
         Version("nodes-sdk-values-strings", 3).RtWellKnownName.Should().Be("nodes-sdk-values-strings@t3");
         (await ListAsync()).Updates.Should().BeEmpty("the restore of @2 put the Blueprint version into the chain");
+
+        // The tenant's own @t2 stays reachable by number with tenantVersion.
+        (await KnowledgeTools.KnowledgeGet(MockServer.Object, "nodes-sdk-values-strings", 2, tenantVersion: true))
+            .Markdown.Should().StartWith("# " + edit.GetAttributeStringValueOrDefault("Title"));
+        (await KnowledgeTools.KnowledgeGet(MockServer.Object, "nodes-sdk-values-strings", 2))
+            .Markdown.Should().StartWith("# Moved to pipeline-nodes-sdk-values-strings");
     }
 
     [Fact]

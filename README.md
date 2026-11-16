@@ -293,7 +293,7 @@ with `answeringConventionsSource` (AB#8712).
   UpdateBlueprint kept the tenant entity under the shared key and the update was lost without a finding). The number
   (`VersionNumber`) stays one sequence; when a tenant version and a later Blueprint version share it, `knowledge_get` /
   `knowledge_restore_version` with that number name the Blueprint version (the one a PlatformUpdateAvailable finding
-  reports), while the page's current version and `BaseVersion` name the tenant one. Tenant versions written before
+  reports; `tenantVersion: true` names the tenant one), while the page's current version and `BaseVersion` name the tenant one. Tenant versions written before
   AB#9103 keep their plain key (no migration).
 
 ### **Knowledge first: server instructions, prompt and fallback** (AB#9087)

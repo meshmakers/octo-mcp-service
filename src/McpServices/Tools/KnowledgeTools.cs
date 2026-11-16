@@ -8,6 +8,7 @@ using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Runtime.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
+using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Runtime.Contracts.RepositoryEntities;
 using Meshmakers.Octo.Runtime.Contracts.Secrets;
 using ModelContextProtocol.Server;
@@ -26,10 +27,10 @@ public static class KnowledgeTools
     private const int MaxSearchCandidates = 200;
 
     /// <summary>
-    ///     Pages read (without text search) to find out whether the tenant has a Skill page when the matched pages hold
-    ///     none (AB#9087). Different from <see cref="MaxSearchCandidates" /> so the probe is told apart from the page list.
+    ///     Take of the Skill page probe (AB#9087): one page of kind Skill, found by a field filter, decides whether the
+    ///     tenant has the builder knowledge when the matched pages hold none.
     /// </summary>
-    internal const int SkillProbeCandidates = 100;
+    internal const int SkillProbeCandidates = 1;
 
     /// <summary>Searches the knowledge pages of the tenant, best match first.</summary>
     [McpServerTool(Name = "knowledge_search")]
@@ -105,7 +106,7 @@ public static class KnowledgeTools
 
             var ignoredQuery = !isSearch && !string.IsNullOrWhiteSpace(query);
             // AB#9087: without a Skill page the tenant lacks the builder knowledge (System.Ai.Builder); say how to get it.
-            var hasSkillPages = await HasSkillPagesAsync(ctx.Repo, session, contents.Select(x => x.Content), isSearch);
+            var hasSkillPages = await HasSkillPagesAsync(ctx.Repo, session, contents.Select(x => x.Content));
             // AB#8712: the answering conventions with every result, read with the caller's own session.
             var conventions = await KnowledgeConventions.ReadAsync(ctx.Repo, session, ctx.TenantId!,
                 server.Services?.GetService<KnowledgeConventionsCache>());
@@ -132,27 +133,24 @@ public static class KnowledgeTools
 
     /// <summary>
     ///     True when the tenant has a Skill page the caller can read (AB#9087). The pages already read decide when one of
-    ///     them is a Skill page, or when they are the unfiltered index (no text search); otherwise one page list without
-    ///     text search is read with the caller's session. Never fails the search: a failed probe counts as "has Skill
-    ///     pages" (no hint), since a wrong install hint is worse than a missing one.
+    ///     them is a Skill page; otherwise one query for a single page of kind Skill (field filter, no text search, the
+    ///     caller's session) decides - independent of how many other pages the tenant has. Never fails the search: a
+    ///     failed probe counts as "has Skill pages" (no hint), since a wrong install hint is worse than a missing one.
     /// </summary>
     private static async Task<bool> HasSkillPagesAsync(ITenantRepository repository, IOctoSession session,
-        IEnumerable<KnowledgeContent> read, bool wasTextSearch)
+        IEnumerable<KnowledgeContent> read)
     {
         if (read.Any(c => c.Kind == KnowledgeFirst.SkillKind))
         {
             return true;
         }
 
-        if (!wasTextSearch)
-        {
-            return false;
-        }
-
         try
         {
-            var all = await KnowledgePages.ListPagesAsync(repository, session, null, SkillProbeCandidates);
-            return all.Any(p => KnowledgePages.ReadContent(p).Kind == KnowledgeFirst.SkillKind);
+            var options = RtEntityQueryOptions.Create();
+            options.Field("Kind", FieldFilterOperator.Equals, KnowledgeFirst.SkillKind);
+            var probe = await repository.GetRtEntitiesByTypeAsync(session, KnowledgePages.PageTypeId, options, 0, 1);
+            return probe.Items.Any();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -169,7 +167,10 @@ public static class KnowledgeTools
         McpServer server,
         [Description("Slug of the page, e.g. 'knowledge-schema'.")] string slug,
         [Description("Version to read; omit for the current version.")] int? version = null,
-        [Description("Tenant to read from. Falls back to URL route.")] string? tenantId = null)
+        [Description("Tenant to read from. Falls back to URL route.")] string? tenantId = null,
+        [Description("When a version number is used by a tenant version and a later Blueprint version, read the tenant " +
+                     "version instead of the Blueprint one (default false).")]
+        bool tenantVersion = false)
     {
         if (!KnowledgePages.IsValidSlug(slug))
         {
@@ -195,7 +196,7 @@ public static class KnowledgeTools
             var source = page;
             if (version != null && version != KnowledgePages.CurrentVersion(page))
             {
-                source = await KnowledgePages.FindVersionAsync(ctx.Repo, session, slug, version.Value);
+                source = await KnowledgePages.FindVersionAsync(ctx.Repo, session, slug, version.Value, tenantVersion);
                 if (source == null)
                 {
                     return NotFound<KnowledgePageResponse>(ctx.TenantId!, $"Version {version} of '{slug}' not found.");
@@ -483,6 +484,10 @@ public static class KnowledgeTools
         [Description("The current version you read; the restore is refused when the page has moved on.")]
         int? expectedVersion = null,
         [Description("Tenant to write to. Falls back to URL route.")] string? tenantId = null,
+        [Description("When the version number is used by a tenant version and a later Blueprint version, restore the " +
+                     "tenant version instead of the Blueprint one (default false: the Blueprint version a " +
+                     "PlatformUpdateAvailable finding names).")]
+        bool tenantVersion = false,
         CancellationToken cancellationToken = default)
     {
         if (!KnowledgePages.IsValidSlug(slug) || version < 1)
@@ -511,7 +516,7 @@ public static class KnowledgeTools
                 return conflict;
             }
 
-            var old = await KnowledgePages.FindVersionAsync(ctx.Repo, session, slug, version);
+            var old = await KnowledgePages.FindVersionAsync(ctx.Repo, session, slug, version, tenantVersion);
             if (old == null)
             {
                 return NotFound<KnowledgeWriteResponse>(ctx.TenantId!, $"Version {version} of '{slug}' not found.");

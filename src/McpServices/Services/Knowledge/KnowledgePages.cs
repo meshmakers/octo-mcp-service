@@ -97,14 +97,17 @@ internal static class KnowledgePages
 
     /// <summary>
     ///     The version of a page with that number. When a tenant version and a Blueprint version share the number (the
-    ///     tenant wrote it first, the seed arrived later), the Blueprint version is returned: it is the one a
-    ///     PlatformUpdateAvailable finding names, and the tenant one is the page's current content or part of its
-    ///     <c>BaseVersion</c> chain.
+    ///     tenant wrote it first, the seed arrived later), the Blueprint version is returned unless
+    ///     <paramref name="preferTenant" /> is set: it is the one a PlatformUpdateAvailable finding names, and the tenant
+    ///     one is the page's current content or part of its <c>BaseVersion</c> chain.
     /// </summary>
     public static async Task<RtEntity?> FindVersionAsync(ITenantRepository repository, IOctoSession session, string slug,
-        int version)
+        int version, bool preferTenant = false)
     {
-        foreach (var name in VersionNames(slug, version))
+        string[] names = preferTenant
+            ? [TenantVersionName(slug, version), VersionName(slug, version)]
+            : VersionNames(slug, version);
+        foreach (var name in names)
         {
             var entity = await FindBySlugAsync(repository, session, VersionType, name);
             if (entity != null)

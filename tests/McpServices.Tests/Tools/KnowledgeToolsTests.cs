@@ -90,6 +90,12 @@ public class KnowledgeToolsTests : TestBase
                 var items = _entities.Values.Where(e => Equals(e.CkTypeId, type))
                     .Where(e => textSearch == null || _textIndexReturnsEveryPage || MatchesTextIndex(e, textSearch))
                     .ToList();
+                if (take == KnowledgeTools.SkillProbeCandidates && Equals(type, KnowledgePages.PageTypeId))
+                {
+                    // The probe filters on Kind == Skill (field filter) and takes one page.
+                    items = items.Where(e => KnowledgePages.ReadContent(e).Kind == KnowledgeFirst.SkillKind).Take(1).ToList();
+                }
+
                 return new ResultSet<RtEntity>(items, items.Count, null, null);
             });
         MockTenantRepository
@@ -1658,7 +1664,7 @@ public class KnowledgeToolsTests : TestBase
     }
 
     [Fact]
-    public async Task Index_DecidesTheHintFromTheListedPages_WithoutAProbe()
+    public async Task Index_ProbesOnlyWhenTheListedPagesHoldNoSkillPage()
     {
         await GivenSchemaAndZebrafischPagesAsync();
 
@@ -1668,7 +1674,9 @@ public class KnowledgeToolsTests : TestBase
 
         withoutSkill.BuilderKnowledgeHint.Should().Be(KnowledgeFirst.BuilderKnowledgeHint);
         withSkill.BuilderKnowledgeHint.Should().BeNull();
-        _skillProbes.Should().Be(0, "the index is the unfiltered page list");
+        // Local review of AB#9087: the index lists only the first pages, so a tenant with many pages could get a wrong
+        // hint; the filtered probe (one page of kind Skill) decides instead - and is skipped when a listed page is one.
+        _skillProbes.Should().Be(1, "only the index without a listed Skill page needs the probe");
     }
 
     [Fact]
