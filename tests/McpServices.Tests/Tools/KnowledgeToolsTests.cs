@@ -1405,6 +1405,31 @@ public class KnowledgeToolsTests : TestBase
     }
 
     [Fact]
+    public async Task Search_LeavesRejectedPagesOut_UnlessTheStatusFilterAsksForThem()
+    {
+        // AB#9088: on kb-test2 three file-back Drafts a person had set to Rejected still ranked #1/#2/#5.
+        await UpsertAsync("zebrafisch-pipeline", "Pipeline schedule", "Die Zebrafisch-Pipeline läuft nachts.");
+        await UpsertAsync("zebrafisch-duplicate", "Zebrafisch pipeline schedule (duplicate)",
+            "Die Zebrafisch-Pipeline läuft nachts um drei, Zebrafisch Zebrafisch.");
+        Page("zebrafisch-duplicate").SetAttributeValue("VerificationStatus", AttributeValueTypesDto.Enum,
+            KnowledgePages.StatusRejected);
+
+        var search = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch");
+        var index = await KnowledgeTools.KnowledgeSearch(MockServer.Object);
+        var rejected = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch", status: "Rejected");
+        var draft = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Zebrafisch", status: "Draft");
+        var get = await KnowledgeTools.KnowledgeGet(MockServer.Object, "zebrafisch-duplicate");
+
+        search.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-pipeline");
+        index.Pages.Select(p => p.Slug).Should().NotContain("zebrafisch-duplicate");
+        rejected.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-duplicate");
+        draft.Pages.Select(p => p.Slug).Should().Equal("zebrafisch-pipeline");
+        get.IsSuccess.Should().BeTrue(get.ErrorMessage);
+        get.Page!.Slug.Should().Be("zebrafisch-duplicate", "knowledge_get still serves a Rejected page by slug");
+        get.Page.Status.Should().Be("Rejected");
+    }
+
+    [Fact]
     public async Task Search_CarriesTheFixedAnsweringRules_EvenWhenTheTenantHasItsOwnConventions()
     {
         // AB#9088: the M1 eval on kb-test2 cited pages it never opened (q7, q18) and answered a no-answer question with

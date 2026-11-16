@@ -36,7 +36,8 @@ public static class KnowledgeTools
     [McpServerTool(Name = "knowledge_search")]
     [Description(
         "Search the tenant's knowledge base (knowledge pages). Returns pages best first with slug, title, kind, " +
-        "verification status, summary, current version and the resource URI. With a query only pages that contain at least " +
+        "verification status, summary, current version and the resource URI. Rejected pages are left out unless " +
+        "status is Rejected (knowledge_get still reads them). With a query only pages that contain at least " +
         "one of its words or an inflected form of it (plural, -ing, -ed) are returned; no match is an empty result with " +
         "the message to say so. Words shorter than 3 " +
         "characters are ignored; a query without a longer word returns the index of all pages, like no query (sorted by " +
@@ -56,7 +57,8 @@ public static class KnowledgeTools
         string? query = null,
         [Description("Only pages of this kind: Concept, Entity, HowTo, Summary, Skill, Schema.")]
         string? kind = null,
-        [Description("Only pages with this verification status: Draft, InReview, Verified, Rejected.")]
+        [Description("Only pages with this verification status: Draft, InReview, Verified, Rejected. Without it, " +
+                     "Rejected pages are left out.")]
         string? status = null,
         [Description("Maximum number of pages (default 10, max 100).")]
         int limit = 10,
@@ -98,7 +100,12 @@ public static class KnowledgeTools
                 .ToList();
             var pages = contents
                 .Where(x => kindFilter == null || x.Content.Kind == kindFilter)
-                .Where(x => statusFilter == null || x.Content.Status == statusFilter)
+                // AB#9088: without a status filter, Rejected pages are left out - a person turned them down, yet on
+                // kb-test2 three rejected file-back Drafts still ranked first. status=Rejected lists them;
+                // knowledge_get still serves them by slug.
+                .Where(x => statusFilter == null
+                    ? x.Content.Status != KnowledgePages.StatusRejected
+                    : x.Content.Status == statusFilter)
                 .Select(x => KnowledgePages.Summarize(ctx.TenantId!, x.Page, Score(x.Content, terms)))
                 // A page without any query word or its English stem (score 0) does not match, whatever the text index
                 // preselected.

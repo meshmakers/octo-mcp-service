@@ -245,6 +245,8 @@ pages opened with `knowledge_get` for this answer, and when no page answers repl
 - `knowledge_search` with a query returns only pages that contain at least one of its words (3+ characters) or an inflected
   form of it ("pipelines" finds "pipeline"); no match is an empty
   result with the message to say so (AB#8566). A query without such a word returns the index of all pages, like no query.
+  Pages whose status is **Rejected** are left out of results and the index unless `status` is `Rejected`; `knowledge_get`
+  still reads them by slug (AB#9088).
 - The knowledge tools are the **only** write path (AB#8568): `create_entity`, `create_entity_with_secrets`, `update_entity`,
   `set_entity_secrets`, `delete_entity` and `import_runtime_model` refuse `System.Ai/KnowledgePage`, `System.Ai/KnowledgePageVersion`
   (and derived types; for the import also the associations `LinksTo`, `GeneratedFrom`, `VersionOf`, judged on the decoded ids, so
