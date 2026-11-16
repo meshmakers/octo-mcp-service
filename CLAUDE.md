@@ -1281,14 +1281,18 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   a query it is the index of all pages.
 - **Ranking and the no-answer hint** (AB#9165, `KnowledgeTools.Match`): field score (title 3, summary 2, sections 1
   capped at 5 per word) + slug 3 (one hit) + `TopicBonus` 15 per query word the title or slug names; `Terms` drops
-  `StopWords` unless the query has no other word; the stemmer reduces `apis`/`uris`/`kpis` (4-letter `-is`, not `this`).
-  Each page carries `matchedTerms`, the response `unmatchedTerms` (query words no match contains, also beyond `limit`);
-  from `NoAnswerHintMinUnmatchedTerms` (2) on, the message is `NoAnswerHint` (names the words and the no-answer
-  sentence). Keep the threshold at 2 or above: `KnowledgeSearchRankingTests` pins 0 hints on the 19 answerable queries
-  of the live eval 1.1.2 and the hint on q20, against the builder pages
-  (`Tools/Fixtures/knowledge-search-eval-1.1.2.json`, section text as `word:count`). Re-cut the fixture when the
-  builder pages change much (provenance in its description). Cause: M1 live eval 2026-11-16 (finding 3 ranking,
-  finding 14 q20).
+  `StopWords` (function and filler words) unless the query has no other word; the stemmer reduces `apis`/`uris`/`kpis`
+  (4-letter `-is`, not `this`). Each page carries `matchedTerms`, the response `unmatchedTerms`: query words no
+  searchable page contains - any kind or status (Rejected only with `status: Rejected`), also beyond `limit`, so a
+  filter never makes a word "missing". `HintTerms` drops adverbs in -ly and typos (`TypoMinLength` 6+ letters, one edit
+  from a page word; 5 would turn q12's "apple" into "apply"); from one remaining word the message is `NoAnswerHint`.
+  Limits: candidates are the 200 pages of the text-index preselection (slugs are not indexed), and a question whose
+  words are all on some page gets no hint (q23 "Refinery Studio Wi-Fi network"). `KnowledgeSearchRankingTests` pins,
+  against the eval tenant's pages (`Tools/Fixtures/knowledge-search-eval-1.1.2.json`: builder pages + eval corpus,
+  section text as `word:count`) and both forms of every eval question (recorded queries of the live eval 1.1.2 and
+  the question texts): top 3 for all 38 answerable forms, 0 hints on them, the hint on every no-answer question text.
+  Re-cut the fixture when the pages change much (provenance in its description). Cause: M1 live eval 2026-11-16
+  (finding 3 ranking, finding 14 q20).
 - **Answering rules** (AB#9088, `KnowledgeConventions.AnsweringRules`): every successful `knowledge_search` response
   also carries `answeringRules`, a code constant on top of the tenant's conventions that no schema page replaces: cite
   only pages opened with `knowledge_get` for this answer (a slug from a search result, index page or earlier answer is

@@ -1,5 +1,5 @@
 {
- "description": "AB#9165: offline evidence for knowledge_search ranking and the no-answer hint. pages.builder: the knowledge pages of blueprint System.Ai.Builder (octo-ai-services origin/main seed-data/knowledge-pages.yaml, generated from source commit b5b47f8), pages.corpus: eval/knowledge-query/corpus/pages.json. Section text is stored as word:count (count capped at 5, the most section hits a query word scores). queries: every knowledge_search query the model sent in the live knowledge-query eval 1.1.2 (tenant m1-e2e, 2026-11-16, octo-ai-services eval/knowledge-query/recorded/1.1.2), with the question's expected pages.",
+ "description": "AB#9165: offline evidence for knowledge_search ranking and the no-answer hint. pages.builder: the knowledge pages of blueprint System.Ai.Builder (octo-ai-services origin/main seed-data/knowledge-pages.yaml, generated from source commit b5b47f8), pages.corpus: eval/knowledge-query/corpus/pages.json. Section text is stored as word:count (count capped at 5, the most section hits a query word scores). questions: the 24 questions of eval/knowledge-query/questions.json (as a client that sends the whole question would query). queries: every knowledge_search query the model sent in the live knowledge-query eval 1.1.2 (tenant m1-e2e, 2026-11-16, octo-ai-services eval/knowledge-query/recorded/1.1.2), with the question's expected pages.",
  "pages": {
   "builder": [
    {
@@ -636,6 +636,220 @@
     "deploy-publishing"
    ],
    "query": "publish app install verify on another tenant"
+  }
+ ],
+ "questions": [
+  {
+   "id": "q1-seed-rollout",
+   "set": "corpus",
+   "answerable": true,
+   "expected": [
+    "seed-rollout-to-tenant"
+   ],
+   "question": "How do I roll out a changed seed of a blueprint to tenants that already have the blueprint?"
+  },
+  {
+   "id": "q2-fixall-energyiq",
+   "set": "corpus",
+   "answerable": true,
+   "expected": [
+    "fixall-energyiq-tenants"
+   ],
+   "question": "What goes wrong when I run FixAll on an EnergyIQ tenant?"
+  },
+  {
+   "id": "q3-tenant-deletion",
+   "set": "corpus",
+   "answerable": true,
+   "expected": [
+    "tenant-deletion-order"
+   ],
+   "question": "In which order do I delete a tenant cleanly?"
+  },
+  {
+   "id": "q4-expired-token",
+   "set": "corpus",
+   "answerable": true,
+   "expected": [
+    "octo-cli-expired-token"
+   ],
+   "question": "octo-cli lists my context as expired. Do I have to log in again in the browser?"
+  },
+  {
+   "id": "q5-dash0-lag",
+   "set": "corpus",
+   "answerable": true,
+   "expected": [
+    "dash0-check-lag"
+   ],
+   "question": "A Dash0 check still shows a failure for a tenant I deleted three minutes ago. Is something broken?"
+  },
+  {
+   "id": "q6-no-answer",
+   "set": "corpus",
+   "answerable": false,
+   "expected": [],
+   "question": "What is the VAT rate on electricity for households in Poland?"
+  },
+  {
+   "id": "q7-builder-sequence",
+   "set": "builder",
+   "answerable": true,
+   "expected": [
+    "app-build-sequence"
+   ],
+   "question": "In which order do I build an OctoMesh app, from the data model to the deployed web app?"
+  },
+  {
+   "id": "q8-builder-seed-data",
+   "set": "builder",
+   "answerable": true,
+   "expected": [
+    "app-blueprint-authoring"
+   ],
+   "question": "How does a blueprint manifest point to its seed data, and how does it declare the CK models it needs?"
+  },
+  {
+   "id": "q9-builder-empty-200",
+   "set": "builder",
+   "answerable": true,
+   "expected": [
+    "app-http-api-pipelines"
+   ],
+   "question": "My pipeline HTTP route answers 200 with an empty body almost instantly. What does that mean?"
+  },
+  {
+   "id": "q10-builder-foreach",
+   "set": "builder",
+   "answerable": true,
+   "expected": [
+    "pipeline-datacontext"
+   ],
+   "question": "Inside a pipeline ForEach, how do I read a value of the current item and a value from outside the loop?"
+  },
+  {
+   "id": "q11-builder-association",
+   "set": "builder",
+   "answerable": true,
+   "expected": [
+    "pipeline-entity-updates"
+   ],
+   "question": "How do I create an association between two entities from a pipeline?"
+  },
+  {
+   "id": "q12-builder-no-answer",
+   "set": "builder",
+   "answerable": false,
+   "expected": [],
+   "question": "How do I publish my OctoMesh app in the Apple App Store?"
+  },
+  {
+   "id": "q13-admin-client-credentials",
+   "set": "builder",
+   "answerable": true,
+   "expected": [
+    "admin-clients-scopes",
+    "admin-contexts-login"
+   ],
+   "question": "How do I create a client-credentials client for a background service that calls OctoMesh without a user?"
+  },
+  {
+   "id": "q14-admin-install-blueprint",
+   "set": "builder",
+   "answerable": true,
+   "expected": [
+    "admin-ck-catalog-blueprints"
+   ],
+   "question": "How do I install a blueprint on a tenant and see which blueprints are installed?"
+  },
+  {
+   "id": "q15-admin-group-role",
+   "set": "builder",
+   "answerable": true,
+   "expected": [
+    "admin-users-roles-groups"
+   ],
+   "question": "How do I give every member of a group a role in my tenant?"
+  },
+  {
+   "id": "q16-admin-activate-archive",
+   "set": "builder",
+   "answerable": true,
+   "expected": [
+    "admin-archives-backup"
+   ],
+   "question": "How do I activate a stream-data archive?"
+  },
+  {
+   "id": "q17-admin-no-answer",
+   "set": "builder",
+   "answerable": false,
+   "expected": [],
+   "question": "How do I change the payment method of my OctoMesh subscription?"
+  },
+  {
+   "id": "q18-deploy-blueprint-not-visible",
+   "set": "builder",
+   "answerable": true,
+   "expected": [
+    "deploy-promotion",
+    "deploy-publishing"
+   ],
+   "question": "I published a new blueprint version, but my tenant does not list it. What do I check?"
+  },
+  {
+   "id": "q19-deploy-imagepullbackoff",
+   "set": "builder",
+   "answerable": true,
+   "expected": [
+    "deploy-promotion"
+   ],
+   "question": "My workload shows ImagePullBackOff after the deploy. How do I find the cause without kubectl?"
+  },
+  {
+   "id": "q20-deploy-no-answer",
+   "set": "builder",
+   "answerable": false,
+   "expected": [],
+   "question": "How do I roll out my OctoMesh app to an AWS Lambda function?"
+  },
+  {
+   "id": "q21-diagnose-resolvefailed",
+   "set": "builder",
+   "answerable": true,
+   "expected": [
+    "diagnose-ck-models"
+   ],
+   "question": "After an update a CK model on my tenant shows ResolveFailed. What does that mean and how do I repair it?"
+  },
+  {
+   "id": "q22-diagnose-blueprint-install-failed",
+   "set": "builder",
+   "answerable": true,
+   "expected": [
+    "diagnose-blueprints-tenants",
+    "diagnose-ck-models"
+   ],
+   "question": "Installing a blueprint on my tenant failed. How do I find out why and fix it?"
+  },
+  {
+   "id": "q23-diagnose-no-answer",
+   "set": "builder",
+   "answerable": false,
+   "expected": [],
+   "question": "Why does my laptop's Wi-Fi drop when I open Refinery Studio?"
+  },
+  {
+   "id": "q24-cross-build-and-promote",
+   "set": "builder",
+   "answerable": true,
+   "expected": [
+    "app-blueprint-authoring",
+    "app-build-sequence",
+    "deploy-promotion",
+    "deploy-publishing"
+   ],
+   "question": "I built an app on my development tenant. What do I have to publish, and in which order do I install and verify it on another tenant?"
   }
  ]
 }

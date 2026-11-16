@@ -9,37 +9,46 @@ using Xunit;
 namespace McpServices.Tests.Tools;
 
 /// <summary>
-///     AB#9165: the knowledge_search ranking and the no-answer hint against the real knowledge pages of the builder
-///     blueprint and every query the model sent in the live knowledge-query eval 1.1.2 (fixture
-///     <c>Fixtures/knowledge-search-eval-1.1.2.json</c>, provenance in its description). The tool ranks pages with
-///     <see cref="KnowledgeTools.Match" /> and lists the query words no match contains as unmatched terms; these tests
-///     apply the same two steps to the fixture pages.
+///     AB#9165: the knowledge_search ranking and the no-answer hint against the knowledge pages of the eval tenant (the
+///     builder blueprint pages plus the eval corpus, both installed on m1-e2e) and two forms of every eval question: the
+///     queries the model sent in the live knowledge-query eval 1.1.2, and the whole question text, as a client that does
+///     not rephrase (Studio Assistant, other agents) sends it. Fixture <c>Fixtures/knowledge-search-eval-1.1.2.json</c>,
+///     provenance in its description. The tool ranks pages with <see cref="KnowledgeTools.Match" />, lists the query words
+///     no page contains and counts them with <see cref="KnowledgeTools.HintTerms" />; these tests apply the same steps.
 /// </summary>
 public class KnowledgeSearchRankingTests
 {
     private static readonly Lazy<Fixture> Data = new(LoadFixture);
 
-    public static TheoryData<string, string> AnswerableQueries() => Queries(answerable: true);
+    public static TheoryData<string, string> AnswerableForms() => Forms(answerable: true);
 
-    public static TheoryData<string, string> NoAnswerQueries() => Queries(answerable: false);
+    public static TheoryData<string, string> NoAnswerQuestionTexts()
+    {
+        var data = new TheoryData<string, string>();
+        foreach (var q in Data.Value.Questions.Where(q => !q.Answerable))
+        {
+            data.Add(q.Id, q.Query);
+        }
+
+        return data;
+    }
 
     [Fact]
     public void HttpApiQuestion_RanksTheHttpApiPipelinePageInTheTop3()
     {
-        var ranked = Rank("builder", "build an HTTP API for my app");
-
-        ranked.Take(3).Select(r => r.Slug).Should().Contain("app-http-api-pipelines");
+        Rank("build an HTTP API for my app").Take(3).Should().Contain("app-http-api-pipelines");
     }
 
     [Fact]
-    public void HttpApiQuestion_WithTheOldFieldScoreAlone_RankedTheHttpApiPipelinePageBelowTheTop3()
+    public void HttpApiQuestion_WithTheFieldScoreAlone_RanksTheHttpApiPipelinePageBelowTheTop3()
     {
-        // The finding of the live eval (finding 3): title, summary and section hits alone let the broad pages win.
+        // The finding of the live eval (finding 3): title, summary and section hits alone let the broad pages win, even
+        // with the function words already left out of the query words.
         var terms = KnowledgeTools.Terms("build an HTTP API for my app");
-        var ranked = Data.Value.Pages["builder"]
-            .Select(p => (p.Slug, Score: KnowledgeTools.Score(p.Content, terms)))
+        var ranked = Data.Value.Pages
+            .Select(p => (p.Content.Title, p.Slug, Score: KnowledgeTools.Score(p.Content, terms)))
             .Where(r => r.Score > 0)
-            .OrderByDescending(r => r.Score)
+            .OrderByDescending(r => r.Score).ThenBy(r => r.Title, StringComparer.OrdinalIgnoreCase)
             .Select(r => r.Slug)
             .ToList();
 
@@ -47,110 +56,99 @@ public class KnowledgeSearchRankingTests
     }
 
     [Theory]
-    [MemberData(nameof(AnswerableQueries))]
-    public void AnswerableRecordedQuery_FindsAnExpectedPageInTheTop3(string id, string query)
+    [MemberData(nameof(AnswerableForms))]
+    public void AnswerableQuestion_FindsAnExpectedPageInTheTop3(string id, string query)
     {
-        var question = Data.Value.Queries.First(q => q.Id == id && q.Query == query);
+        var expected = Data.Value.Questions.First(q => q.Id == id).Expected;
 
-        Rank(question.Set, query).Take(3).Select(r => r.Slug).Should().IntersectWith(question.Expected,
-            $"{id} expects one of {string.Join(", ", question.Expected)}");
+        Rank(query).Take(3).Should().IntersectWith(expected, $"{id} expects one of {string.Join(", ", expected)}");
     }
 
     [Theory]
-    [MemberData(nameof(AnswerableQueries))]
-    public void AnswerableRecordedQuery_GetsNoNoAnswerHint(string id, string query)
+    [MemberData(nameof(AnswerableForms))]
+    public void AnswerableQuestion_GetsNoNoAnswerHint(string id, string query)
     {
-        var question = Data.Value.Queries.First(q => q.Id == id && q.Query == query);
-
-        Unmatched(question.Set, query).Count.Should().BeLessThan(KnowledgeTools.NoAnswerHintMinUnmatchedTerms,
-            $"{id}: an answerable question must not get the no-answer hint");
+        HintTerms(query).Should().BeEmpty($"{id} is answerable and must not get the no-answer hint");
     }
 
     [Fact]
-    public void AllAnswerableRecordedQueries_GetZeroNoAnswerHints()
+    public void AllAnswerableQuestions_InBothForms_GetZeroNoAnswerHints()
     {
-        var answerable = Data.Value.Queries.Where(q => q.Answerable).ToList();
+        var forms = Data.Value.Queries.Concat(Data.Value.Questions).Where(q => q.Answerable).ToList();
 
-        var hinted = answerable
-            .Where(q => Unmatched(q.Set, q.Query).Count >= KnowledgeTools.NoAnswerHintMinUnmatchedTerms)
-            .Select(q => q.Id)
-            .ToList();
+        var hinted = forms.Where(q => HintTerms(q.Query).Count > 0).Select(q => $"{q.Id}: {q.Query}").ToList();
 
-        answerable.Should().HaveCount(19);
+        forms.Should().HaveCount(38, "19 recorded queries and 19 question texts");
         hinted.Should().BeEmpty();
     }
 
     [Theory]
-    [InlineData("roll out deploy app AWS Lambda function")]
-    [InlineData("How do I deploy an OctoMesh app as an AWS Lambda function?")]
-    public void AwsLambdaQuestion_LeavesAwsAndLambdaUnmatched_AndGetsTheNoAnswerHint(string query)
+    [MemberData(nameof(NoAnswerQuestionTexts))]
+    public void NoAnswerQuestionText_GetsTheNoAnswerHint(string id, string question)
     {
-        var unmatched = Unmatched("builder", query);
-
-        unmatched.Should().Contain(["aws", "lambda"]);
-        unmatched.Count.Should().BeGreaterThanOrEqualTo(KnowledgeTools.NoAnswerHintMinUnmatchedTerms);
-        KnowledgeTools.NoAnswerHint(3, unmatched).Should().Contain(KnowledgeConventions.NoAnswerSentence)
-            .And.Contain("'aws', 'lambda'");
-    }
-
-    [Theory]
-    [MemberData(nameof(NoAnswerQueries))]
-    public void NoAnswerRecordedQuery_LeavesTheWordsItIsAboutUnmatched(string id, string query)
-    {
-        // The subject of every no-answer question (VAT, Apple, payment, laptop, ...) is on no page. The hint fires from
-        // two such words on; a single one (q12 "apple", q23 "laptop") stays without it by design.
-        var question = Data.Value.Queries.First(q => q.Id == id && q.Query == query);
-        var subjects = new Dictionary<string, string[]>
-        {
-            ["q6-no-answer"] = ["poland"],
-            ["q12-builder-no-answer"] = ["apple"],
-            ["q17-admin-no-answer"] = ["payment"],
-            ["q20-deploy-no-answer"] = ["aws", "lambda"],
-            // "laptop" in one query, none in "Refinery Studio Wi-Fi network": Wi-Fi and network are on pages.
-            ["q23-diagnose-no-answer"] = query.Contains("laptop", StringComparison.OrdinalIgnoreCase) ? ["laptop"] : []
-        };
-
-        var unmatched = Unmatched(question.Set, query);
-        foreach (var subject in subjects[id])
-        {
-            unmatched.Should().Contain(subject);
-        }
+        HintTerms(question).Should().NotBeEmpty($"{id} has no answer on any page");
     }
 
     [Fact]
-    public void Q20RecordedQuery_GetsTheNoAnswerHint()
+    public void NoAnswerRecordedQueries_GetTheHint_ExceptTheOneWithoutAMissingWord()
     {
-        var q20 = Data.Value.Queries.Where(q => q.Id == "q20-deploy-no-answer").ToList();
+        var forms = Data.Value.Queries.Where(q => !q.Answerable).ToList();
 
-        q20.Should().NotBeEmpty();
-        q20.Should().OnlyContain(q =>
-            Unmatched(q.Set, q.Query).Count >= KnowledgeTools.NoAnswerHintMinUnmatchedTerms);
+        var missed = forms.Where(q => HintTerms(q.Query).Count == 0).Select(q => q.Query).ToList();
+
+        // Known limit: every word of "Refinery Studio Wi-Fi network" (q23) is on some page, so no word-based signal sees
+        // that the question is about a laptop's Wi-Fi.
+        forms.Should().HaveCount(9);
+        missed.Should().Equal("Refinery Studio Wi-Fi network");
     }
 
-    private static List<(string Slug, double Score)> Rank(string set, string query)
+    [Theory]
+    [InlineData("roll out deploy app AWS Lambda function", new[] { "aws", "lambda" })]
+    [InlineData("How do I roll out my OctoMesh app to an AWS Lambda function?", new[] { "aws", "lambda" })]
+    [InlineData("How do I publish my OctoMesh app in the Apple App Store?", new[] { "apple" })]
+    [InlineData("Why does my laptop's Wi-Fi drop when I open Refinery Studio?", new[] { "laptop" })]
+    public void NoAnswerQuestion_NamesTheWordsItIsAbout(string query, string[] expected)
+    {
+        var hintTerms = HintTerms(query);
+
+        hintTerms.Should().Contain(expected);
+        KnowledgeTools.NoAnswerHint(3, hintTerms).Should().Contain(KnowledgeConventions.NoAnswerSentence);
+    }
+
+    [Theory]
+    [InlineData("deploy a pipline with a ForEach")] // pipeline
+    [InlineData("install a blueprnt on a tenent")] // blueprint, tenant
+    public void ATypoOfAPageWord_GetsNoNoAnswerHint(string query)
+    {
+        HintTerms(query).Should().BeEmpty();
+    }
+
+    private static List<string> Rank(string query)
     {
         var terms = KnowledgeTools.Terms(query);
-        return Data.Value.Pages[set]
-            .Select(p => (p.Slug, KnowledgeTools.Match(p.Content, p.Slug, terms).Score))
+        return Data.Value.Pages
+            .Select(p => (p.Content.Title, p.Slug, KnowledgeTools.Match(p.Content, p.Slug, terms).Score))
             .Where(r => r.Score > 0)
-            .OrderByDescending(r => r.Score).ThenBy(r => r.Slug, StringComparer.Ordinal)
+            .OrderByDescending(r => r.Score).ThenBy(r => r.Title, StringComparer.OrdinalIgnoreCase)
+            .Select(r => r.Slug)
             .ToList();
     }
 
-    // Like knowledge_search: the query words that no matching page contains.
-    private static List<string> Unmatched(string set, string query)
+    // Like knowledge_search: the query words no page contains, counted for the hint.
+    private static List<string> HintTerms(string query)
     {
         var terms = KnowledgeTools.Terms(query);
-        var matched = Data.Value.Pages[set]
+        var matched = Data.Value.Pages
             .SelectMany(p => KnowledgeTools.Match(p.Content, p.Slug, terms).MatchedTerms)
             .ToHashSet();
-        return terms.Where(t => !matched.Contains(t)).ToList();
+        return KnowledgeTools.HintTerms(terms.Where(t => !matched.Contains(t)),
+            Data.Value.Pages.SelectMany(p => KnowledgeTools.PageWords(p.Content, p.Slug)));
     }
 
-    private static TheoryData<string, string> Queries(bool answerable)
+    private static TheoryData<string, string> Forms(bool answerable)
     {
         var data = new TheoryData<string, string>();
-        foreach (var q in Data.Value.Queries.Where(q => q.Answerable == answerable))
+        foreach (var q in Data.Value.Queries.Concat(Data.Value.Questions).Where(q => q.Answerable == answerable))
         {
             data.Add(q.Id, q.Query);
         }
@@ -163,16 +161,19 @@ public class KnowledgeSearchRankingTests
         var path = Path.Combine(AppContext.BaseDirectory, "Tools", "Fixtures", "knowledge-search-eval-1.1.2.json");
         using var doc = JsonDocument.Parse(File.ReadAllText(path));
         var root = doc.RootElement;
-        var pages = root.GetProperty("pages").EnumerateObject().ToDictionary(set => set.Name,
-            set => set.Value.EnumerateArray().Select(ReadPage).ToList());
-        var queries = root.GetProperty("queries").EnumerateArray().Select(q => new RecordedQuery(
+        var pages = root.GetProperty("pages").EnumerateObject()
+            .SelectMany(set => set.Value.EnumerateArray().Select(ReadPage))
+            .ToList();
+        return new Fixture(pages, ReadQuestions(root, "queries", "query"), ReadQuestions(root, "questions", "question"));
+    }
+
+    private static List<EvalQuestion> ReadQuestions(JsonElement root, string list, string textField) => root
+        .GetProperty(list).EnumerateArray().Select(q => new EvalQuestion(
             q.GetProperty("id").GetString()!,
-            q.GetProperty("set").GetString()!,
             q.GetProperty("answerable").GetBoolean(),
             q.GetProperty("expected").EnumerateArray().Select(e => e.GetString()!).ToList(),
-            q.GetProperty("query").GetString()!)).ToList();
-        return new Fixture(pages, queries);
-    }
+            q.GetProperty(textField).GetString()!))
+        .ToList();
 
     // The fixture stores section text as word:count; repeating each word restores the hits the score counts.
     private static FixturePage ReadPage(JsonElement page)
@@ -196,7 +197,8 @@ public class KnowledgeSearchRankingTests
 
     private sealed record FixturePage(string Slug, KnowledgeContent Content);
 
-    private sealed record RecordedQuery(string Id, string Set, bool Answerable, List<string> Expected, string Query);
+    // A recorded query or a question text; Query holds the text that is sent.
+    private sealed record EvalQuestion(string Id, bool Answerable, List<string> Expected, string Query);
 
-    private sealed record Fixture(Dictionary<string, List<FixturePage>> Pages, List<RecordedQuery> Queries);
+    private sealed record Fixture(List<FixturePage> Pages, List<EvalQuestion> Queries, List<EvalQuestion> Questions);
 }

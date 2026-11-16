@@ -1121,22 +1121,58 @@ public class KnowledgeToolsTests : TestBase
         result.Pages.Should().HaveCount(2);
         result.UnmatchedTerms.Should().Equal("aws", "lambda", "function");
         result.Pages.Should().OnlyContain(p => !p.MatchedTerms!.Contains("aws") && p.MatchedTerms!.Contains("deploy"));
-        result.Message.Should().StartWith("2 page(s), but no knowledge page contains the words 'aws', 'lambda', 'function'")
+        result.Message.Should().StartWith("2 page(s), but no knowledge page contains 'aws', 'lambda', 'function'")
             .And.Contain("`" + KnowledgeConventions.NoAnswerSentence + "`")
             .And.Contain("Do not answer a neighbouring question");
         result.AnsweringRules.Should().Be(KnowledgeConventions.AnsweringRules);
     }
 
     [Fact]
-    public async Task Search_WhenOnlyOneQueryWordIsOnNoPage_GivesNoNoAnswerHint()
+    public async Task Search_WhenOneContentWordIsOnNoPage_GivesTheNoAnswerHint()
     {
-        // A typo, a filler word or a product name must not turn an answerable question into a no-answer one.
-        await UpsertAsync("deploy-promotion", "Promoting an app to a shared environment", "Publish, install and deploy the app.");
+        // Eval q23: only "laptop" is missing - a single content word is enough.
+        await UpsertAsync("studio-troubleshooting", "Refinery Studio does not load", "Network and Wi-Fi checks for Studio.");
         _textIndexReturnsEveryPage = true;
 
-        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "deploy app quickly");
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "Why does my laptop's Wi-Fi drop in Refinery Studio?");
 
-        result.UnmatchedTerms.Should().Equal("quickly");
+        result.UnmatchedTerms.Should().Contain("laptop");
+        result.Message.Should().StartWith("1 page(s), but no knowledge page contains 'laptop'")
+            .And.Contain(KnowledgeConventions.NoAnswerSentence);
+    }
+
+    [Theory]
+    [InlineData("deploy app quickly")] // an adverb in -ly says how, not what
+    [InlineData("deploy app something three minutes ago")] // filler words are no query words at all
+    [InlineData("deploy the aplication")] // a typo of "application", one edit away
+    public async Task Search_WhenOnlyAFillerAdverbOrTypoIsOnNoPage_GivesNoNoAnswerHint(string query)
+    {
+        await UpsertAsync("deploy-promotion", "Promoting an application to a shared environment",
+            "Publish, install and deploy the app; it takes minutes.");
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, query);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Message.Should().Be("1 page(s).");
+    }
+
+    [Fact]
+    public async Task Search_WithAKindFilter_CountsWordsOnPagesOfOtherKindsAsMatched()
+    {
+        // A word on a page the kind filter leaves out is in the knowledge base; the hint must not claim otherwise.
+        await KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, "lambda-concept", "AWS Lambda functions",
+            [new KnowledgeSectionDto { Heading = "Summary", SectionContent = "What Lambda is." }], kind: "Concept",
+            cancellationToken: Ct);
+        await KnowledgeTools.KnowledgeUpsertPage(MockServer.Object, "deploy-howto", "Deploy an app",
+            [new KnowledgeSectionDto { Heading = "Summary", SectionContent = "Deploy the app." }], kind: "HowTo",
+            cancellationToken: Ct);
+        _textIndexReturnsEveryPage = true;
+
+        var result = await KnowledgeTools.KnowledgeSearch(MockServer.Object, "deploy app AWS Lambda", kind: "HowTo");
+
+        result.Pages.Select(p => p.Slug).Should().Equal("deploy-howto");
+        result.UnmatchedTerms.Should().BeEmpty();
         result.Message.Should().Be("1 page(s).");
     }
 
