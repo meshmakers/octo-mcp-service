@@ -359,6 +359,12 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
         list.Updates.Should().ContainSingle(u => u.Slug == "nodes-sdk-values-strings" && u.State == "Available" &&
                                                  u.CurrentVersion == 2 && u.NewerVersion == 2);
         (await AdoptAsync()).Adopted.Should().BeEmpty("an edited page is never switched");
+
+        // CodeRabbit (mcp#78): an explicit version equal to CurrentVersion is resolved by number too.
+        (await KnowledgeTools.KnowledgeGet(MockServer.Object, "nodes-sdk-values-strings", 2))
+            .Markdown.Should().StartWith("# Moved to pipeline-nodes-sdk-values-strings");
+        (await KnowledgeTools.KnowledgeGet(MockServer.Object, "nodes-sdk-values-strings", 2, tenantVersion: true))
+            .Markdown.Should().StartWith("# " + edit.GetAttributeStringValueOrDefault("Title"));
         KnowledgePages.ReadContent(page).Title.Should().NotBe("Moved to pipeline-nodes-sdk-values-strings");
 
         // A person adopts the finding: version 2 now names the Blueprint version, the restore copies it as a tenant version.

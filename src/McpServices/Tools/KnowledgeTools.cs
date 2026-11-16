@@ -194,9 +194,17 @@ public static class KnowledgeTools
 
             var shownVersion = version ?? KnowledgePages.CurrentVersion(page);
             var source = page;
-            if (version != null && version != KnowledgePages.CurrentVersion(page))
+            if (version != null)
             {
+                // AB#9103: an explicit version is always resolved by number, also when it equals CurrentVersion - a
+                // tenant version and a later Blueprint version can share it. Only a current version without a version
+                // entity (pages written before versioning) falls back to the page itself.
                 source = await KnowledgePages.FindVersionAsync(ctx.Repo, session, slug, version.Value, tenantVersion);
+                if (source == null && version == KnowledgePages.CurrentVersion(page))
+                {
+                    source = page;
+                }
+
                 if (source == null)
                 {
                     return NotFound<KnowledgePageResponse>(ctx.TenantId!, $"Version {version} of '{slug}' not found.");
