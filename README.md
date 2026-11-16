@@ -232,8 +232,9 @@ every content or status write is a new `KnowledgePageVersion` and passes the con
 prose that names a credential without a value passes). Every `knowledge_search` result carries `answeringConventions`, the
 "Answering questions" section of the conventions page `knowledge-schema` (Verified page only; while the page is Draft the newest Verified version in its history (AB#8780); max. 2000 characters, otherwise a built-in default),
 with `answeringConventionsSource` (AB#8712), and `answeringRules`, fixed rules a tenant cannot replace (AB#9088): cite only
-pages opened with `knowledge_get` for this answer, and when no page answers reply with exactly
-`No knowledge page answers this question.` and cite no page.
+pages opened with `knowledge_get` for this answer; the description of one of this server's own tools is also a source
+when the answer recommends or uses that tool, cited as `[tool:<name>]` (AB#9148); and when neither a page nor a tool
+answers reply with exactly `No knowledge page answers this question.` and cite nothing.
 - `knowledge_upsert_page` on an existing page: title and sections replace; an omitted `kind`, `summary`, `citations` or
   `hallucinationFlags` keeps the current value, an explicit `""` / `[]` clears it (AB#8567). `origin` applies to new pages only,
   `linksTo` / `sourceRtIds` only add links, `changeNote` and run metadata belong to the new version.
@@ -304,8 +305,9 @@ pages opened with `knowledge_get` for this answer, and when no page answers repl
 Every MCP client connected to OctoMesh is told to consult the knowledge base first.
 - **Server instructions.** The `initialize` result carries `instructions`: for questions on how to build, administer,
   deploy or diagnose something on OctoMesh, call `knowledge_search` first, read the pages used with `knowledge_get`, cite
-  each by `[slug]` and follow the `answeringRules` and `answeringConventions` of the search; it also carries the two fixed
-  rules (cite only pages opened with `knowledge_get` for this answer; no answer = exactly
+  each by `[slug]` and follow the `answeringRules` and `answeringConventions` of the search; it also carries the fixed
+  rules (cite only pages opened with `knowledge_get` for this answer; cite a tool of this server whose description the
+  answer relies on as `[tool:<name>]`, AB#9148; no page and no tool answers = exactly
   `No knowledge page answers this question.` and no citation, AB#9088). The text lists the five area index pages
   `admin-index` (Administer a tenant), `app-index` (Build an app), `pipeline-index` (Build data pipelines),
   `deploy-index` (Deploy and promote) and `diagnose-index` (Diagnose and fix). It is a code constant

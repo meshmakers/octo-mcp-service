@@ -1282,9 +1282,12 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
 - **Answering rules** (AB#9088, `KnowledgeConventions.AnsweringRules`): every successful `knowledge_search` response
   also carries `answeringRules`, a code constant on top of the tenant's conventions that no schema page replaces: cite
   only pages opened with `knowledge_get` for this answer (a slug from a search result, index page or earlier answer is
-  not enough), and when no opened page answers reply with exactly `No knowledge page answers this question.` and cite
-  no page. The server instructions and the prompt `octomesh-knowledge-first` carry the same two rules
-  (`CitationRule`, `NoAnswerRule`), and the no-match message of the search names the sentence. Cause: M1 eval on kb-test2
+  not enough); the description of one of this server's own tools is also a source when the answer recommends or uses
+  that tool, cited as `[tool:<name>]` (AB#9148, `ToolRule`; M1 end-to-end test on m1-e2e could not recommend
+  `add_client_to_role`); and when neither an opened page nor a tool answers reply with exactly
+  `No knowledge page answers this question.` and cite nothing. The server instructions and the prompt
+  `octomesh-knowledge-first` carry the same three rules (`CitationRule`, `ToolRule`, `NoAnswerRule`), and the no-match
+  message of the search names the sentence. Cause: M1 eval on kb-test2
   2026-11-16 (q7/q18 cited unopened pages, q20 listed gaps with citations instead of the sentence).
 - **Answering conventions** (AB#8712, `Services/Knowledge/KnowledgeConventions.cs`): every successful `knowledge_search`
   response carries `answeringConventions`, the section "Answering questions" of the schema page `knowledge-schema`, and

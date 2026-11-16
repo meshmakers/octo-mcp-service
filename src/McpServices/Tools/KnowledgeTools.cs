@@ -47,8 +47,9 @@ public static class KnowledgeTools
         "only from pages, cite each page that supports the answer by its slug (only pages opened with knowledge_get), " +
         "and do not invent. " +
         "Every result also carries answeringRules, fixed rules on top of the conventions: cite only pages you opened " +
-        "with knowledge_get for this answer, and when no page answers reply with exactly 'No knowledge page answers " +
-        "this question.' and cite no page. " +
+        "with knowledge_get for this answer, cite a tool of this server whose description you rely on as " +
+        "[tool:<name>], and when neither a page nor a tool answers reply with exactly 'No knowledge page answers " +
+        "this question.' and cite nothing. " +
         "When the tenant has no Skill pages (the OctoMesh builder knowledge, blueprint System.Ai.Builder, is not " +
         "installed), builderKnowledgeHint says how a tenant administrator installs it.")]
     public static async Task<KnowledgeSearchResponse> KnowledgeSearch(
@@ -131,10 +132,11 @@ public static class KnowledgeTools
                 AnsweringRules = KnowledgeConventions.AnsweringRules,
                 BuilderKnowledgeHint = hasSkillPages ? null : KnowledgeFirst.BuilderKnowledgeHint,
                 Message = pages.Count == 0
-                    ? "No knowledge page matches. If no page you opened for this answer supports any part of the question and a " +
-                      "search with other words (or without a filter) finds no page either, reply with exactly the sentence `" +
-                      KnowledgeConventions.NoAnswerSentence + "`, cite no page and do not answer from general knowledge. " +
-                      "A part that opened pages support stays answered."
+                    ? "No knowledge page matches. If neither a page you opened for this answer nor one of this server's " +
+                      "tools supports any part of the question and a search with other words (or without a filter) finds " +
+                      "no page either, reply with exactly the sentence `" + KnowledgeConventions.NoAnswerSentence +
+                      "`, cite nothing and do not answer from general knowledge. A part that opened pages or tools " +
+                      "support stays answered."
                     : ignoredQuery
                         ? $"The query has no word of 3 or more characters, so this is the index of all pages, not a match: {pages.Count} page(s)."
                         : $"{pages.Count} page(s)."

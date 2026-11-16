@@ -60,7 +60,8 @@ public sealed class KnowledgeFirstProtocolTests : IAsyncDisposable
             .And.Contain("2. Open every page you use with knowledge_get.")
             .And.Contain("4. Follow the answeringRules and the answeringConventions")
             .And.Contain("Cite only pages you opened with knowledge_get for this answer.", "AB#9088: q7/q18")
-            .And.Contain("reply with exactly the sentence `No knowledge page answers this question.`, cite no page",
+            .And.Contain("cite it as [tool:<name>]", "AB#9148: this server's tools are a source too")
+            .And.Contain("reply with exactly the sentence `No knowledge page answers this question.`, cite nothing",
                 "AB#9088: q20")
             .And.Contain("System.Ai.Builder", "the fallback for tenants without the builder knowledge");
         foreach (var slug in new[] { "admin-index", "app-index", "pipeline-index", "deploy-index", "diagnose-index" })

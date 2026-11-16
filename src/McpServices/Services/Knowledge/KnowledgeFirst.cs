@@ -39,7 +39,8 @@ internal static class KnowledgeFirst
         "3. Cite each page you used by its slug in square brackets right after the statement it supports, e.g. " +
         "[admin-index].\n" +
         "4. Follow the answeringRules and the answeringConventions that knowledge_search returns.\n" +
-        KnowledgeConventions.CitationRule + "\n" + KnowledgeConventions.NoAnswerRule;
+        KnowledgeConventions.CitationRule + "\n" + KnowledgeConventions.ToolRule + "\n" +
+        KnowledgeConventions.NoAnswerRule;
 
     /// <summary>The area index pages as text, shared by the server instructions and the prompt.</summary>
     public const string AreaIndexText =

@@ -77,31 +77,45 @@ internal static class KnowledgeConventions
         "page, a link or an earlier answer is not enough: open the page first or do not cite it.";
 
     /// <summary>
-    ///     The no-answer rule of <see cref="AnsweringRules" /> (AB#9088): the fixed sentence and no citation. The M1 eval
-    ///     answered a question no page answers with a list of gaps and citations of neighbouring pages (q20).
+    ///     The tool rule of <see cref="AnsweringRules" /> (AB#9148): besides opened pages, the description of one of this
+    ///     server's own tools is a source when the answer recommends or uses that tool, cited as <c>[tool:&lt;name&gt;]</c>.
+    ///     The M1 end-to-end test on m1-e2e (2026-11-16) could not recommend <c>add_client_to_role</c>, a tool it had,
+    ///     because only page content counted.
     /// </summary>
-    public const string NoAnswerRule =
-        "If none of the pages you opened answers the question - pages that only touch the topic or describe neighbouring " +
-        "tasks do not count - reply with exactly the sentence `" + NoAnswerSentence + "`, cite no page and do not " +
-        "answer from general knowledge. When opened pages answer part of the question, answer that part, cite only " +
-        "those pages and say what is missing.";
+    public const string ToolRule =
+        "The description of one of this server's own tools is also a source when you recommend or use that tool: cite " +
+        "it as [tool:<name>] right after the statement it supports, e.g. [tool:add_client_to_role]. Cite only tools " +
+        "this server lists.";
 
     /// <summary>
-    ///     The answering rules every <c>knowledge_search</c> result carries in <c>answeringRules</c> (AB#9088). A code
-    ///     constant, not tenant-writable (same reason as <see cref="KnowledgeFirst" />), and not replaced by the tenant's
-    ///     <c>answeringConventions</c>: they apply whatever the schema page says.
+    ///     The no-answer rule of <see cref="AnsweringRules" /> (AB#9088, AB#9148): the fixed sentence and no citation, only
+    ///     when neither an opened page nor one of this server's tools answers. The M1 eval answered a question no page
+    ///     answers with a list of gaps and citations of neighbouring pages (q20).
+    /// </summary>
+    public const string NoAnswerRule =
+        "If neither a page you opened nor one of this server's tools answers the question - pages or tools that only " +
+        "touch the topic or describe neighbouring tasks do not count - reply with exactly the sentence `" +
+        NoAnswerSentence + "`, cite nothing and do not answer from general knowledge. When opened pages or tools " +
+        "answer part of the question, answer that part, cite only those pages and tools and say what is missing.";
+
+    /// <summary>
+    ///     The answering rules every <c>knowledge_search</c> result carries in <c>answeringRules</c> (AB#9088, AB#9148). A
+    ///     code constant, not tenant-writable (same reason as <see cref="KnowledgeFirst" />), and not replaced by the
+    ///     tenant's <c>answeringConventions</c>: they apply whatever the schema page says.
     /// </summary>
     public const string AnsweringRules =
-        "These rules apply to every answer, whatever the answeringConventions say. " + CitationRule + " " + NoAnswerRule;
+        "These rules apply to every answer, whatever the answeringConventions say. " + CitationRule + " " + ToolRule +
+        " " + NoAnswerRule;
 
     /// <summary>The conventions for tenants without a schema page or without the section.</summary>
     public const string DefaultText =
-        "Answer only from this tenant's knowledge pages, not from general knowledge. Search with the words of the " +
-        "question, read every page you use with knowledge_get and cite it by its slug in square brackets right after the " +
-        "statement it supports, e.g. [page-slug]. Never cite a page you did not open with knowledge_get for this " +
-        "answer. If the pages answer only part of the question, answer that part and say what is missing. If no page " +
-        "answers the question, write exactly `" + NoAnswerSentence + "`, cite no page and do not answer from general " +
-        "knowledge. After a useful answer, " +
+        "Answer only from this tenant's knowledge pages and the descriptions of this server's own tools, not from " +
+        "general knowledge. Search with the words of the question, read every page you use with knowledge_get and cite " +
+        "it by its slug in square brackets right after the statement it supports, e.g. [page-slug]. Never cite a page " +
+        "you did not open with knowledge_get for this answer. Cite a tool of this server you recommend or use as " +
+        "[tool:<name>]. If the pages and tools answer only part of the question, answer that part and say what is " +
+        "missing. If neither a page nor a tool answers the question, write exactly `" + NoAnswerSentence + "`, cite " +
+        "nothing and do not answer from general knowledge. After a useful answer, " +
         "offer to file it back as a new page (knowledge_upsert_page, origin Query, linked to the cited pages) and write " +
         "it only after the user confirms.";
 
