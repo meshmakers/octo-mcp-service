@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- **AB#9023** — `validate_pipeline_definition` reported `nodeCount: 0` for pipelines without a root `nodes` array. It now
+  counts every node: the entries of `triggers`, `transformations` and `nodes` lists anywhere in the definition, so nested
+  node lists of control nodes (ForEach, If, Switch cases, Group, ...) count too. The rest of the result is unchanged.
+
 - **AB#9015** — `validate_pipeline_definition` leaked the adapter's composite pipeline schema on every call. JsonSchema.Net
   registers each schema it builds in the process-wide `SchemaRegistry.Global`; the composite schema has no `$id`, so every
   build got a new random base URI and stayed there for the life of the pod (measured in a test: 100 calls with a 0.7 MB

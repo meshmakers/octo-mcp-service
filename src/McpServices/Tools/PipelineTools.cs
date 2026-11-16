@@ -568,12 +568,9 @@ public sealed class PipelineTools
             }
         }
 
-        // 4. Cheap node-count sanity: count nodes[] entries if present in the root object.
-        int nodeCount = 0;
-        if (definitionNode is JsonObject root && root.TryGetPropertyValue("nodes", out var nodes) && nodes is JsonArray arr)
-        {
-            nodeCount = arr.Count;
-        }
+        // 4. Node-count sanity (AB#9023): every node of the definition - triggers, transformations and the node lists
+        //    nested in control nodes (ForEach, If, Switch cases, Group, ...) - not only a root nodes[] array.
+        var nodeCount = CountPipelineNodes(definitionNode);
 
         return new ValidatePipelineDefinitionResponse
         {
@@ -587,5 +584,43 @@ public sealed class PipelineTools
                 ? $"Definition is valid against the adapter's composite schema ({nodeCount} node(s))."
                 : $"Definition has {errors.Count} schema error(s); see Errors for details.",
         };
+    }
+
+    /// <summary>Property names whose array holds pipeline nodes (<c>NodeDefinitionRoot</c> and the control nodes).</summary>
+    private static readonly string[] NodeListProperties = ["triggers", "transformations", "nodes"];
+
+    /// <summary>
+    ///     Counts the nodes of a pipeline definition (AB#9023): every object in a <c>triggers</c>, <c>transformations</c>
+    ///     or <c>nodes</c> array anywhere in the definition, so nested node lists (ForEach, If, Switch cases, Group,
+    ///     Buffer, ...) count as well.
+    /// </summary>
+    internal static int CountPipelineNodes(JsonNode? node)
+    {
+        var count = 0;
+        switch (node)
+        {
+            case JsonObject obj:
+                foreach (var (name, value) in obj)
+                {
+                    if (value is JsonArray list &&
+                        NodeListProperties.Contains(name, StringComparer.OrdinalIgnoreCase))
+                    {
+                        count += list.Count(item => item is JsonObject);
+                    }
+
+                    count += CountPipelineNodes(value);
+                }
+
+                break;
+            case JsonArray array:
+                foreach (var item in array)
+                {
+                    count += CountPipelineNodes(item);
+                }
+
+                break;
+        }
+
+        return count;
     }
 }
