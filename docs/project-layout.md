@@ -19,14 +19,17 @@ src/
 │   │                                   # guard, McpPayloadLogFilter, McpServerSetup         -> authentication.md
 │   ├── Options/                        # McpServiceOptions, OctoServiceUrlOptions, DynamicToolOptions,
 │   │                                   # KnowledgeFetchOptions
-│   ├── Tools/                          # One class per tool group; every [McpServerTool]     -> tool-conventions.md
-│   ├── Models/                         # Response envelopes and request DTOs per tool group
+│   ├── Tools/                          # One class per tool group, every [McpServerTool]; plus ErrorTextRedactor
+│   │                                   #                                                -> tool-conventions.md
+│   ├── Models/                         # Response envelopes and request DTOs per tool group; McpRiskAttribute,
+│   │                                   # McpRiskLevel                                   -> tool-conventions.md
 │   │   ├── Aggregation/                # Lowercase function enum, columns, result shapes     -> aggregation-tools.md
 │   │   └── Filters/                    # Field filter DTOs of the query tools                -> aggregation-tools.md
 │   ├── Services/                       # Everything the tools share:
 │   │   │                               #   *ClientContext + OctoServiceClientFactory (family 1)
 │   │   │                               #   McpSession*, Tenant*, McpCallerPrincipal, JwtClaimReader,
-│   │   │                               #   RuntimeSecurityContextResolver   -> authentication.md, tenant-gate.md
+│   │   │                               #   RuntimeSecurityContextResolver, AiServiceClientTrust,
+│   │   │                               #   DataPermissionStreamGuard        -> authentication.md, tenant-gate.md
 │   │   │                               #   AttributeAccessGuard, AccessAwareRtEntityToDtoMapper, CkTypeIdResolver,
 │   │   │                               #   QueryPaging, GenericCreateRefusal           -> runtime-entity-tools.md
 │   │   │                               #   AggregationMapper, AvailableArchivePathsResolver -> aggregation-tools.md
