@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using FluentAssertions;
+using Meshmakers.Octo.Backend.McpServices.Options;
 using Meshmakers.Octo.Backend.McpServices.Services;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.Configuration;
 using ModelContextProtocol.Server;
 using Moq;
 using Xunit;
@@ -144,6 +146,132 @@ public class RuntimeSecurityContextResolverTests : TestBase
             "with no subject the client id identifies the caller");
         result.SecurityContext.Roles.Should().BeEquivalentTo("ServiceRole");
         result.SecurityContext.IsSystem.Should().BeFalse();
+    }
+
+    // ── Client-credentials tenant binding (AB#9189) ─────────────────────────────────────────────
+
+    private const string SystemTenantId = "octosystem";
+    private const string AiServiceClientId = "octo-ai-adapter";
+
+    /// <summary>
+    ///     Registers the system tenant and the MCP service options the way Program.cs binds them
+    ///     (sections <c>System</c> and <c>Mcp</c>), so the resolver can recognise the one trusted pair.
+    /// </summary>
+    private void GivenSystemTenantConfigured()
+    {
+        TestServiceProvider.RegisterService(Microsoft.Extensions.Options.Options.Create(
+            new OctoSystemConfiguration { SystemTenantId = SystemTenantId }));
+        TestServiceProvider.RegisterService(Microsoft.Extensions.Options.Options.Create(new McpServiceOptions()));
+    }
+
+    [Fact]
+    public async Task ResolveAsync_ServicePrincipalOfTenantA_ForTenantB_IsDenied()
+    {
+        // AB#9189: a client-credentials client created by a tenant admin of A must not reach B by
+        // naming B in the tool's tenantId parameter.
+        GivenSystemTenantConfigured();
+        MockTenantResolution.Setup(t => t.ResolveTenantId(ForeignTenantId)).Returns(ForeignTenantId);
+        GivenServicePrincipalCaller("tenant-a-integration", DefaultTestTenantId, "TenantAdministrator");
+
+        var result = await RuntimeSecurityContextResolver.ResolveAsync(
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
+
+        result.SecurityContext.Should().BeNull("a service token is bound to the tenant it was issued for");
+        result.ResolvedTenantId.Should().Be(ForeignTenantId);
+        result.Error.Should().Contain("denied")
+            .And.Contain(ForeignTenantId)
+            .And.Contain(DefaultTestTenantId)
+            .And.Contain("tenant-a-integration");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_ServicePrincipalOfTenantA_ForTenantA_IsAllowedWithClientIdSubject()
+    {
+        GivenServicePrincipalCaller("octo-ai-worker", DefaultTestTenantId, "ServiceRole");
+
+        var result = await RuntimeSecurityContextResolver.ResolveAsync(
+            MockServer.Object, MockTenantResolution.Object, DefaultTestTenantId, TestContext.Current.CancellationToken);
+
+        result.Error.Should().BeNull();
+        result.SecurityContext!.SubjectId.Should().Be("octo-ai-worker",
+            "with no subject the client id identifies the caller");
+        result.SecurityContext.Roles.Should().BeEquivalentTo("ServiceRole");
+        result.SecurityContext.IsSystem.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ResolveAsync_ServicePrincipalWithoutTenantClaim_IsDenied()
+    {
+        GivenSystemTenantConfigured();
+        GivenServicePrincipalCaller("octo-ai-worker", tenantId: null, "ServiceRole");
+
+        var result = await RuntimeSecurityContextResolver.ResolveAsync(
+            MockServer.Object, MockTenantResolution.Object, DefaultTestTenantId, TestContext.Current.CancellationToken);
+
+        result.SecurityContext.Should().BeNull();
+        result.Error.Should().Contain("denied").And.Contain("tenant_id");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_AiServiceClientOfTheSystemTenant_ForTenantB_IsAllowed()
+    {
+        // The one cross-tenant pair: issuer tenant = system tenant AND client id = the AI service client.
+        GivenSystemTenantConfigured();
+        MockTenantResolution.Setup(t => t.ResolveTenantId(ForeignTenantId)).Returns(ForeignTenantId);
+        GivenServicePrincipalCaller(AiServiceClientId, SystemTenantId, "ServiceRole");
+
+        var result = await RuntimeSecurityContextResolver.ResolveAsync(
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
+
+        result.Error.Should().BeNull();
+        result.SecurityContext!.SubjectId.Should().Be(AiServiceClientId);
+        result.SecurityContext.IsSystem.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ResolveAsync_AiServiceClientIdCreatedInTenantA_ForTenantB_IsDenied()
+    {
+        // Client ids are unique per tenant only: a tenant admin of A can create a client named
+        // octo-ai-adapter. Its token is issued for A, not the system tenant, so it gets no exemption.
+        GivenSystemTenantConfigured();
+        MockTenantResolution.Setup(t => t.ResolveTenantId(ForeignTenantId)).Returns(ForeignTenantId);
+        GivenServicePrincipalCaller(AiServiceClientId, DefaultTestTenantId, "TenantAdministrator");
+
+        var result = await RuntimeSecurityContextResolver.ResolveAsync(
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
+
+        result.SecurityContext.Should().BeNull();
+        result.Error.Should().Contain("denied").And.Contain(ForeignTenantId);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_OtherClientOfTheSystemTenant_ForTenantB_IsDenied()
+    {
+        // The issuer alone is not enough: only the configured AI service client is trusted.
+        GivenSystemTenantConfigured();
+        MockTenantResolution.Setup(t => t.ResolveTenantId(ForeignTenantId)).Returns(ForeignTenantId);
+        GivenServicePrincipalCaller("some-other-system-client", SystemTenantId, "ServiceRole");
+
+        var result = await RuntimeSecurityContextResolver.ResolveAsync(
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
+
+        result.SecurityContext.Should().BeNull();
+        result.Error.Should().Contain("denied");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_AiServiceClientOfTheSystemTenant_WithoutSystemConfiguration_IsDenied()
+    {
+        // Fail closed: a host that never bound OctoSystemConfiguration cannot prove the issuer is the
+        // system tenant, so the exemption does not apply.
+        MockTenantResolution.Setup(t => t.ResolveTenantId(ForeignTenantId)).Returns(ForeignTenantId);
+        GivenServicePrincipalCaller(AiServiceClientId, SystemTenantId, "ServiceRole");
+
+        var result = await RuntimeSecurityContextResolver.ResolveAsync(
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
+
+        result.SecurityContext.Should().BeNull();
+        result.Error.Should().Contain("denied");
     }
 
     [Fact]

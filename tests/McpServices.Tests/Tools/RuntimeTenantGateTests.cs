@@ -389,6 +389,40 @@ public class RuntimeTenantGateTests : TestBase
     }
 
     [Fact]
+    public async Task QueryEntities_ServicePrincipalOnItsRoute_ToolTenantIdOfAnotherTenant_IsDeniedAndOpensNoSession()
+    {
+        // AB#9189: /A/mcp passes the transport gate (route A = token A), but the tool's tenantId=B wins
+        // in TenantResolutionService. The in-tool gate must refuse B for a service token of A.
+        MockHttpContextAccessor.Setup(h => h.GetTenantId()).Returns(DefaultTestTenantId);
+        MockTenantResolution.Setup(t => t.ResolveTenantId(ForeignTenantId)).Returns(ForeignTenantId);
+        GivenServicePrincipalCaller("tenant-a-integration", DefaultTestTenantId, "TenantAdministrator");
+
+        var result = await RuntimeEntityCrudTools.QueryEntities(
+            MockServer.Object, TestCkTypeId, tenantId: ForeignTenantId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("denied").And.Contain(ForeignTenantId);
+        MockSecureSessionFactory.Verify(f => f.GetSessionAsync(It.IsAny<RtSecurityContext>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task QueryEntities_ServicePrincipalOnTenantlessEndpoint_ToolTenantIdOfAnotherTenant_IsDenied()
+    {
+        // AB#9189: the tenantless /mcp has no route tenant, so the transport gate checks nothing; the
+        // tool's tenantId=B is the only tenant there is and must match the token's tenant.
+        MockHttpContextAccessor.Setup(h => h.GetTenantId()).Throws(new InvalidOperationException("no route tenant"));
+        MockTenantResolution.Setup(t => t.ResolveTenantId(ForeignTenantId)).Returns(ForeignTenantId);
+        GivenServicePrincipalCaller("tenant-a-integration", DefaultTestTenantId, "TenantAdministrator");
+
+        var result = await RuntimeEntityCrudTools.QueryEntities(
+            MockServer.Object, TestCkTypeId, tenantId: ForeignTenantId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("denied").And.Contain(ForeignTenantId);
+        MockSecureSessionFactory.Verify(f => f.GetSessionAsync(It.IsAny<RtSecurityContext>()), Times.Never);
+    }
+
+    [Fact]
     public async Task QueryEntities_CrossTenant_UsesTheShadowIdentityOfTheExchangedToken()
     {
         GivenSuccessfulTenantExchange(ForeignTenantId, "shadow-user-in-b", "BReader");
