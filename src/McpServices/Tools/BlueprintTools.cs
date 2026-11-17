@@ -17,6 +17,9 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 [McpServerToolType]
 public sealed class BlueprintTools
 {
+    /// <summary>Error code of refresh_blueprint_catalogs for an unknown catalog name (HTTP 404 of the service).</summary>
+    public const string CatalogNotFoundCode = "CatalogNotFound";
+
     /// <summary>List blueprints available across configured catalogs.</summary>
     [McpServerTool(Name = "list_blueprints")]
     [Description(
@@ -353,17 +356,14 @@ public sealed class BlueprintTools
     [McpServerTool(Name = "refresh_blueprint_catalogs")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
-        "Refresh the blueprint catalog caches of the asset repository (always forced), so freshly published " +
-        "blueprint versions become visible to list_blueprints, install_blueprint and update_blueprint without a " +
-        "service restart. Equivalent to octo-cli RefreshBlueprintCatalogs. Returns the result per catalog " +
-        "(Refreshed, Skipped or Failed with a message); a failed catalog does not stop the others, but makes the " +
-        "call report IsSuccess=false. An unknown catalogName answers ErrorCode CatalogNotFound. " +
-        "What a refresh does not fix: on installations with several asset-repository replicas the refresh reaches " +
-        "only the replica that answers, so a second refresh may be needed until bug AB#9169 is fixed; after a " +
-        "GitHub Pages deploy of a catalog the CDN can serve the old index for up to 10 minutes, so refresh again " +
-        "after that. The planned per-tenant catalog (AB#9176) reads the tenant database directly and will not need " +
-        "a refresh. Requires the tenant role DataModelManagement (AB#8529); without it the call fails with " +
-        "ErrorCode DataModelManagementRequired.")]
+        "Refresh the blueprint catalog caches of the asset repository (always forced, no service restart), so newly " +
+        "published blueprint versions become visible. Equivalent to octo-cli RefreshBlueprintCatalogs. Returns the " +
+        "result per catalog (Refreshed, Skipped, Failed); one failed catalog does not stop the others but sets " +
+        "IsSuccess=false. Unknown catalogName: ErrorCode CatalogNotFound. Limits: with several asset-repository " +
+        "replicas only the answering one is refreshed, so repeat if the version stays missing (bug AB#9169); a " +
+        "GitHub Pages catalog can serve its old index for up to 10 minutes after a deploy (CDN cache). The planned " +
+        "per-tenant catalog (AB#9176) will need no refresh. Requires the tenant role DataModelManagement; without " +
+        "it ErrorCode DataModelManagementRequired.")]
     public static async Task<RefreshBlueprintCatalogsResponse> RefreshBlueprintCatalogs(
         McpServer server,
         [Description("Optional blueprint catalog name (case-insensitive). If omitted, all catalogs are refreshed.")]
@@ -430,9 +430,6 @@ public sealed class BlueprintTools
             };
         }
     }
-
-    /// <summary>Error code of refresh_blueprint_catalogs for an unknown catalog name (HTTP 404 of the service).</summary>
-    public const string CatalogNotFoundCode = "CatalogNotFound";
 
     /// <summary>Uninstall a blueprint from the tenant. Destructive: requires confirm.</summary>
     [McpServerTool(Name = "uninstall_blueprint")]
