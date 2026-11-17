@@ -78,6 +78,13 @@ A comprehensive Model Context Protocol (MCP) server for OctoMesh Construction Ki
 
 `OctoServiceUrls` configures the backend service endpoints reached by the SDK-based platform-admin tools. Override per-environment via env vars: `OCTO_OCTOSERVICEURLS__ASSETSERVICEURL=https://asset.prod.example.com/` etc.
 
+**AI service client (AB#9188).** The AI service calls the knowledge tools on every AI tenant's route with one token of
+the system tenant (client `octo-ai-adapter`, which the AI service registers itself). This service trusts exactly that
+client for cross-tenant service calls by default: `Mcp:AiServiceClientId` (`OCTO_MCP__AISERVICECLIENTID`, default
+`octo-ai-adapter`) is appended to `TenantAuthorization:CrossTenantServiceClientIds`. No per-cluster value is needed; an
+empty value switches the default entry off, a `*` pattern is refused at startup, entries set under
+`OCTO_TENANTAUTHORIZATION__CROSSTENANTSERVICECLIENTIDS__<n>` stay.
+
 2. **Start the Service**:
 ```bash
 cd src/McpServices

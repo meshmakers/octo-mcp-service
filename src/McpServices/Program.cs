@@ -157,6 +157,12 @@ try
     // exemption of UseOctoTenantAuthorization() per environment (OCTO_TENANTAUTHORIZATION__…).
     // The defaults reproduce the previous behaviour and only add the audit log.
     builder.Services.AddOctoTenantAuthorization(builder.Configuration);
+    // AB#9188: the AI service's MCP service client (Mcp:AiServiceClientId, default octo-ai-adapter) is allow-listed for
+    // cross-tenant service calls by default - one explicit id, appended after the section above was bound.
+    builder.Services.AddSingleton<IPostConfigureOptions<TenantAuthorizationOptions>, ConfigureTenantAuthorizationOptions>();
+    // Builds the options at startup, so a refused Mcp:AiServiceClientId ('*' pattern) stops the start instead of failing
+    // the first request.
+    builder.Services.AddOptions<TenantAuthorizationOptions>().ValidateOnStart();
 
     builder.Services.AddControllers()
         .AddJsonOptions(options =>

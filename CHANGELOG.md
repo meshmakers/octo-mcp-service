@@ -4,6 +4,12 @@
 
 ### Added
 
+- **AB#9188** — The AI service's MCP service client is trusted for cross-tenant service calls by default. New option
+  `Mcp:AiServiceClientId` (`OCTO_MCP__AISERVICECLIENTID`, default `octo-ai-adapter`); `ConfigureTenantAuthorizationOptions`
+  appends it to `TenantAuthorization:CrossTenantServiceClientIds` after the section is bound (operator entries stay, no
+  duplicate, a `*` pattern is refused at startup, empty switches it off). The AI service's system-tenant token now
+  reaches `/{tenantId}/mcp` of every AI tenant without a per-cluster value; any other client's foreign-tenant token is
+  still refused with 403.
 - **AB#9148** — Knowledge clients may rely on the descriptions of this server's own tools. `answeringRules` gains a
   third rule (`KnowledgeConventions.ToolRule`): the description of one of this server's tools is a source when the
   answer recommends or uses that tool, cited as `[tool:<name>]` (e.g. `[tool:add_client_to_role]`). Page citations still
