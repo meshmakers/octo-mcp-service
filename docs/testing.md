@@ -74,7 +74,7 @@ Notes:
 
 CI build-time settings (root `azure-pipelines.yml`):
 
-- **Docs-only commits do not start CI.** The `trigger:` excludes `**/*.md`, `*.md`, `.claude/` and `docs/`. A commit touching only those paths builds nothing; the change ships with the next code commit.
+- **Docs-only commits do not start CI.** The `trigger:` excludes `**/*.md`, `*.md`, `.claude/` and `docs/`. A commit pushed to `main`, `dev/*` or `test/*` that touches only those paths builds nothing; the change ships with the next code commit. The path filter belongs to `trigger:` only: the pipeline has no `pr:` block, so a pull request starts the PR validation build even when it changes only docs.
 - **NuGet restore uses the HTTP cache.** `purge-private-nuget-http-cache.yml` (octo-pipeline-templates) drops only the private feed's cache entries before the restore, so floating `0.1.*` ranges still see freshly published packages; `--force` and `noCache: true` are gone (`checkout: clean: true` already rules out stale `obj/`).
 - **Docker layer reuse** comes from the shared pipeline templates (pin in `azure-pipelines.yml`): a registry cache (`octo-mesh-mcp-services:buildcache`) plus the buildx builder `mybuilder`, which now survives between runs on the same agent.
 

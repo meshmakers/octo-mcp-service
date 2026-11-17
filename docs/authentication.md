@@ -14,36 +14,30 @@ registers the JWT bearer handler (`AddAuthentication(JwtBearerDefaults.Authentic
 `UseOctoTenantAuthorization()` before mapping the transport; both `app.MapMcp(...)` calls carry
 `.RequireAuthorization(McpAuthorizationPolicy.PolicyName)` — the scope policy of the next section.
 
-Before this, the endpoints were anonymous — the `ConfigureJwtBearerOptions` configurator existed
-but no scheme/middleware was ever wired, so **direct-engine (family-2/3) tools served tenant data
-from MongoDB with no token at all**. `MapObservability` (health/metrics) and the file-transfer
-endpoints are intentionally left anonymous — only the MCP transport is gated.
+`MapObservability` (health/metrics) and the file-transfer endpoints are intentionally left anonymous — only the
+MCP transport is gated (the file-transfer protection is described in `file-transfer.md`). Without the scheme and the
+middleware the direct-engine (family-2/3) tools would serve tenant data from MongoDB with no token at all.
 
 `UseOctoTenantAuthorization` (shared `TenantAuthorizationMiddleware` from octo-common-services)
-validates the route `{tenantId}` against the token's `tenant_id` claim. **Client-credentials
-service tokens (no user `sub` claim) are skipped by design** — that is how the AiWorker (token via
-`IMcpTokenIssuer`) and the mesh-adapter `AnthropicAiQueryNode` (token via `ServiceAccountConfiguration`,
-sent as `Authorization: Bearer`) reach any tenant. The tenantless `/mcp` endpoint still requires a
-valid token. (That was the original design; the skip is now staged, see below, and the in-tool gate binds
-every service token to its tenant.)
+validates the route `{tenantId}` against the token's `tenant_id` claim, for user tokens and for
+client-credentials service tokens (no user `sub` claim): identity stamps a `tenant_id` claim on
+client-credentials tokens and the middleware compares it against the route tenant, governed by
+`TenantAuthorizationOptions.ServiceTokenEnforcement` = `Disabled` | `LogOnly` | `Enforce` (the default).
+The tenantless `/mcp` endpoint has no route tenant to check; it still requires a valid token, and the in-tool
+gate binds every service token to its tenant.
 
 > `ValidateAudience = false` means *any* client-credentials client of this authority passes the transport
 > check — see *Client-credentials tokens are tenant-bound* in `tenant-gate.md` for what stops it in the tools.
 
-**The skip is staged and operator-settable — and this service now reads that setting.**
-The middleware no longer hard-codes the exemption: identity stamps a `tenant_id` claim
-on client-credentials tokens and the middleware compares it against the route tenant, governed by
-`TenantAuthorizationOptions.ServiceTokenEnforcement` = `Disabled` | `LogOnly` | `Enforce`
-(the default).
-`Program.cs` binds it with `builder.Services.AddOctoTenantAuthorization(builder.Configuration)`
+**The enforcement mode is operator-settable because this service binds the options.**
+`Program.cs` calls `builder.Services.AddOctoTenantAuthorization(builder.Configuration)`
 (section `TenantAuthorization`), so the knob is
 **`OCTO_TENANTAUTHORIZATION__SERVICETOKENENFORCEMENT`**, plus
 `OCTO_TENANTAUTHORIZATION__CROSSTENANTSERVICECLIENTIDS__0…` for the cross-tenant allow-list — the
 identical section and variable names Identity, Communication Controller, Asset-Repo and Bot use, so
 one fleet-wide value reaches all five. Calling `UseOctoTenantAuthorization()` **without** the
-`Add…` call leaves it on the built-in defaults, where
-the environment variable is inert — the service keeps `LogOnly` while the rest of the estate moves
-to `Enforce`. Semantics and rollout rules: `octo-common-services/docs/tenant-authorization.md`.
+`Add…` call leaves the service on the built-in defaults, where the environment variable is inert. Keep the
+`Add…` call. Semantics and rollout rules: `octo-common-services/docs/tenant-authorization.md`.
 
 The mesh adapter mints **tenant-bound** tokens (its own `ServiceAccountConfiguration`) and the AI
 service's per-session tokens are tenant-bound as well (`IMcpTokenIssuer` with
@@ -51,8 +45,7 @@ service's per-session tokens are tenant-bound as well (`IMcpTokenIssuer` with
 
 **One default allow-list entry: the AI service's client.** The knowledge platform update
 runner of octo-ai-services mints **one system-tenant token** and calls
-`knowledge_adopt_platform_updates` on `/{tenantId}/mcp` of every AI tenant (decision Gerald
-2026-11-16: an explicit entry, no blanket exemption). `Configuration/ConfigureTenantAuthorizationOptions`
+`knowledge_adopt_platform_updates` on `/{tenantId}/mcp` of every AI tenant (by decision: an explicit entry, no blanket exemption). `Configuration/ConfigureTenantAuthorizationOptions`
 (an `IPostConfigureOptions<TenantAuthorizationOptions>` registered right after
 `AddOctoTenantAuthorization`) appends `McpServiceOptions.AiServiceClientId` (`Mcp:AiServiceClientId`,
 `OCTO_MCP__AISERVICECLIENTID`, default `octo-ai-adapter` = the client the AI service registers in the
@@ -71,8 +64,8 @@ and `UseAiServiceClientTenantGuard()` (`Configuration/AiServiceClientTenantTrust
 🔴 **The entry is bound to the trusted pair by `Configuration/AiServiceClientTenantGuard`.** The shared
 gate matches the allow-list by `client_id` alone (case-insensitive), and client ids are unique only per
 tenant: a tenant administrator could create a client `octo-ai-adapter` in their own tenant and its token
-would pass every other tenant's route. The in-tool gate would still refuse its tool calls (next
-section), but the route gate must not open wider than the trust. The guard runs right before
+would pass every other tenant's route. The in-tool gate would still refuse its tool calls
+(`tenant-gate.md`), but the route gate must not open wider than the trust. The guard runs right before
 `UseOctoTenantAuthorization()`, reads the caller with the same `McpCallerPrincipal` as the in-tool gate and
 answers 403 for a service token whose client id the entry would admit but that is not the trusted pair
 (`Services/AiServiceClientTrust.IsTrustedPair`: exact id, token of `System:SystemTenantId` - the same helper
@@ -109,7 +102,7 @@ than refusing it. Nothing breaks: the two seeded MCP clients (660…33 / 660…3
 
 `RequiredApiScopes` is configurable (`Mcp:RequiredApiScopes`) so an operator can admit a service
 account provisioned with a different scope without a code change; an empty list restores the
-the earlier authenticated-only behaviour. The check accepts both wire encodings of `scope` — one
+earlier authenticated-only behaviour. The check accepts both wire encodings of `scope` — one
 claim per scope (what the backend services' `RequireClaim` policies rely on) and a single
 space-delimited value — which is never more permissive than the backend rule, it just avoids
 refusing a correctly-scoped token over claim splitting.
@@ -230,8 +223,8 @@ the token for the B-shadow user) so there is no role leak. The `switch_tenant` t
 affordance; on failure it recommends the `authenticate` device-flow fallback.
 
 **Opaque-token safety:** the overload exchanges ONLY when the home token's `tenant_id` is readable AND
-differs from the target. Opaque/service tokens (adapter/worker, no readable `tenant_id`) keep using the
-home token — service tokens are skipped by `TenantAuthorizationMiddleware` anyway. **Bot stays on the
+differs from the target. A token whose `tenant_id` cannot be read (opaque, non-JWT) keeps using the
+home token, and the backend decides. A tenant-bound service token addresses its own tenant, so it needs no exchange. **Bot stays on the
 home token** — its client is NOT tenant-routed (`CreateBotClient` takes no `tenantId`), so an exchange
 there is unnecessary and could break bot ops the home token already serves.
 
@@ -242,7 +235,7 @@ used to take the **home** token (`ResolveAccessTokenAsync(server)`) and route it
 tenant, so under user-token Enforce a caller homed elsewhere got 403 on a parent tenant. They now resolve
 the route/parent tenant first and call `ResolveAccessTokenAsync(server, tenantId)` (same RFC 8693 path
 as octo-cli). A failed exchange returns `IsSuccess = false` with the session error
-(`Constants.TenantExchangeFailedError`) and makes **no** SDK call — never a fallback to the home token.
+(`Constants.TenantExchangeFailedError(tenantId)`) and makes **no** SDK call — never a fallback to the home token.
 The caller needs access to the addressed (parent) tenant itself; being admin of the child is not enough.
 Any new tool that routes an SDK/HTTP client to a tenant must use the tenant overload; the home-token
 overload is only for tenant-less calls (whoami, file transfer, Bot).

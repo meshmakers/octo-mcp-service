@@ -126,7 +126,7 @@ tokens too:
   target tenant, whose data permissions check those roles by name. Keep the roles of that client minimal.
 - Tenant-bound callers keep working: the AI worker (`IMcpTokenIssuer`, one token per tenant with
   `acr_values=tenant:{tenantId}`), the mesh-adapter node (its tenant's service account) and agent clients that
-  request one token per tenant (e.g. `claude-agent-<user>-<host>` with `acr_values tenant:<id>` on
+  request one token per tenant (e.g. `<agent>-<user>-<host>` with `acr_values tenant:<id>` on
   `/<id>/mcp`).
 - **Every decision is logged** (client id, token tenant, target tenant, outcome, reason; allow at
   Information, deny at Warning; no token content) and counted in

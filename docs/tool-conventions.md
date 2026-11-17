@@ -129,7 +129,7 @@ meta-schemas). Guard: `tests/McpServices.Tests/Services/PipelineSchemaCompilerTe
 
 Tools have an optional `[McpRisk(McpRiskLevel.Low|Medium|High)]` attribute that classifies their blast radius. The AI Adapter worker calls `get_tool_risk_metadata` once at session start and uses the result to decide whether a tool call needs to be routed through its user-facing approval gate before running.
 
-**This is not authorisation.** Authorisation is delegated to the backend services via the propagated OAuth token. `McpRisk` is informational metadata that the worker reads to drive its own safety story.
+**This is not authorisation.** Family-1 tools delegate authorisation to the backend services via the propagated OAuth token; family-2/3 tools authorise in the tool through `RuntimeSecurityContextResolver` and the caller's data permissions (`tenant-gate.md`). `McpRisk` is informational metadata that the worker reads to drive its own safety story.
 
 Classification convention:
 
@@ -152,7 +152,7 @@ public static async Task<DeleteEntityResponse> DeleteEntity(...)
 
 Concurrent AI sessions can write to the same runtime entity. `update_entity` and `delete_entity` accept an optional `expected_version` (the `RtVersion` the caller observed on its prior read):
 
-- **Omitted** → last-write-wins, identical to pre-#4111 behaviour. `update_entity` still bumps `RtVersion` on the way out so a later optimistic call sees a meaningful token.
+- **Omitted** → last-write-wins, identical to the behaviour before optimistic locking. `update_entity` still bumps `RtVersion` on the way out so a later optimistic call sees a meaningful token.
 - **Matches stored** → the write/delete proceeds, the response carries the bumped `CurrentRtVersion`.
 - **Stale** → no write/delete happens. Response is `IsSuccess=false`, `IsConflict=true`, and carries `CurrentRtVersion` + the current `Entity` payload — enough for the caller to rebase its change without a second `get_entity_by_id` round-trip.
 

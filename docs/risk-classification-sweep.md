@@ -3,9 +3,9 @@ description: Domain-owner checklist of the risk annotation of every MCP tool, pe
 background: true
 ---
 
-# MCP Tool Risk-Classification Sweep — Domain-Owner Checklist (#4129)
+# MCP Tool Risk-Classification Sweep — Domain-Owner Checklist
 
-**Source-of-truth sweep**: `88a2072` (#4111 Phase A) shipped the infrastructure;
+**Source-of-truth sweep**: `88a2072` (Phase A) shipped the infrastructure;
 this sweep annotated 101 tools across 25 files based on a pattern-deterministic
 classifier. Run `dotnet test -c DebugL` — 510/510 pass with the annotations on.
 
