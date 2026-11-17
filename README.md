@@ -178,8 +178,8 @@ dotnet run
 - Sibling-tenant grants (AB#8346, identity AB#8341/8343/8345): `lookup_source_tenant_user` finds one user of a source tenant by exact user name or e-mail (no e-mail in the result; every miss is `errorCode: SourceUserNotFound`; `SourceUserLookupRateLimited` with `retryAfterSeconds`), `create_external_tenant_user_mapping` grants it with `groupIds` of the target tenant and returns the stored mapping; refusals carry `errorCode` (`SourceTenantNotPermitted`, `UnknownGroup`, `ExternalTenantUserMappingAlreadyExists`). The source tenant's administrators manage which tenants may do this with the two permission tools. Guide: octo-documentation, "Cross-tenant access".
 - Admin Provisioning (4): `get_admin_provisioning_mappings` · `create_admin_provisioning_mapping` · `provision_current_user_as_admin` · `delete_admin_provisioning_mapping`<sup>‡</sup>
 
-### **Asset Repository — Blueprints** (8)
-`list_blueprints` · `install_blueprint` · `get_blueprint_history` · `get_blueprint_update_info` · `preview_blueprint_update` · `update_blueprint`<sup>‡</sup> · `list_blueprint_installations` · `uninstall_blueprint`<sup>‡</sup>
+### **Asset Repository — Blueprints** (9)
+`list_blueprints` · `refresh_blueprint_catalogs` · `install_blueprint` · `get_blueprint_history` · `get_blueprint_update_info` · `preview_blueprint_update` · `update_blueprint`<sup>‡</sup> · `list_blueprint_installations` · `uninstall_blueprint`<sup>‡</sup>
 
 ### **Asset Repository — CK Model Libraries** (8)
 `list_ck_catalogs` · `list_ck_catalog_models` · `refresh_ck_catalogs` · `get_ck_library_status` · `check_ck_dependencies` · `check_ck_upgrade` · `import_ck_from_catalog` · `fix_all_ck_models`<sup>‡</sup>

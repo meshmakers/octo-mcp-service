@@ -12,7 +12,7 @@ namespace McpServices.Tests.Tools;
 /// <summary>
 ///     AB#8529: the asset repository refuses a model-changing call of a caller without the tenant role
 ///     <c>DataModelManagement</c> with <c>403</c> and <c>{"message", "code": "DataModelManagementRequired"}</c>. The
-///     code and the reason reach the tool result of every model-changing tool (all seven).
+///     code and the reason reach the tool result of every model-changing tool (all eight).
 /// </summary>
 public class DataModelManagementRequiredTests : ToolTestBase
 {
@@ -82,6 +82,16 @@ public class DataModelManagementRequiredTests : ToolTestBase
         MockAssetClient.Setup(c => c.RefreshCkModelCatalogsAsync(It.IsAny<string?>())).ThrowsAsync(Forbidden());
 
         var result = await CkModelLibraryTools.RefreshCatalogs(MockServer.Object);
+
+        AssertRefused(result.IsSuccess, result.ErrorCode, result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task RefreshBlueprintCatalogs_WithoutTheRole_ReportsTheCode()
+    {
+        MockAssetClient.Setup(c => c.RefreshBlueprintCatalogsAsync(It.IsAny<string?>())).ThrowsAsync(Forbidden());
+
+        var result = await BlueprintTools.RefreshBlueprintCatalogs(MockServer.Object);
 
         AssertRefused(result.IsSuccess, result.ErrorCode, result.ErrorMessage);
     }

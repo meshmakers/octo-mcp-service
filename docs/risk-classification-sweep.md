@@ -10,11 +10,8 @@ operational reality. Edit the source file + the table in the same PR.
 
 ## Summary
 
-- Total tools: 175
-- Low (default, no `[McpRisk]` attribute): 73
-- Low (explicit `[McpRisk(McpRiskLevel.Low)]`): 1
-- Medium: 49
-- High: 52
+Not maintained: the counts of the original sweep (176 tools) drifted as tools were added. The `[McpRisk]`
+attributes in `src/McpServices/Tools/` are the source of truth; count them there when you need current numbers.
 
 ## Classification convention
 
@@ -94,9 +91,9 @@ _Low=2_  ·  **Owner reviewed:** ☐
 | `authenticate` | **L** | |
 | `check_auth_status` | **L** — owner: confirm | |
 
-### BlueprintTools (8 tools)
+### BlueprintTools (9 tools)
 
-_High=2 · Low=5 · Medium=1_  ·  **Owner reviewed:** ☐
+_High=2 · Low=5 · Medium=2_  ·  **Owner reviewed:** ☐
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
@@ -108,6 +105,7 @@ _High=2 · Low=5 · Medium=1_  ·  **Owner reviewed:** ☐
 | `update_blueprint` | **M** | |
 | `list_blueprint_installations` | **L** | |
 | `uninstall_blueprint` | **H** | |
+| `refresh_blueprint_catalogs` | **M** | AB#9182, same level as `refresh_ck_catalogs` |
 
 ### CkModelFileTools (4 tools)
 

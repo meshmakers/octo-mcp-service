@@ -1,5 +1,7 @@
+using System.Net;
 using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.Tools;
+using Meshmakers.Octo.Sdk.ServiceClient;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Blueprints;
 using Moq;
 using Xunit;
@@ -287,5 +289,159 @@ public class BlueprintToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeTrue();  // SDK call itself succeeded; message conveys the block.
         result.Message.Should().Contain("DependentBp").And.Contain("cascade=true");
+    }
+
+    // ---- refresh_blueprint_catalogs (AB#9182) ----
+
+    private static BlueprintCatalogRefreshResponseDto RefreshResult(params (string Name, string Status, string? Message)[] items) =>
+        new()
+        {
+            Results = items.Select(i => new BlueprintCatalogRefreshResultDto
+            {
+                CatalogName = i.Name, Status = i.Status, Message = i.Message
+            }).ToList()
+        };
+
+    [Fact]
+    public async Task RefreshBlueprintCatalogs_NoCatalogName_RefreshesAllAndReturnsPerCatalogResult()
+    {
+        MockAssetClient.Setup(c => c.RefreshBlueprintCatalogsAsync(null))
+            .ReturnsAsync(RefreshResult(
+                ("PublicGitHubBlueprintCatalog", "Refreshed", null),
+                ("LocalFileSystemBlueprintCatalog", "Refreshed", null),
+                ("EmbeddedBlueprintCatalog", "Skipped", "Not cached")));
+
+        var result = await BlueprintTools.RefreshBlueprintCatalogs(MockServer.Object);
+
+        result.IsSuccess.Should().BeTrue();
+        result.TenantId.Should().Be(DefaultTenantId);
+        result.CatalogName.Should().BeNull();
+        result.Results.Should().HaveCount(3);
+        result.RefreshedCount.Should().Be(2);
+        result.SkippedCount.Should().Be(1);
+        result.FailedCount.Should().Be(0);
+        result.ErrorMessage.Should().BeNull();
+        result.Message.Should().Contain("2 refreshed, 1 skipped, 0 failed");
+        MockAssetClient.Verify(c => c.RefreshBlueprintCatalogsAsync(null), Times.Once);
+    }
+
+    [Fact]
+    public async Task RefreshBlueprintCatalogs_SpecificCatalog_RefreshesOnlyThatCatalog()
+    {
+        MockAssetClient.Setup(c => c.RefreshBlueprintCatalogsAsync("PublicGitHubBlueprintCatalog"))
+            .ReturnsAsync(RefreshResult(("PublicGitHubBlueprintCatalog", "Refreshed", null)));
+
+        var result = await BlueprintTools.RefreshBlueprintCatalogs(MockServer.Object, "PublicGitHubBlueprintCatalog");
+
+        result.IsSuccess.Should().BeTrue();
+        result.CatalogName.Should().Be("PublicGitHubBlueprintCatalog");
+        result.Results.Should().ContainSingle().Which.Status.Should().Be("Refreshed");
+        result.Message.Should().Contain("'PublicGitHubBlueprintCatalog'");
+        MockAssetClient.Verify(c => c.RefreshBlueprintCatalogsAsync("PublicGitHubBlueprintCatalog"), Times.Once);
+        MockAssetClient.Verify(c => c.RefreshBlueprintCatalogsAsync(null), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task RefreshBlueprintCatalogs_BlankCatalogName_RefreshesAll(string catalogName)
+    {
+        MockAssetClient.Setup(c => c.RefreshBlueprintCatalogsAsync(null))
+            .ReturnsAsync(RefreshResult(("PublicGitHubBlueprintCatalog", "Refreshed", null)));
+
+        var result = await BlueprintTools.RefreshBlueprintCatalogs(MockServer.Object, catalogName);
+
+        result.IsSuccess.Should().BeTrue();
+        result.CatalogName.Should().BeNull();
+        MockAssetClient.Verify(c => c.RefreshBlueprintCatalogsAsync(null), Times.Once);
+    }
+
+    [Fact]
+    public async Task RefreshBlueprintCatalogs_FailedCatalog_ReportsFailureButKeepsAllResults()
+    {
+        MockAssetClient.Setup(c => c.RefreshBlueprintCatalogsAsync(null))
+            .ReturnsAsync(RefreshResult(
+                ("PublicGitHubBlueprintCatalog", "Failed", "index.json: 503"),
+                ("LocalFileSystemBlueprintCatalog", "Refreshed", null)));
+
+        var result = await BlueprintTools.RefreshBlueprintCatalogs(MockServer.Object);
+
+        result.IsSuccess.Should().BeFalse();
+        result.FailedCount.Should().Be(1);
+        result.RefreshedCount.Should().Be(1);
+        result.Results.Should().HaveCount(2);
+        result.ErrorMessage.Should().Contain("1 of 2").And.Contain("'PublicGitHubBlueprintCatalog': index.json: 503");
+    }
+
+    [Fact]
+    public async Task RefreshBlueprintCatalogs_UnknownCatalog_ReturnsCatalogNotFound()
+    {
+        MockAssetClient.Setup(c => c.RefreshBlueprintCatalogsAsync("Nope"))
+            .ThrowsAsync(new ServiceClientResultException("""{"message":"Catalog 'Nope' not found"}""",
+                HttpStatusCode.NotFound) { ResponseContent = """{"message":"Catalog 'Nope' not found"}""" });
+
+        var result = await BlueprintTools.RefreshBlueprintCatalogs(MockServer.Object, "Nope");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(BlueprintTools.CatalogNotFoundCode);
+        result.ErrorMessage.Should().Contain("Blueprint catalog 'Nope' not found");
+        result.CatalogName.Should().Be("Nope");
+    }
+
+    [Theory]
+    [InlineData("x/../refresh")]
+    [InlineData("..")]
+    [InlineData("a?b=c")]
+    [InlineData("a%2Fb")]
+    [InlineData("a b")]
+    [InlineData("K\u00e4talog")]
+    [InlineData("a\uff0fb")]
+    [InlineData(".")]
+    public async Task RefreshBlueprintCatalogs_NameThatIsNoPathSegment_IsRefusedWithoutSdkCall(string catalogName)
+    {
+        var result = await BlueprintTools.RefreshBlueprintCatalogs(MockServer.Object, catalogName);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("catalogName may contain only");
+        MockAssetClient.Verify(c => c.RefreshBlueprintCatalogsAsync(It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RefreshBlueprintCatalogs_NotFoundWithoutCatalogName_KeepsErrorCodeNull()
+    {
+        MockAssetClient.Setup(c => c.RefreshBlueprintCatalogsAsync(null))
+            .ThrowsAsync(new ServiceClientResultException("Not Found", HttpStatusCode.NotFound));
+
+        var result = await BlueprintTools.RefreshBlueprintCatalogs(MockServer.Object);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().BeNull();
+        result.CatalogName.Should().BeNull();
+        result.ErrorMessage.Should().NotContain("not found. Omit catalogName");
+    }
+
+    [Fact]
+    public async Task RefreshBlueprintCatalogs_OtherFailure_KeepsTheMessage()
+    {
+        MockAssetClient.Setup(c => c.RefreshBlueprintCatalogsAsync(null))
+            .ThrowsAsync(new InvalidOperationException("boom"));
+
+        var result = await BlueprintTools.RefreshBlueprintCatalogs(MockServer.Object);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().BeNull();
+        result.ErrorMessage.Should().Be("boom");
+    }
+
+    [Fact]
+    public async Task RefreshBlueprintCatalogs_Unauthenticated_ReturnsAuthErrorWithoutSdkCall()
+    {
+        GivenUnauthenticated();
+
+        var result = await BlueprintTools.RefreshBlueprintCatalogs(MockServer.Object);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("Not authenticated");
+        MockAssetClient.Verify(c => c.RefreshBlueprintCatalogsAsync(It.IsAny<string?>()), Times.Never);
     }
 }
