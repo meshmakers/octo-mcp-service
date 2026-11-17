@@ -1642,7 +1642,7 @@ An agent can work in and clean up the scratch tenants it creates without a human
 
 `refresh_blueprint_catalogs` (`BlueprintTools`, Medium) mirrors octo-cli `RefreshBlueprintCatalogs`: SDK
 `IAssetServicesClient.RefreshBlueprintCatalogsAsync(catalogName)` (`POST system/v1/blueprints/catalogs[/{name}]/refresh`,
-always forced, `DataModelManagementPolicy`). A blank name means all catalogs (same rule as SDK and CLI); a name with other characters than letters, digits,
+always forced, `DataModelManagementPolicy`). A blank name means all catalogs (same rule as SDK and CLI); a name with other characters than ASCII letters, digits,
 `.`, `-`, `_` (or `.`/`..`) is refused before the call, because the SDK puts it into the path unescaped. The per-catalog
 `Results` go on the wire as-is; any `Failed` entry makes `IsSuccess = false` (the CLI exits non-zero) while `Results` and
 the counts stay set. A 404 for a named catalog becomes `ErrorCode = CatalogNotFound` (`BlueprintTools.CatalogNotFoundCode`);

@@ -10,11 +10,8 @@ operational reality. Edit the source file + the table in the same PR.
 
 ## Summary
 
-- Total tools: 176
-- Low (default, no `[McpRisk]` attribute): 73
-- Low (explicit `[McpRisk(McpRiskLevel.Low)]`): 1
-- Medium: 50
-- High: 52
+Not maintained: the counts of the original sweep (176 tools) drifted as tools were added. The `[McpRisk]`
+attributes in `src/McpServices/Tools/` are the source of truth; count them there when you need current numbers.
 
 ## Classification convention
 

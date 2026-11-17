@@ -394,6 +394,9 @@ public class BlueprintToolsTests : ToolTestBase
     [InlineData("a?b=c")]
     [InlineData("a%2Fb")]
     [InlineData("a b")]
+    [InlineData("K\u00e4talog")]
+    [InlineData("a\uff0fb")]
+    [InlineData(".")]
     public async Task RefreshBlueprintCatalogs_NameThatIsNoPathSegment_IsRefusedWithoutSdkCall(string catalogName)
     {
         var result = await BlueprintTools.RefreshBlueprintCatalogs(MockServer.Object, catalogName);
@@ -401,6 +404,20 @@ public class BlueprintToolsTests : ToolTestBase
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("catalogName may contain only");
         MockAssetClient.Verify(c => c.RefreshBlueprintCatalogsAsync(It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RefreshBlueprintCatalogs_NotFoundWithoutCatalogName_KeepsErrorCodeNull()
+    {
+        MockAssetClient.Setup(c => c.RefreshBlueprintCatalogsAsync(null))
+            .ThrowsAsync(new ServiceClientResultException("Not Found", HttpStatusCode.NotFound));
+
+        var result = await BlueprintTools.RefreshBlueprintCatalogs(MockServer.Object);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().BeNull();
+        result.CatalogName.Should().BeNull();
+        result.ErrorMessage.Should().NotContain("not found. Omit catalogName");
     }
 
     [Fact]

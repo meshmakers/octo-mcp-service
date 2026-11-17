@@ -383,7 +383,7 @@ public sealed class BlueprintTools
             {
                 IsSuccess = false,
                 CatalogName = catalogName,
-                ErrorMessage = "catalogName may contain only letters, digits, '.', '-' and '_' (e.g. " +
+                ErrorMessage = "catalogName may contain only ASCII letters, digits, '.', '-' and '_' (e.g. " +
                                "'PrivateGitHubBlueprintCatalog'). Omit it to refresh all catalogs."
             };
         }
