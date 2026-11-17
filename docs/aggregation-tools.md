@@ -1,3 +1,10 @@
+---
+description: Lowercase function enum, AggregationMapper, engine column keys, archive resolution, filter operators and persisted query execution.
+applies_to: **/Tools/{RuntimeAggregation,StreamData*}Tools.cs, **/Services/{AggregationMapper,AvailableArchivePaths*}.cs, **/Models/{Aggregation,Filters}/**
+---
+
+# Aggregation and stream-data query tools
+
 ## Aggregation Tools Architecture
 
 The aggregation + stream-data tools (`RuntimeAggregationTools`, `StreamDataAggregationTools`, `StreamDataMetadataTools`) talk **directly to the runtime engine** — same architectural layer as the generic CRUD tools, but with their own conventions.
@@ -6,7 +13,7 @@ The aggregation + stream-data tools (`RuntimeAggregationTools`, `StreamDataAggre
 
 Counter to the rest of the codebase which uses PascalCase enum names, the aggregation enum uses **lowercase short names** (`count`/`sum`/`avg`/`min`/`max`/`integral`). This is intentional and AI-driven: LLMs construct lowercase strings more reliably than enum-style strings, and lowercase mirrors SQL conventions. The translation to the engine's `AggregationFunction` (which uses `Count/Sum/Average/Minimum/Maximum/Integral`) happens in `AggregationMapper.ToEngineFunction`. Do not "fix" the enum to PascalCase.
 
-`integral` (AB#7919) is the step integral of the engine (AB#7918): value unit x hours over `[from, to)`, LOCF, carry-in from the
+`integral` is the step integral of the engine: value unit x hours over `[from, to)`, LOCF, carry-in from the
 last row before `from`, rtIds summed, empty window = null, raw archives only. It is accepted **only** by
 `query_stream_data_aggregation`, `query_stream_data_grouping` and persisted stream-data aggregation/grouping queries
 (`Validate(..., allowIntegral: true)`), and needs `from` and `to` (`ValidateIntegralWindow`). Runtime aggregations, downsampling (transient and
@@ -32,8 +39,8 @@ Stream-data aggregation results come back as `StreamDataRow` instances with `Val
 `StreamDataFieldResolver` (lower-cased concatenated path for a data-stream attribute, the versioned physical name for a computed column,
 camelCase for built-ins such as `rtId`). `EngineValue` inside `StreamDataAggregationTools` rebuilds that key (resolver from the archive
 snapshot, fallback `EngineColumnName` = the engine's `ColumnNameMapper` rule) and writes the value under the alias from
-`AggregationMapper.DeriveAlias`; group-key columns are read the same way. Before AB#7919 the tools looked up only `{Function}({path})`
-(the `ToString()` of `AggregationColumn`), a key the engine never writes, so every stream-data aggregation value came back null; AB#5346
+`AggregationMapper.DeriveAlias`; group-key columns are read the same way. Earlier the tools looked up only `{Function}({path})`
+(the `ToString()` of `AggregationColumn`), a key the engine never writes, so every stream-data aggregation value came back null; a later change
 removed that fallback, test mocks use the real keys (`obiscode`, `amountvalue_count`). Stream-data `count` needs an `attributePath`
 (`AggregationMapper.ValidateStreamDataColumns`): the archive counts non-null values of a column and the engine refuses a blank path as the
 unknown column `'*'`; runtime aggregations keep `count` without a path.
@@ -99,7 +106,7 @@ When adding a new engine operator, extend the DTO + both switches + add a `[Theo
 
 These two tools execute a *stored* query entity by RtId. The pattern is: load the entity, dispatch on its CK subtype, build the engine-side query options from the persisted state, optionally merge in runtime overrides, execute, project the result.
 
-- **Loading**: `tenantRepository.GetActiveRtEntityByRtIdAsync<RtPersistentQuery>` / `<RtStreamDataQuery>` (engine extension, AB#8355) — returns `null` for a missing or deleted (archived) query; the generic overload uses the entity's CK type from its base, so callers don't have to thread a `ckTypeId` separately.
+- **Loading**: `tenantRepository.GetActiveRtEntityByRtIdAsync<RtPersistentQuery>` / `<RtStreamDataQuery>` (engine extension) — returns `null` for a missing or deleted (archived) query; the generic overload uses the entity's CK type from its base, so callers don't have to thread a `ckTypeId` separately.
 - **Dispatch on CK subtype** (using `switch` on runtime type, mirroring the GraphQL resolver):
   - Runtime side: `RtSimpleRtQuery` → entity DTOs filtered to the persisted `Columns` list (reuses `RuntimeEntityCrudTools.FilterAttributes` for nested record/sub-path support); `RtAggregationRtQuery` → scalar projection via `AggregationInput.AggregateResult`; `RtGroupingAggregationRtQuery` → grouped projection via `AggregateFieldGroupBy`.
   - Stream side: `RtSimpleSdQuery` / `RtAggregationSdQuery` / `RtGroupingAggregationSdQuery` / `RtDownsamplingSdQuery` map to the four `IStreamDataRepository.Execute*Async` methods. The persisted `ArchiveRtId` is read off the entity — no separate argument.

@@ -1,3 +1,8 @@
+---
+description: Domain-owner checklist of the risk annotation of every MCP tool, per family, with the rules that produced it.
+background: true
+---
+
 # MCP Tool Risk-Classification Sweep — Domain-Owner Checklist (#4129)
 
 **Source-of-truth sweep**: `88a2072` (#4111 Phase A) shipped the infrastructure;
@@ -126,7 +131,7 @@ _Low=1_  ·  **Owner reviewed:** ☐
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
-| `validate_ck_model` | **L** | AB#8492: read-only validation of a CK model draft, nothing imported or written |
+| `validate_ck_model` | **L** | read-only validation of a CK model draft, nothing imported or written |
 
 ### CkModelLibraryTools (8 tools)
 
@@ -171,7 +176,7 @@ _High=2_  ·  **Owner reviewed:** ☐
 | `enable_communication` | **H** | |
 | `disable_communication` | **H** | |
 
-### DataFlowTriggerPoolTools (9 tools)
+### DataFlowTriggerDeploymentSiteTools (9 tools)
 
 _High=6 · Low=3_  ·  **Owner reviewed:** ☐
 
@@ -183,8 +188,8 @@ _High=6 · Low=3_  ·  **Owner reviewed:** ☐
 | `deploy_triggers` | **H** | |
 | `undeploy_triggers` | **H** | |
 | `get_deployment_sites` | **L** | |
-| `undeploy_deployment_site` | **H** | Removes the deployment site's operator resources; remediation for the `disable_communication` refusal (AB#4255) |
-| `get_adapter_pool_queue` | **L** | Read-only view of an adapter pool's queue (AB#4924 §10) |
+| `undeploy_deployment_site` | **H** | Removes the deployment site's operator resources; remediation for the `disable_communication` refusal |
+| `get_adapter_pool_queue` | **L** | Read-only view of an adapter pool's queue |
 | `cancel_queued_execution` | **H** | Destroys one queued work item — it becomes `Cancelled` and never runs. Deliberately **not** Medium: the taxonomy would read it as a single-instance delete, but every destructive verb in this family pauses the worker, and discarding a tenant's queued run unannounced is what the approval gate is for. Refuses an execution that already holds a lease (409) — interrupting a running pipeline is a different operation |
 
 ### DiagnosticsTools (1 tool)
@@ -209,25 +214,25 @@ _Low=2 · Medium=3_  ·  **Owner reviewed:** ☐
 
 ### ExternalTenantUserMappingTools (6 tools)
 
-_High=3 · Low=2 · Medium=1_  ·  **Owner reviewed:** ☑ (AB#8346)
+_High=3 · Low=2 · Medium=1_  ·  **Owner reviewed:** ☑
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
 | `get_external_tenant_user_mappings` | **L** | |
 | `get_external_tenant_user_mapping` | **L** | |
-| `lookup_source_tenant_user` | **M** | AB#8346: reveals that an identity exists in another tenant (exact match only, rate-limited, audited) |
-| `create_external_tenant_user_mapping` | **H** | AB#8346: grants a user of another tenant (sibling tenants included) access with groups; raised from M |
-| `update_external_tenant_user_mapping` | **H** | AB#8346: changes the roles a user of another tenant holds (privilege change, same blast radius as create/delete); raised from M |
-| `delete_external_tenant_user_mapping` | **H** | AB#8346: removes a grant (revocation at the next exchange); raised from M, keeps `confirm=true` |
+| `lookup_source_tenant_user` | **M** | reveals that an identity exists in another tenant (exact match only, rate-limited, audited) |
+| `create_external_tenant_user_mapping` | **H** | grants a user of another tenant (sibling tenants included) access with groups; raised from M |
+| `update_external_tenant_user_mapping` | **H** | changes the roles a user of another tenant holds (privilege change, same blast radius as create/delete); raised from M |
+| `delete_external_tenant_user_mapping` | **H** | removes a grant (revocation at the next exchange); raised from M, keeps `confirm=true` |
 
 ### CrossTenantGrantPermissionTools (2 tools)
 
-_High=1 · Low=1_  ·  **Owner reviewed:** ☑ (AB#8346)
+_High=1 · Low=1_  ·  **Owner reviewed:** ☑
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
 | `get_cross_tenant_grant_permissions` | **L** | read-only; only the tenant's own administrators may read it |
-| `set_cross_tenant_grant_permissions` | **H** | AB#8346: decides which tenants may look up and grant this tenant's users; `confirm=true` |
+| `set_cross_tenant_grant_permissions` | **H** | decides which tenants may look up and grant this tenant's users; `confirm=true` |
 
 ### FileTransferTools (3 tools)
 
@@ -264,8 +269,8 @@ _High=2 · Low=1 · Medium=5_  ·  **Owner reviewed:** ☐
 |------|---------|------------------|
 | `get_identity_providers` | **L** | |
 | `delete_identity_provider` | **H** | |
-| `add_oauth_identity_provider` | **H** | AB#5543: sets a client secret |
-| `add_azure_entra_id_identity_provider` | **H** | AB#5543: sets a client secret |
+| `add_oauth_identity_provider` | **H** | sets a client secret |
+| `add_azure_entra_id_identity_provider` | **H** | sets a client secret |
 | `add_open_ldap_identity_provider` | **M** | |
 | `add_active_directory_identity_provider` | **M** | |
 | `add_octo_tenant_identity_provider` | **M** | |
@@ -302,7 +307,7 @@ _High=2_  ·  **Owner reviewed:** ☐
 | Tool | Current | Notes for review |
 |------|---------|------------------|
 | `enable_reporting` | **H** | |
-| `disable_reporting` | **H** | Reversible flag flip, report data is kept; precondition for `delete_tenant` / `detach_tenant` (AB#4255) |
+| `disable_reporting` | **H** | Reversible flag flip, report data is kept; precondition for `delete_tenant` / `detach_tenant` |
 
 ### AiLifecycleTools (2 tools)
 
@@ -310,8 +315,8 @@ _High=2_  ·  **Owner reviewed:** ☐
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
-| `enable_ai` | **H** | AB#7192; needs Communication enabled on the tenant |
-| `disable_ai` | **H** | AB#7192; reversible flag flip, AI data is kept; precondition for `delete_tenant` / `detach_tenant` (AB#4255) |
+| `enable_ai` | **H** | needs Communication enabled on the tenant |
+| `disable_ai` | **H** | reversible flag flip, AI data is kept; precondition for `delete_tenant` / `detach_tenant` |
 
 ### RiskMetadataTools (1 tool)
 
@@ -351,11 +356,11 @@ _High=2 · Low=5 · Medium=3_  ·  **Owner reviewed:** ☐
 | `query_entities` | **L** | |
 | `query_entities_simple` | **L** | |
 | `get_entity_by_id` | **L** | |
-| `create_entity` | **M** | AB#5543: refuses Secret values |
-| `update_entity` | **M** | AB#5543: refuses Secret values; `clearSecretAttributes` |
+| `create_entity` | **M** | refuses Secret values |
+| `update_entity` | **M** | refuses Secret values; `clearSecretAttributes` |
 | `delete_entity` | **M** | |
-| `set_entity_secrets` | **H** | AB#5543: sets/rotates/clears Secret values of an existing entity |
-| `create_entity_with_secrets` | **H** | AB#5543: creates an entity with its Secret values (required secrets) |
+| `set_entity_secrets` | **H** | sets/rotates/clears Secret values of an existing entity |
+| `create_entity_with_secrets` | **H** | creates an entity with its Secret values (required secrets) |
 | `navigate_associations` | **L** — owner: confirm | |
 | `get_association_tree` | **L** | |
 
@@ -365,10 +370,10 @@ _High=1 · Low=1_  ·  **Owner reviewed:** ☐
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
-| `get_secret_status` | **L** | AB#5543: environment status, sweep runs, report — never values |
-| `get_secret_inventory` | **L** | AB#5543: asset-repo secrets overview (inventory + optional summary/usedBy) — never values |
-| `start_secret_sweep` | **H** | AB#5543: static level; Verify needs no confirm, writing modes need `confirm=true`; no Decrypt |
-| `restore_secret_sweep_dump` | **H** | AB#5559: replaces the tenant database with a pre-sweep dump (may bring plaintext secrets back); `confirm=true` required |
+| `get_secret_status` | **L** | environment status, sweep runs, report — never values |
+| `get_secret_inventory` | **L** | asset-repo secrets overview (inventory + optional summary/usedBy) — never values |
+| `start_secret_sweep` | **H** | static level; Verify needs no confirm, writing modes need `confirm=true`; no Decrypt |
+| `restore_secret_sweep_dump` | **H** | replaces the tenant database with a pre-sweep dump (may bring plaintext secrets back); `confirm=true` required |
 
 ### SchemaDiscoveryTools (5 tools)
 
@@ -434,9 +439,9 @@ _High=10 · Low=1 · Medium=1_  ·  **Owner reviewed:** ☐
 | Tool | Current | Notes for review |
 |------|---------|------------------|
 | `enable_stream_data` | **H** | |
-| `disable_stream_data` | **H** | Reversible flag flip; refused (Conflict) while archives are activated; precondition for delete_tenant / detach_tenant (AB#4255) |
+| `disable_stream_data` | **H** | Reversible flag flip; refused (Conflict) while archives are activated; precondition for delete_tenant / detach_tenant |
 | `activate_archive` | **H** — owner: confirm | |
-| `add_archive_column` | **H** | Additive schema change of an activated archive (nullable column, history kept); idempotent (AB#7997) |
+| `add_archive_column` | **H** | Additive schema change of an activated archive (nullable column, history kept); idempotent |
 | `disable_archive` | **H** | |
 | `enable_archive` | **H** | |
 | `retry_archive_activation` | **H** — owner: confirm | |
@@ -479,13 +484,13 @@ _High=3 · Low=2 · Medium=2_  ·  **Owner reviewed:** ☐
 |------|---------|------------------|
 | `get_workloads_by_chart` | **L** | |
 | `update_workload_chart_version` | **M** | |
-| `get_workload_resources` | **L** | AB#7429, read-only |
-| `update_workload_resources` | **M** | AB#7429, writes runtime state (sizing), does not deploy; same level as `update_workload_chart_version` |
+| `get_workload_resources` | **L** | read-only |
+| `update_workload_resources` | **M** | writes runtime state (sizing), does not deploy; same level as `update_workload_chart_version` |
 | `deploy_workload` | **H** | |
 | `undeploy_workload` | **H** | |
 | `move_pipelines` | **H** | |
 
-## Secret attributes (AB#5543)
+## Secret attributes
 
 Concept §4.7 says "tools that set secrets are classified high risk". `ToolRiskRegistry` is static — one level
 per tool, reflected once at startup — so a tool cannot become high risk only when its payload targets a

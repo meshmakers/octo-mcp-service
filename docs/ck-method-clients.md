@@ -1,6 +1,13 @@
-### 2a. CK method calls (generated method clients, AB#8440)
+---
+description: Calling CK methods through the generated method clients, the password tools without REST fallback, sensitive parameters and payload log filter.
+applies_to: src/McpServices.MethodClients/**, **/UserManagementTools.cs, **/RoleManagementTools.cs, **/ErrorTextRedactor.cs, **/McpPayloadLogFilter.cs
+---
 
-Operations that moved from REST to CK methods (CK v2 Phase 5, octo-sdk `docs/method-client-migration-guide.md`) are
+# CK method calls and password tools
+
+## 2a. CK method calls (generated method clients)
+
+Operations that moved from REST to CK methods (CK v2 Phase 5, `octo-sdk/docs/method-client-migration-guide.md`) are
 called through a **generated CK method client**, not through a REST method marked `[Obsolete]` (`CS0618` breaks the build).
 
 - The clients are generated in `src/McpServices.MethodClients` (namespace
@@ -23,10 +30,10 @@ called through a **generated CK method client**, not through a REST method marke
 |------|-----------|------------|
 | `add_user_to_role` | `System.Identity/User.AddRole-1` | — |
 | `remove_user_from_role` | `System.Identity/User.RemoveRole-1` | — |
-| `create_user` | `System.Identity/User.CreateUser-1` | — (AB#8418) |
-| `reset_user_password` | `System.Identity/User.ResetPassword-1` | — (AB#8418) |
+| `create_user` | `System.Identity/User.CreateUser-1` | — |
+| `reset_user_password` | `System.Identity/User.ResetPassword-1` | — |
 
-**Password methods (AB#8418).** `create_user` and `reset_user_password` have **no REST fallback** (decision AB#7039): when the
+**Password methods.** `create_user` and `reset_user_password` have **no REST fallback** (by decision): when the
 asset repository rejects the document (GraphQL validation, every error with `extensions.number`) or answers
 `METHOD_HANDLER_NOT_AVAILABLE` (identity too old or `Methods:Identity:EnablePasswordMethods=false`), the tool returns a message
 that names the needed identity version (`UserManagementTools.CreateUserMinimumIdentityVersion` 3.5.57,
@@ -34,9 +41,9 @@ that names the needed identity version (`UserManagementTools.CreateUserMinimumId
 `METHOD_FORBIDDEN` / `METHOD_TARGET_NOT_FOUND` as `"{Code}: {message}"`, followed by the detail codes in brackets —
 `UserManagementTools.WithCode`; the failed rules of a `PASSWORD_POLICY_VIOLATION` arrive only as detail codes, e.g.
 `[PasswordTooShort, PasswordRequiresUpper]`); the tools keep no copy of the password policy. Every exception text the user tools
-return also passes `ErrorTextRedactor.Redact` (same patterns as the octo-cli `ErrorOutputRedactor`): the AB#8418 E2E
+return also passes `ErrorTextRedactor.Redact` (same patterns as the octo-cli `ErrorOutputRedactor`): an end-to-end
 run showed the local identity answering the user lookup with a 500 developer exception page whose `HEADERS` section echoed
-the caller's bearer token. Other tools still return `ex.Message` unredacted (AB#8972). `AddMcpPayloadLogFilter` adds its
+the caller's bearer token. Other tools still return `ex.Message` unredacted. `AddMcpPayloadLogFilter` adds its
 rule per provider as well: `UseNLog()` registers a provider rule for `NLogLoggerProvider`, and a provider rule beats a
 category rule without a provider (`McpPayloadLogFilterNLogTests` wires the logging like `Program.cs`).
 `reset_user_password` still requires `confirm=true` and makes no call without it.

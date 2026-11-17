@@ -1,3 +1,8 @@
+---
+description: Design spike for optimistic locking on entity writes: options, trade-offs and the chosen option behind expected_version.
+background: true
+---
+
 # Optimistic Locking on Entity Writes — Design Spike (#4128)
 
 **Status:** Spike — pick the option below before implementation lands.
@@ -197,7 +202,7 @@ Implement **Option 3** as a two-PR roll-out:
   same rtId; first succeeds with new version N+1, second hits
   `VERSION_CONFLICT` with `current_version: N+1`. Existing tests without
   `expected_version` continue to pass.
-- Document the locking semantics in the repo's `CLAUDE.md` §8 (next to the
+- Document the locking semantics in the repo's tool conventions (`docs/tool-conventions.md`, convention 9) (next to the
   risk-classification doc Phase A added).
 
 ### Estimated effort
@@ -205,7 +210,7 @@ Implement **Option 3** as a two-PR roll-out:
 - Engine PR: ~½ day (one record, one overload, one filter mapping, one
   integration test).
 - MCP PR: ~1 day (two tool changes, response DTO discriminator, one
-  integration test, CLAUDE.md update).
+  integration test, docs update).
 - Concept doc ADR-17 status flip: 15 min.
 
 ## 5. Open questions

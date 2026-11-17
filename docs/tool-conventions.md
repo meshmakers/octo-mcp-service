@@ -1,4 +1,11 @@
-### 1. Every new tool MUST have unit tests
+---
+description: Rules for every MCP tool: tests, ClientContext helpers, signature, response envelope, confirm gate, risk level, locking, new-tool checklist.
+applies_to: src/McpServices/**, src/McpServices.Resources/**, tests/McpServices.Tests/Tools/**
+---
+
+# Tool conventions
+
+## 1. Every new tool MUST have unit tests
 
 Minimum coverage per tool:
 
@@ -7,14 +14,14 @@ Minimum coverage per tool:
 - **Missing required args** — pass empty / null, assert validation error, no SDK call.
 - **Destructive without confirm** — for any tool with a `confirm` parameter, assert refusing without it.
 
-The current ratio is ~4.3 tests per tool (877 tests for 204 tools). Don't lower it.
+Keep the tests-per-tool ratio of the existing tools; don't lower it.
 
-### 2. Use the `*ClientContext` helpers — never call the factory directly from a tool
+## 2. Use the `*ClientContext` helpers — never call the factory directly from a tool
 
 Every SDK-backed tool starts the same way:
 
 ```csharp
-var ctx = IdentityClientContext.TryBuild(server, tenantId);
+var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
 if (ctx.Error != null)
 {
     return new MyResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -23,18 +30,19 @@ if (ctx.Error != null)
 // ctx.Client is the IIdentityServicesClient, ctx.TenantId is the resolved tenant
 ```
 
-Six context helpers exist in `src/McpServices/Services/`:
+Seven context helpers exist in `src/McpServices/Services/`:
 
 | Context | Backing SDK Client | Tenant routing |
 |---|---|---|
 | `IdentityClientContext` | `IIdentityServicesClient` | per-tenant (`{tenantId}/v1`) |
 | `AssetClientContext` | `IAssetServicesClient` | per-tenant |
-| `CommunicationClientContext` | `ICommunicationServicesClient` | per-tenant (`{tenantId}/v1`) — AB#4287, no system fallback |
-| `StreamDataClientContext` | `IStreamDataServicesClient` | per-tenant (`{tenantId}/v1`) — AB#4287, was `api/v1` |
-| `ReportingClientContext` | `IReportingServicesClient` | per-tenant (`{tenantId}/v1`) — AB#4287, no system fallback |
+| `CommunicationClientContext` | `ICommunicationServicesClient` | per-tenant (`{tenantId}/v1`) — no system fallback |
+| `StreamDataClientContext` | `IStreamDataServicesClient` | per-tenant (`{tenantId}/v1`) — was `api/v1` |
+| `ReportingClientContext` | `IReportingServicesClient` | per-tenant (`{tenantId}/v1`) — no system fallback |
 | `BotClientContext` | `IBotServicesClient` | system-scoped |
+| `AiClientContext` | `IAiServicesClient` | per-tenant |
 
-### 3. Tool method signature pattern
+## 3. Tool method signature pattern
 
 ```csharp
 [McpServerTool(Name = "my_snake_case_tool")]
@@ -52,7 +60,7 @@ public static async Task<MyResponse> MyTool(
 - `tenantId` is the last optional parameter on every tenant-scoped tool.
 - Tool name is `snake_case` and mirrors the CLI command verb (e.g. CLI `CreateTenant` → MCP `create_tenant`).
 
-### 4. Response envelope
+## 4. Response envelope
 
 Every tool returns a structured response with these fields at minimum:
 
@@ -71,7 +79,7 @@ public class MyResponse
 - **Never write to `Console.WriteLine`** or `ILogger.LogInformation` for user-visible output. The MCP transport doesn't surface stdout to the AI client.
 - `IsSuccess = false` + `ErrorMessage` is how you communicate problems. The AI client reads these and reasons about next steps.
 
-### 5. Destructive operations require `confirm: true`
+## 5. Destructive operations require `confirm: true`
 
 The CLI uses an interactive `(y/N)` prompt via `IConfirmationService`. MCP can't do that. Instead:
 
@@ -96,19 +104,19 @@ public static async Task<MyResponse> DeleteThing(
 
 Test the refusal path. Never default `confirm = true`. Never silently skip the check for "convenience" inside a batch helper — every destructive call goes through the confirm gate.
 
-### 6. SDK DTOs go on the wire as-is
+## 6. SDK DTOs go on the wire as-is
 
 The MCP framework serialises whatever you return. Returning SDK DTOs (`UserDto`, `ClientDto`, `BlueprintApplyResultDto`, etc.) directly is the convention — no MCP-side translation layer. If the SDK changes a DTO shape, the MCP response changes with it, and that's intentional.
 
 For composite responses (list + count + tenant id), define your own wrapper DTO in `src/McpServices/Models/*Responses.cs`. Group by domain (`IdentityResponses.cs`, `AssetResponses.cs`, etc.) — don't make one file per response type.
 
-### 7. Per-request SDK clients (never singleton)
+## 7. Per-request SDK clients (never singleton)
 
 The SDK clients cache their `ServiceUri` on first use. Sharing one client across multiple tenants → wrong tenant in the URL on the second call. **Always** go through `IOctoServiceClientFactory.Create*Client(tenantId, accessToken)` — it returns a fresh instance.
 
 The `*ClientContext.TryBuild` helpers handle this for you. Don't manually construct SDK clients in tool code.
 
-### 7a. Never build a JSON Schema into the global registry (AB#9015)
+## 7a. Never build a JSON Schema into the global registry
 
 JsonSchema.Net registers every schema built with default options (`JsonSchema.FromText(json)`, `JsonSchema.Build(...)`)
 in the process-wide `SchemaRegistry.Global`. A schema without `$id` gets a new random base URI per build, so a schema
@@ -117,7 +125,7 @@ composite schema on every call this way and the pod was OOM-killed. Build reques
 `PipelineSchemaCompiler.Compile` (a per-call `SchemaRegistry`, which still falls back to the global one for the
 meta-schemas). Guard: `tests/McpServices.Tests/Services/PipelineSchemaCompilerTests.cs`.
 
-### 8. Risk classification (`[McpRisk]`) for AI Adapter approval gating
+## 8. Risk classification (`[McpRisk]`) for AI Adapter approval gating
 
 Tools have an optional `[McpRisk(McpRiskLevel.Low|Medium|High)]` attribute that classifies their blast radius. The AI Adapter worker calls `get_tool_risk_metadata` once at session start and uses the result to decide whether a tool call needs to be routed through its user-facing approval gate before running.
 
@@ -140,7 +148,7 @@ public static async Task<DeleteEntityResponse> DeleteEntity(...)
 
 `ToolRiskRegistry` reflects over the McpServices assembly at startup; tools without the attribute resolve as `Low`. When you add a new tool, decide the level at the same time as the implementation — flipping later is a behaviour-change for any consumer that already cached the registry.
 
-### 9. Optimistic locking on `update_entity` / `delete_entity`
+## 9. Optimistic locking on `update_entity` / `delete_entity`
 
 Concurrent AI sessions can write to the same runtime entity. `update_entity` and `delete_entity` accept an optional `expected_version` (the `RtVersion` the caller observed on its prior read):
 
@@ -173,5 +181,4 @@ When you add a new write tool (single-entity create / update / delete pattern), 
 4. Write the tool method following the signature pattern above.
 5. If you needed a new SDK client (e.g. Bot), update `IOctoServiceClientFactory` + `OctoServiceClientFactory` + `OctoServiceUrlOptions` + `ToolTestBase`.
 6. Write tests: happy path + unauthenticated + missing args + (if destructive) confirm-required.
-7. `dotnet test Octo.McpServices.sln -c DebugL` — all green before commit.
-8. Update `README.md` Available Tools section if you added a new category.
+7. Run the tests and update the `README.md` Available Tools section as `AGENTS.md` ("Before you commit") says.

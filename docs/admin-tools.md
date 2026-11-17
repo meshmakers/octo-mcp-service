@@ -1,6 +1,13 @@
-## Adapter pool queue tools (AB#4924 §10)
+---
+description: Adapter pool queue tools, scratch tenants with AI toggles and delete_tenant disableFeatures, and the role named in API secret write errors.
+applies_to: **/Tools/{DataFlowTriggerDeploymentSite,TenantManagement,AiLifecycle,ApiSecret}Tools.cs, **/Services/{IdentityForbiddenMessage,AiClientContext}.cs
+---
 
-`get_adapter_pool_queue` and `cancel_queued_execution` (in `DataFlowTriggerPoolTools`) are the MCP
+# Administration tools
+
+## Adapter pool queue tools
+
+`get_adapter_pool_queue` and `cancel_queued_execution` (in `DataFlowTriggerDeploymentSiteTools`) are the MCP
 third of the queue surface the leasing concept asks for — the same view Refinery Studio and
 `octo-cli` show, all three off one endpoint
 (`GET`/`DELETE {tenantId}/v1/adapterPool/{id}/queue[/{executionId}]`). Three properties are design
@@ -16,7 +23,7 @@ these:
   stays `true` and the distinction travels in `Outcome`/`WasCancelled`. Reporting the 409 as a
   failure invites a retry, and retrying is not what the caller should do — interrupting the running
   pipeline is a **different operation** on a different path.
-- **`cancel_queued_execution` is `High`, not `Medium`.** The taxonomy above would read one queue
+- **`cancel_queued_execution` is `High`, not `Medium`.** The risk taxonomy of `tool-conventions.md` would read one queue
   entry as a "single-instance delete", but the work item is destroyed rather than archived and every
   other destructive verb in this family pauses the worker. An AI discarding a tenant's queued nightly
   run without the user seeing the proposal is the case the approval gate exists for. It also requires
@@ -25,9 +32,9 @@ these:
 An empty queue is an idle pool and answers `IsSuccess = true`. Manual (non-pooled) adapters have no
 queue at all and therefore no tool — that asymmetry is intended.
 
-## Scratch tenants, AI toggles and `delete_tenant disableFeatures` (AB#7192)
+## Scratch tenants, AI toggles and `delete_tenant disableFeatures`
 
-An agent can work in and clean up the scratch tenants it creates without a human login (octo-identity-services `CLAUDE.md`, "Scratch tenants").
+An agent can work in and clean up the scratch tenants it creates without a human login (`octo-identity-services/docs/tenant-provisioning.md`, "Scratch tenants").
 
 - `create_tenant` takes `scratch` (SDK `CreateTenantAsync(.., scratch: true)`): the client-credentials client of the parent that makes the call becomes
   administrator (`TenantOwners`) of the new tenant. The asset repository answers 403 for a user session or another tenant's token - a plain user
@@ -44,10 +51,10 @@ An agent can work in and clean up the scratch tenants it creates without a human
   own session (a client-credentials token for the child) or octo-cli `Delete --disable-features`.
 - Tests: `ScratchTenantToolsTests` (create flag, disableFeatures order, archives, no child token, enable/disable AI).
 
-## API secret writes: 403 names the missing role (AB#8094)
+## API secret writes: 403 names the missing role
 
 The write tools of `ApiSecretTools` (create/update/delete for client and API resource) return `IdentityForbiddenMessage.Describe(ex)` as
-`errorMessage`: for a `403` the `message` of the identity body verbatim (`{"message": "...requires the role 'SecretManagement'..."}`, AB#5861;
+`errorMessage`: for a `403` the `message` of the identity body verbatim (`{"message": "...requires the role 'SecretManagement'..."}`;
 the SDK keeps the body in the exception text), for a 403 without body or `message` a generic access-denied text that names
 `SecretManagement`, for every other error the exception text. The tool descriptions state that writes need the tenant role `SecretManagement`
 (`TenantManagement`/`UserManagement` only while the cluster runs `SecretManagementRoleEnforcement=Warn`). Tests: `ApiSecretToolsTests`.

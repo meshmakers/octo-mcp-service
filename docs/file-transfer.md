@@ -1,3 +1,10 @@
+---
+description: File transfer channel with session binding, platform file tools, CK and runtime model import formats, validate_ck_model, service-managed models.
+applies_to: **/Routing/**, **/Services/*FileTransferStore.cs, **/Services/{EndTrackingStream,CkDraftInlinePackager}.cs, **/Tools/{FileTransfer,PlatformFile,CkModel*}Tools.cs
+---
+
+# File transfer and model import
+
 ## File I/O Architecture
 
 Tools that need to receive or produce files use a separate HTTP channel: the JSON-RPC tool call coordinates an opaque transfer id, and the actual bytes flow through `FileTransferController` at `/file-transfer/{upload,download}/{id}`.
@@ -29,7 +36,7 @@ HTTP GET <publicUrl>/file-transfer/download/{transferId}
 ### Security
 
 The HTTP endpoints stay **anonymous** by design (curl-based clients must keep working): the random 128-bit
-transfer id (`Guid.NewGuid().ToString("N")`, 30 min TTL) in the URL path is the capability. AB#6989 narrows what
+transfer id (`Guid.NewGuid().ToString("N")`, 30 min TTL) in the URL path is the capability. The rules below narrow what
 that capability allows:
 
 - **Session binding (tool side).** The store records the owner (`McpSessionContext.GetCallerLabel(server)`: the
@@ -47,16 +54,16 @@ that capability allows:
   keeps the entry so the client can resume with a range request; the entry is then deleted when the resume reaches
   the end, or by the TTL sweeper at the latest. Parallel chunked downloads: the chunk that reaches the end deletes
   the file for the others — download sequentially.
-- **Still open** (separate stories under AB#6988): bearer token on `/file-transfer`, atomic claim of the upload slot
+- **Still open** (separate follow-ups): bearer token on `/file-transfer`, atomic claim of the upload slot
   (two parallel PUTs on one id), disk quota / limit of concurrent reservations. A PUT still needs a `Content-Type`
   header (framework behaviour, not a documented rule).
 
 For stricter setups, put the service behind your own auth gateway. **Do not** add base64-in-tool-parameter as an alternative path — the file-transfer endpoints are the only sanctioned mechanism for binary payloads.
 
-### Platform file system tools (AB#6182, `PlatformFileTools`)
+### Platform file system tools (`PlatformFileTools`)
 
 `list_files`, `upload_file`, `download_file`, `create_folder`, `delete_file` wrap the typed
-`IAssetServicesClient.Files` client of the SDK (System.Files, AB#6171 — REST `{tenant}/v1/files` for bytes,
+`IAssetServicesClient.Files` client of the SDK (System.Files — REST `{tenant}/v1/files` for bytes,
 GraphQL for metadata). They are Family 1 (`AssetClientContext`) and use the file-transfer channel above for
 bytes: `prepare_file_upload` → PUT → `upload_file(transferId, root, path)`; `download_file` stages the bytes in
 `IFileTransferStore` and returns a `downloadUrlPath`. Files are addressed by root well-known name (default
@@ -74,21 +81,21 @@ no `enable_*` call; `GET {tenant}/v1/files/capabilities` reports `available:fals
 - **Single compiled JSON** in the same shape as files under `~/.octo/local-catalog/ck-models/v2/<letter>/<Model>/<major>/ck-<name>-<version>.json`.
 - **Zip of a compiled model** (the first `.json`, else the first `.yaml` entry is read as the compiled model).
 - **Not** a zip of the source `ConstructionKit/` folder: `ImportCk` does not compile (checked against the asset repository's
-  `ModelsController.ImportCk` and the bot import job, AB#8492). Compile with `dotnet build` / `octo-ckc` first, or use
+  `ModelsController.ImportCk` and the bot import job). Compile with `dotnet build` / `octo-ckc` first, or use
   `validate_ck_model`, which does compile a source zip.
 - For runtime models: a single YAML/JSON conforming to `runtime-model.schema.json` (an `entities:` list keyed by `rtId` + `ckTypeId`), or a zip thereof.
 
 The tool description says "PUT the file to the returned URL" — historically said "PUT the JSON/zip" which was misleading. Asset-services accepts all of the above; schema validation happens server-side after the file lands in the file-transfer store.
 
-### validate_ck_model (AB#8492, `CkModelValidationTools`)
+### validate_ck_model (`CkModelValidationTools`)
 
 Validates a CK model draft against the tenant **without importing it**: `prepare_file_upload` → PUT → `validate_ck_model(transferId)`,
-or inline for MCP-only clients (AB#9005): `validate_ck_model(files: [{name, content}])` with names relative to `ConstructionKit/`.
+or inline for MCP-only clients: `validate_ck_model(files: [{name, content}])` with names relative to `ConstructionKit/`.
 Exactly one of the two. Inline limit (`CkDraftInlinePackager`): 1 MiB of UTF-8 content and 2000 files; over it the call is refused
 with `errorCode` `InlineDraftTooLarge` and an error with `messageNumber` 9005 naming the upload path. Deliberately no base64 zip
-parameter (see "Don't accept base64-encoded file content"): text files of a draft are not binary payloads, a zip is. Authentication
+parameter (see the base64 rule in `AGENTS.md`): text files of a draft are not binary payloads, a zip is. Authentication
 runs before the draft is staged; the draft becomes an owner-only temporary zip deleted in `finally`; nothing is kept per process
-(AB#9015 guard test `ValidateCkModel_RepeatedInlineCalls_DoNotRetainTheDraft`).
+(guard test `ValidateCkModel_RepeatedInlineCalls_DoNotRetainTheDraft`).
 Family 1 (`AssetClientContext`, SDK `IAssetServicesClient.ValidateCkModelAsync`, asset repository `POST {tenantId}/v1/Models/ValidateCk`,
 read-only scope). Accepts a zip of the source `ConstructionKit/` folder (the folder holding `ckModel.yaml`; compiled on the server,
 dependencies from the server's catalogs) or a compiled model (yaml, json or a zip of one). The compiled model then runs through the
@@ -113,6 +120,6 @@ The correct way to make those models available is the matching `enable_<feature>
 | `System.StreamData-*` | `enable_stream_data` |
 | `System.Reporting-*` | `enable_reporting` |
 | `System.UI-*` | (no MCP tool yet — install via Studio or octo-cli) |
-| `System.Files-*` | none needed — imported into every tenant (AB#6171); the platform file system works without any `enable_*` tool (see below) |
+| `System.Files-*` | none needed — imported into every tenant; the platform file system works without any `enable_*` tool (see above) |
 
 For user-managed CK models (Basic.*, Industry.*, EnergyIQ, Loxone, custom tenant models), `import_ck_from_catalog` works correctly and DOES load them, and the response carries the job id of the batch import. The reliable verification is `get_ck_library_status` — it reports the actually-loaded version and `modelState=Available`. `get_available_models` may be stale right after an import.

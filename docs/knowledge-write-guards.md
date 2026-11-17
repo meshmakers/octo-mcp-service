@@ -1,8 +1,15 @@
-### Knowledge types are written only by the knowledge tools (AB#8568)
+---
+description: Why generic write tools refuse knowledge types, the write channel of lint reports and platform updates of blueprint pages; rules a change must keep.
+applies_to: **/Services/Knowledge{WriteRefusal,ImportCheck}.cs, **/Services/PrivateTempDirectory.cs, **/Knowledge*Update*.cs, **/Tools/KnowledgeLintTools.cs
+---
+
+# Knowledge write guards
+
+## Knowledge types are written only by the knowledge tools
 
 `Services/KnowledgeWriteRefusal.cs` keeps the generic write tools off the System.Ai knowledge types
 (`KnowledgePage`, `KnowledgePageVersion`, and any type whose `GetBaseTypes(true)` contains one of them): a generic write
-would skip the content guard (AB#8475) and the `KnowledgePageVersion` with author and time (AB#8484). Same contract shape
+would skip the content guard and the `KnowledgePageVersion` with author and time. Same contract shape
 as the generic-create refusal: `ErrorCode = GENERIC_WRITE_REPLACED_BY_KNOWLEDGE_TOOL`, `ErrorParameters` = `ckTypeId`
 (runtime id) and `tool` (the knowledge tools to use, comma-separated, or `none` for a delete); the message carries ids
 only. Where it runs:
@@ -50,13 +57,13 @@ only. Where it runs:
     (octo-cli and GraphQL callers are not covered by this MCP check; a server-side preflight like
     `RtIdentityOwnedWriteCheck` in the engine would close that).
 
-**Delete is ruled out over MCP** (CPO decision 2026-11-08): deleting a knowledge page is not a knowledge operation in M1.
+**Delete is ruled out over MCP** (decision 2026-11-08): deleting a knowledge page is not a knowledge operation in M1.
 Agents set `Rejected` with `knowledge_set_status`; a person deletes pages outside MCP (GraphQL or octo-cli). There is no
 generic association write tool, so the knowledge associations are reachable only through the import (refused) and the
 knowledge tools. Reads (`get_entity_by_id`, `query_entities*`, `navigate_associations`, …) are unchanged.
 Tests: `Tools/KnowledgeGenericWriteRefusalTests` (incl. `KnowledgeRuntimeImportRefusalTests`).
 
-### Lint reports are written only by `knowledge_write_lint_report` (AB#8488)
+## Lint reports are written only by `knowledge_write_lint_report`
 
 `Tools/KnowledgeLintTools.cs` is the write channel of the nightly knowledge lint (System.Ai.Knowledge blueprint, pipeline
 `knowledge-lint`, `McpToolCall@1` as service account `knowledge-linter`). One fixed type (`System.Ai/KnowledgeLintReport`),
@@ -64,13 +71,12 @@ one insert per call, nothing updated. Rules a later change must keep:
 
 - **Content guard over every text** (name, `runRef`, each finding's `pageRef`, `relatedPageRef`, `detail`): a finding can
   quote a SourceArtifact, which is unguarded ingest text. Fails closed without a guard, like the page tools.
-- **`IsValidated` is always written `false`.** The lint's flag precision is measured on the Control Set first (AB#8488
-  AC2); a person sets the flag outside MCP once it is. There is no parameter for it on purpose.
+- **`IsValidated` is always written `false`.** The lint's flag precision is measured on the Control Set first; a person sets the flag outside MCP once it is. There is no parameter for it on purpose.
 - **No page is touched** (no status, never `Verified`). Finding refs must be page slugs (`KnowledgePages.IsValidSlug`),
   which also keeps free text out of the ref fields.
 - Validation (kind by name or key, slugs, detail <= 2000, <= 500 findings, run data via `KnowledgeTools.ValidateRunData`,
   `completedAt` at most 5 minutes in the future, `verifiedThrough` not after `completedAt` and, without it, not after
-  now - it is the next run's cursor) runs before the session. A tenant whose report type has no `IsValidated` (System.Ai before AB#8488) gets a clear error.
+  now - it is the next run's cursor) runs before the session. A tenant whose report type has no `IsValidated` (System.Ai before the lint report type) gets a clear error.
 - `KnowledgeWriteRefusal` lists the report type, with its own message and `tool` = `knowledge_write_lint_report`
   (delete: `none`); a type derived from it is refused with `tool` = `none` (the tool writes only the base type), also
   on import. `KnowledgeImportCheck.ProtectedTypeNames` lists `KnowledgeLintReport` next to the page types.
@@ -78,17 +84,17 @@ one insert per call, nothing updated. Rules a later change must keep:
 
 Tests: `Tools/KnowledgeLintToolsTests` (incl. `KnowledgeLintReportGenericWriteRefusalTests`).
 
-### Platform updates of Blueprint pages (AB#8780)
+## Platform updates of Blueprint pages
 
 `Tools/KnowledgePlatformUpdateTools.cs` + `Services/Knowledge/KnowledgePlatformUpdates.cs` complete the blueprint update
-rule of AB#8778 for knowledge pages (the engine never refreshes an existing page; only new version entities arrive).
+rule for knowledge pages (the engine never refreshes an existing page; only new version entities arrive).
 Rules a later change must keep:
 
 - **The rule lives in `KnowledgePlatformUpdates.Decide`**, used by list, adopt and (through list) the lint. A Blueprint
   version needs both the author prefix `blueprint:` and the `RtBlueprintSource` stamp; the knowledge tools never write
   such an author. A tenant version that shares the current number with a Blueprint version makes the page *edited* (safe
   direction).
-- **Edited pages: ancestor chain, never numbers or arrival times** (reopen 2026-11-13, kb-test2: an edit written on `@1`
+- **Edited pages: ancestor chain, never numbers or arrival times** (an edit written on `@1`
   after `@2` arrived hid `@2`). `Ancestors` follows `BaseVersion` (System.Ai 4.11.0, written by
   `BuildWrite(recordBase: ctx.RecordsBase)`) and `RestoredFromVersion` from the current version, plus `@1` as root; a
   Blueprint version in the chain supersedes all Blueprint versions up to its number; every Blueprint version above that
@@ -99,9 +105,9 @@ Rules a later change must keep:
   finding, not a loss).
 - **The adopt writes no version** and copies the status of the seeded version, so the page stays "unedited" for the next
   blueprint update. It only ever adopts for a page whose current version is a Blueprint version; there is no parameter to
-  pick a page or a status. Never set Verified on anything else (AB#8565).
+  pick a page or a status. Never set Verified on anything else.
 - `LinksTo` follows `DeclaredLinks` only when the version has the attribute; unknown slugs are reported, not created.
-- Writes open the session with `write: true` (channel `System.Ai/KnowledgeTools`, AB#8575) and go through
+- Writes open the session with `write: true` (channel `System.Ai/KnowledgeTools`) and go through
   `KnowledgeTools.ApplyAsync` (version re-check in the transaction) and `KnowledgeTools.GuardAsync`.
 - `BuildWrite` takes `highestVersion` (`KnowledgePlatformUpdates.HighestVersionAsync`): a new version gets the next free
   number, never `CurrentVersion + 1` blindly.

@@ -1,4 +1,11 @@
-## Outbound fetches: the knowledge-source URL policy (AB#5037)
+---
+description: Content guard of knowledge writes (detectors, tenant secret fingerprints, fail closed) and the SSRF policy of knowledge-source URL fetches.
+applies_to: src/McpServices.ContentGuard/**, **/Services/ContentGuard/**, **/Services/KnowledgeUrl*.cs, **/KnowledgeFetchOptions.cs
+---
+
+# Knowledge input guards
+
+## Outbound fetches: the knowledge-source URL policy
 
 `KnowledgeResources` materialises `AiKnowledgeSource` entities. The `Url` kind used to be fetched with
 a plain `httpClientFactory.CreateClient("knowledge-fetch").GetAsync(storedUrl)` — no scheme check, no
@@ -40,12 +47,11 @@ The fetch now goes through `Services/KnowledgeUrlFetcher` (`IKnowledgeUrlFetcher
 `GetService`; when it is not registered the source renders as "fetcher is not configured", it is never
 fetched raw. Don't reintroduce a direct `HttpClient` call on this path.
 
-## Content guard of knowledge writes (AB#8475)
+## Content guard of knowledge writes
 
 `src/McpServices.ContentGuard` (library without OctoMesh dependencies, registered as `IContentGuard` in `Program.cs`) checks
-the text of a write before it is stored. Every knowledge page write (AB#8484) calls it; the memory writes of the agent
-runtime (AB#8473) are meant to use the same library (move it into a shared package then). Concept: octo-ai-services
-`docs/concepts/tenant-builder-agent-concept.md` §3.9.
+the text of a write before it is stored. Every knowledge page write calls it; the memory writes of the agent
+runtime are meant to use the same library (move it into a shared package then). Concept: `octo-ai-services/docs/concepts/tenant-builder-agent-concept.md` §3.9.
 
 | Detector | Rule (`ContentDetectors`) |
 |---|---|
@@ -53,15 +59,15 @@ runtime (AB#8473) are meant to use the same library (move it into a shared packa
 | `PemBlock` | `-----BEGIN …-----`, a body of 16+ base64 characters and `-----END …-----`. A mention of the header alone passes. |
 | `Jwt` | `eyJ….eyJ….…` (three base64url parts). |
 | `HighEntropyToken` | a run of 32+ base64/base64url characters (`=` only as padding) that mixes upper case, lower case and digits, is not hex, has an entropy of at least 4.2 bits per character, switches character class on at least 30 % of the positions and is covered by runs of four or more lower-case letters to less than 30 %. Never scanned: the scheme/host/path of URLs (share-link ids) and Teams thread ids (`…@thread.`); URL query strings are scanned. A heuristic: it misses about 3 % of random keys and must not be weakened for convenience. |
-| `GitHubToken` | `ghp_` / `gho_` / `ghu_` / `ghs_` / `ghr_` + 16 or more letters/digits, or `github_pat_` + 22 or more (AB#8702). A bare prefix passes. |
-| `AwsAccessKey` | `AKIA` or `ASIA` + exactly 16 upper-case letters/digits (AB#8702). |
-| `CredentialAssignment` | a key ending in `password`, `passwd`, `secret`, `token`, `api_key`/`apikey`, `access_key` or `private_key` (any prefix, any case: `DB_PASSWORD`, `client_secret`, `"clientSecret"`), then `=` or `:` (not `==`, `=>`, `:=`) and a literal value of 4+ characters (AB#8702). A quoted value counts unless it has whitespace; an unquoted value right after `=` (`password=…`, connection strings, env files) always counts; an unquoted value after `:` or a spaced `=` (YAML, code, prose) counts only with a digit or symbol, and member chains (`options.Token`), calls, `[`-indexing and lower-case kebab names (`existingSecret: octo-mongodb`) pass. Placeholders pass only as whole reference syntaxes (a single leading `#`, `@`, `&`, `.`, `?` is not one): `$NAME`, `$env:NAME`, `${…}`, `$(…)`, `{{ … }}`, `#{…}`, `{name}`, `%NAME%`, `<…>`, `[REDACTED]`, `***`, `...`, repeated characters, type names (`String!`), `null`/`true`/`string`/`redacted` and similar, `your…`/`example…`. |
+| `GitHubToken` | `ghp_` / `gho_` / `ghu_` / `ghs_` / `ghr_` + 16 or more letters/digits, or `github_pat_` + 22 or more. A bare prefix passes. |
+| `AwsAccessKey` | `AKIA` or `ASIA` + exactly 16 upper-case letters/digits. |
+| `CredentialAssignment` | a key ending in `password`, `passwd`, `secret`, `token`, `api_key`/`apikey`, `access_key` or `private_key` (any prefix, any case: `DB_PASSWORD`, `client_secret`, `"clientSecret"`), then `=` or `:` (not `==`, `=>`, `:=`) and a literal value of 4+ characters. A quoted value counts unless it has whitespace; an unquoted value right after `=` (`password=…`, connection strings, env files) always counts; an unquoted value after `:` or a spaced `=` (YAML, code, prose) counts only with a digit or symbol, and member chains (`options.Token`), calls, `[`-indexing and lower-case kebab names (`existingSecret: octo-mongodb`) pass. Placeholders pass only as whole reference syntaxes (a single leading `#`, `@`, `&`, `.`, `?` is not one): `$NAME`, `$env:NAME`, `${…}`, `$(…)`, `{{ … }}`, `#{…}`, `{name}`, `%NAME%`, `<…>`, `[REDACTED]`, `***`, `...`, repeated characters, type names (`String!`), `null`/`true`/`string`/`redacted` and similar, `your…`/`example…`. |
 | `TenantSecret` | a word of the text (or the value of a `key=value` pair, or the whole text) whose SHA-256 equals the fingerprint of a Secret attribute value of the tenant. Values shorter than 8 characters are not compared. |
 
 Rules to keep:
 
 - **Never log or return the content.** A refusal (`ContentGuardResult.Message`, error code `ContentRejected`) and the
-  Warning log line carry tenant, caller, operation, detectors and field names only. Once ActionRecords exist (AB#8467)
+  Warning log line carry tenant, caller, operation, detectors and field names only. Once ActionRecords exist
   the caller records the refusal there with status `Refused`.
 - **Tenant secrets only as fingerprints.** `Services/ContentGuard/TenantSecretFingerprints.ReadAsync` reads the top-level
   `Secret` attributes of every entity of every non-abstract type (paged, `PageSize` 2000, no cap: a cap would let a
@@ -75,5 +81,5 @@ Rules to keep:
   of (ids, hashes, GUIDs, paths, branch names, URLs, env variable names, documentation naming a prefix).
   `Corpus_FromEnvironment_PassesTheGuard` runs the guard over real files when `OCTO_CONTENT_GUARD_CORPUS` lists
   directories (skipped in CI), e.g. the octo-claude-skills `skills` folder and a Claude Code memory folder.
-  `ProseAndPlaceholdersAboutCredentials_AreAccepted` (AB#8702) pins prose that names a credential without a value,
+  `ProseAndPlaceholdersAboutCredentials_AreAccepted` pins prose that names a credential without a value,
   placeholders, type names and code. Test fixtures use only obvious fakes (`FAKEfake0000…`, `hunter2fake`), never real values.

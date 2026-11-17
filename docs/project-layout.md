@@ -1,25 +1,30 @@
-## Project Layout
+---
+description: Annotated source tree of src/McpServices and the test project; a map of where the tool, service and model files live.
+background: true
+---
+
+# Project layout
 
 ```
 src/McpServices/
 ├── Program.cs                          # Composition root + endpoint mapping
 ├── appsettings.json                    # Includes OctoServiceUrls section
 ├── Options/
-│   ├── McpServiceOptions.cs            # MCP-server-specific options (incl. RequiredApiScopes, AB#5032; AiServiceClientId, AB#9189)
-│   ├── KnowledgeFetchOptions.cs        # Knowledge-source fetch policy (AB#5037)
+│   ├── McpServiceOptions.cs            # MCP-server-specific options (incl. RequiredApiScopes; AiServiceClientId)
+│   ├── KnowledgeFetchOptions.cs        # Knowledge-source fetch policy
 │   └── OctoServiceUrlOptions.cs        # Backend service URLs
 ├── Configuration/
-│   └── McpAuthorizationPolicy.cs       # McpTransportPolicy scope requirement (AB#5032)
+│   └── McpAuthorizationPolicy.cs       # McpTransportPolicy scope requirement
 ├── Services/
 │   ├── IOctoServiceClientFactory.cs    # SDK client factory interface
 │   ├── OctoServiceClientFactory.cs     # Builds per-tenant SDK clients
 │   ├── McpCallerPrincipal.cs           # The validated request principal (single claim reader)
-│   ├── DataPermissionStreamGuard.cs    # Stream-data CK-type Read gate (AB#5038, mirrors asset-repo)
-│   ├── AttributeAccessGuard.cs         # CK access rules for the generic tools (AB#8043)
-│   ├── AccessAwareRtEntityToDtoMapper.cs # The only entity mapper: strips Hidden attributes (AB#8043)
-│   ├── KnowledgeUrlPolicy.cs           # SSRF policy + IHostAddressResolver (AB#5037)
-│   ├── KnowledgeUrlFetcher.cs          # Guarded knowledge-source fetch (AB#5037)
-│   ├── McpSessionContext.cs            # Caller-bound store key + access token resolution (AB#5036)
+│   ├── DataPermissionStreamGuard.cs    # Stream-data CK-type Read gate (mirrors asset-repo)
+│   ├── AttributeAccessGuard.cs         # CK access rules for the generic tools
+│   ├── AccessAwareRtEntityToDtoMapper.cs # The only entity mapper: strips Hidden attributes
+│   ├── KnowledgeUrlPolicy.cs           # SSRF policy + IHostAddressResolver
+│   ├── KnowledgeUrlFetcher.cs          # Guarded knowledge-source fetch
+│   ├── McpSessionContext.cs            # Caller-bound store key + access token resolution
 │   ├── McpSessionTokenStore.cs         # OAuth tokens keyed by the caller-bound session key
 │   ├── TenantResolutionService.cs      # tool param / route param resolution
 │   ├── {Identity,Asset,Communication,StreamData,Reporting,Bot}ClientContext.cs
@@ -33,7 +38,7 @@ src/McpServices/
 │   └── FileTransferController.cs       # PUT/GET /file-transfer/{upload,download}/{id}
 │                                       # (the {tenantId} route constraint is shared — it lives in
 │                                       #  octo-common-services and is registered via
-│                                       #  AddOctoTenantIdRouteConstraint(); AB#5060)
+│                                       #  AddOctoTenantIdRouteConstraint())
 ├── Models/                             # Response envelope DTOs grouped by domain
 │   ├── TenantManagementResponses.cs
 │   ├── IdentityResponses.cs
@@ -55,10 +60,10 @@ src/McpServices/
     ├── ClientManagementTools.cs / IdentityProviderTools.cs
     ├── ApiResourceTools.cs / ApiScopeTools.cs / ApiSecretTools.cs
     ├── EmailDomainGroupRuleTools.cs / ExternalTenantUserMappingTools.cs / AdminProvisioningTools.cs
-    ├── CrossTenantGrantPermissionTools.cs (AB#8346: source-tenant allow-list)
+    ├── CrossTenantGrantPermissionTools.cs (source-tenant allow-list)
     ├── BlueprintTools.cs / CkModelLibraryTools.cs
     ├── CommunicationLifecycleTools.cs / AdapterTools.cs / PipelineTools.cs
-    ├── DataFlowTriggerPoolTools.cs / WorkloadTools.cs
+    ├── DataFlowTriggerDeploymentSiteTools.cs / WorkloadTools.cs
     ├── TimeSeriesTools.cs / ReportingTools.cs / DiagnosticsTools.cs
     ├── FileTransferTools.cs / CkModelFileTools.cs / TenantBackupTools.cs
     ├── RuntimeEntityCrudTools.cs / SchemaDiscoveryTools.cs   # Generic CK CRUD (family 2)

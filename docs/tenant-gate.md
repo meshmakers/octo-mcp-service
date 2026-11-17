@@ -1,7 +1,14 @@
-### Caller identity + tenant gate for direct-engine tools (AB#5030)
+---
+description: Caller identity and tenant gate of the direct-engine tools, tenant-bound client-credentials tokens, the AI service trusted pair, stream-data permission gate.
+applies_to: **/Services/{RuntimeSecurityContext,McpCallerPrincipal,AiServiceClientTrust,DataPermission}*.cs, **/CkSchemaResources.cs, **/EchoTool.cs
+---
+
+# Caller identity and tenant gate
+
+## Caller identity + tenant gate for direct-engine tools
 
 Every family-2/3 tool used to open a **system session** (`tenantRepository.GetSessionAsync()`
-parameterless), which bypassed data-permission enforcement (AB#4969) completely and let any
+parameterless), which bypassed data-permission enforcement completely and let any
 authenticated caller name any tenant in the `tenantId` tool parameter. `Services/RuntimeSecurityContextResolver.cs`
 is the single choke point that fixes both:
 
@@ -17,15 +24,15 @@ var tenantRepository = await tenantResolution.GetTenantRepositoryAsync(tenantId)
 using var session = await tenantRepository.GetSessionAsync(security.SecurityContext!);
 ```
 
-#### Identity comes from the request principal, never from the session store
+### Identity comes from the request principal, never from the session store
 
 The caller identity is read off `IHttpContextAccessor.HttpContext.User` — the principal the JWT
 bearer handler produced *after* it verified signature, issuer and lifetime. `Services/McpCallerPrincipal.cs`
-is the one reader of those claims (AB#5036 extracted it here so the tenant gate and the session-token
+is the one reader of those claims (it lives here so the tenant gate and the session-token
 binding cannot disagree on what a "service token" is).
 
 **It must not come from `McpSessionContext.TryGetAccessTokenAsync`.** The store is a *cache of
-tokens*, not a statement about who is calling; since AB#5036 its key is derived from this very
+tokens*, not a statement about who is calling; its key is derived from this very
 principal, so reading an identity back out of it would be circular. It is consulted **only** on the
 cross-tenant path, and there the token it hands out is bound back to the request principal before it
 is used (below).
@@ -45,12 +52,12 @@ An **unauthenticated principal is a denial**, not a claimless context: `Not auth
 session opened. Same for a host that never registered `IHttpContextAccessor` (resolved with
 `GetService`, so it degrades into a denial rather than an exception out of a tool).
 
-#### The three outcomes
+### The three outcomes
 
 1. **Service (client-credentials) principal** — no subject at all, only `client_id`. Needs the exact
    tenant match (`tenant_id` == resolved tenant) like a user; the only exception is the configured AI
    service client with a token of the system tenant. Context is `ForUser(client_id, roles)`; never the
-   cross-tenant exchange. See *Client-credentials tokens are tenant-bound (AB#9189)* below.
+   cross-tenant exchange. See *Client-credentials tokens are tenant-bound* below.
 2. **User principal, `tenant_id` == resolved tenant** (the normal case) — context is
    `ForUser(sub, roles)` straight from the validated principal. **The token store is not read at
    all** on this path (pinned by `ResolveAsync_SameTenant_DoesNotConsultTheSessionTokenStore`).
@@ -61,12 +68,12 @@ A user principal whose token carries **no `tenant_id` claim** is refused outrigh
 answers 403 for exactly that shape on the route gate, and the per-tool tenant parameter must not be
 more permissive than the route.
 
-**Never `RtSecurityContext.System`** — the whole point of AB#5030 is that these tools act as the
+**Never `RtSecurityContext.System`** — the whole point is that these tools act as the
 caller. **Never throws** — every failure (unresolvable tenant, missing token, unreachable identity,
 failed exchange) comes back as `RuntimeSecurityContextResult.Error` so the "never throw out of a
 tool" rule holds.
 
-#### Cross-tenant path (AB#4338)
+### Cross-tenant path
 
 A user homed in tenant A legitimately reaching tenant B goes through the RFC 8693 exchange. Three
 things happen in order, and each one can deny:
@@ -74,7 +81,7 @@ things happen in order, and each one can deny:
 1. **Bind the store token to the request.** The home token is fetched from the session store and
    only accepted when its `sub` **and** `tenant_id` match the request principal's. An unparseable
    (opaque) home token fails this too. Otherwise: `…denied: the stored session token does not belong
-   to the authenticated caller.` Since AB#5036 this check lives in `McpSessionContext` (constant
+   to the authenticated caller.` This check lives in `McpSessionContext` (constant
    `Constants.SessionTokenNotBoundError`) and applies to **all three tool families**, so the resolver
    just propagates the message; client-credentials principals never reach this path (see below).
 2. **Exchange.** `McpSessionContext.TryGetAccessTokenAsync(server, tenantId)` performs / caches the
@@ -90,9 +97,9 @@ On success the context is built from the **exchanged** token — `ForUser(shadow
 shadow roles)`. The identity in B is the B-shadow user, so reusing the A principal here would leak
 A's roles into B.
 
-#### Client-credentials tokens are tenant-bound (AB#9189)
+### Client-credentials tokens are tenant-bound
 
-Until AB#9189 the in-tool gate exempted every client-credentials token (no `sub`): it returned
+An earlier version of the in-tool gate exempted every client-credentials token (no `sub`): it returned
 `ForUser(client_id, roles)` for whatever tenant the tool parameter named. Because `ValidateAudience = false`,
 any client of this authority with scope `octo_api` passed the transport gate, so a tenant admin of A could
 create such a client in A and read and write B's runtime data (CRUD including `*_secrets`, aggregation,
@@ -128,18 +135,17 @@ tokens too:
   `ai_service_client_of_system_tenant`, `tenant_mismatch`, `no_tenant_claim`.
 - The **HTTP** gate's shared `CrossTenantServiceClientIds` allow-list (octo-common-services) still matches
   `client_id` without the issuer tenant. This service adds only `Mcp:AiServiceClientId` to it and binds that
-  entry to the same trusted pair with `AiServiceClientTenantGuard` (AB#9188, section *One default allow-list
-  entry* above); both gates decide with `AiServiceClientTrust.IsTrustedPair`. Pairing the shared list with the
-  issuer for every host is the follow-up of AB#9189.
+  entry to the same trusted pair with `AiServiceClientTenantGuard` (section *One default allow-list
+  entry* in `authentication.md`); both gates decide with `AiServiceClientTrust.IsTrustedPair`. Pairing the shared list with the
+  issuer for every host is a follow-up.
 
 > Careful with "tenant gate" — there are two. The **HTTP** one (`TenantAuthorizationMiddleware`,
-> route `{tenantId}` vs. `tenant_id` claim) is the one AB#5032 staged behind
-> `ServiceTokenEnforcement`; since AB#5047 this service binds that setting, which defaults to `Enforce`
-> since AB#5077. The **in-tool** one described in this section (`RuntimeSecurityContextResolver`, which
+> route `{tenantId}` vs. `tenant_id` claim) is the one staged behind
+> `ServiceTokenEnforcement`; this service binds that setting, which defaults to `Enforce`. The **in-tool** one described in this section (`RuntimeSecurityContextResolver`, which
 > guards the tenant named in a *tool parameter*) is independent of that variable and always enforces the
-> table above. The endpoint half of AB#5032 (scope `octo_api` required) still applies in front of both.
+> table above. The endpoint half (scope `octo_api` required) still applies in front of both.
 
-#### Call sites
+### Call sites
 
 `ResolveTenantAccessAsync` is the same call for sites that never open a session — `SchemaDiscovery
 Tools`, `StreamDataMetadataTools`, `CkSchemaResources`, `StreamDataContext.TryResolveAsync`,
@@ -151,10 +157,10 @@ authenticated caller could probe arbitrary tenant ids and tell "exists" from "do
 shape of the answer. Its tenant lookup is now also wrapped in a `try/catch` — it previously threw
 out of the tool on an unknown tenant.
 
-### Stream-data CK-type permission gate (AB#5038)
+## Stream-data CK-type permission gate
 
 `Services/DataPermissionStreamGuard` is the MCP mirror of the asset-repo GraphQL
-`GraphQL/Utils/DataPermissionStreamGuard` (AB#4973, decision F4). Same three short-circuits in the
+`GraphQL/Utils/DataPermissionStreamGuard` (decision F4). Same three short-circuits in the
 same order (system context → services not wired → `!policyTable.HasRules`), same
 `RtDataAccessEvaluator.Classify(..., RtDataAction.Read, ..., includeAuditOnlyPolicies: false)`, same
 rejection condition **`Denied or OwnedOnly`**, and the same message text verbatim:
@@ -169,7 +175,7 @@ difference is the shape: the GraphQL guard throws `ExecutionError`; MCP tools ne
 guard **returns** the message and the call site puts it into `ErrorMessage`.
 
 An **owner-scoped grant denies** stream reads. Time-series rows carry no creator, so row-level
-filtering is impossible for them — the conservative accepted limitation F4 of AB#4969. AuditOnly
+filtering is impossible for them — the conservative accepted limitation of the data-permission design. AuditOnly
 policies never block.
 
 Call sites:
@@ -201,11 +207,11 @@ type. The GraphQL side never needs this because its schema was built from the sa
 `GetRollupArchiveRuntimeStore()`) open their **own system sessions** internally, so the caller's
 `RtSecurityContext` never reaches the archive read and *row-level* data-permission enforcement does
 not happen on this path. Threading the security context into those stores is the larger fix and is
-deliberately not part of AB#5038. Until it lands, the AB#5030 tenant gate plus this CK-type gate are
+deliberately not part of this gate. Until it lands, the tenant gate plus this CK-type gate are
 the whole barrier — which is exactly the position the GraphQL surface is in, so the two remain
 equivalent.
 
-#### Testing
+### Testing
 
 `TestBase` installs a `DefaultHttpContext` (exposed as `TestHttpContext`) behind a registered
 `IHttpContextAccessor`, and seeds it with an authenticated user principal —
