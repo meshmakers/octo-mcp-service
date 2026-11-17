@@ -4,6 +4,14 @@
 
 ### Added
 
+- **AB#9182** — New tool `refresh_blueprint_catalogs(catalogName?)`, the MCP mirror of octo-cli `RefreshBlueprintCatalogs`:
+  forces a refresh of all blueprint catalog caches of the asset repository, or of one catalog, and returns the result per
+  catalog (`Refreshed`, `Skipped`, `Failed` with message) plus the three counts. A failed catalog does not stop the others
+  but makes the call report `isSuccess: false`; an unknown catalog name answers `errorCode: CatalogNotFound`; without the
+  tenant role `DataModelManagement` the call fails with `DataModelManagementRequired`. Risk Medium (like
+  `refresh_ck_catalogs`). The description names what a refresh does not fix: the per-replica cache (bug AB#9169, a
+  second refresh may be needed on multi-replica installations) and the CDN delay of up to 10 minutes after a GitHub Pages
+  deploy. Agents no longer need a pod restart to see a freshly published blueprint.
 - **AB#9188** — The AI service's MCP service client is trusted for cross-tenant service calls by default. New option
   `Mcp:AiServiceClientId` (`OCTO_MCP__AISERVICECLIENTID`, default `octo-ai-adapter`); `ConfigureTenantAuthorizationOptions`
   appends it to `TenantAuthorization:CrossTenantServiceClientIds` after the section is bound (operator entries stay, no

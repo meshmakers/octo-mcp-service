@@ -108,6 +108,7 @@ _High=2 · Low=5 · Medium=1_  ·  **Owner reviewed:** ☐
 | `update_blueprint` | **M** | |
 | `list_blueprint_installations` | **L** | |
 | `uninstall_blueprint` | **H** | |
+| `refresh_blueprint_catalogs` | **M** | AB#9182, same level as `refresh_ck_catalogs` |
 
 ### CkModelFileTools (4 tools)
 

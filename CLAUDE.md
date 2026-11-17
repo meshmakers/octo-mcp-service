@@ -1638,6 +1638,17 @@ An agent can work in and clean up the scratch tenants it creates without a human
   own session (a client-credentials token for the child) or octo-cli `Delete --disable-features`.
 - Tests: `ScratchTenantToolsTests` (create flag, disableFeatures order, archives, no child token, enable/disable AI).
 
+## Blueprint catalog refresh (AB#9182)
+
+`refresh_blueprint_catalogs` (`BlueprintTools`, Medium) mirrors octo-cli `RefreshBlueprintCatalogs`: SDK
+`IAssetServicesClient.RefreshBlueprintCatalogsAsync(catalogName)` (`POST system/v1/blueprints/catalogs[/{name}]/refresh`,
+always forced, `DataModelManagementPolicy`). A blank name means all catalogs (same rule as SDK and CLI). The per-catalog
+`Results` go on the wire as-is; any `Failed` entry makes `IsSuccess = false` (the CLI exits non-zero) while `Results` and
+the counts stay set. A 404 for a named catalog becomes `ErrorCode = CatalogNotFound` (`BlueprintTools.CatalogNotFoundCode`);
+everything else goes through `ServiceProblemMessage` (403 → `DataModelManagementRequired`). The refresh reaches only the
+asset-repository replica that answers (AB#9169); the description says so - drop that sentence once AB#9169 is fixed.
+Tests: `BlueprintToolsTests` (refresh section), `DataModelManagementRequiredTests`.
+
 ## API secret writes: 403 names the missing role (AB#8094)
 
 The write tools of `ApiSecretTools` (create/update/delete for client and API resource) return `IdentityForbiddenMessage.Describe(ex)` as
