@@ -2,6 +2,7 @@ using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Models.Aggregation;
 using Meshmakers.Octo.Backend.McpServices.Resources;
+using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.Runtime.Contracts;
@@ -375,17 +376,78 @@ public class RuntimeTenantGateTests : TestBase
     }
 
     [Fact]
-    public async Task QueryEntities_ServicePrincipal_ReachesAnyTenantAsItsClientId()
+    public async Task QueryEntities_ServicePrincipalOnItsOwnTenant_ActsAsItsClientId()
     {
-        // AB#5032 exemption — the AI Adapter worker and the mesh-adapter node depend on it.
-        MockTenantResolution.Setup(t => t.ResolveTenantId(ForeignTenantId)).Returns(ForeignTenantId);
+        // AB#9189: a tenant-bound service token (AI worker, mesh-adapter, agent client) keeps working on its tenant.
         GivenServicePrincipalCaller("octo-ai-worker", DefaultTestTenantId, "ServiceRole");
 
         await RuntimeEntityCrudTools.QueryEntities(
-            MockServer.Object, TestCkTypeId, tenantId: ForeignTenantId);
+            MockServer.Object, TestCkTypeId, tenantId: DefaultTestTenantId);
 
         MockSecureSessionFactory.Verify(f => f.GetSessionAsync(It.Is<RtSecurityContext>(c =>
             !c.IsSystem && c.SubjectId == "octo-ai-worker")), Times.Once);
+    }
+
+    [Fact]
+    public async Task QueryEntities_ServicePrincipalOnItsRoute_ToolTenantIdOfAnotherTenant_IsDeniedAndOpensNoSession()
+    {
+        // AB#9189: /A/mcp passes the transport gate (route A = token A), but the tool's tenantId=B wins
+        // in TenantResolutionService. The in-tool gate must refuse B for a service token of A.
+        MockHttpContextAccessor.Setup(h => h.GetTenantId()).Returns(DefaultTestTenantId);
+        GivenRealTenantResolution();
+        GivenServicePrincipalCaller("tenant-a-integration", DefaultTestTenantId, "TenantAdministrator");
+
+        var result = await RuntimeEntityCrudTools.QueryEntities(
+            MockServer.Object, TestCkTypeId, tenantId: ForeignTenantId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("denied").And.Contain(ForeignTenantId);
+        MockSecureSessionFactory.Verify(f => f.GetSessionAsync(It.IsAny<RtSecurityContext>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task QueryEntities_ServicePrincipalOnTenantlessEndpoint_ToolTenantIdOfAnotherTenant_IsDenied()
+    {
+        // AB#9189: the tenantless /mcp has no route tenant, so the transport gate checks nothing; the
+        // tool's tenantId=B is the only tenant there is and must match the token's tenant.
+        MockHttpContextAccessor.Setup(h => h.GetTenantId()).Throws(new InvalidOperationException("no route tenant"));
+        GivenRealTenantResolution();
+        GivenServicePrincipalCaller("tenant-a-integration", DefaultTestTenantId, "TenantAdministrator");
+
+        var result = await RuntimeEntityCrudTools.QueryEntities(
+            MockServer.Object, TestCkTypeId, tenantId: ForeignTenantId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("denied").And.Contain(ForeignTenantId);
+        MockSecureSessionFactory.Verify(f => f.GetSessionAsync(It.IsAny<RtSecurityContext>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task QueryEntities_ServicePrincipalOnItsRoute_WithoutToolTenantId_ActsOnTheRouteTenant()
+    {
+        // The per-tenant worker / agent-client shape: /A/mcp, token of A, no tenantId parameter.
+        MockHttpContextAccessor.Setup(h => h.GetTenantId()).Returns(DefaultTestTenantId);
+        GivenRealTenantResolution();
+        GivenServicePrincipalCaller("claude-agent-test", DefaultTestTenantId, "TenantAdministrator");
+
+        await RuntimeEntityCrudTools.QueryEntities(MockServer.Object, TestCkTypeId);
+
+        MockSecureSessionFactory.Verify(f => f.GetSessionAsync(It.Is<RtSecurityContext>(c =>
+            !c.IsSystem && c.SubjectId == "claude-agent-test")), Times.Once);
+    }
+
+    /// <summary>
+    ///     Uses the real <see cref="TenantResolutionService" /> over <see cref="TestBase.MockHttpContextAccessor" />, so
+    ///     the route tenant set up by the test and the precedence of the tool parameter are the production ones.
+    /// </summary>
+    private void GivenRealTenantResolution()
+    {
+        // Only the route tenant's repository exists: a call that resolved another tenant would fail on the strict mock.
+        var systemContext = new Mock<ISystemContext>(MockBehavior.Strict);
+        systemContext.Setup(c => c.FindTenantRepositoryAsync(DefaultTestTenantId))
+            .ReturnsAsync(MockTenantRepository.Object);
+        TestServiceProvider.RegisterService<ITenantResolutionService>(new TenantResolutionService(
+            MockHttpContextAccessor.Object, systemContext.Object));
     }
 
     [Fact]

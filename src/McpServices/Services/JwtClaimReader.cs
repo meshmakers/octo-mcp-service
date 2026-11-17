@@ -30,8 +30,8 @@ internal static class JwtClaimReader
     ///     All three spellings the subject can arrive under are probed: the JWT short name <c>sub</c>,
     ///     the JWT short name <c>nameid</c>, and the long SOAP-era type
     ///     <see cref="ClaimTypes.NameIdentifier" /> an issuer may emit when it maps outbound claims.
-    ///     Probing only <c>sub</c> would silently classify such a user token as a service token and hand
-    ///     it the tenant-gate exemption.
+    ///     Probing only <c>sub</c> would silently classify such a user token as a service token and act
+    ///     as its client instead of its user.
     ///     </para>
     /// </summary>
     public static string? TryReadSubjectId(string accessToken)

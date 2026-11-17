@@ -29,6 +29,17 @@
 
 ### Fixed
 
+- **AB#9189 (security, P1)** — A client-credentials token of one tenant can no longer read or write another tenant's
+  runtime data through the direct-engine tools. The in-tool tenant gate (`RuntimeSecurityContextResolver`) exempted every
+  service token (no `sub`) and acted for whatever tenant the tool parameter `tenantId` named, on `/{tenantId}/mcp` (the
+  parameter wins over the route) and on the tenantless `/mcp`. A service token now needs the exact tenant match
+  (`tenant_id` = target tenant) like a user token; a token without `tenant_id` is denied. The only cross-tenant pair is
+  the AI service client (new option `Mcp:AiServiceClientId`, `OCTO_MCP__AISERVICECLIENTID`, default `octo-ai-adapter`,
+  exact id) with a token of the system tenant (`System:SystemTenantId`); the same id from any other tenant is denied.
+  Every service-token decision is logged (client id, token tenant, target tenant, outcome, reason; denials at Warning)
+  and counted in `octo.tenant_auth.mcp_service_token_decisions{outcome,reason}`. Tenant-bound callers (AI worker,
+  mesh-adapter node, per-tenant agent clients) are unaffected.
+
 - **AB#9165** — `knowledge_search` ranked broad overview pages above the specific page and gave no sign when the pages
   missed what a question was about (M1 live eval 1.1.2 on m1-e2e: "build an HTTP API for my app" listed
   `app-http-api-pipelines` 13th; q20 "AWS Lambda" cited `deploy-index` and `deploy-promotion`).

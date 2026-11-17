@@ -12,7 +12,7 @@ namespace Meshmakers.Octo.Backend.McpServices.Services;
 ///     <see cref="RuntimeSecurityContextResolver" /> (AB#5030) when the session token store had to be
 ///     bound to the caller as well (AB#5036) — two copies of the claim reading would have been free to
 ///     drift, and the two features must agree on what a "service token" is or the client-credentials
-///     exemption would apply on one path and not the other.
+///     rules would apply on one path and not the other.
 ///     </para>
 ///     <para>
 ///     Claim reading mirrors <c>AssetRepositoryServices/GraphQL/Helpers.GetSecurityContext</c> one-for-one:
@@ -20,7 +20,7 @@ namespace Meshmakers.Octo.Backend.McpServices.Services;
 ///     <c>true</c>, so a JWT <c>sub</c> reaches the principal as <see cref="ClaimTypes.NameIdentifier" />
 ///     and <c>role</c> as <see cref="ClaimTypes.Role" />, while <c>tenant_id</c> and <c>client_id</c> keep
 ///     their JWT names. Probing only the JWT short names would misclassify every user token as a service
-///     token and hand it the tenant-gate exemption.
+///     token and act as its client instead of its user.
 ///     </para>
 /// </summary>
 /// <param name="UserSubjectId">The end-user subject, or null for a client-credentials service token.</param>
@@ -35,8 +35,8 @@ internal sealed record McpCallerPrincipal(
 {
     /// <summary>
     ///     Whether this is an end-user principal. A client-credentials (service) token carries no subject
-    ///     at all — only a client id — and that absence is the marker both the tenant gate (AB#5030) and
-    ///     the session-token binding (AB#5036) key their exemption off.
+    ///     at all — only a client id — and that absence is the marker both the tenant gate (AB#5030, service
+    ///     tokens tenant-bound since AB#9189) and the session-token binding (AB#5036) branch on.
     /// </summary>
     public bool IsUserPrincipal => UserSubjectId != null;
 
