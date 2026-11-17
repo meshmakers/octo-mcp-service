@@ -7,7 +7,8 @@
 - **AB#9182** — New tool `refresh_blueprint_catalogs(catalogName?)`, the MCP mirror of octo-cli `RefreshBlueprintCatalogs`:
   forces a refresh of all blueprint catalog caches of the asset repository, or of one catalog, and returns the result per
   catalog (`Refreshed`, `Skipped`, `Failed` with message) plus the three counts. A failed catalog does not stop the others
-  but makes the call report `isSuccess: false`; an unknown catalog name answers `errorCode: CatalogNotFound`; without the
+  but makes the call report `isSuccess: false`; an unknown catalog name answers `errorCode: CatalogNotFound`, a name with characters other than letters, digits,
+  `.`, `-`, `_` is refused before the call (the SDK puts it into the path unescaped); without the
   tenant role `DataModelManagement` the call fails with `DataModelManagementRequired`. Risk Medium (like
   `refresh_ck_catalogs`). The description names what a refresh does not fix: the per-replica cache (bug AB#9169, a
   second refresh may be needed on multi-replica installations) and the CDN delay of up to 10 minutes after a GitHub Pages

@@ -10,10 +10,10 @@ operational reality. Edit the source file + the table in the same PR.
 
 ## Summary
 
-- Total tools: 175
+- Total tools: 176
 - Low (default, no `[McpRisk]` attribute): 73
 - Low (explicit `[McpRisk(McpRiskLevel.Low)]`): 1
-- Medium: 49
+- Medium: 50
 - High: 52
 
 ## Classification convention
@@ -94,9 +94,9 @@ _Low=2_  ·  **Owner reviewed:** ☐
 | `authenticate` | **L** | |
 | `check_auth_status` | **L** — owner: confirm | |
 
-### BlueprintTools (8 tools)
+### BlueprintTools (9 tools)
 
-_High=2 · Low=5 · Medium=1_  ·  **Owner reviewed:** ☐
+_High=2 · Low=5 · Medium=2_  ·  **Owner reviewed:** ☐
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|

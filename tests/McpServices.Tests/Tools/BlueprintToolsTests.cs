@@ -388,6 +388,21 @@ public class BlueprintToolsTests : ToolTestBase
         result.CatalogName.Should().Be("Nope");
     }
 
+    [Theory]
+    [InlineData("x/../refresh")]
+    [InlineData("..")]
+    [InlineData("a?b=c")]
+    [InlineData("a%2Fb")]
+    [InlineData("a b")]
+    public async Task RefreshBlueprintCatalogs_NameThatIsNoPathSegment_IsRefusedWithoutSdkCall(string catalogName)
+    {
+        var result = await BlueprintTools.RefreshBlueprintCatalogs(MockServer.Object, catalogName);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("catalogName may contain only");
+        MockAssetClient.Verify(c => c.RefreshBlueprintCatalogsAsync(It.IsAny<string?>()), Times.Never);
+    }
+
     [Fact]
     public async Task RefreshBlueprintCatalogs_OtherFailure_KeepsTheMessage()
     {

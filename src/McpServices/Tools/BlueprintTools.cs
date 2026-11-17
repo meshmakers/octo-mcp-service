@@ -375,6 +375,18 @@ public sealed class BlueprintTools
         {
             catalogName = null;
         }
+        else if (!IsCatalogNameSegment(catalogName))
+        {
+            // The SDK puts the name into the request path unescaped; a name with '/', '?', '%' or a dot segment
+            // could address another route (e.g. the all-catalogs refresh). Catalog names are type-like names.
+            return new RefreshBlueprintCatalogsResponse
+            {
+                IsSuccess = false,
+                CatalogName = catalogName,
+                ErrorMessage = "catalogName may contain only letters, digits, '.', '-' and '_' (e.g. " +
+                               "'PrivateGitHubBlueprintCatalog'). Omit it to refresh all catalogs."
+            };
+        }
 
         var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
@@ -430,6 +442,10 @@ public sealed class BlueprintTools
             };
         }
     }
+
+    private static bool IsCatalogNameSegment(string name) =>
+        name is not "." and not ".." &&
+        name.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '_');
 
     /// <summary>Uninstall a blueprint from the tenant. Destructive: requires confirm.</summary>
     [McpServerTool(Name = "uninstall_blueprint")]
