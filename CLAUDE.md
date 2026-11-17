@@ -941,8 +941,11 @@ tokens too:
 | same client id issued for any other tenant | another tenant | denied (client ids are unique per tenant only) |
 
 - No pattern, no list from outside without the issuer. `OCTO_MCP__AISERVICECLIENTID` replaces the id; empty
-  switches the exception off. A host that bound neither `OctoSystemConfiguration` nor the option denies (fail
-  closed). A service token never takes the cross-tenant exchange path.
+  switches the exception off. When the options cannot be resolved at all the call is denied (fail closed);
+  `Program.cs` always registers both (an unbound `System` section means the default system tenant id
+  `OctoSystem`). A service token never takes the cross-tenant exchange path.
+- On the trusted pair the tools act as `ForUser(octo-ai-adapter, <roles issued in the system tenant>)` inside the
+  target tenant, whose data permissions check those roles by name. Keep the roles of that client minimal.
 - Tenant-bound callers keep working: the AI worker (`IMcpTokenIssuer`, one token per tenant with
   `acr_values=tenant:{tenantId}`), the mesh-adapter node (its tenant's service account) and agent clients that
   request one token per tenant (e.g. `claude-agent-<user>-<host>` with `acr_values tenant:<id>` on

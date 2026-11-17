@@ -243,10 +243,10 @@ public class RuntimeSecurityContextResolverTests : TestBase
     }
 
     [Fact]
-    public async Task ResolveAsync_AiServiceClientOfTheSystemTenant_WithoutSystemConfiguration_IsDenied()
+    public async Task ResolveAsync_AiServiceClientOfTheSystemTenant_WhenOptionsCannotBeResolved_IsDenied()
     {
-        // Fail closed: a host that never bound OctoSystemConfiguration cannot prove the issuer is the
-        // system tenant, so the exemption does not apply.
+        // Fail closed: without resolvable options (no DI registration) the resolver cannot prove the
+        // issuer is the system tenant, so the exemption does not apply. Program.cs always registers both.
         MockTenantResolution.Setup(t => t.ResolveTenantId(ForeignTenantId)).Returns(ForeignTenantId);
         GivenServicePrincipalCaller(AiServiceClientId, SystemTenantId, "ServiceRole");
 

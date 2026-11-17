@@ -134,8 +134,9 @@ internal static class RuntimeSecurityContextResolver
     ///     (<see cref="McpServiceOptions.AiServiceClientId" />, default <c>octo-ai-adapter</c>) issued for the
     ///     <b>system tenant</b> (<see cref="OctoSystemConfiguration.SystemTenantId" />). Both halves are needed: client
     ///     ids are unique per tenant only, so a tenant admin of A can create a client named <c>octo-ai-adapter</c> — its
-    ///     token is issued for A and gets no exemption. There is no pattern and no list from outside; a host that bound
-    ///     neither option cannot prove the issuer and denies (fail closed).
+    ///     token is issued for A and gets no exemption. There is no pattern and no list from outside. When the options
+    ///     cannot be resolved at all (no DI registration) the issuer cannot be proven and the call is denied (fail
+    ///     closed); <c>Program.cs</c> always registers both.
     ///     </para>
     ///     <para>
     ///     Before AB#9189 every service token was exempt here, so any client-credentials client of any tenant (with
@@ -213,14 +214,30 @@ internal static class RuntimeSecurityContextResolver
                      ?? NullLogger.Instance;
         const string template = "MCP service token tenant decision {Outcome}: client {ClientId}, token tenant "
                                 + "{TokenTenantId}, target tenant {TargetTenantId}, reason {Reason} (AB#9189)";
+        // The target tenant is the raw tool parameter: strip control characters so a caller cannot forge log lines
+        // in a plain-text sink. Client id and token tenant come from the signed token but get the same treatment.
+        var clientId = ForLog(caller.ClientId);
+        var tokenTenantId = ForLog(caller.TenantId);
+        var targetTenantId = ForLog(resolvedTenantId);
         if (allowed)
         {
-            logger.LogInformation(template, "allow", caller.ClientId, caller.TenantId, resolvedTenantId, reason);
+            logger.LogInformation(template, "allow", clientId, tokenTenantId, targetTenantId, reason);
         }
         else
         {
-            logger.LogWarning(template, "deny", caller.ClientId, caller.TenantId, resolvedTenantId, reason);
+            logger.LogWarning(template, "deny", clientId, tokenTenantId, targetTenantId, reason);
         }
+    }
+
+    private static string ForLog(string? value)
+    {
+        if (value == null)
+        {
+            return "<none>";
+        }
+
+        var clean = new string(value.Where(c => !char.IsControl(c)).Take(128).ToArray());
+        return clean.Length == value.Length ? value : clean + "…";
     }
 
     /// <summary>
