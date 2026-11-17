@@ -21,7 +21,7 @@ internal static class TestJwt
     /// <summary>
     ///     Creates a JWT string carrying <c>tenant_id</c>, <c>sub</c>, <c>client_id</c> and <c>role</c>
     ///     claims. A token WITHOUT <c>sub</c> models a client-credentials service token (AI Adapter
-    ///     worker, mesh-adapter) — the class the tenant gate deliberately exempts (AB#5030 / AB#5032).
+    ///     worker, mesh-adapter) — tenant-bound by the tenant gate since AB#9189.
     /// </summary>
     public static string CreateFull(string? tenantId, string? subjectId, string? clientId, params string[] roles)
     {

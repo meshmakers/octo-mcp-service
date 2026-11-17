@@ -237,7 +237,7 @@ public abstract class TestBase
 
     /// <summary>
     ///     A client-credentials service principal: <c>client_id</c> but no subject at all. This is the
-    ///     class of caller the tenant gate deliberately exempts (AB#5030 / AB#5032).
+    ///     class of caller the tenant gate binds to its own tenant (AB#9189; exempt before).
     /// </summary>
     protected void GivenServicePrincipalCaller(
         string clientId = "octo-ai-worker",

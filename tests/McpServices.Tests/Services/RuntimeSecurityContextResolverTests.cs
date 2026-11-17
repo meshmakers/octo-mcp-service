@@ -63,7 +63,7 @@ public class RuntimeSecurityContextResolverTests : TestBase
     {
         // ConfigureJwtBearerOptions leaves MapInboundClaims = true, so `sub` reaches the principal as
         // ClaimTypes.NameIdentifier. Reading only "sub" would misclassify this as a service token and
-        // hand it the tenant-gate exemption.
+        // take it off the user path (cross-tenant exchange, user identity).
         GivenRequestPrincipal(new ClaimsPrincipal(new ClaimsIdentity(
         [
             new Claim(ClaimTypes.NameIdentifier, "mapped-user"),

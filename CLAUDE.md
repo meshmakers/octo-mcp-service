@@ -878,8 +878,10 @@ session opened. Same for a host that never registered `IHttpContextAccessor` (re
 
 #### The three outcomes
 
-1. **Service (client-credentials) principal** — no subject at all, only `client_id`. Exempt from the
-   tenant match, context is `ForUser(client_id, roles)`. See the blast-radius note below.
+1. **Service (client-credentials) principal** — no subject at all, only `client_id`. Needs the exact
+   tenant match (`tenant_id` == resolved tenant) like a user; the only exception is the configured AI
+   service client with a token of the system tenant. Context is `ForUser(client_id, roles)`; never the
+   cross-tenant exchange. See *Client-credentials tokens are tenant-bound (AB#9189)* below.
 2. **User principal, `tenant_id` == resolved tenant** (the normal case) — context is
    `ForUser(sub, roles)` straight from the validated principal. **The token store is not read at
    all** on this path (pinned by `ResolveAsync_SameTenant_DoesNotConsultTheSessionTokenStore`).

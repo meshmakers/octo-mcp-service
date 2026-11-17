@@ -82,7 +82,7 @@ internal static class RuntimeSecurityContextResolver
         // McpCallerPrincipal reads the claims off HttpContext.User (IHttpContextAccessor is resolved with
         // GetService, so a host that never wired it degrades into a denial rather than an exception thrown
         // out of a tool) and is the SAME reader the session-token binding uses (AB#5036) — the two must
-        // agree on what a "service token" is or the client-credentials exemption would apply on one path
+        // agree on what a "service token" is or the client-credentials rules would apply on one path
         // and not the other.
         var caller = McpCallerPrincipal.FromServer(server);
         if (caller == null)
