@@ -83,7 +83,8 @@ the system tenant (client `octo-ai-adapter`, which the AI service registers itse
 client for cross-tenant service calls by default: `Mcp:AiServiceClientId` (`OCTO_MCP__AISERVICECLIENTID`, default
 `octo-ai-adapter`) is appended to `TenantAuthorization:CrossTenantServiceClientIds`. No per-cluster value is needed; an
 empty value switches the default entry off, a `*` pattern is refused at startup, entries set under
-`OCTO_TENANTAUTHORIZATION__CROSSTENANTSERVICECLIENTIDS__<n>` stay.
+`OCTO_TENANTAUTHORIZATION__CROSSTENANTSERVICECLIENTIDS__<n>` stay. The trust counts only for a token of the system
+tenant: a client of the same id created in another tenant is refused on foreign tenant routes.
 
 2. **Start the Service**:
 ```bash

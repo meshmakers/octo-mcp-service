@@ -780,10 +780,22 @@ system tenant itself) to `CrossTenantServiceClientIds`. Rules: exact id only (a 
 client); operator entries from `OCTO_TENANTAUTHORIZATION__CROSSTENANTSERVICECLIENTIDS__<n>` stay and
 the id is not added twice (case-insensitive); empty switches the entry off. The default lives here, not
 in octo-common-services, whose list stays empty for every other host. An allow-listed token also skips
-the tenant generation check (AB#8999), like any allow-listed client. Tests:
-`Configuration/ConfigureTenantAuthorizationOptionsTests` (option rules, plus a TestServer with the real
-`UseOctoTenantAuthorization`: `octo-ai-adapter` with a system-tenant token gets 200 on another tenant's
-route, another client 403, and 403 again with the entry switched off).
+the tenant generation check (AB#8999), like any allow-listed client.
+
+🔴 **The entry is bound to the system tenant by `Configuration/AiServiceClientTenantGuard`.** The shared
+gate matches the allow-list by `client_id` alone, and client ids are unique only per tenant: a tenant
+administrator could create a client `octo-ai-adapter` in their own tenant and its token would pass every
+other tenant's route (and then act there with its roles, `RuntimeSecurityContextResolver` exempts service
+tokens). The guard runs right before `UseOctoTenantAuthorization()` and answers 403 for a service token of
+that client id whose `tenant_id` is not `System:SystemTenantId` when it addresses a foreign route tenant;
+on its own tenant's route such a client works like any tenant client. Keep the guard whenever the entry
+exists. Not closed here (pre-existing, AB#5032): the **tool parameter** `tenantId` on a route the token may
+use still exempts every service token in `RuntimeSecurityContextResolver`.
+
+Tests: `Configuration/ConfigureTenantAuthorizationOptionsTests` (option rules, plus a TestServer with the
+guard and the real `UseOctoTenantAuthorization`: `octo-ai-adapter` with a system-tenant token gets 200 on
+another tenant's route, another client 403, the same id created in another tenant 403 on a foreign route
+and 200 on its own, 403 with the entry switched off, a `*` pattern stops the start).
 
 The transport gate only sees the **route** tenant. The per-tool-param cross-tenant hole it leaves
 open is closed by `RuntimeSecurityContextResolver` (AB#5030, next section).

@@ -320,6 +320,8 @@ try
     // Validate the route {tenantId} against the token's tenant claim. Client-credentials service
     // tokens without a user 'sub' (AiWorker via IMcpTokenIssuer, mesh-adapter via
     // ServiceAccountConfiguration) are skipped by design — service-to-service access.
+    // AB#9188: the default cross-tenant entry for the AI service's client counts only for a system-tenant token.
+    app.UseMiddleware<AiServiceClientTenantGuard>();
     app.UseOctoTenantAuthorization();
 
     // Map MCP endpoint with tenant routing (existing, backwards compatible)

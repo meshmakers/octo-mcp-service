@@ -4,6 +4,7 @@ using System.Text.Encodings.Web;
 using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.Configuration;
 using Meshmakers.Octo.Backend.McpServices.Options;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.Configuration;
 using Meshmakers.Octo.Services.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
@@ -22,8 +23,9 @@ namespace McpServices.Tests.Configuration;
 /// <summary>
 ///     AB#9188: the MCP service trusts the AI service's MCP service client (<c>octo-ai-adapter</c>) for cross-tenant
 ///     service calls by default - one explicit allow-list entry, never a blanket exemption. The HTTP tests run the real
-///     transport tenant gate (<c>UseOctoTenantAuthorization</c>, octo-common-services) with the service's wiring: a
-///     system-tenant service token of <c>octo-ai-adapter</c> reaches another tenant's route, any other client's does not.
+///     transport tenant gate (<c>UseOctoTenantAuthorization</c>, octo-common-services) with the service's wiring
+///     (<see cref="AiServiceClientTenantGuard" /> in front): a system-tenant service token of <c>octo-ai-adapter</c> reaches
+///     another tenant's route; any other client's does not, nor a client of the same id created in another tenant.
 /// </summary>
 public class ConfigureTenantAuthorizationOptionsTests
 {
@@ -64,9 +66,9 @@ public class ConfigureTenantAuthorizationOptionsTests
     [Fact]
     public void OperatorEntries_StayAndTheIdIsNotAddedTwice()
     {
-        var options = PostConfigure(aiServiceClientId: null, "custom-worker", "OCTO-AI-ADAPTER");
+        var options = PostConfigure(aiServiceClientId: null, "custom-worker", " OCTO-AI-ADAPTER ");
 
-        options.CrossTenantServiceClientIds.Should().Equal("custom-worker", "OCTO-AI-ADAPTER");
+        options.CrossTenantServiceClientIds.Should().Equal("custom-worker", " OCTO-AI-ADAPTER ");
     }
 
     [Fact]
@@ -106,6 +108,27 @@ public class ConfigureTenantAuthorizationOptionsTests
     }
 
     [Fact]
+    public async Task SameClientIdCreatedInAnotherTenant_IsRefusedOnAForeignRoute()
+    {
+        // Client ids are unique per tenant only: a tenant administrator can create "octo-ai-adapter" in tenant-a.
+        using var host = await StartHostAsync();
+
+        var response = await SendAsync(host, OtherTenant, clientId: "OCTO-AI-ADAPTER", tokenTenant: "tenant-a");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden, "the trust is bound to a token of the system tenant");
+    }
+
+    [Fact]
+    public async Task SameClientIdCreatedInAnotherTenant_StillWorksOnItsOwnRoute()
+    {
+        using var host = await StartHostAsync();
+
+        var response = await SendAsync(host, "tenant-a", clientId: "octo-ai-adapter", tokenTenant: "tenant-a");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, "a tenant's own client keeps working in its tenant");
+    }
+
+    [Fact]
     public async Task AiServiceClient_IsRefused_WhenTheDefaultIsSwitchedOff()
     {
         using var host = await StartHostAsync(aiServiceClientId: string.Empty);
@@ -118,7 +141,9 @@ public class ConfigureTenantAuthorizationOptionsTests
     [Fact]
     public async Task Pattern_StopsTheStart()
     {
-        var act = async () => (await StartHostAsync(aiServiceClientId: "*")).Dispose();
+        using var host = BuildHost(aiServiceClientId: "*");
+
+        var act = () => host.StartAsync(TestContext.Current.CancellationToken);
 
         await act.Should().ThrowAsync<OptionsValidationException>();
     }
@@ -141,6 +166,13 @@ public class ConfigureTenantAuthorizationOptionsTests
     /// </summary>
     private static async Task<IHost> StartHostAsync(string? aiServiceClientId = null)
     {
+        var host = BuildHost(aiServiceClientId);
+        await host.StartAsync(TestContext.Current.CancellationToken);
+        return host;
+    }
+
+    private static IHost BuildHost(string? aiServiceClientId)
+    {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>()).Build();
         var host = new HostBuilder()
             .ConfigureWebHost(web => web
@@ -156,6 +188,7 @@ public class ConfigureTenantAuthorizationOptionsTests
                             o.AiServiceClientId = aiServiceClientId;
                         }
                     });
+                    services.Configure<OctoSystemConfiguration>(o => o.SystemTenantId = SystemTenant);
                     services.AddOctoTenantAuthorization(configuration);
                     services.AddSingleton<IPostConfigureOptions<TenantAuthorizationOptions>,
                         ConfigureTenantAuthorizationOptions>();
@@ -168,12 +201,12 @@ public class ConfigureTenantAuthorizationOptionsTests
                 {
                     app.UseRouting();
                     app.UseAuthentication();
+                    app.UseMiddleware<AiServiceClientTenantGuard>();
                     app.UseOctoTenantAuthorization();
                     app.UseEndpoints(endpoints =>
                         endpoints.MapPost("/{tenantId}/mcp", () => Results.Ok()));
                 }))
             .Build();
-        await host.StartAsync(TestContext.Current.CancellationToken);
         return host;
     }
 
