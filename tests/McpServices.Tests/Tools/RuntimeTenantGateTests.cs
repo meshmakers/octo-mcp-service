@@ -375,14 +375,13 @@ public class RuntimeTenantGateTests : TestBase
     }
 
     [Fact]
-    public async Task QueryEntities_ServicePrincipal_ReachesAnyTenantAsItsClientId()
+    public async Task QueryEntities_ServicePrincipalOnItsOwnTenant_ActsAsItsClientId()
     {
-        // AB#5032 exemption — the AI Adapter worker and the mesh-adapter node depend on it.
-        MockTenantResolution.Setup(t => t.ResolveTenantId(ForeignTenantId)).Returns(ForeignTenantId);
+        // AB#9189: a tenant-bound service token (AI worker, mesh-adapter, agent client) keeps working on its tenant.
         GivenServicePrincipalCaller("octo-ai-worker", DefaultTestTenantId, "ServiceRole");
 
         await RuntimeEntityCrudTools.QueryEntities(
-            MockServer.Object, TestCkTypeId, tenantId: ForeignTenantId);
+            MockServer.Object, TestCkTypeId, tenantId: DefaultTestTenantId);
 
         MockSecureSessionFactory.Verify(f => f.GetSessionAsync(It.Is<RtSecurityContext>(c =>
             !c.IsSystem && c.SubjectId == "octo-ai-worker")), Times.Once);

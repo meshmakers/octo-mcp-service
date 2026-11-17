@@ -305,8 +305,9 @@ internal static class McpSessionContext
     ///     (<c>IMcpTokenIssuer</c>) and the mesh-adapter <c>AnthropicAiQueryNode</c>
     ///     (<c>ServiceAccountConfiguration</c>) present their token in the <c>Authorization</c> header and
     ///     never populate the store, and requiring a subject here would lock both out of every tenant.
-    ///     Their store namespace is their <c>client_id</c>, which is as narrow as their identity gets;
-    ///     tightening the client-credentials exemption as a whole is tracked as AB#5032.
+    ///     Their store namespace is their <c>client_id</c>, which is as narrow as their identity gets.
+    ///     Which tenant such a caller may act on is decided by the tenant gate
+    ///     (<see cref="RuntimeSecurityContextResolver" />, AB#9189: exact tenant match), not here.
     ///     </para>
     /// </summary>
     /// <param name="caller">The validated request principal.</param>

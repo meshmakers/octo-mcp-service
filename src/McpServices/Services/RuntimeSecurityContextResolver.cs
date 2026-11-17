@@ -1,4 +1,8 @@
+using Meshmakers.Octo.Backend.McpServices.Options;
 using Meshmakers.Octo.Runtime.Contracts;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 
 namespace Meshmakers.Octo.Backend.McpServices.Services;
@@ -92,17 +96,7 @@ internal static class RuntimeSecurityContextResolver
 
         if (!caller.IsUserPrincipal)
         {
-            // Client-credentials SERVICE tokens are deliberately exempt from the tenant match, mirroring
-            // the backend TenantAuthorizationMiddleware which skips the same class of token. That is how
-            // the AI Adapter worker (token via IMcpTokenIssuer) and the mesh-adapter AnthropicAiQueryNode
-            // (token via ServiceAccountConfiguration) reach every tenant they serve.
-            //
-            // Blast radius: because ConfigureJwtBearerOptions sets ValidateAudience = false, ANY
-            // client-credentials client of this authority passes the transport gate and is then exempt
-            // here — not just the two components above. Tightening this is tracked as AB#5032; until it
-            // lands the exemption must stay or the AI worker loses access to every tenant.
-            return new RuntimeSecurityContextResult(
-                RtSecurityContext.ForUser(subjectId, roles), resolvedTenantId, null);
+            return ResolveServicePrincipal(server, caller, resolvedTenantId);
         }
 
         // ── Tenant gate for user principals ───────────────────────────────────────────────────
@@ -127,6 +121,106 @@ internal static class RuntimeSecurityContextResolver
 
         return await ResolveCrossTenantAsync(
             server, resolvedTenantId, principalTenantId, cancellationToken);
+    }
+
+    /// <summary>
+    ///     Tenant gate for client-credentials SERVICE tokens (AB#9189). A service token is bound to the tenant it was
+    ///     issued for, exactly like a user token: its <c>tenant_id</c> must equal the target tenant. Identity stamps that
+    ///     claim on every client-credentials token (AB#5032), so the AI Adapter worker (one token per tenant via
+    ///     <c>IMcpTokenIssuer</c>), the mesh-adapter <c>AnthropicAiQueryNode</c> and agent clients (one token per tenant,
+    ///     <c>acr_values tenant:&lt;id&gt;</c>) keep working.
+    ///     <para>
+    ///     The only exception is one explicit pair: a token of the AI service client
+    ///     (<see cref="McpServiceOptions.AiServiceClientId" />, default <c>octo-ai-adapter</c>) issued for the
+    ///     <b>system tenant</b> (<see cref="OctoSystemConfiguration.SystemTenantId" />). Both halves are needed: client
+    ///     ids are unique per tenant only, so a tenant admin of A can create a client named <c>octo-ai-adapter</c> — its
+    ///     token is issued for A and gets no exemption. There is no pattern and no list from outside; a host that bound
+    ///     neither option cannot prove the issuer and denies (fail closed).
+    ///     </para>
+    ///     <para>
+    ///     Before AB#9189 every service token was exempt here, so any client-credentials client of any tenant (with
+    ///     scope <c>octo_api</c>) could read and write another tenant's runtime data by naming it in the tool's
+    ///     <c>tenantId</c> parameter — on <c>/{tenantId}/mcp</c> (the parameter wins over the route) and on the
+    ///     tenantless <c>/mcp</c> (no route tenant to check). A service token never takes the cross-tenant exchange path.
+    ///     </para>
+    ///     <para>
+    ///     Every decision is logged (client id, token tenant, target tenant, outcome, reason; denials at Warning, no token
+    ///     content) and counted in <see cref="McpServiceTokenDecisionMetrics" />.
+    ///     </para>
+    /// </summary>
+    private static RuntimeSecurityContextResult ResolveServicePrincipal(
+        McpServer server,
+        McpCallerPrincipal caller,
+        string resolvedTenantId)
+    {
+        var tokenTenantId = caller.TenantId;
+        string reason;
+        string? error = null;
+
+        if (string.IsNullOrWhiteSpace(tokenTenantId))
+        {
+            reason = ServiceTokenDecisionReason.NoTenantClaim;
+            error = $"Access to tenant '{resolvedTenantId}' denied: the service token of client "
+                    + $"'{caller.ClientId ?? "<none>"}' carries no 'tenant_id' claim.";
+        }
+        else if (string.Equals(tokenTenantId, resolvedTenantId, StringComparison.OrdinalIgnoreCase))
+        {
+            reason = ServiceTokenDecisionReason.SameTenant;
+        }
+        else if (IsAiServiceClientOfSystemTenant(server, caller))
+        {
+            reason = ServiceTokenDecisionReason.AiServiceClientOfSystemTenant;
+        }
+        else
+        {
+            reason = ServiceTokenDecisionReason.TenantMismatch;
+            error = $"Access to tenant '{resolvedTenantId}' denied: the service token of client "
+                    + $"'{caller.ClientId ?? "<none>"}' is issued for tenant '{tokenTenantId}'. A client-credentials "
+                    + "token can only act on its own tenant; request a token for the target tenant.";
+        }
+
+        var allowed = error == null;
+        LogServiceTokenDecision(server, caller, resolvedTenantId, allowed, reason);
+        McpServiceTokenDecisionMetrics.Record(allowed, reason);
+
+        // NEVER RtSecurityContext.System here: the tools act as the calling client with its own roles.
+        return allowed
+            ? new RuntimeSecurityContextResult(
+                RtSecurityContext.ForUser(caller.SubjectId, caller.Roles), resolvedTenantId, null)
+            : new RuntimeSecurityContextResult(null, resolvedTenantId, error);
+    }
+
+    private static bool IsAiServiceClientOfSystemTenant(McpServer server, McpCallerPrincipal caller)
+    {
+        var services = server.Services;
+        var systemTenantId = services?.GetService<IOptions<OctoSystemConfiguration>>()?.Value.SystemTenantId;
+        var aiClientId = services?.GetService<IOptions<McpServiceOptions>>()?.Value.AiServiceClientId?.Trim();
+
+        return !string.IsNullOrWhiteSpace(systemTenantId)
+               && !string.IsNullOrEmpty(aiClientId)
+               && string.Equals(caller.TenantId, systemTenantId, StringComparison.OrdinalIgnoreCase)
+               && string.Equals(caller.ClientId, aiClientId, StringComparison.Ordinal);
+    }
+
+    private static void LogServiceTokenDecision(
+        McpServer server,
+        McpCallerPrincipal caller,
+        string resolvedTenantId,
+        bool allowed,
+        string reason)
+    {
+        var logger = server.Services?.GetService<ILoggerFactory>()?.CreateLogger(typeof(RuntimeSecurityContextResolver))
+                     ?? NullLogger.Instance;
+        const string template = "MCP service token tenant decision {Outcome}: client {ClientId}, token tenant "
+                                + "{TokenTenantId}, target tenant {TargetTenantId}, reason {Reason} (AB#9189)";
+        if (allowed)
+        {
+            logger.LogInformation(template, "allow", caller.ClientId, caller.TenantId, resolvedTenantId, reason);
+        }
+        else
+        {
+            logger.LogWarning(template, "deny", caller.ClientId, caller.TenantId, resolvedTenantId, reason);
+        }
     }
 
     /// <summary>

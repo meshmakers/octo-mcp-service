@@ -1,8 +1,10 @@
+using System.Diagnostics.Metrics;
 using System.Security.Claims;
 using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.Options;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Configuration;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using Moq;
 using Xunit;
@@ -129,25 +131,6 @@ public class RuntimeSecurityContextResolverTests : TestBase
             .And.Contain(DefaultTestTenantId);
     }
 
-    [Fact]
-    public async Task ResolveAsync_ServicePrincipalForDifferentTenant_IsAllowedWithClientIdSubject()
-    {
-        // No subject at all ⇒ client-credentials service token (AI Adapter worker / mesh-adapter).
-        // The gate exempts these on purpose, mirroring TenantAuthorizationMiddleware (AB#5032).
-        MockTenantResolution.Setup(t => t.ResolveTenantId(ForeignTenantId)).Returns(ForeignTenantId);
-        GivenServicePrincipalCaller("octo-ai-worker", DefaultTestTenantId, "ServiceRole");
-
-        var result = await RuntimeSecurityContextResolver.ResolveAsync(
-            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
-
-        result.Error.Should().BeNull("client-credentials principals are exempt from the tenant match");
-        result.SecurityContext.Should().NotBeNull();
-        result.SecurityContext!.SubjectId.Should().Be("octo-ai-worker",
-            "with no subject the client id identifies the caller");
-        result.SecurityContext.Roles.Should().BeEquivalentTo("ServiceRole");
-        result.SecurityContext.IsSystem.Should().BeFalse();
-    }
-
     // ── Client-credentials tenant binding (AB#9189) ─────────────────────────────────────────────
 
     private const string SystemTenantId = "octosystem";
@@ -272,6 +255,147 @@ public class RuntimeSecurityContextResolverTests : TestBase
 
         result.SecurityContext.Should().BeNull();
         result.Error.Should().Contain("denied");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_ConfiguredAiServiceClientId_IsTheOnlyTrustedClient()
+    {
+        GivenSystemTenantConfigured();
+        TestServiceProvider.RegisterService(Microsoft.Extensions.Options.Options.Create(
+            new McpServiceOptions { AiServiceClientId = "custom-ai" }));
+        MockTenantResolution.Setup(t => t.ResolveTenantId(ForeignTenantId)).Returns(ForeignTenantId);
+
+        GivenServicePrincipalCaller("custom-ai", SystemTenantId, "ServiceRole");
+        var custom = await RuntimeSecurityContextResolver.ResolveAsync(
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
+        GivenServicePrincipalCaller(AiServiceClientId, SystemTenantId, "ServiceRole");
+        var defaultId = await RuntimeSecurityContextResolver.ResolveAsync(
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
+
+        custom.Error.Should().BeNull();
+        defaultId.Error.Should().Contain("denied", "the default id is replaced, not added to");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_EmptyAiServiceClientId_BindsEveryServiceTokenToItsTenant()
+    {
+        GivenSystemTenantConfigured();
+        TestServiceProvider.RegisterService(Microsoft.Extensions.Options.Options.Create(
+            new McpServiceOptions { AiServiceClientId = "" }));
+        MockTenantResolution.Setup(t => t.ResolveTenantId(ForeignTenantId)).Returns(ForeignTenantId);
+        GivenServicePrincipalCaller(AiServiceClientId, SystemTenantId, "ServiceRole");
+
+        var result = await RuntimeSecurityContextResolver.ResolveAsync(
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
+
+        result.Error.Should().Contain("denied");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_AiServiceClientIdDiffersInCase_IsDenied()
+    {
+        // Exact id, no case folding: the trusted pair is one specific client.
+        GivenSystemTenantConfigured();
+        MockTenantResolution.Setup(t => t.ResolveTenantId(ForeignTenantId)).Returns(ForeignTenantId);
+        GivenServicePrincipalCaller("OCTO-AI-ADAPTER", SystemTenantId, "ServiceRole");
+
+        var result = await RuntimeSecurityContextResolver.ResolveAsync(
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
+
+        result.Error.Should().Contain("denied");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_ServiceTokenDecisions_AreLoggedWithoutTokenContent_DenialAtWarning()
+    {
+        var logs = new CapturingLoggerProvider();
+        TestServiceProvider.RegisterService<ILoggerFactory>(new LoggerFactory([logs]));
+        GivenSystemTenantConfigured();
+        MockTenantResolution.Setup(t => t.ResolveTenantId(ForeignTenantId)).Returns(ForeignTenantId);
+        GivenServicePrincipalCaller("tenant-a-integration", DefaultTestTenantId, "TenantAdministrator");
+
+        await RuntimeSecurityContextResolver.ResolveAsync(
+            MockServer.Object, MockTenantResolution.Object, DefaultTestTenantId, TestContext.Current.CancellationToken);
+        await RuntimeSecurityContextResolver.ResolveAsync(
+            MockServer.Object, MockTenantResolution.Object, ForeignTenantId, TestContext.Current.CancellationToken);
+
+        logs.Entries.Should().HaveCount(2);
+        logs.Entries[0].Level.Should().Be(LogLevel.Information);
+        logs.Entries[0].Message.Should().Contain("allow").And.Contain("tenant-a-integration")
+            .And.Contain(ServiceTokenDecisionReason.SameTenant);
+        logs.Entries[1].Level.Should().Be(LogLevel.Warning);
+        logs.Entries[1].Message.Should().Contain("deny").And.Contain("tenant-a-integration")
+            .And.Contain(DefaultTestTenantId).And.Contain(ForeignTenantId)
+            .And.Contain(ServiceTokenDecisionReason.TenantMismatch);
+        logs.Entries.Should().OnlyContain(e => !e.Message.Contains("eyJ"), "no token content in the log");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_ServiceTokenDecisions_AreCounted()
+    {
+        var measurements = new List<(long Value, string? Outcome, string? Reason)>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, l) =>
+        {
+            if (instrument.Meter.Name == McpServiceTokenDecisionMetrics.MeterName
+                && instrument.Name == McpServiceTokenDecisionMetrics.CounterName)
+            {
+                l.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((_, value, tags, _) =>
+        {
+            string? outcome = null, reason = null;
+            foreach (var tag in tags)
+            {
+                if (tag.Key == "outcome") outcome = tag.Value as string;
+                if (tag.Key == "reason") reason = tag.Value as string;
+            }
+
+            // Other tests run in parallel and record too; keep only this test's unique reason pair below.
+            lock (measurements)
+            {
+                measurements.Add((value, outcome, reason));
+            }
+        });
+        listener.Start();
+
+        GivenSystemTenantConfigured();
+        GivenServicePrincipalCaller("octo-ai-worker", tenantId: null, "ServiceRole");
+        await RuntimeSecurityContextResolver.ResolveAsync(
+            MockServer.Object, MockTenantResolution.Object, DefaultTestTenantId, TestContext.Current.CancellationToken);
+
+        lock (measurements)
+        {
+            measurements.Should().Contain((1L, "deny", ServiceTokenDecisionReason.NoTenantClaim));
+        }
+    }
+
+    private sealed class CapturingLoggerProvider : ILoggerProvider
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(this);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class CapturingLogger(CapturingLoggerProvider owner) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                lock (owner.Entries)
+                {
+                    owner.Entries.Add((logLevel, formatter(state, exception)));
+                }
+            }
+        }
     }
 
     [Fact]

@@ -743,11 +743,11 @@ validates the route `{tenantId}` against the token's `tenant_id` claim. **Client
 service tokens (no user `sub` claim) are skipped by design** — that is how the AiWorker (token via
 `IMcpTokenIssuer`) and the mesh-adapter `AnthropicAiQueryNode` (token via `ServiceAccountConfiguration`,
 sent as `Authorization: Bearer`) reach any tenant. The tenantless `/mcp` endpoint still requires a
-valid token.
+valid token. (That was the original design; the skip is now staged, see below, and the in-tool gate binds
+every service token to its tenant since AB#9189.)
 
-> **The CC exemption is broader than those two components.** `ValidateAudience = false` means *any*
-> client-credentials client of this authority passes the transport check and is then skipped here —
-> see *Blast radius of the CC-token exemption (AB#5032)* below.
+> `ValidateAudience = false` means *any* client-credentials client of this authority passes the transport
+> check — see *Client-credentials tokens are tenant-bound (AB#9189)* below for what stops it in the tools.
 
 **The skip is staged and operator-settable — and this service now reads that setting (AB#5047).**
 Since AB#5032 the middleware no longer hard-codes the exemption: identity stamps a `tenant_id` claim
@@ -867,7 +867,7 @@ the same user sees the same data through MCP and through GraphQL:
 - **Subject** — `sub` → `ClaimTypes.NameIdentifier` → `client_id`. `ConfigureJwtBearerOptions`
   leaves `MapInboundClaims` at its ASP.NET default of `true`, so a JWT `sub` reaches the principal
   as `ClaimTypes.NameIdentifier`; probing only `"sub"` would misclassify every user token as a
-  service token and hand it the CC exemption below.
+  service token and put it on the service-token path below.
 - **Roles** — the union of each identity's `RoleClaimType` and the JWT short name `"role"`,
   de-duplicated. Same reason: inbound mapping may or may not have renamed them.
 - **Tenant** — `tenant_id` is not in the inbound claim map, so it keeps its JWT name.
@@ -905,7 +905,7 @@ things happen in order, and each one can deny:
    (opaque) home token fails this too. Otherwise: `…denied: the stored session token does not belong
    to the authenticated caller.` Since AB#5036 this check lives in `McpSessionContext` (constant
    `Constants.SessionTokenNotBoundError`) and applies to **all three tool families**, so the resolver
-   just propagates the message; client-credentials principals are exempt (see below).
+   just propagates the message; client-credentials principals never reach this path (see below).
 2. **Exchange.** `McpSessionContext.TryGetAccessTokenAsync(server, tenantId)` performs / caches the
    exchange. A `null` result gets its **own** message — `…denied: the cross-tenant token exchange
    failed. The caller is homed in tenant 'A' and has no permission for 'B'…` — deliberately **not**
@@ -919,28 +919,49 @@ On success the context is built from the **exchanged** token — `ForUser(shadow
 shadow roles)`. The identity in B is the B-shadow user, so reusing the A principal here would leak
 A's roles into B.
 
-#### Blast radius of the CC-token exemption (AB#5032)
+#### Client-credentials tokens are tenant-bound (AB#9189)
 
-The exemption is **not** limited to the AI Adapter worker (`IMcpTokenIssuer`) and the mesh-adapter
-`AnthropicAiQueryNode` (`ServiceAccountConfiguration`), even though those are the components that
-need it. Because `ConfigureJwtBearerOptions` sets `ValidateAudience = false`, **any**
-client-credentials client of this authority passes the transport gate, and is then exempt from the
-tenant gate here — it reaches every tenant as `ForUser(its client_id, its roles)`. Tightening this
-(audience validation, or an allow-list of service client ids) is tracked as **AB#5032**. Until it
-lands the exemption must not be removed or the AI worker loses access to every tenant it serves.
+Until AB#9189 the in-tool gate exempted every client-credentials token (no `sub`): it returned
+`ForUser(client_id, roles)` for whatever tenant the tool parameter named. Because `ValidateAudience = false`,
+any client of this authority with scope `octo_api` passed the transport gate, so a tenant admin of A could
+create such a client in A and read and write B's runtime data (CRUD including `*_secrets`, aggregation,
+stream data, schema discovery, knowledge) — on `/A/mcp` with `tenantId=B` (the tool parameter wins over the
+route in `TenantResolutionService`, and the HTTP gate only sees the route) and on the tenantless `/mcp` (no
+route tenant to check). The family-1 tools were not affected (the backend enforces the tenant).
 
-> The **endpoint** half of AB#5032 has landed (see *Endpoint scope policy* above): a client-credentials
-> client now needs the `octo_api` scope to reach the transport at all, which narrows "any client of
-> this authority" to "any client provisioned with the platform write scope". The tenant-gate exemption
-> itself is unchanged and is being tightened separately, outside this repo.
->
+Now `RuntimeSecurityContextResolver.ResolveServicePrincipal` applies the **exact tenant match** to service
+tokens too:
+
+| Token | Target tenant | Result |
+|---|---|---|
+| service token with `tenant_id` = target | any | allowed, `ForUser(client_id, roles)` |
+| service token without `tenant_id` | any | denied (`…carries no 'tenant_id' claim`) |
+| service token of tenant A | B | denied (`…is issued for tenant 'A'. A client-credentials token can only act on its own tenant…`) |
+| client `Mcp:AiServiceClientId` (default `octo-ai-adapter`, exact, case-sensitive) issued for `System:SystemTenantId` | any | allowed — the **only** cross-tenant pair |
+| same client id issued for any other tenant | another tenant | denied (client ids are unique per tenant only) |
+
+- No pattern, no list from outside without the issuer. `OCTO_MCP__AISERVICECLIENTID` replaces the id; empty
+  switches the exception off. A host that bound neither `OctoSystemConfiguration` nor the option denies (fail
+  closed). A service token never takes the cross-tenant exchange path.
+- Tenant-bound callers keep working: the AI worker (`IMcpTokenIssuer`, one token per tenant with
+  `acr_values=tenant:{tenantId}`), the mesh-adapter node (its tenant's service account) and agent clients that
+  request one token per tenant (e.g. `claude-agent-<user>-<host>` with `acr_values tenant:<id>` on
+  `/<id>/mcp`).
+- **Every decision is logged** (client id, token tenant, target tenant, outcome, reason; allow at
+  Information, deny at Warning; no token content) and counted in
+  `octo.tenant_auth.mcp_service_token_decisions{outcome, reason}` (meter `Meshmakers.Octo.TenantAuthorization`,
+  exported by `AddObservability()`; `McpServiceTokenDecisionMetrics`). Reasons: `same_tenant`,
+  `ai_service_client_of_system_tenant`, `tenant_mismatch`, `no_tenant_claim`.
+- Not in this change: the shared `CrossTenantServiceClientIds` allow-list of the **HTTP** gate
+  (octo-common-services) still matches `client_id` without the issuer tenant; it is empty on every cluster.
+  Pairing it with the issuer is the follow-up of AB#9189.
+
 > Careful with "tenant gate" — there are two. The **HTTP** one (`TenantAuthorizationMiddleware`,
 > route `{tenantId}` vs. `tenant_id` claim) is the one AB#5032 staged behind
-> `ServiceTokenEnforcement`, and since AB#5047 this service binds that setting — which since
-> AB#5077 defaults to `Enforce`, so it is narrowed here by default. The **in-tool**
-> one described in this section (`RuntimeSecurityContextResolver.ResolveTenantAccessAsync`, which
-> guards the tenant named in a *tool parameter*) still exempts CC tokens unconditionally and is
-> unaffected by that variable.
+> `ServiceTokenEnforcement`; since AB#5047 this service binds that setting, which defaults to `Enforce`
+> since AB#5077. The **in-tool** one described in this section (`RuntimeSecurityContextResolver`, which
+> guards the tenant named in a *tool parameter*) is independent of that variable and always enforces the
+> table above. The endpoint half of AB#5032 (scope `octo_api` required) still applies in front of both.
 
 #### Call sites
 
@@ -1078,8 +1099,8 @@ re-applied to a refreshed token, so an expired foreign token cannot be laundered
 > subject match is not a question that can be asked of it. The AI Adapter worker (`IMcpTokenIssuer`)
 > and the mesh-adapter `AnthropicAiQueryNode` (`ServiceAccountConfiguration`) present their token in
 > the `Authorization` header and never populate the store; requiring a subject would lock both out of
-> every tenant. Their store namespace is their `client_id`. Same exemption, same reason as the tenant
-> gate — tightening it is AB#5032.
+> every tenant. Their store namespace is their `client_id`. The tenant they may act on is decided by the
+> tenant gate (*Client-credentials tokens are tenant-bound (AB#9189)*), not here.
 
 **Device flow under the binding.** `authenticate` and `check_auth_status` land on the same key because
 the principal is the same across the two calls. But a device login against a **different** tenant
@@ -1454,7 +1475,7 @@ src/McpServices/
 ├── Program.cs                          # Composition root + endpoint mapping
 ├── appsettings.json                    # Includes OctoServiceUrls section
 ├── Options/
-│   ├── McpServiceOptions.cs            # MCP-server-specific options (incl. RequiredApiScopes, AB#5032)
+│   ├── McpServiceOptions.cs            # MCP-server-specific options (incl. RequiredApiScopes, AB#5032; AiServiceClientId, AB#9189)
 │   ├── KnowledgeFetchOptions.cs        # Knowledge-source fetch policy (AB#5037)
 │   └── OctoServiceUrlOptions.cs        # Backend service URLs
 ├── Configuration/
