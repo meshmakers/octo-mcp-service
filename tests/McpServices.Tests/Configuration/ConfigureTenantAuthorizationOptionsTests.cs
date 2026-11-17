@@ -119,6 +119,18 @@ public class ConfigureTenantAuthorizationOptionsTests
     }
 
     [Fact]
+    public async Task CaseVariantOfTheClientId_FromTheSystemTenant_IsRefusedOnAForeignRoute()
+    {
+        // The shared allow-list matches case-insensitively, the trusted pair of the in-tool gate (AB#9189) exactly:
+        // the route gate must not admit what the tools would refuse.
+        using var host = await StartHostAsync();
+
+        var response = await SendAsync(host, OtherTenant, clientId: "OCTO-AI-ADAPTER", tokenTenant: SystemTenant);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
     public async Task SameClientIdCreatedInAnotherTenant_StillWorksOnItsOwnRoute()
     {
         using var host = await StartHostAsync();

@@ -195,12 +195,9 @@ internal static class RuntimeSecurityContextResolver
     {
         var services = server.Services;
         var systemTenantId = services?.GetService<IOptions<OctoSystemConfiguration>>()?.Value.SystemTenantId;
-        var aiClientId = services?.GetService<IOptions<McpServiceOptions>>()?.Value.AiServiceClientId?.Trim();
+        var aiClientId = services?.GetService<IOptions<McpServiceOptions>>()?.Value.AiServiceClientId;
 
-        return !string.IsNullOrWhiteSpace(systemTenantId)
-               && !string.IsNullOrEmpty(aiClientId)
-               && string.Equals(caller.TenantId, systemTenantId, StringComparison.OrdinalIgnoreCase)
-               && string.Equals(caller.ClientId, aiClientId, StringComparison.Ordinal);
+        return AiServiceClientTrust.IsTrustedPair(caller, aiClientId, systemTenantId);
     }
 
     private static void LogServiceTokenDecision(

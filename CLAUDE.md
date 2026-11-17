@@ -782,20 +782,22 @@ the id is not added twice (case-insensitive); empty switches the entry off. The 
 in octo-common-services, whose list stays empty for every other host. An allow-listed token also skips
 the tenant generation check (AB#8999), like any allow-listed client.
 
-🔴 **The entry is bound to the system tenant by `Configuration/AiServiceClientTenantGuard`.** The shared
-gate matches the allow-list by `client_id` alone, and client ids are unique only per tenant: a tenant
-administrator could create a client `octo-ai-adapter` in their own tenant and its token would pass every
-other tenant's route (and then act there with its roles, `RuntimeSecurityContextResolver` exempts service
-tokens). The guard runs right before `UseOctoTenantAuthorization()` and answers 403 for a service token of
-that client id whose `tenant_id` is not `System:SystemTenantId` when it addresses a foreign route tenant;
-on its own tenant's route such a client works like any tenant client. Keep the guard whenever the entry
-exists. Not closed here (pre-existing, AB#5032): the **tool parameter** `tenantId` on a route the token may
-use still exempts every service token in `RuntimeSecurityContextResolver`.
+🔴 **The entry is bound to the trusted pair by `Configuration/AiServiceClientTenantGuard`.** The shared
+gate matches the allow-list by `client_id` alone (case-insensitive), and client ids are unique only per
+tenant: a tenant administrator could create a client `octo-ai-adapter` in their own tenant and its token
+would pass every other tenant's route. The in-tool gate would still refuse its tool calls (AB#9189, next
+section), but the route gate must not open wider than the trust. The guard runs right before
+`UseOctoTenantAuthorization()`, reads the caller with the same `McpCallerPrincipal` as the in-tool gate and
+answers 403 for a service token whose client id the entry would admit but that is not the trusted pair
+(`Services/AiServiceClientTrust.IsTrustedPair`: exact id, token of `System:SystemTenantId` - the same helper
+`RuntimeSecurityContextResolver` uses), when it addresses a foreign route tenant; on its own tenant's route
+such a client works like any tenant client. Keep the guard whenever the entry exists.
 
 Tests: `Configuration/ConfigureTenantAuthorizationOptionsTests` (option rules, plus a TestServer with the
 guard and the real `UseOctoTenantAuthorization`: `octo-ai-adapter` with a system-tenant token gets 200 on
 another tenant's route, another client 403, the same id created in another tenant 403 on a foreign route
-and 200 on its own, 403 with the entry switched off, a `*` pattern stops the start).
+and 200 on its own, a case variant of the id from the system tenant 403, 403 with the entry switched off, a
+`*` pattern stops the start) and `Services/AiServiceClientTrustTests` (the shared pair).
 
 The transport gate only sees the **route** tenant. The per-tool-param cross-tenant hole it leaves
 open is closed by `RuntimeSecurityContextResolver` (AB#5030, next section).
@@ -986,9 +988,11 @@ tokens too:
   `octo.tenant_auth.mcp_service_token_decisions{outcome, reason}` (meter `Meshmakers.Octo.TenantAuthorization`,
   exported by `AddObservability()`; `McpServiceTokenDecisionMetrics`). Reasons: `same_tenant`,
   `ai_service_client_of_system_tenant`, `tenant_mismatch`, `no_tenant_claim`.
-- Not in this change: the shared `CrossTenantServiceClientIds` allow-list of the **HTTP** gate
-  (octo-common-services) still matches `client_id` without the issuer tenant; it is empty on every cluster.
-  Pairing it with the issuer is the follow-up of AB#9189.
+- The **HTTP** gate's shared `CrossTenantServiceClientIds` allow-list (octo-common-services) still matches
+  `client_id` without the issuer tenant. This service adds only `Mcp:AiServiceClientId` to it and binds that
+  entry to the same trusted pair with `AiServiceClientTenantGuard` (AB#9188, section *One default allow-list
+  entry* above); both gates decide with `AiServiceClientTrust.IsTrustedPair`. Pairing the shared list with the
+  issuer for every host is the follow-up of AB#9189.
 
 > Careful with "tenant gate" — there are two. The **HTTP** one (`TenantAuthorizationMiddleware`,
 > route `{tenantId}` vs. `tenant_id` claim) is the one AB#5032 staged behind
