@@ -115,5 +115,19 @@ of `McpServices`. Every public type, property, and method on a new tool class ne
 - **Don't write to `Console`** or rely on `ILogger` for user-visible output. Use the `Message` / `ErrorMessage` fields
   of the response envelope.
 - **Don't share SDK clients across requests.** Per-tenant `ServiceUri` caching makes this unsafe.
-- **Don't manually parse JWT tokens** outside `IdentityTools.cs`. Use the existing pattern
-  (`JwtSecurityTokenHandler`) — or better, lift it into a helper if a third call site appears.
+- **Don't parse JWT tokens by hand.** The caller's identity comes from the validated request principal through
+  `Services/McpCallerPrincipal.cs`; claims of an access token are read through `Services/JwtClaimReader.cs`. Add no
+  further `JwtSecurityTokenHandler` call site (`IdentityTools.cs` and `AuthenticationTools.cs` still hold their own).
+- **A direct-engine tool (family 2 or 3) acts as its caller.** Resolve the tenant and the security context with
+  `RuntimeSecurityContextResolver` and open the session with that context; never the parameterless
+  `GetSessionAsync()` and never `RtSecurityContext.System`: `docs/tenant-gate.md`.
+- **A client or HTTP call routed to a tenant uses the tenant overload of the token resolution**
+  (`ResolveAccessTokenAsync(server, tenantId)`); a failed exchange is an error, never a fallback to the home token:
+  `docs/authentication.md`.
+- **Both MCP endpoints keep the transport policy, and a controller carries its own `[Authorize]`**; nothing in
+  `Program.cs` gates a controller: `docs/authentication.md`.
+- **Decide the `[McpRisk]` level of a new tool with its implementation.** A tool without the attribute counts as
+  `Low` and runs without approval: `docs/tool-conventions.md`, section 8.
+- **Knowledge pages are written only by the knowledge tools**, through the content guard; the generic write tools
+  refuse those types: `docs/knowledge-write-guards.md`.
+- **No token, secret or password in a response, an error message or a log line**: `docs/ck-method-clients.md`.
