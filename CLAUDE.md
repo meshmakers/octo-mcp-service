@@ -778,9 +778,14 @@ runner of octo-ai-services (AB#9168) mints **one system-tenant token** and calls
 system tenant itself) to `CrossTenantServiceClientIds`. Rules: exact id only (a value with `*` throws
 `OptionsValidationException` at startup, `ValidateOnStart` - a pattern or a lone `*` would exempt every
 client); operator entries from `OCTO_TENANTAUTHORIZATION__CROSSTENANTSERVICECLIENTIDS__<n>` stay and
-the id is not added twice (case-insensitive); empty switches the entry off. The default lives here, not
-in octo-common-services, whose list stays empty for every other host. An allow-listed token also skips
-the tenant generation check (AB#8999), like any allow-listed client.
+the id is not added twice (case-insensitive); empty drops the default entry and its guard (an entry an operator
+sets for the same id is then the operator's alone and unguarded on the route; the in-tool gate still refuses
+foreign tenants). The default lives here, not in octo-common-services, whose list stays empty for every other
+host. An allow-listed token also skips the route gate's tenant generation check (AB#8999), like any
+allow-listed client; for the trusted pair that means a token of a deleted and re-created system tenant is not
+refused there (the system tenant is not re-created in practice). Registration: `AddAiServiceClientTenantTrust()`
+and `UseAiServiceClientTenantGuard()` (`Configuration/AiServiceClientTenantTrustExtensions`), the same calls in
+`Program.cs` and in the tests.
 
 🔴 **The entry is bound to the trusted pair by `Configuration/AiServiceClientTenantGuard`.** The shared
 gate matches the allow-list by `client_id` alone (case-insensitive), and client ids are unique only per
@@ -791,13 +796,15 @@ section), but the route gate must not open wider than the trust. The guard runs 
 answers 403 for a service token whose client id the entry would admit but that is not the trusted pair
 (`Services/AiServiceClientTrust.IsTrustedPair`: exact id, token of `System:SystemTenantId` - the same helper
 `RuntimeSecurityContextResolver` uses), when it addresses a foreign route tenant; on its own tenant's route
-such a client works like any tenant client. Keep the guard whenever the entry exists.
+such a client works like any tenant client. It acts only while `ServiceTokenEnforcement` is `Enforce` (the
+default); in `LogOnly`/`Disabled` the route gate admits every service token anyway. Keep the guard whenever the
+entry exists.
 
 Tests: `Configuration/ConfigureTenantAuthorizationOptionsTests` (option rules, plus a TestServer with the
 guard and the real `UseOctoTenantAuthorization`: `octo-ai-adapter` with a system-tenant token gets 200 on
 another tenant's route, another client 403, the same id created in another tenant 403 on a foreign route
-and 200 on its own, a case variant of the id from the system tenant 403, 403 with the entry switched off, a
-`*` pattern stops the start) and `Services/AiServiceClientTrustTests` (the shared pair).
+and 200 on its own, a case variant of the id from the system tenant 403, a token without `tenant_id` 403, the
+guard steps aside in `LogOnly`, 403 with the entry switched off, a `*` pattern stops the start) and `Services/AiServiceClientTrustTests` (the shared pair).
 
 The transport gate only sees the **route** tenant. The per-tool-param cross-tenant hole it leaves
 open is closed by `RuntimeSecurityContextResolver` (AB#5030, next section).

@@ -131,6 +131,27 @@ public class ConfigureTenantAuthorizationOptionsTests
     }
 
     [Fact]
+    public async Task AiServiceClientTokenWithoutTenantClaim_IsRefusedOnARoute()
+    {
+        using var host = await StartHostAsync();
+
+        var response = await SendAsync(host, OtherTenant, clientId: "octo-ai-adapter", tokenTenant: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden, "a token without tenant cannot be the trusted pair");
+    }
+
+    [Fact]
+    public async Task Guard_StepsAside_WhenTheRouteGateIsNotEnforcing()
+    {
+        // LogOnly: the route gate admits every service token (and logs); the in-tool gate (AB#9189) refuses the tools.
+        using var host = await StartHostAsync(enforcement: "LogOnly");
+
+        var response = await SendAsync(host, OtherTenant, clientId: "octo-ai-adapter", tokenTenant: "tenant-a");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task SameClientIdCreatedInAnotherTenant_StillWorksOnItsOwnRoute()
     {
         using var host = await StartHostAsync();
@@ -161,13 +182,16 @@ public class ConfigureTenantAuthorizationOptionsTests
     }
 
     private static async Task<HttpResponseMessage> SendAsync(IHost host, string routeTenant, string clientId,
-        string tokenTenant)
+        string? tokenTenant)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"/{routeTenant}/mcp");
         // The gate only looks at bearer requests; the test scheme below builds the principal from these headers.
         request.Headers.Add("Authorization", "Bearer test-token");
         request.Headers.Add(TestServiceTokenHandler.ClientIdHeader, clientId);
-        request.Headers.Add(TestServiceTokenHandler.TenantIdHeader, tokenTenant);
+        if (tokenTenant != null)
+        {
+            request.Headers.Add(TestServiceTokenHandler.TenantIdHeader, tokenTenant);
+        }
         return await host.GetTestClient().SendAsync(request, TestContext.Current.CancellationToken);
     }
 
@@ -176,16 +200,22 @@ public class ConfigureTenantAuthorizationOptionsTests
     ///     (section <c>TenantAuthorization</c>, empty here as on a cluster without values), the AB#9188 post-configuration and
     ///     <c>UseOctoTenantAuthorization</c> after authentication, in front of a stand-in <c>/{tenantId}/mcp</c> endpoint.
     /// </summary>
-    private static async Task<IHost> StartHostAsync(string? aiServiceClientId = null)
+    private static async Task<IHost> StartHostAsync(string? aiServiceClientId = null, string? enforcement = null)
     {
-        var host = BuildHost(aiServiceClientId);
+        var host = BuildHost(aiServiceClientId, enforcement);
         await host.StartAsync(TestContext.Current.CancellationToken);
         return host;
     }
 
-    private static IHost BuildHost(string? aiServiceClientId)
+    private static IHost BuildHost(string? aiServiceClientId, string? enforcement = null)
     {
-        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>()).Build();
+        var settings = new Dictionary<string, string?>();
+        if (enforcement != null)
+        {
+            settings["TenantAuthorization:ServiceTokenEnforcement"] = enforcement;
+        }
+
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
         var host = new HostBuilder()
             .ConfigureWebHost(web => web
                 .UseTestServer()
@@ -202,9 +232,7 @@ public class ConfigureTenantAuthorizationOptionsTests
                     });
                     services.Configure<OctoSystemConfiguration>(o => o.SystemTenantId = SystemTenant);
                     services.AddOctoTenantAuthorization(configuration);
-                    services.AddSingleton<IPostConfigureOptions<TenantAuthorizationOptions>,
-                        ConfigureTenantAuthorizationOptions>();
-                    services.AddOptions<TenantAuthorizationOptions>().ValidateOnStart();
+                    services.AddAiServiceClientTenantTrust();
                     services.AddAuthentication(TestServiceTokenHandler.SchemeName)
                         .AddScheme<AuthenticationSchemeOptions, TestServiceTokenHandler>(TestServiceTokenHandler.SchemeName,
                             _ => { });
@@ -213,7 +241,7 @@ public class ConfigureTenantAuthorizationOptionsTests
                 {
                     app.UseRouting();
                     app.UseAuthentication();
-                    app.UseMiddleware<AiServiceClientTenantGuard>();
+                    app.UseAiServiceClientTenantGuard();
                     app.UseOctoTenantAuthorization();
                     app.UseEndpoints(endpoints =>
                         endpoints.MapPost("/{tenantId}/mcp", () => Results.Ok()));
@@ -237,12 +265,13 @@ public class ConfigureTenantAuthorizationOptionsTests
 
         protected override Task<AuthenticateResult> HandleAuthenticateAsync()
         {
-            var claims = new List<Claim>
+            // A claim is emitted only when its header is present, so a token without tenant_id can be tested.
+            var claims = new List<Claim> { new("client_id", Request.Headers[ClientIdHeader].ToString()), new("scope", "octo_api") };
+            if (Request.Headers.TryGetValue(TenantIdHeader, out var tenantId))
             {
-                new("client_id", Request.Headers[ClientIdHeader].ToString()),
-                new("tenant_id", Request.Headers[TenantIdHeader].ToString()),
-                new("scope", "octo_api")
-            };
+                claims.Add(new Claim("tenant_id", tenantId.ToString()));
+            }
+
             var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, "Bearer"));
             return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(principal, SchemeName)));
         }

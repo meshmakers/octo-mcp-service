@@ -2,6 +2,7 @@ using Meshmakers.Octo.Backend.McpServices.Options;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Configuration;
 using Meshmakers.Octo.Services.Infrastructure;
+using Meshmakers.Octo.Services.Infrastructure.Configuration;
 using Microsoft.Extensions.Options;
 
 namespace Meshmakers.Octo.Backend.McpServices.Configuration;
@@ -16,18 +17,28 @@ namespace Meshmakers.Octo.Backend.McpServices.Configuration;
 ///     refused by the in-tool gate, but the route gate must not open wider than the trust). It runs right before
 ///     <c>UseOctoTenantAuthorization</c> and answers 403 for a service token whose client id the entry would admit but
 ///     that is not the trusted pair, when it addresses a foreign route tenant. On its own tenant's route such a client
-///     works like any tenant client.
+///     works like any tenant client. It acts only while <c>ServiceTokenEnforcement</c> is <c>Enforce</c> (the default):
+///     in <c>LogOnly</c>/<c>Disabled</c> the route gate admits every service token anyway.
 /// </summary>
 internal sealed class AiServiceClientTenantGuard(
     RequestDelegate next,
     IOptions<McpServiceOptions> mcpServiceOptions,
     IOptions<OctoSystemConfiguration> systemConfiguration,
+    IOptions<TenantAuthorizationOptions> tenantAuthorizationOptions,
     ILogger<AiServiceClientTenantGuard> logger)
 {
     /// <summary>Middleware entry point.</summary>
     public async Task InvokeAsync(HttpContext context)
     {
         var aiClientId = mcpServiceOptions.Value.AiServiceClientId?.Trim();
+        // Only where the route gate itself refuses foreign service tokens (Enforce, the default); in LogOnly/Disabled the
+        // route gate admits every service token anyway and the in-tool gate (AB#9189) still refuses the tool calls.
+        if (tenantAuthorizationOptions.Value.ServiceTokenEnforcement != ServiceTokenTenantEnforcementMode.Enforce)
+        {
+            await next(context);
+            return;
+        }
+
         // The same claim reader as the in-tool gate (sub/NameIdentifier, client_id, tenant_id); only bearer principals,
         // like the shared route gate.
         var caller = context.User.Identity?.AuthenticationType is { } authType &&
