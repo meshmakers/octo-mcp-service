@@ -1,5 +1,5 @@
 ---
-description: Rules for every MCP tool: tests, ClientContext helpers, signature, response envelope, confirm gate, risk level, locking, new-tool checklist.
+description: Rules for every MCP tool, covering tests, ClientContext helpers, signature, response envelope, confirm gate, risk level, locking, new-tool checklist.
 applies_to: src/McpServices/**, src/McpServices.Resources/**, tests/McpServices.Tests/Tools/**
 ---
 
@@ -75,7 +75,7 @@ public class MyResponse
 }
 ```
 
-- **Never throw** out of a tool. Catch exceptions and put `ex.Message` into `ErrorMessage`. The MCP framework will serialise whatever you return.
+- **Never throw** out of a tool. Catch exceptions and put `ex.Message` into `ErrorMessage`. Exception text of a backend call can carry credentials (a backend error page echoed the caller's bearer token): a tool that handles passwords, secrets or tokens passes it through `ErrorTextRedactor.Redact` first (`ck-method-clients.md`). The MCP framework will serialise whatever you return.
 - **Never write to `Console.WriteLine`** or `ILogger.LogInformation` for user-visible output. The MCP transport doesn't surface stdout to the AI client.
 - `IsSuccess = false` + `ErrorMessage` is how you communicate problems. The AI client reads these and reasons about next steps.
 

@@ -103,8 +103,9 @@ import's own pre-write checks against the tenant (engine `ITenantContext.Validat
 system reference / dependency resolution 8492 with `parameters.reason`) and, without errors, the tenant upgrade guard (`isBlocked`,
 `blockers`). Result: `isValid`, `modelId`, `sourceKind` (`Source`/`Compiled`), `errors`/`warnings` with `messageNumber`, `level`,
 `file` (relative to `ConstructionKit/`, never a server path), `elementPath`, `message`, `parameters`. A missing dependency is an error
-in the list, never a failed call. Risk **Low** (nothing is written). The upload is **kept** (unlike the import tools), so an agent can fix
-and validate again. Tests: `CkModelValidationToolsTests`.
+in the list, never a failed call. Risk **Low** (nothing is written). The upload is **kept** (unlike the import tools), so the same
+upload can be validated again unchanged. A corrected draft needs a new `prepare_file_upload` and a new PUT: the first PUT
+consumes the reservation, a second PUT on the same id answers 404. Tests: `CkModelValidationToolsTests`.
 
 ### Service-managed CK models — don't use import_ck_from_catalog
 

@@ -1,5 +1,5 @@
 ---
-description: Design sketch of the apply_custom_app_scaffold tool: scope, input, templates and commit plan.
+description: Design sketch of the apply_custom_app_scaffold tool with its scope, input, templates and commit plan.
 background: true
 ---
 

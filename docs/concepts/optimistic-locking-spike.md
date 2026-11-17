@@ -1,5 +1,5 @@
 ---
-description: Design spike for optimistic locking on entity writes: options, trade-offs and the chosen option behind expected_version.
+description: Design spike for optimistic locking on entity writes with the options, trade-offs and the chosen option behind expected_version.
 background: true
 ---
 

@@ -105,8 +105,9 @@ of `McpServices`. Every public type, property, and method on a new tool class ne
 
 - **This repository is public.** No work item ids, internal hostnames, customer or tenant names, or secrets in code
   comments, docs or test names.
-- **Don't bypass `*ClientContext` helpers.** Even if you only need one tenant for one call, go through them — they
-  enforce auth + tenant resolution + factory routing uniformly.
+- **Don't bypass `*ClientContext` helpers in a platform-admin tool (family 1).** Even if you only need one tenant for
+  one call, go through them — they enforce auth + tenant resolution + factory routing uniformly. Family 2 and 3 do
+  not use them; their rule is the direct-engine rule below.
 - **Don't add a tool without tests.** The "I'll add tests later" pattern hasn't held up in this codebase; every commit
   landed with its tests in the same commit.
 - **Don't accept base64-encoded file content as a tool parameter.** Use the file-transfer endpoints. They handle

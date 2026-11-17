@@ -8,7 +8,8 @@ applies_to: **/Tools/KnowledgeTools.cs, **/Services/Knowledge/**, **/Resources/K
 `Tools/KnowledgeTools.cs` (family 2, caller session) + `Services/Knowledge/KnowledgePages.cs` (model ids, content read/write,
 markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.7.0 (`octo-ai-services/src/SystemAiCkModel/README.md`); a tenant without them gets a clear error naming System.Ai 4.7.0.
 
-- **Every page write goes through `KnowledgePages.BuildWrite`**: page insert/update plus a new `KnowledgePageVersion`
+- **Every page write goes through `KnowledgePages.BuildWrite`** (one exception: `knowledge_adopt_platform_updates`
+  writes no version, see `docs/knowledge-write-guards.md`): page insert/update plus a new `KnowledgePageVersion`
   (`rtWellKnownName` `<slug>@t<n>` - the tenant key namespace; `<slug>@<n>` is the blueprint's, read both with
   `KnowledgePages.VersionNames` / `FindVersionAsync`; full content, `Author` = `user:<sub>` or `client:<client_id>`, `AuthoredAt`, `ChangeNote`,
   run metadata) and the `VersionOf` association, in one transaction. The page's `CurrentVersion` points at it. A restore writes
@@ -28,7 +29,8 @@ markdown rendering) + `Resources/KnowledgePageResources.cs`. Types: System.Ai 4.
   refuses `Verified` for **every** caller, user token included (`VerifiedNotAllowedOverMcp`; MCP callers are always AI clients, also in a user's session). The check runs before the tenant is opened. A person
   sets `Verified` outside MCP with octo-cli `SetKnowledgePageStatus` (user login only; writes the page status and a
   `KnowledgePageVersion` in one GraphQL mutation) or GraphQL; later the Refinery Studio review view. No knowledge tool path
-  leads to `Verified` any more (upsert and restore write `Draft`), and the generic tools are closed (`docs/knowledge-write-guards.md`).
+  sets `Verified` on content the tenant wrote (upsert and restore write `Draft`; `knowledge_adopt_platform_updates` only copies the
+  status of a seeded Blueprint version, which can be `Verified`, `docs/knowledge-write-guards.md`), and the generic tools are closed (`docs/knowledge-write-guards.md`).
 - **Content hash contract**: `ContentHash` = SHA-256 (lower-case hex) of `Render(content, slug, 0)`. octo-cli
   `SetKnowledgePageStatus` recomputes it with a port of `Render`; both repos pin the same golden hash
   (`Services/Knowledge/KnowledgeContentHashGoldenTests` here). Changing `Render` means changing the octo-cli port in the same step.

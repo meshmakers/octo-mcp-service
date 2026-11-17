@@ -1,5 +1,5 @@
 ---
-description: Generic CK tools (family 2 and 3): create replaced by a method, CK attribute access guards, hidden attributes, paging limits of the query tools.
+description: Generic CK tools (family 2 and 3), covering create replaced by a method, CK attribute access guards, hidden attributes, paging limits of the query tools.
 applies_to: **/Tools/{RuntimeEntity,SchemaDiscovery}*.cs, **/Services/{Attribute,AccessAware,GenericCreate,QueryPaging,CkTypeId}*.cs, **/Architecture/**
 ---
 
