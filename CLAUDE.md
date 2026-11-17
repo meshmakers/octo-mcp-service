@@ -764,9 +764,47 @@ one fleet-wide value reaches all five. Calling `UseOctoTenantAuthorization()` **
 the environment variable is inert — the service keeps `LogOnly` while the rest of the estate moves
 to `Enforce`. Semantics and rollout rules: `octo-common-services/CLAUDE.md`.
 
-Both platform consumers that need cross-tenant reach already mint **tenant-bound** tokens
-(`IMcpTokenIssuer` with `acr_values=tenant:{tenantId}`, the mesh adapter with its own
-`ServiceAccountConfiguration`), so they pass the match on their own and need no allow-list entry.
+The mesh adapter mints **tenant-bound** tokens (its own `ServiceAccountConfiguration`) and the AI
+service's per-session tokens are tenant-bound as well (`IMcpTokenIssuer` with
+`acr_values=tenant:{tenantId}`), so they pass the match on their own.
+
+**One default allow-list entry: the AI service's client (AB#9188).** The knowledge platform update
+runner of octo-ai-services (AB#9168) mints **one system-tenant token** and calls
+`knowledge_adopt_platform_updates` on `/{tenantId}/mcp` of every AI tenant (decision Gerald
+2026-11-16: an explicit entry, no blanket exemption). `Configuration/ConfigureTenantAuthorizationOptions`
+(an `IPostConfigureOptions<TenantAuthorizationOptions>` registered right after
+`AddOctoTenantAuthorization`) appends `McpServiceOptions.AiServiceClientId` (`Mcp:AiServiceClientId`,
+`OCTO_MCP__AISERVICECLIENTID`, default `octo-ai-adapter` = the client the AI service registers in the
+system tenant itself) to `CrossTenantServiceClientIds`. Rules: exact id only (a value with `*` throws
+`OptionsValidationException` at startup, `ValidateOnStart` - a pattern or a lone `*` would exempt every
+client); operator entries from `OCTO_TENANTAUTHORIZATION__CROSSTENANTSERVICECLIENTIDS__<n>` stay and
+the id is not added twice (case-insensitive); empty drops the default entry and its guard (an entry an operator
+sets for the same id is then the operator's alone and unguarded on the route; the in-tool gate still refuses
+foreign tenants). The default lives here, not in octo-common-services, whose list stays empty for every other
+host. An allow-listed token also skips the route gate's tenant generation check (AB#8999), like any
+allow-listed client; for the trusted pair that means a token of a deleted and re-created system tenant is not
+refused there (the system tenant is not re-created in practice). Registration: `AddAiServiceClientTenantTrust()`
+and `UseAiServiceClientTenantGuard()` (`Configuration/AiServiceClientTenantTrustExtensions`), the same calls in
+`Program.cs` and in the tests.
+
+🔴 **The entry is bound to the trusted pair by `Configuration/AiServiceClientTenantGuard`.** The shared
+gate matches the allow-list by `client_id` alone (case-insensitive), and client ids are unique only per
+tenant: a tenant administrator could create a client `octo-ai-adapter` in their own tenant and its token
+would pass every other tenant's route. The in-tool gate would still refuse its tool calls (AB#9189, next
+section), but the route gate must not open wider than the trust. The guard runs right before
+`UseOctoTenantAuthorization()`, reads the caller with the same `McpCallerPrincipal` as the in-tool gate and
+answers 403 for a service token whose client id the entry would admit but that is not the trusted pair
+(`Services/AiServiceClientTrust.IsTrustedPair`: exact id, token of `System:SystemTenantId` - the same helper
+`RuntimeSecurityContextResolver` uses), when it addresses a foreign route tenant; on its own tenant's route
+such a client works like any tenant client. It acts only while `ServiceTokenEnforcement` is `Enforce` (the
+default); in `LogOnly`/`Disabled` the route gate admits every service token anyway. Keep the guard whenever the
+entry exists.
+
+Tests: `Configuration/ConfigureTenantAuthorizationOptionsTests` (option rules, plus a TestServer with the
+guard and the real `UseOctoTenantAuthorization`: `octo-ai-adapter` with a system-tenant token gets 200 on
+another tenant's route, another client 403, the same id created in another tenant 403 on a foreign route
+and 200 on its own, a case variant of the id from the system tenant 403, a token without `tenant_id` 403, the
+guard steps aside in `LogOnly`, 403 with the entry switched off, a `*` pattern stops the start) and `Services/AiServiceClientTrustTests` (the shared pair).
 
 The transport gate only sees the **route** tenant. The per-tool-param cross-tenant hole it leaves
 open is closed by `RuntimeSecurityContextResolver` (AB#5030, next section).
@@ -957,9 +995,11 @@ tokens too:
   `octo.tenant_auth.mcp_service_token_decisions{outcome, reason}` (meter `Meshmakers.Octo.TenantAuthorization`,
   exported by `AddObservability()`; `McpServiceTokenDecisionMetrics`). Reasons: `same_tenant`,
   `ai_service_client_of_system_tenant`, `tenant_mismatch`, `no_tenant_claim`.
-- Not in this change: the shared `CrossTenantServiceClientIds` allow-list of the **HTTP** gate
-  (octo-common-services) still matches `client_id` without the issuer tenant; it is empty on every cluster.
-  Pairing it with the issuer is the follow-up of AB#9189.
+- The **HTTP** gate's shared `CrossTenantServiceClientIds` allow-list (octo-common-services) still matches
+  `client_id` without the issuer tenant. This service adds only `Mcp:AiServiceClientId` to it and binds that
+  entry to the same trusted pair with `AiServiceClientTenantGuard` (AB#9188, section *One default allow-list
+  entry* above); both gates decide with `AiServiceClientTrust.IsTrustedPair`. Pairing the shared list with the
+  issuer for every host is the follow-up of AB#9189.
 
 > Careful with "tenant gate" — there are two. The **HTTP** one (`TenantAuthorizationMiddleware`,
 > route `{tenantId}` vs. `tenant_id` claim) is the one AB#5032 staged behind

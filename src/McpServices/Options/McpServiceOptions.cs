@@ -107,12 +107,17 @@ public class McpServiceOptions
         new List<string> { CommonConstants.OctoApiFullAccess };
 
     /// <summary>
-    ///     Client id of the AI service's MCP service client (AB#9189), default <c>octo-ai-adapter</c>
+    ///     Client id of the AI service's MCP service client (AB#9189, AB#9188), default <c>octo-ai-adapter</c>
     ///     (<c>OCTO_MCP__AISERVICECLIENTID</c>). A client-credentials token is bound to the tenant it was issued for;
     ///     the only exception is a token of exactly this client issued for the <b>system tenant</b>
     ///     (<c>System:SystemTenantId</c>), which the AI service uses to call the knowledge tools of every AI tenant.
-    ///     Compared as an exact id (no pattern); a client of the same id in any other tenant gets no exemption. Empty
-    ///     switches the exception off, so every service token is tenant-bound.
+    ///     Compared as an exact id (no pattern); a client of the same id in any other tenant gets no exemption. Both
+    ///     gates honour it: the in-tool gate (<c>RuntimeSecurityContextResolver</c>, AB#9189) and the HTTP route gate,
+    ///     where <see cref="Configuration.ConfigureTenantAuthorizationOptions" /> adds the id to
+    ///     <c>TenantAuthorization:CrossTenantServiceClientIds</c> and <see cref="Configuration.AiServiceClientTenantGuard" />
+    ///     limits that entry to system-tenant tokens (AB#9188); a value containing <c>*</c> stops the start. Empty
+    ///     switches the exception off in the tool gate and drops the default route entry and its guard; an entry an
+    ///     operator sets under <c>TenantAuthorization:CrossTenantServiceClientIds</c> is then the operator's alone.
     /// </summary>
     public string AiServiceClientId { get; set; } = DefaultAiServiceClientId;
 

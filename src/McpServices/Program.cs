@@ -157,6 +157,10 @@ try
     // exemption of UseOctoTenantAuthorization() per environment (OCTO_TENANTAUTHORIZATION__…).
     // The defaults reproduce the previous behaviour and only add the audit log.
     builder.Services.AddOctoTenantAuthorization(builder.Configuration);
+    // AB#9188: the AI service's MCP service client (Mcp:AiServiceClientId, default octo-ai-adapter) is allow-listed for
+    // cross-tenant service calls by default - one explicit id, appended after the section above was bound; a '*' pattern
+    // stops the start.
+    builder.Services.AddAiServiceClientTenantTrust();
 
     builder.Services.AddControllers()
         .AddJsonOptions(options =>
@@ -314,6 +318,8 @@ try
     // Validate the route {tenantId} against the token's tenant claim. Client-credentials service
     // tokens without a user 'sub' (AiWorker via IMcpTokenIssuer, mesh-adapter via
     // ServiceAccountConfiguration) are skipped by design — service-to-service access.
+    // AB#9188: the default cross-tenant entry for the AI service's client counts only for a system-tenant token.
+    app.UseAiServiceClientTenantGuard();
     app.UseOctoTenantAuthorization();
 
     // Map MCP endpoint with tenant routing (existing, backwards compatible)
