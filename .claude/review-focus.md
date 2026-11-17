@@ -18,13 +18,15 @@ request whose review found the problem.
 
 ## Secrets and outbound requests
 
-- A new or changed secret parameter is marked `SENSITIVE:` and scrubbed before logging, a new or changed error path that
-  can carry a token passes `ErrorTextRedactor.Redact`, and `Program.cs` keeps `AddMcpPayloadLogFilter` (`CLAUDE.md`,
-  "Mandatory Conventions" 2a; PR #74).
+- A new or changed secret parameter is marked `SENSITIVE:` and scrubbed from every `ErrorMessage` of its tool (as
+  `UserManagementTools.Scrub` does), a new or changed error path that can carry a token passes `ErrorTextRedactor.Redact`,
+  and `Program.cs` keeps `AddMcpPayloadLogFilter` (`CLAUDE.md`, "Mandatory Conventions" 2a, "Sensitive parameters"; PR #74).
 - Outbound fetches follow the knowledge-source URL policy (no private or link-local targets, no redirects around the
   check) (`CLAUDE.md`, "Outbound fetches: the knowledge-source URL policy").
-- A user value that goes into an SDK route path is accepted only as one safe segment, validated against an allow-list as
-  `IsCatalogNameSegment` in `BlueprintTools.cs` does, or escaped (PR #86).
+- A user value that goes into an SDK route path is accepted only as one safe segment: validated against an allow-list that
+  also rejects the dot segments `.` and `..`, as `IsCatalogNameSegment` in `BlueprintTools.cs` does, or escaped with
+  `Uri.EscapeDataString` and still refused when it is `.` or `..`, because escaping leaves dot segments intact and they
+  address another route (PR #86).
 
 ## Knowledge tools
 
