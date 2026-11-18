@@ -674,13 +674,13 @@ This is fully stateless — no tenant is stored in session state. The AI client 
 
 ### **Adding New Tools**
 
-Tools follow a strict pattern — see `CLAUDE.md` for the full conventions. The short version:
+Tools follow a strict pattern — see [`docs/tool-conventions.md`](docs/tool-conventions.md) for the full conventions. The short version:
 
 1. Pick the right SDK Client Context (`IdentityClientContext`, `AssetClientContext`, `CommunicationClientContext`, `StreamDataClientContext`, `ReportingClientContext`, or `BotClientContext`) — these handle auth + tenant resolution + factory call.
 2. Use the standard response envelope (`*Response` with `IsSuccess`/`ErrorMessage`/`Message`/`TenantId`).
 3. Destructive operations MUST require an explicit `confirm: true` bool parameter — no interactive prompts.
 4. Add at least four tests per tool: happy path, unauthenticated, missing required args, destructive without confirm (where applicable).
-5. An operation that is a CK method (e.g. `add_user_to_role` → `System.Identity/User.AddRole-1`, AB#8440) is called through the generated method client of `src/McpServices.MethodClients` (`construction-kits.yaml`), not through an `[Obsolete]` REST method — see `CLAUDE.md`, "CK method calls".
+5. An operation that is a CK method (e.g. `add_user_to_role` → `System.Identity/User.AddRole-1`) is called through the generated method client of `src/McpServices.MethodClients` (`construction-kits.yaml`), not through an `[Obsolete]` REST method — see [`docs/ck-method-clients.md`](docs/ck-method-clients.md).
 
 ```csharp
 [McpServerToolType]

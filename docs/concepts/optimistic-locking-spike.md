@@ -1,8 +1,13 @@
-# Optimistic Locking on Entity Writes — Design Spike (#4128)
+---
+description: Design spike for optimistic locking on entity writes with the options, trade-offs and the chosen option behind expected_version.
+background: true
+---
+
+# Optimistic Locking on Entity Writes — Design Spike
 
 **Status:** Spike — pick the option below before implementation lands.
 **Owner:** AI Adapter track. ADR-17 in `octo-ai-services/docs/concepts/octo-ai-adapter.md`.
-**Related:** #4111 Phase A (risk-classification, shipped `88a2072` on `octo-mcp-service/main`).
+**Related:** Phase A (risk-classification, shipped `88a2072` on `octo-mcp-service/main`).
 
 ## 1. Why this spike exists
 
@@ -197,7 +202,7 @@ Implement **Option 3** as a two-PR roll-out:
   same rtId; first succeeds with new version N+1, second hits
   `VERSION_CONFLICT` with `current_version: N+1`. Existing tests without
   `expected_version` continue to pass.
-- Document the locking semantics in the repo's `CLAUDE.md` §8 (next to the
+- Document the locking semantics in the repo's tool conventions (`docs/tool-conventions.md`, convention 9) (next to the
   risk-classification doc Phase A added).
 
 ### Estimated effort
@@ -205,7 +210,7 @@ Implement **Option 3** as a two-PR roll-out:
 - Engine PR: ~½ day (one record, one overload, one filter mapping, one
   integration test).
 - MCP PR: ~1 day (two tool changes, response DTO discriminator, one
-  integration test, CLAUDE.md update).
+  integration test, docs update).
 - Concept doc ADR-17 status flip: 15 min.
 
 ## 5. Open questions
@@ -230,7 +235,7 @@ Implement **Option 3** as a two-PR roll-out:
 4. **Read-modify-write convenience.** Workers will be calling
    `get_entity_by_id` → `update_entity(expected_version=...)` constantly.
    Worth considering a single `replace_entity` tool that reads, applies a
-   patch, and writes inside one MCP call — but that's Phase 2 of #4128, not
+   patch, and writes inside one MCP call — but that's Phase 2 of this spike, not
    the spike's scope.
 
 ## 6. Effect on ADR-17

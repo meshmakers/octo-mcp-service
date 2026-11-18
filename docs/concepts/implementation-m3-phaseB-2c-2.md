@@ -1,3 +1,8 @@
+---
+description: Design sketch of the apply_custom_app_scaffold tool with its scope, input, templates and commit plan.
+background: true
+---
+
 # implementation-m3-phaseB-2c-2 — apply_custom_app_scaffold MCP tool
 
 Status: **Design sketch (drafting)** · Counterpart: `octo-ai-services/docs/concepts/implementation-m3-phaseB-2c.md` (B-2c overall)
@@ -126,7 +131,7 @@ The route/drawer/icon edits are not template-based — they're constructed by re
 | # | Commit | Touches |
 |---|---|---|
 | 0 | `docs(mcp): implementation-m3-phaseB-2c-2.md design sketch — apply_custom_app_scaffold` | this file |
-| 1 | `feat(mcp/custom-app): apply_custom_app_scaffold tool + templates + tests (B-2c-2)` | tool + 7 template files + response DTOs + xUnit tests + CLAUDE.md update |
+| 1 | `feat(mcp/custom-app): apply_custom_app_scaffold tool + templates + tests (B-2c-2)` | tool + 7 template files + response DTOs + xUnit tests + docs update |
 | 2 | (back in octo-ai-services) `feat(ai/briefing): list apply_custom_app_scaffold in Application tool palette (B-2c-2)` | `Application/CLAUDE.md` |
 
 ## 7. Tests (commit 1)

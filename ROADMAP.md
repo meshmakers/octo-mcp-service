@@ -4,19 +4,19 @@ Follow-up work for the OctoMesh MCP server. As of v1.5.3 the original four-item 
 
 This file is now a record of what shipped and what was deliberately left off the list. If new gaps surface in practice, add them above the "deliberately not on this list" section.
 
-For the full coverage picture (what's already in vs. what's deferred by design vs. what's never been on the menu), see the changelog in [README.md](README.md) and the architecture sections in [CLAUDE.md](CLAUDE.md).
+For the full coverage picture (what's already in vs. what's deferred by design vs. what's never been on the menu), see the changelog in [README.md](README.md) and the architecture docs in [AGENTS.md](AGENTS.md) and [docs/](docs/).
 
 ---
 
 ## 1. Persisted-query execution ✅ Shipped in v1.5
 
-`execute_runtime_query` and `execute_stream_data_query` load the persisted query entity by RtId, dispatch on its CK subtype (`RtSimpleRtQuery` / `RtAggregationRtQuery` / `RtGroupingAggregationRtQuery` for runtime; `RtSimpleSdQuery` / `RtAggregationSdQuery` / `RtGroupingAggregationSdQuery` / `RtDownsamplingSdQuery` for stream-data), and execute via the matching engine method. Runtime overrides (`extraFilters` AND-combined with the persisted filter, plus `from`/`to`/`limit`/`sourceRtIds` for stream-data) preserve the studio's runtime-arg semantics. See the changelog and the *Persisted-query execution* section in [CLAUDE.md](CLAUDE.md).
+`execute_runtime_query` and `execute_stream_data_query` load the persisted query entity by RtId, dispatch on its CK subtype (`RtSimpleRtQuery` / `RtAggregationRtQuery` / `RtGroupingAggregationRtQuery` for runtime; `RtSimpleSdQuery` / `RtAggregationSdQuery` / `RtGroupingAggregationSdQuery` / `RtDownsamplingSdQuery` for stream-data), and execute via the matching engine method. Runtime overrides (`extraFilters` AND-combined with the persisted filter, plus `from`/`to`/`limit`/`sourceRtIds` for stream-data) preserve the studio's runtime-arg semantics. See the changelog and the *Persisted-query execution* section in [docs/aggregation-tools.md](docs/aggregation-tools.md).
 
 ---
 
 ## 2. Stream-data filter operator extension ✅ Shipped in v1.5.1
 
-`FilterOperatorDto` now covers the full engine `FieldFilterOperator` set — `Like`, `AnyEq`, `AnyLike` joined the existing values; `IsNull`, `IsNotNull`, `Regex`, `Contains`, `StartsWith`, `EndsWith` are now wired through the stream-data mapping (they were already present in the runtime CRUD switch but silently dropped on the stream-data side). Both `StreamDataAggregationTools.MapFilterOperator` and `RuntimeAggregationTools.BuildTypedFilters` now throw on an unknown DTO value rather than degrading to `Equals` — the typo-masking behavior is gone. See the *Filter operator coverage* section in [CLAUDE.md](CLAUDE.md).
+`FilterOperatorDto` now covers the full engine `FieldFilterOperator` set — `Like`, `AnyEq`, `AnyLike` joined the existing values; `IsNull`, `IsNotNull`, `Regex`, `Contains`, `StartsWith`, `EndsWith` are now wired through the stream-data mapping (they were already present in the runtime CRUD switch but silently dropped on the stream-data side). Both `StreamDataAggregationTools.MapFilterOperator` and `RuntimeAggregationTools.BuildTypedFilters` now throw on an unknown DTO value rather than degrading to `Equals` — the typo-masking behavior is gone. See the *Filter operator coverage* section in [docs/aggregation-tools.md](docs/aggregation-tools.md).
 
 ---
 
