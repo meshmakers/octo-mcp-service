@@ -144,6 +144,28 @@ public class CkImportResponse : AssetResponse
     public string? JobId { get; set; }
 }
 
+/// <summary>Response of refresh_blueprint_catalogs (AB#9182).</summary>
+public class RefreshBlueprintCatalogsResponse : AssetResponse
+{
+    /// <summary>Name of the catalog that was refreshed, or null for "all".</summary>
+    public string? CatalogName { get; set; }
+
+    /// <summary>
+    ///     Per-catalog result as the asset repository reports it (<c>Refreshed</c>, <c>Skipped</c> or <c>Failed</c>,
+    ///     with a message). Also set when <see cref="AssetResponse.IsSuccess" /> is false because a catalog failed.
+    /// </summary>
+    public List<BlueprintCatalogRefreshResultDto>? Results { get; set; }
+
+    /// <summary>Number of catalogs with status <c>Refreshed</c>.</summary>
+    public int RefreshedCount { get; set; }
+
+    /// <summary>Number of catalogs with status <c>Skipped</c>.</summary>
+    public int SkippedCount { get; set; }
+
+    /// <summary>Number of catalogs with status <c>Failed</c>.</summary>
+    public int FailedCount { get; set; }
+}
+
 /// <summary>Response of refresh_ck_catalogs.</summary>
 public class RefreshCkCatalogsResponse : AssetResponse
 {

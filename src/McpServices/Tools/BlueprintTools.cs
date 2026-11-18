@@ -1,6 +1,8 @@
 using System.ComponentModel;
+using System.Net;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
+using Meshmakers.Octo.Sdk.ServiceClient;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Blueprints;
 using ModelContextProtocol.Server;
 
@@ -15,6 +17,9 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 [McpServerToolType]
 public sealed class BlueprintTools
 {
+    /// <summary>Error code of refresh_blueprint_catalogs for an unknown catalog name (HTTP 404 of the service).</summary>
+    public const string CatalogNotFoundCode = "CatalogNotFound";
+
     /// <summary>List blueprints available across configured catalogs.</summary>
     [McpServerTool(Name = "list_blueprints")]
     [Description(
@@ -346,6 +351,101 @@ public sealed class BlueprintTools
             return new ListBlueprintInstallationsResponse { IsSuccess = false, ErrorMessage = ex.Message };
         }
     }
+
+    /// <summary>Refresh the blueprint catalog caches of the asset repository (one catalog or all), AB#9182.</summary>
+    [McpServerTool(Name = "refresh_blueprint_catalogs")]
+    [McpRisk(McpRiskLevel.Medium)]
+    [Description(
+        "Refresh the blueprint catalog caches of the asset repository (always forced, no service restart), so newly " +
+        "published blueprint versions become visible. Equivalent to octo-cli RefreshBlueprintCatalogs. Returns the " +
+        "result per catalog (Refreshed, Skipped, Failed); one failed catalog does not stop the others but sets " +
+        "IsSuccess=false. Unknown catalogName: ErrorCode CatalogNotFound. Limits: with several asset-repository " +
+        "replicas only the answering one is refreshed, so repeat if the version stays missing (bug AB#9169); a " +
+        "GitHub Pages catalog can serve its old index for up to 10 minutes after a deploy (CDN cache). The planned " +
+        "per-tenant catalog (AB#9176) will need no refresh. Requires the tenant role DataModelManagement; without " +
+        "it ErrorCode DataModelManagementRequired.")]
+    public static async Task<RefreshBlueprintCatalogsResponse> RefreshBlueprintCatalogs(
+        McpServer server,
+        [Description("Optional blueprint catalog name (case-insensitive). If omitted, all catalogs are refreshed.")]
+        string? catalogName = null,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        // Same convention as the SDK and octo-cli: a blank name means "all catalogs".
+        if (string.IsNullOrWhiteSpace(catalogName))
+        {
+            catalogName = null;
+        }
+        else if (!IsCatalogNameSegment(catalogName))
+        {
+            // The SDK puts the name into the request path unescaped; a name with '/', '?', '%' or a dot segment
+            // could address another route (e.g. the all-catalogs refresh). Catalog names are type-like names.
+            return new RefreshBlueprintCatalogsResponse
+            {
+                IsSuccess = false,
+                CatalogName = catalogName,
+                ErrorMessage = "catalogName may contain only ASCII letters, digits, '.', '-' and '_' (e.g. " +
+                               "'PrivateGitHubBlueprintCatalog'). Omit it to refresh all catalogs."
+            };
+        }
+
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new RefreshBlueprintCatalogsResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            var result = await ctx.Client!.RefreshBlueprintCatalogsAsync(catalogName);
+            var results = result.Results;
+            var refreshed = results.Count(r => r.Status == "Refreshed");
+            var skipped = results.Count(r => r.Status == "Skipped");
+            var failed = results.Count(r => r.Status == "Failed");
+            var summary = $"{refreshed} refreshed, {skipped} skipped, {failed} failed.";
+
+            return new RefreshBlueprintCatalogsResponse
+            {
+                IsSuccess = failed == 0,
+                TenantId = ctx.TenantId,
+                CatalogName = catalogName,
+                Results = results,
+                RefreshedCount = refreshed,
+                SkippedCount = skipped,
+                FailedCount = failed,
+                ErrorMessage = failed == 0
+                    ? null
+                    : $"{failed} of {results.Count} blueprint catalog(s) failed to refresh: " +
+                      string.Join("; ", results.Where(r => r.Status == "Failed")
+                          .Select(r => $"'{r.CatalogName}': {r.Message}")),
+                Message = catalogName == null
+                    ? $"Blueprint catalog refresh finished: {summary}"
+                    : $"Blueprint catalog '{catalogName}' refresh finished: {summary}"
+            };
+        }
+        catch (ServiceClientResultException ex) when (ex.HttpStatusCode == HttpStatusCode.NotFound && catalogName != null)
+        {
+            return new RefreshBlueprintCatalogsResponse
+            {
+                IsSuccess = false,
+                CatalogName = catalogName,
+                ErrorCode = CatalogNotFoundCode,
+                ErrorMessage = $"Blueprint catalog '{catalogName}' not found. Omit catalogName to refresh all " +
+                               "catalogs; the result lists their names."
+            };
+        }
+        catch (Exception ex)
+        {
+            var problem = ServiceProblemMessage.From(ex);
+            return new RefreshBlueprintCatalogsResponse
+            {
+                IsSuccess = false, CatalogName = catalogName, ErrorMessage = problem.Message, ErrorCode = problem.Code
+            };
+        }
+    }
+
+    private static bool IsCatalogNameSegment(string name) =>
+        name is not "." and not ".." &&
+        name.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '_');
 
     /// <summary>Uninstall a blueprint from the tenant. Destructive: requires confirm.</summary>
     [McpServerTool(Name = "uninstall_blueprint")]

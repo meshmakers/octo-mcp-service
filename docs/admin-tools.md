@@ -1,6 +1,6 @@
 ---
-description: Adapter pool queue tools, scratch tenants with AI toggles and delete_tenant disableFeatures, and the role named in API secret write errors.
-applies_to: **/Tools/{DataFlowTriggerDeploymentSite,TenantManagement,AiLifecycle,ApiSecret}Tools.cs, **/Services/{IdentityForbiddenMessage,AiClientContext}.cs
+description: Adapter pool queue, blueprint catalog refresh, scratch tenants with AI toggles and delete_tenant disableFeatures, role in API secret write errors.
+applies_to: **/Tools/{DataFlowTriggerDeploymentSite,TenantManagement,AiLifecycle,ApiSecret,Blueprint}Tools.cs, **/Services/{IdentityForbiddenMessage,AiClientContext}.cs
 ---
 
 # Administration tools
@@ -50,6 +50,19 @@ An agent can work in and clean up the scratch tenants it creates without a human
   never deleted. A client-credentials session cannot exchange its token for a child (the exchange needs a user); it gets a clear error and uses the child's
   own session (a client-credentials token for the child) or octo-cli `Delete --disable-features`.
 - Tests: `ScratchTenantToolsTests` (create flag, disableFeatures order, archives, no child token, enable/disable AI).
+
+## Blueprint catalog refresh
+
+`refresh_blueprint_catalogs` (`BlueprintTools`, Medium) mirrors octo-cli `RefreshBlueprintCatalogs`: SDK
+`IAssetServicesClient.RefreshBlueprintCatalogsAsync(catalogName)` (`POST system/v1/blueprints/catalogs[/{name}]/refresh`,
+always forced, `DataModelManagementPolicy`). A blank name means all catalogs (same rule as SDK and CLI); a name with other characters than ASCII letters, digits,
+`.`, `-`, `_` (or `.`/`..`) is refused before the call, because the SDK puts it into the path unescaped. The per-catalog
+`Results` go on the wire as-is; any `Failed` entry makes `IsSuccess = false` (the CLI exits non-zero) while `Results` and
+the counts stay set. A 404 for a named catalog becomes `ErrorCode = CatalogNotFound` (`BlueprintTools.CatalogNotFoundCode`);
+everything else goes through `ServiceProblemMessage` (403 becomes `DataModelManagementRequired`). The refresh reaches only the
+asset-repository replica that answers; the tool description says so - drop that sentence once the asset repository
+refreshes every replica.
+Tests: `BlueprintToolsTests` (refresh section), `DataModelManagementRequiredTests`.
 
 ## API secret writes: 403 names the missing role
 

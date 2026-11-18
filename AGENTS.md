@@ -48,7 +48,7 @@ configuration). The three layers have different cost profiles and different vali
 <!-- >>> generated: routing -->
 | When you change | Read first |
 |---|---|
-| `**/Tools/{DataFlowTriggerDeploymentSite,TenantManagement,AiLifecycle,ApiSecret}Tools.cs`, `**/Services/{IdentityForbiddenMessage,AiClientContext}.cs` | `docs/admin-tools.md` |
+| `**/Tools/{DataFlowTriggerDeploymentSite,TenantManagement,AiLifecycle,ApiSecret,Blueprint}Tools.cs`, `**/Services/{IdentityForbiddenMessage,AiClientContext}.cs` | `docs/admin-tools.md` |
 | `**/Tools/{RuntimeAggregation,StreamData*}Tools.cs`, `**/Services/{AggregationMapper,AvailableArchivePaths*}.cs`, `**/Models/{Aggregation,Filters}/**` | `docs/aggregation-tools.md` |
 | `**/Program.cs`, `**/Configuration/**`, `**/SystemApi/**`, `**/Services/McpSession*.cs`, `**/Services/Tenant*.cs`, `**/Tools/AuthenticationTools.cs` | `docs/authentication.md` |
 | `src/McpServices.MethodClients/**`, `**/UserManagementTools.cs`, `**/RoleManagementTools.cs`, `**/ErrorTextRedactor.cs`, `**/McpPayloadLogFilter.cs` | `docs/ck-method-clients.md` |
