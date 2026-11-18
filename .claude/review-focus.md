@@ -9,7 +9,7 @@ request whose review found the problem.
   destructive tool, refusal without `confirm` (`docs/tool-conventions.md`, sections 1 and 5).
 - Tools reach the SDK only through the `*ClientContext` helpers and per-request SDK clients, never through the factory
   directly (except the documented system-scoped Bot one-offs) or a shared client (`docs/tool-conventions.md`,
-  sections 2, 2a and 7, `AGENTS.md`, "Rules").
+  sections 2 and 7; `docs/ck-method-clients.md`, section 2a; `AGENTS.md`, "Rules").
 - Destructive tools keep `confirm` opt-in (never default `true`) and carry a `[McpRisk]` level that fits their blast radius
   (`docs/tool-conventions.md`, sections 5 and 8).
 - Tools report to the caller through the response envelope (`Message` / `ErrorMessage`), never through `Console`, and do
@@ -20,7 +20,7 @@ request whose review found the problem.
 
 - A new or changed secret parameter is marked `SENSITIVE:` and scrubbed from every `ErrorMessage` of its tool (as
   `UserManagementTools.Scrub` does), a new or changed error path that can carry a token passes `ErrorTextRedactor.Redact`,
-  and `Program.cs` keeps `AddMcpPayloadLogFilter` (`docs/ck-method-clients.md`, `docs/tool-conventions.md`; PR #74).
+  and `Program.cs` keeps `AddMcpPayloadLogFilter` (`docs/ck-method-clients.md`, "Sensitive parameters"; `docs/tool-conventions.md`, section 4; PR #74).
 - Outbound fetches follow the knowledge-source URL policy (no private or link-local targets, no redirects around the
   check) (`docs/knowledge-input-guards.md`, "Outbound fetches: the knowledge-source URL policy").
 - A user value that goes into an SDK route path is accepted only as one safe segment: validated against an allow-list that
