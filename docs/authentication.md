@@ -224,7 +224,7 @@ affordance; on failure it recommends the `authenticate` device-flow fallback.
 
 **Opaque-token safety:** the overload exchanges ONLY when the home token's `tenant_id` is readable AND
 differs from the target. A token whose `tenant_id` cannot be read (opaque, non-JWT) keeps using the
-home token, and the backend decides. A tenant-bound service token addresses its own tenant, so it needs no exchange. **Bot stays on the
+home token, and the backend decides. A service token whose `tenant_id` equals the target tenant is used as-is; a service token bound to another tenant (for example the allow-listed AI service client) goes through the exchange like a user token. **Bot stays on the
 home token** — its client is NOT tenant-routed (`CreateBotClient` takes no `tenantId`), so an exchange
 there is unnecessary and could break bot ops the home token already serves.
 

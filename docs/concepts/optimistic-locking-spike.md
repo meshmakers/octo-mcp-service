@@ -3,11 +3,11 @@ description: Design spike for optimistic locking on entity writes with the optio
 background: true
 ---
 
-# Optimistic Locking on Entity Writes — Design Spike (#4128)
+# Optimistic Locking on Entity Writes — Design Spike
 
 **Status:** Spike — pick the option below before implementation lands.
 **Owner:** AI Adapter track. ADR-17 in `octo-ai-services/docs/concepts/octo-ai-adapter.md`.
-**Related:** #4111 Phase A (risk-classification, shipped `88a2072` on `octo-mcp-service/main`).
+**Related:** Phase A (risk-classification, shipped `88a2072` on `octo-mcp-service/main`).
 
 ## 1. Why this spike exists
 
@@ -235,7 +235,7 @@ Implement **Option 3** as a two-PR roll-out:
 4. **Read-modify-write convenience.** Workers will be calling
    `get_entity_by_id` → `update_entity(expected_version=...)` constantly.
    Worth considering a single `replace_entity` tool that reads, applies a
-   patch, and writes inside one MCP call — but that's Phase 2 of #4128, not
+   patch, and writes inside one MCP call — but that's Phase 2 of this spike, not
    the spike's scope.
 
 ## 6. Effect on ADR-17

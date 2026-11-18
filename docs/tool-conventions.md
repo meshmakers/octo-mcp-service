@@ -114,7 +114,7 @@ For composite responses (list + count + tenant id), define your own wrapper DTO 
 
 The SDK clients cache their `ServiceUri` on first use. Sharing one client across multiple tenants → wrong tenant in the URL on the second call. **Always** go through `IOctoServiceClientFactory.Create*Client(tenantId, accessToken)` — it returns a fresh instance.
 
-The `*ClientContext.TryBuild` helpers handle this for you. Don't manually construct SDK clients in tool code.
+The `*ClientContext.TryBuildAsync` helpers handle this for you. Don't manually construct SDK clients in tool code.
 
 ## 7a. Never build a JSON Schema into the global registry
 
