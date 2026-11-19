@@ -227,7 +227,7 @@ public sealed class CkModelFileTools
         }
 
         var store = server.Services!.GetRequiredService<IFileTransferStore>();
-        var upload = store.GetUpload(transferId, McpSessionContext.GetCallerLabel(server));
+        var upload = store.GetUpload(transferId, McpSessionContext.GetFileTransferOwner(server));
         if (upload == null)
         {
             return new JobStartedResponse

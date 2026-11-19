@@ -144,7 +144,7 @@ public class ArchiveDataToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
         result.JobId.Should().Be("imp-1");
         // Upload buffer cleaned up on success.
-        FileTransferStore.GetUpload(transferId, CallerSession).Should().BeNull();
+        FileTransferStore.GetUpload(transferId, CallerOwner).Should().BeNull();
     }
 
     [Fact]

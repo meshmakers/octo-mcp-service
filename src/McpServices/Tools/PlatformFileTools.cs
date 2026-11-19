@@ -108,7 +108,7 @@ public sealed class PlatformFileTools
         }
 
         var store = server.Services!.GetRequiredService<IFileTransferStore>();
-        var upload = store.GetUpload(transferId, McpSessionContext.GetCallerLabel(server));
+        var upload = store.GetUpload(transferId, McpSessionContext.GetFileTransferOwner(server));
         if (upload == null)
         {
             return new FileEntryResponse
@@ -199,7 +199,7 @@ public sealed class PlatformFileTools
             var store = server.Services!.GetRequiredService<IFileTransferStore>();
             var transferId = store.RegisterDownload(McpSessionContext.GetFileTransferOwner(server), tempPath, fileName);
             tempPath = null; // owned by the store now
-            var size = store.GetDownload(transferId, McpCallerPrincipal.FromServer(server)?.StoreKeyPrefix)?.SizeBytes ?? download.ContentLength ?? 0;
+            var size = store.GetDownload(transferId, McpCallerPrincipal.FromServer(server)?.TransferOwnerKey)?.SizeBytes ?? download.ContentLength ?? 0;
 
             return new DownloadPlatformFileResponse
             {

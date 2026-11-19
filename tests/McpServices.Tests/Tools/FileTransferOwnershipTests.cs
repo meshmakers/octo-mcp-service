@@ -33,7 +33,7 @@ public class FileTransferOwnershipTests : ToolTestBase
 
     private void AssertUntouchedForOwner(string transferId, string path)
     {
-        FileTransferStore.GetUpload(transferId, OtherSession).Should().NotBeNull(
+        FileTransferStore.GetUpload(transferId, new FileTransferOwner(OtherSession, OtherPrincipal)).Should().NotBeNull(
             "a foreign attempt must neither consume nor delete the owner's upload");
         File.Exists(path).Should().BeTrue();
     }
@@ -162,5 +162,27 @@ public class FileTransferOwnershipTests : ToolTestBase
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("not found or expired");
         File.Exists(target).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task SameClientIdInAnotherTenant_CannotConsumeOrCancelTheUpload()
+    {
+        // A mirrored client: the same client id in two tenants has the same session label (the token-store key
+        // has no tenant for a client), but another principal.
+        GivenServicePrincipalCaller("mirrored-client", "tenant-a");
+        var owner = CallerOwner;
+        var (id, path) = FileTransferStore.ReserveUpload(owner, "dump.tar.gz");
+        File.WriteAllBytes(path, [1, 2, 3]);
+        CompleteStagedUpload(id, 3);
+
+        GivenServicePrincipalCaller("mirrored-client", "tenant-b");
+        CallerOwner.SessionLabel.Should().Be(owner.SessionLabel);
+        CallerOwner.Principal.Should().NotBe(owner.Principal);
+
+        FileTransferStore.GetUpload(id, CallerOwner).Should().BeNull();
+        var cancel = await FileTransferTools.CancelFileTransfer(MockServer.Object, id);
+        cancel.IsSuccess.Should().BeTrue();
+        FileTransferStore.GetUpload(id, owner).Should().NotBeNull("the foreign cancel is a silent no-op");
+        File.Exists(path).Should().BeTrue();
     }
 }

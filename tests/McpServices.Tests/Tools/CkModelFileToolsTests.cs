@@ -48,7 +48,7 @@ public class CkModelFileToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue();
         result.JobId.Should().Be("job-1");
         // The upload buffer was cleaned up on success.
-        FileTransferStore.GetUpload(transferId, CallerSession).Should().BeNull();
+        FileTransferStore.GetUpload(transferId, CallerOwner).Should().BeNull();
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public class CkModelFileToolsTests : ToolTestBase
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("schema mismatch");
         // Buffer still there for inspection / retry.
-        FileTransferStore.GetUpload(transferId, CallerSession).Should().NotBeNull();
+        FileTransferStore.GetUpload(transferId, CallerOwner).Should().NotBeNull();
     }
 
     // ── import_runtime_model ────────────────────────────────────────────────

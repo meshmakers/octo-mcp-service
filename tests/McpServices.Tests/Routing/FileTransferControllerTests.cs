@@ -36,7 +36,7 @@ public sealed class FileTransferControllerTests : IAsyncLifetime
 {
     private const string ApiScope = "octo_api";
     private static readonly SymmetricSecurityKey SigningKey =
-        new(Encoding.UTF8.GetBytes("ab6988-file-transfer-test-signing-key-0123456789"));
+        new(Encoding.UTF8.GetBytes("file-transfer-test-signing-key-0123456789-abcdefgh"));
 
     // Principals. The owner is alice in tenant t1; the others each differ in exactly one dimension.
     private static readonly Caller Alice = new("t1", "alice", "octo-cli");
@@ -44,6 +44,8 @@ public sealed class FileTransferControllerTests : IAsyncLifetime
     private static readonly Caller AliceInOtherTenant = new("t2", "alice", "octo-cli");
     private static readonly Caller AiWorker = new(null, null, "ai-worker");
     private static readonly Caller MeshAdapter = new(null, null, "mesh-adapter");
+    private static readonly Caller ClientInTenant1 = new("t1", null, "mirrored-client");
+    private static readonly Caller SameClientInTenant2 = new("t2", null, "mirrored-client");
 
     private readonly FileTransferStore _store = new();
     private readonly List<string> _files = [];
@@ -109,9 +111,11 @@ public sealed class FileTransferControllerTests : IAsyncLifetime
     private sealed record Caller(string? TenantId, string? SubjectId, string? ClientId)
     {
         public FileTransferOwner Owner(string session = "mcp-session-1") =>
-            new($"{Principal}|{session}", Principal);
+            new($"{StoreKey}|{session}", Principal); // label as McpSessionContext.GetCallerLabel builds it
 
-        public string? Principal => new McpCallerPrincipal(SubjectId, ClientId, TenantId, []).StoreKeyPrefix;
+        public string? Principal => new McpCallerPrincipal(SubjectId, ClientId, TenantId, []).TransferOwnerKey;
+
+        private string? StoreKey => new McpCallerPrincipal(SubjectId, ClientId, TenantId, []).StoreKeyPrefix;
     }
 
     private static string Token(Caller caller, bool withScope = true, DateTime? expires = null, SecurityKey? key = null)
@@ -132,7 +136,7 @@ public sealed class FileTransferControllerTests : IAsyncLifetime
 
     private (string Id, string Path) RegisterFile(byte[] content, Caller? owner = null, TimeSpan? ttl = null)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"ab6988_{Guid.NewGuid():N}.bin");
+        var path = Path.Combine(Path.GetTempPath(), $"ft_{Guid.NewGuid():N}.bin");
         File.WriteAllBytes(path, content);
         _files.Add(path);
         return (_store.RegisterDownload((owner ?? Alice).Owner(), path, "dump.bin", ttl), path);
@@ -180,7 +184,7 @@ public sealed class FileTransferControllerTests : IAsyncLifetime
     {
         var response = await _http.SendAsync(Put(id, Token(owner)), Ct);
         response.StatusCode.Should().Be(HttpStatusCode.OK, "the owner's slot must stay untouched by a refused request");
-        _store.GetUpload(id, owner.Owner().SessionLabel)!.SizeBytes.Should().Be(4);
+        _store.GetUpload(id, owner.Owner())!.SizeBytes.Should().Be(4);
     }
 
     // ---------------------------------------------------------------- (a) no / invalid token
@@ -243,13 +247,16 @@ public sealed class FileTransferControllerTests : IAsyncLifetime
 
     // ---------------------------------------------------------------- (a) foreign principal
 
-    public static TheoryData<string> ForeignCallers => ["foreign-user", "foreign-tenant", "foreign-client"];
+    public static TheoryData<string> ForeignCallers =>
+        ["foreign-user", "foreign-tenant", "foreign-client", "same-client-other-tenant"];
 
     private static (Caller Owner, Caller Intruder) Pair(string kind) => kind switch
     {
         "foreign-user" => (Alice, Bob),
         "foreign-tenant" => (Alice, AliceInOtherTenant),
         "foreign-client" => (AiWorker, MeshAdapter),
+        // A mirrored client (same client id in two tenants): a token of the other tenant is another owner.
+        "same-client-other-tenant" => (ClientInTenant1, SameClientInTenant2),
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
@@ -366,8 +373,17 @@ public sealed class FileTransferControllerTests : IAsyncLifetime
         var body = await response.Content.ReadAsStringAsync(Ct);
         body.Should().Contain("\"sizeBytes\":4").And.Contain(id, "the owner gets its id back as before");
         // The tool side still binds to the MCP session label.
-        _store.GetUpload(id, Alice.Owner("mcp-session-2").SessionLabel).Should().BeNull();
-        _store.GetUpload(id, Alice.Owner().SessionLabel)!.SizeBytes.Should().Be(4);
+        _store.GetUpload(id, Alice.Owner("mcp-session-2")).Should().BeNull();
+        _store.GetUpload(id, Alice.Owner())!.SizeBytes.Should().Be(4);
+    }
+
+    [Fact]
+    public void TransferOwnerKey_ForAClient_CarriesTheTenant_UserKeyStaysTheStoreKey()
+    {
+        ClientInTenant1.Principal.Should().Be("c:mirrored-client:t1");
+        SameClientInTenant2.Principal.Should().Be("c:mirrored-client:t2");
+        AiWorker.Principal.Should().Be("c:ai-worker:-");
+        Alice.Principal.Should().Be(new McpCallerPrincipal("alice", "octo-cli", "t1", []).StoreKeyPrefix);
     }
 
     [Fact]
@@ -491,7 +507,7 @@ public sealed class FileTransferControllerTests : IAsyncLifetime
 
         gate.Release();
         (await first).StatusCode.Should().Be(HttpStatusCode.OK);
-        var upload = _store.GetUpload(id, Alice.Owner().SessionLabel)!;
+        var upload = _store.GetUpload(id, Alice.Owner())!;
         upload.SizeBytes.Should().Be(5);
         (await File.ReadAllBytesAsync(upload.FilePath, Ct)).Should().Equal(1, 2, 3, 4, 5);
     }
@@ -515,7 +531,7 @@ public sealed class FileTransferControllerTests : IAsyncLifetime
         File.Exists(target).Should().BeFalse();
         (await _http.SendAsync(Put(id, Token(Alice)), Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound,
             "a new prepare_file_upload is needed after a failed PUT");
-        _store.GetUpload(id, Alice.Owner().SessionLabel).Should().BeNull();
+        _store.GetUpload(id, Alice.Owner()).Should().BeNull();
     }
 
     [Fact]

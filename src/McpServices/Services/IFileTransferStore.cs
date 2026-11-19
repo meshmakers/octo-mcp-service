@@ -9,8 +9,8 @@ namespace Meshmakers.Octo.Backend.McpServices.Services;
 ///     when the client sent that header, or the shared anonymous label for an unidentifiable caller.
 /// </param>
 /// <param name="Principal">
-///     <see cref="McpCallerPrincipal.StoreKeyPrefix" /> of the validated caller (<c>u:&lt;tenant&gt;:&lt;sub&gt;</c> or
-///     <c>c:&lt;client_id&gt;</c>), or null when the caller cannot be identified. A null principal matches nobody.
+///     <see cref="McpCallerPrincipal.TransferOwnerKey" /> of the validated caller (<c>u:&lt;tenant&gt;:&lt;sub&gt;</c> or
+///     <c>c:&lt;client_id&gt;:&lt;tenant&gt;</c>), or null when the caller cannot be identified. A null principal matches nobody.
 /// </param>
 public sealed record FileTransferOwner(string SessionLabel, string? Principal);
 
@@ -23,7 +23,11 @@ public sealed record FileTransferUpload(
     string FilePath,
     string FileName,
     long SizeBytes,
-    DateTime ExpiresAtUtc);
+    DateTime ExpiresAtUtc)
+{
+    /// <summary>Principal that reserved the upload; a consuming tool must be called by this principal too.</summary>
+    public string? OwnerPrincipal { get; init; }
+}
 
 /// <summary>
 ///     Represents a buffered download — bytes ready for the client to fetch.
@@ -76,7 +80,7 @@ public interface IFileTransferStore
     ///     A second claim while the first PUT still runs gets <see cref="UploadClaimStatus.InProgress" />.
     /// </summary>
     /// <param name="transferId">Transfer id from the request header.</param>
-    /// <param name="callerPrincipal"><see cref="McpCallerPrincipal.StoreKeyPrefix" /> of the HTTP caller.</param>
+    /// <param name="callerPrincipal"><see cref="McpCallerPrincipal.TransferOwnerKey" /> of the HTTP caller.</param>
     /// <returns>The claim status and, when claimed, the target path to write to.</returns>
     (UploadClaimStatus Status, string? TargetPath) TryClaimUpload(string transferId, string? callerPrincipal);
 
@@ -89,14 +93,15 @@ public interface IFileTransferStore
     void AbortUpload(string transferId);
 
     /// <summary>Returns the upload entry — or null if expired / not found / not finished / owned by another
-    /// session (a foreign caller is answered exactly like an unknown id).</summary>
+    /// session or principal (a foreign caller is answered exactly like an unknown id).</summary>
     /// <param name="transferId">Transfer id from <c>prepare_file_upload</c>.</param>
-    /// <param name="callerSessionId">The calling session, <c>McpSessionContext.GetCallerLabel(server)</c>.</param>
-    FileTransferUpload? GetUpload(string transferId, string callerSessionId);
+    /// <param name="caller">The calling tool's owner tag, <c>McpSessionContext.GetFileTransferOwner(server)</c>: both
+    /// its session label and its principal must match the ones stored at reservation.</param>
+    FileTransferUpload? GetUpload(string transferId, FileTransferOwner caller);
 
     /// <summary>Cancel an upload reservation / finished upload / download, but only when it belongs to
-    /// <paramref name="callerSessionId" />; a foreign or unknown id is a silent no-op.</summary>
-    void CancelTransfer(string transferId, string callerSessionId);
+    /// <paramref name="caller" /> (session label and principal); a foreign or unknown id is a silent no-op.</summary>
+    void CancelTransfer(string transferId, FileTransferOwner caller);
 
     /// <summary>Removes the upload entry and deletes its file.</summary>
     void DeleteUpload(string transferId);
@@ -112,7 +117,7 @@ public interface IFileTransferStore
     /// <summary>Returns the download entry — or null if expired, not found or created by another principal (all
     /// answered alike). The entry is single-use: the controller deletes it once the file was served completely.</summary>
     /// <param name="transferId">Transfer id from the request header.</param>
-    /// <param name="callerPrincipal"><see cref="McpCallerPrincipal.StoreKeyPrefix" /> of the HTTP caller.</param>
+    /// <param name="callerPrincipal"><see cref="McpCallerPrincipal.TransferOwnerKey" /> of the HTTP caller.</param>
     FileTransferDownload? GetDownload(string transferId, string? callerPrincipal);
 
     /// <summary>Removes the download entry and deletes its file.</summary>

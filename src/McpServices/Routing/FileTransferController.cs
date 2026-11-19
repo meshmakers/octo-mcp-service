@@ -12,7 +12,7 @@ namespace Meshmakers.Octo.Backend.McpServices.Routing;
 ///     header and the same bearer token it uses for the MCP endpoint.
 ///     <para>
 ///     Security: the endpoints require the MCP transport policy (authenticated, platform API scope), and an entry is
-///     served only to the principal that created it (<see cref="McpCallerPrincipal.StoreKeyPrefix" />); any other
+///     served only to the principal that created it (<see cref="McpCallerPrincipal.TransferOwnerKey" />); any other
 ///     caller gets the answer an unknown id gets. The id never appears in a route, so neither access logs nor span
 ///     attributes carry it, and no response or log line of this controller echoes it on an error. The first PUT claims
 ///     the slot atomically (a concurrent PUT gets 409); a failed or aborted PUT ends the reservation. A download is
@@ -46,7 +46,7 @@ public sealed class FileTransferController : ControllerBase
             return MissingTransferId();
         }
 
-        var caller = McpCallerPrincipal.FromHttpContext(HttpContext)?.StoreKeyPrefix;
+        var caller = McpCallerPrincipal.FromHttpContext(HttpContext)?.TransferOwnerKey;
         var (status, target) = _store.TryClaimUpload(transferId, caller);
         switch (status)
         {
@@ -92,9 +92,11 @@ public sealed class FileTransferController : ControllerBase
         {
             return StatusCode(StatusCodes.Status499ClientClosedRequest, new { error = "Upload cancelled." });
         }
-        catch (Exception ex) when (ex is IOException or BadHttpRequestException)
+        catch (Exception ex) when (ex is BadHttpRequestException
+                                   || (ex is IOException && HttpContext.RequestAborted.IsCancellationRequested))
         {
-            // The client went away mid-body (Kestrel reports it as a bad request or an I/O error).
+            // The client went away mid-body. A server-side I/O error (full disk) is not caught here and surfaces as a
+            // server error; the finally block cleans up either way.
             return StatusCode(StatusCodes.Status400BadRequest, new { error = "Upload aborted." });
         }
         finally
@@ -118,7 +120,7 @@ public sealed class FileTransferController : ControllerBase
             return MissingTransferId();
         }
 
-        var caller = McpCallerPrincipal.FromHttpContext(HttpContext)?.StoreKeyPrefix;
+        var caller = McpCallerPrincipal.FromHttpContext(HttpContext)?.TransferOwnerKey;
         var download = _store.GetDownload(transferId, caller);
         if (download == null || !System.IO.File.Exists(download.FilePath))
         {

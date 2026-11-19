@@ -87,7 +87,10 @@ internal sealed class FileTransferStore : IFileTransferStore
         }
 
         _uploads[transferId] = new FileTransferUpload(
-            transferId, pending.SessionId, pending.TargetPath, pending.FileName, sizeBytes, pending.ExpiresAtUtc);
+            transferId, pending.SessionId, pending.TargetPath, pending.FileName, sizeBytes, pending.ExpiresAtUtc)
+        {
+            OwnerPrincipal = pending.OwnerPrincipal
+        };
         return true;
     }
 
@@ -100,11 +103,11 @@ internal sealed class FileTransferStore : IFileTransferStore
         }
     }
 
-    public FileTransferUpload? GetUpload(string transferId, string callerSessionId)
+    public FileTransferUpload? GetUpload(string transferId, FileTransferOwner caller)
     {
         // AB#6989: a foreign (or unidentifiable) caller gets exactly the answer an unknown id gets, so the
         // existence of someone else's upload is not observable.
-        if (!_uploads.TryGetValue(transferId, out var u) || !IsOwner(u.SessionId, callerSessionId))
+        if (!_uploads.TryGetValue(transferId, out var u) || !IsCallerOwner(u.SessionId, u.OwnerPrincipal, caller))
         {
             return null;
         }
@@ -142,18 +145,18 @@ internal sealed class FileTransferStore : IFileTransferStore
         return id;
     }
 
-    public void CancelTransfer(string transferId, string callerSessionId)
+    public void CancelTransfer(string transferId, FileTransferOwner caller)
     {
-        if (_uploads.TryGetValue(transferId, out var u) && IsOwner(u.SessionId, callerSessionId))
+        if (_uploads.TryGetValue(transferId, out var u) && IsCallerOwner(u.SessionId, u.OwnerPrincipal, caller))
         {
             DeleteUpload(transferId);
         }
-        else if (_pending.TryGetValue(transferId, out var p) && IsOwner(p.SessionId, callerSessionId))
+        else if (_pending.TryGetValue(transferId, out var p) && IsCallerOwner(p.SessionId, p.OwnerPrincipal, caller))
         {
             DeleteUpload(transferId);
         }
 
-        if (_downloads.TryGetValue(transferId, out var d) && IsOwner(d.SessionId, callerSessionId))
+        if (_downloads.TryGetValue(transferId, out var d) && IsCallerOwner(d.SessionId, d.OwnerPrincipal, caller))
         {
             DeleteDownload(transferId);
         }
@@ -231,6 +234,15 @@ internal sealed class FileTransferStore : IFileTransferStore
         return !string.IsNullOrEmpty(callerSessionId)
                && callerSessionId != McpSessionContext.AnonymousCallerLabel
                && string.Equals(ownerSessionId, callerSessionId, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    ///     Tool-side owner check: the session label (the MCP session binding) and the principal (which carries the
+    ///     tenant of a client-credentials caller, unlike the label) must both match. Fails closed like its parts.
+    /// </summary>
+    internal static bool IsCallerOwner(string ownerSessionId, string? ownerPrincipal, FileTransferOwner caller)
+    {
+        return IsOwner(ownerSessionId, caller.SessionLabel) && IsPrincipalOwner(ownerPrincipal, caller.Principal);
     }
 
     /// <summary>

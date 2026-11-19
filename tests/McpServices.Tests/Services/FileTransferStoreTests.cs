@@ -40,7 +40,7 @@ public class FileTransferStoreTests
         File.WriteAllText(path, "{}");
         Complete(store, id, 2);
 
-        var upload = store.GetUpload(id, "sess-1");
+        var upload = store.GetUpload(id, O("sess-1"));
         upload.Should().NotBeNull();
         upload!.SessionId.Should().Be("sess-1");
         upload.SizeBytes.Should().Be(2);
@@ -53,14 +53,14 @@ public class FileTransferStoreTests
         var store = new FileTransferStore();
         var (id, _) = store.ReserveUpload(O("sess-1"), "model.json");
 
-        store.GetUpload(id, "sess-1").Should().BeNull();
+        store.GetUpload(id, O("sess-1")).Should().BeNull();
     }
 
     [Fact]
     public void GetUpload_UnknownId_ReturnsNull()
     {
         var store = new FileTransferStore();
-        store.GetUpload("nope", "sess-1").Should().BeNull();
+        store.GetUpload("nope", O("sess-1")).Should().BeNull();
     }
 
     [Fact]
@@ -73,7 +73,7 @@ public class FileTransferStoreTests
 
         store.DeleteUpload(id);
 
-        store.GetUpload(id, "sess-1").Should().BeNull();
+        store.GetUpload(id, O("sess-1")).Should().BeNull();
         File.Exists(path).Should().BeFalse();
     }
 
@@ -107,7 +107,7 @@ public class FileTransferStoreTests
 
         Thread.Sleep(50);
 
-        store.GetUpload(id, "sess-1").Should().BeNull();
+        store.GetUpload(id, O("sess-1")).Should().BeNull();
         File.Exists(path).Should().BeFalse();
     }
 
@@ -166,13 +166,30 @@ public class FileTransferStoreTests
     }
 
     [Fact]
+    public void GetUpload_SameSessionLabelButAnotherPrincipal_ReturnsNull()
+    {
+        // The same client id in another tenant has the same label but another principal.
+        var store = new FileTransferStore();
+        var owner = new FileTransferOwner("c:mirrored-client", "c:mirrored-client:tenant-a");
+        var (id, path) = store.ReserveUpload(owner, "x.json");
+        File.WriteAllText(path, "x");
+        Complete(store, id, 1, owner.Principal!);
+
+        var other = new FileTransferOwner("c:mirrored-client", "c:mirrored-client:tenant-b");
+        store.GetUpload(id, other).Should().BeNull();
+        store.CancelTransfer(id, other);
+        store.GetUpload(id, owner).Should().NotBeNull();
+        store.DeleteUpload(id);
+    }
+
+    [Fact]
     public void CompleteUpload_WithoutClaim_IsRefused()
     {
         var store = new FileTransferStore();
         var (id, _) = store.ReserveUpload(O("sess-1"), "x.json");
 
         store.CompleteUpload(id, 1).Should().BeFalse();
-        store.GetUpload(id, "sess-1").Should().BeNull();
+        store.GetUpload(id, O("sess-1")).Should().BeNull();
     }
 
     [Fact]
@@ -236,9 +253,9 @@ public class FileTransferStoreTests
         File.WriteAllText(path, "{}");
         Complete(store, id, 2);
 
-        store.GetUpload(id, "sess-2").Should().BeNull();
+        store.GetUpload(id, O("sess-2")).Should().BeNull();
 
-        store.GetUpload(id, "sess-1").Should().NotBeNull("the foreign attempt must not consume the upload");
+        store.GetUpload(id, O("sess-1")).Should().NotBeNull("the foreign attempt must not consume the upload");
         File.Exists(path).Should().BeTrue();
     }
 
@@ -253,7 +270,7 @@ public class FileTransferStoreTests
         File.WriteAllText(path, "{}");
         Complete(store, id, 2, "c:anon-owner");
 
-        store.GetUpload(id, caller).Should().BeNull();
+        store.GetUpload(id, O(caller)).Should().BeNull();
     }
 
     [Fact]
@@ -266,10 +283,10 @@ public class FileTransferStoreTests
         var downloadFile = Path.GetTempFileName();
         var downloadId = store.RegisterDownload(O("sess-1"), downloadFile, "dump.tar.gz");
 
-        store.CancelTransfer(id, "sess-2");
-        store.CancelTransfer(downloadId, "sess-2");
+        store.CancelTransfer(id, O("sess-2"));
+        store.CancelTransfer(downloadId, O("sess-2"));
 
-        store.GetUpload(id, "sess-1").Should().NotBeNull();
+        store.GetUpload(id, O("sess-1")).Should().NotBeNull();
         store.GetDownload(downloadId, Sess1Principal).Should().NotBeNull();
         File.Exists(downloadFile).Should().BeTrue();
     }
@@ -285,11 +302,11 @@ public class FileTransferStoreTests
         var downloadFile = Path.GetTempFileName();
         var downloadId = store.RegisterDownload(O("sess-1"), downloadFile, "dump.tar.gz");
 
-        store.CancelTransfer(doneId, "sess-1");
-        store.CancelTransfer(pendingId, "sess-1");
-        store.CancelTransfer(downloadId, "sess-1");
+        store.CancelTransfer(doneId, O("sess-1"));
+        store.CancelTransfer(pendingId, O("sess-1"));
+        store.CancelTransfer(downloadId, O("sess-1"));
 
-        store.GetUpload(doneId, "sess-1").Should().BeNull();
+        store.GetUpload(doneId, O("sess-1")).Should().BeNull();
         File.Exists(donePath).Should().BeFalse();
         store.TryClaimUpload(pendingId, Sess1Principal).Status.Should().Be(UploadClaimStatus.NotFound);
         store.GetDownload(downloadId, Sess1Principal).Should().BeNull();

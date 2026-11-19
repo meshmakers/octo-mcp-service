@@ -175,7 +175,7 @@ Consequences:
   isn't shared). Both endpoints require a validated bearer, so a principal is always
   present in production. `McpSessionContext.GetCallerLabel` is the deliberately non-null variant, used
   **only** for the file-transfer ownership tag of the tools. The HTTP endpoints of the file transfer compare
-  the principal (`StoreKeyPrefix`) instead, because a plain PUT or GET carries no `Mcp-Session-Id`
+  the owner key (`TransferOwnerKey`: the `StoreKeyPrefix` of a user, `c:<client_id>:<tenant>` for a client) instead, because a plain PUT or GET carries no `Mcp-Session-Id`
   (`file-transfer.md`).
 
 **2. A stored token is verified before it is used.** `VerifyBinding` requires the token's `sub` **and**

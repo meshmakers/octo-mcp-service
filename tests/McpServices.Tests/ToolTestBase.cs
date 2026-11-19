@@ -72,7 +72,7 @@ public abstract class ToolTestBase : TestBase
     internal FileTransferOwner CallerOwner => McpSessionContext.GetFileTransferOwner(MockServer.Object);
 
     /// <summary>The principal the HTTP endpoints compare for the current test caller.</summary>
-    internal string? CallerPrincipal => McpCallerPrincipal.FromServer(MockServer.Object)?.StoreKeyPrefix;
+    internal string? CallerPrincipal => McpCallerPrincipal.FromServer(MockServer.Object)?.TransferOwnerKey;
 
     /// <summary>
     ///     Does what a successful PUT does: claims the slot for <paramref name="principal" /> (default: the current

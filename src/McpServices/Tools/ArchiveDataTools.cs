@@ -142,7 +142,7 @@ public sealed class ArchiveDataTools
         }
 
         var store = server.Services!.GetRequiredService<IFileTransferStore>();
-        var upload = store.GetUpload(transferId, McpSessionContext.GetCallerLabel(server));
+        var upload = store.GetUpload(transferId, McpSessionContext.GetFileTransferOwner(server));
         if (upload == null)
         {
             return new JobStartedResponse

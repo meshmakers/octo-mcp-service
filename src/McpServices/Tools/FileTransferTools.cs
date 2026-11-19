@@ -88,7 +88,7 @@ public sealed class FileTransferTools
 
         var store = server.Services!.GetRequiredService<IFileTransferStore>();
         // AB#6989: only the owning session can cancel; a foreign id is a silent no-op (same answer as unknown).
-        store.CancelTransfer(transferId, McpSessionContext.GetCallerLabel(server));
+        store.CancelTransfer(transferId, McpSessionContext.GetFileTransferOwner(server));
 
         return Task.FromResult(new FileTransferResponse
         {

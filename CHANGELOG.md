@@ -11,9 +11,10 @@
   - The id travels in the request header `X-Transfer-Id`; the routes `/file-transfer/{upload,download}/{id}` are removed
     (404) and the query is not read, so access logs and span attributes (`url.*`, `http.route`) no longer carry it.
     Error responses and log lines do not echo it.
-  - An entry is served only to the principal that created it (`McpCallerPrincipal.StoreKeyPrefix`: same user and
-    tenant, or same client id); anyone else gets 404, like an unknown id. An entry or caller without a principal matches
-    nobody. The tool side keeps its session binding.
+  - An entry is served only to the principal that created it (`McpCallerPrincipal.TransferOwnerKey`: same user and
+    tenant, or same client id and tenant, so a mirrored client of another tenant is refused); anyone else gets 404, like an unknown id. An entry or caller without a principal matches
+    nobody. The tool side keeps its session binding and checks the same owner key, so a mirrored client of another
+    tenant cannot consume or cancel the upload through a tool either.
   - The first PUT claims the upload slot atomically: a concurrent second PUT gets 409; a failed or aborted PUT ends the
     reservation and deletes the partial file (a new `prepare_file_upload` is needed).
   - `prepare_file_upload` and every download-producing tool (`dump_tenant`, `export_archive_data`,

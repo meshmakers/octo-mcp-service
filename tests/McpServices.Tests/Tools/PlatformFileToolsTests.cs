@@ -107,7 +107,7 @@ public class PlatformFileToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeTrue();
         result.Entry!.RtId.Should().Be(FileRtId);
-        FileTransferStore.GetUpload(transferId, CallerSession).Should().BeNull();
+        FileTransferStore.GetUpload(transferId, CallerOwner).Should().BeNull();
     }
 
     [Theory]
@@ -165,7 +165,7 @@ public class PlatformFileToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("NAME_CONFLICT");
-        FileTransferStore.GetUpload(transferId, CallerSession).Should().NotBeNull();
+        FileTransferStore.GetUpload(transferId, CallerOwner).Should().NotBeNull();
     }
 
     // ── download_file ───────────────────────────────────────────────────────

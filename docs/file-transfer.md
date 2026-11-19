@@ -46,20 +46,23 @@ that created the transfer, and the transfer id never appears in a URL, log recor
   gateway, because only the service can bind the request to the creator.
 - **Bound to the creator's principal (HTTP side).** Every reservation and download stores
   `FileTransferOwner(SessionLabel, Principal)` (`McpSessionContext.GetFileTransferOwner`). The endpoints compare the
-  caller's `McpCallerPrincipal.StoreKeyPrefix` (`u:<tenant>:<sub>` for a user, `c:<client_id>` for a client-credentials
-  token) with the stored principal, ordinal (`FileTransferStore.IsPrincipalOwner`). Another user, the same subject in
-  another tenant, or another client id gets **404**, exactly like an unknown or expired id, and the entry stays for its
+  caller's `McpCallerPrincipal.TransferOwnerKey` (`u:<tenant>:<sub>` for a user, the same as its `StoreKeyPrefix`;
+  `c:<client_id>:<tenant>` for a client-credentials token) with the stored principal, ordinal
+  (`FileTransferStore.IsPrincipalOwner`). Another user, the same subject in another tenant, another client id, or the
+  same client id with a token of another tenant (a mirrored client) gets **404**, exactly like an unknown or expired id, and the entry stays for its
   owner. Fails closed: a missing principal on either side (a creator or caller without subject and client id) or the
   shared `anonymous` label never matches. The `Mcp-Session-Id` header plays no part on the HTTP side (a plain PUT/GET
   does not carry it); it is no identity there.
-- **Session binding (tool side).** The tools keep comparing the session label (`McpSessionContext.GetCallerLabel(server)`:
-  the validated principal's store key, plus `|<Mcp-Session-Id>` when the client sends that header).
-  `GetUpload(transferId, callerSessionId)` returns the upload **only for that owner**; every consuming tool
+- **Session binding (tool side).** The tools pass `McpSessionContext.GetFileTransferOwner(server)` and the store
+  compares both parts: the session label (`GetCallerLabel`: the validated principal's store key, plus
+  `|<Mcp-Session-Id>` when the client sends that header) and the owner key (`TransferOwnerKey`). The label alone
+  carries no tenant for a client, so the same client id with a token of another tenant would match it; the owner key
+  refuses that caller. `GetUpload(transferId, caller)` returns the upload **only for that owner**; every consuming tool
   (`import_ck_model`, `import_runtime_model`, `restore_tenant`, `import_archive_data`, `upload_file`, `validate_ck_model`)
   passes the caller's label and a foreign id gets exactly the answer an unknown/expired id gets (`Upload '<id>' not
-  found or expired.`). `cancel_file_transfer` goes through `CancelTransfer(id, caller)`: foreign id = silent no-op
+  found or expired.`). `cancel_file_transfer` goes through `CancelTransfer(id, caller)` (same two checks): foreign id = silent no-op
   with the usual success answer. The `anonymous` label never matches. New tools that consume an upload must pass the
-  caller label; never add a `GetUpload` overload without one.
+  caller label; never add a `GetUpload` overload without the owner tag.
 - **Id out of the URL.** The id travels only in the `X-Transfer-Id` header: no route carries it in the path, the query
   is not read (an id there is refused with 400 because the header is missing), and the old routes
   `/file-transfer/{upload,download}/{id}` answer 404. Access logs, `url.path`, `url.full`, `url.query` and `http.route`

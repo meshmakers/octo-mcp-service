@@ -58,7 +58,7 @@ public class CkModelValidationToolsTests : ToolTestBase
         MockAssetClient.Verify(c => c.ImportCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
         MockAssetClient.Verify(c => c.ImportCkModelAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()),
             Times.Never);
-        FileTransferStore.GetUpload(transferId, CallerSession).Should().NotBeNull();
+        FileTransferStore.GetUpload(transferId, CallerOwner).Should().NotBeNull();
     }
 
     [Fact]
