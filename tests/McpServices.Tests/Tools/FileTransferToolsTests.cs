@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Moq;
@@ -23,6 +24,63 @@ public class FileTransferToolsTests : ToolTestBase
         result.UploadUrlPath.Should().Be("/file-transfer/upload", "the transfer id never travels in the URL");
         result.TransferIdHeader.Should().Be("X-Transfer-Id");
         result.Message.Should().Contain("X-Transfer-Id: " + result.TransferId).And.Contain("Authorization: Bearer");
+    }
+
+    [Fact]
+    public async Task PrepareFileUpload_ReturnsAOneTimeKey_ThatUnlocksTheSlotOnce_AndIsNotInTheMessage()
+    {
+        var before = DateTime.UtcNow;
+
+        var result = await FileTransferTools.PrepareFileUpload(MockServer.Object, "model.json");
+
+        result.IsSuccess.Should().BeTrue();
+        result.TransferKey.Should().MatchRegex("^[A-Za-z0-9_-]{43}$");
+        result.TransferKeyHeader.Should().Be("X-Transfer-Key");
+        result.TransferKeyExpiresAtUtc.Should().BeOnOrAfter(before).And.BeOnOrBefore(DateTime.UtcNow.AddMinutes(5));
+        result.Message.Should().Contain("X-Transfer-Key").And.NotContain(result.TransferKey!);
+
+        FileTransferStore.TryClaimUploadWithKey(result.TransferId!, result.TransferKey!, TransferKeyCaller.Anonymous)
+            .Status.Should().Be(UploadClaimStatus.Claimed);
+        FileTransferStore.HasTransferKey(result.TransferId!).Should().BeFalse("the key is spent");
+    }
+
+    [Fact]
+    public async Task PrepareFileUpload_ClientCredentialsTokenWithoutTenant_IsRefused_NothingReserved()
+    {
+        // A client-credentials token without tenant_id can own no transfer (fail closed).
+        GivenServicePrincipalCaller(tenantId: null);
+        CallerOwner.CanOwnTransfer.Should().BeFalse();
+
+        var result = await FileTransferTools.PrepareFileUpload(MockServer.Object, "model.json");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("tenant_id");
+        result.TransferId.Should().BeNull();
+        result.TransferKey.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task PrepareFileUpload_ClientCredentialsTokenWithTenant_GetsAKey()
+    {
+        GivenServicePrincipalCaller(tenantId: DefaultTestTenantId);
+
+        var result = await FileTransferTools.PrepareFileUpload(MockServer.Object, "model.json");
+
+        result.IsSuccess.Should().BeTrue();
+        result.TransferKey.Should().NotBeNullOrEmpty();
+        CallerPrincipal.Should().Be($"c:octo-ai-worker:{DefaultTestTenantId}");
+    }
+
+    [Fact]
+    public void RegisterDownload_ForATenantlessClient_IsRefused_AndTheFileIsDeleted()
+    {
+        GivenServicePrincipalCaller(tenantId: null);
+        var path = Path.GetTempFileName();
+
+        var handout = FileTransferHandout.RegisterDownload(MockServer.Object, FileTransferStore, path, "f.bin");
+
+        handout.Should().BeNull();
+        File.Exists(path).Should().BeFalse();
     }
 
     [Fact]

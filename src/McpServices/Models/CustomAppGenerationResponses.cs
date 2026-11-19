@@ -382,9 +382,23 @@ public sealed class ExportRuntimeGraphqlSdlResponse
 
     /// <summary>
     ///     Name of the request header that carries <see cref="TransferId" /> (<c>X-Transfer-Id</c>). The id is never
-    ///     part of the URL path; send it in this header together with the bearer token of the MCP connection.
+    ///     part of the URL path; send it in this header together with the transfer key or the bearer token of the MCP
+    ///     connection.
     /// </summary>
     public string? TransferIdHeader { get; set; }
+
+    /// <summary>
+    ///     One-time transfer key: send it in the <see cref="TransferKeyHeader" /> header instead of a bearer
+    ///     token. Works once, for this transfer and direction only, until <see cref="TransferKeyExpiresAtUtc" />. A secret:
+    ///     never put it into a URL or a log.
+    /// </summary>
+    public string? TransferKey { get; set; }
+
+    /// <summary>Name of the request header that carries <see cref="TransferKey" /> (<c>X-Transfer-Key</c>).</summary>
+    public string? TransferKeyHeader { get; set; }
+
+    /// <summary>UTC time when <see cref="TransferKey" /> stops working (default 5 minutes after issue).</summary>
+    public DateTime? TransferKeyExpiresAtUtc { get; set; }
 
     /// <summary>Suggested file name to save the download as.</summary>
     public string? FileName { get; set; }

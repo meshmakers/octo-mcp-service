@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -23,14 +25,52 @@ internal sealed class FileTransferStore : IFileTransferStore
 
     private readonly ConcurrentDictionary<string, PendingUpload> _pending = new();
 
+    /// <summary>
+    ///     The live one-time key of a transfer, keyed by transfer id. Only the SHA-256 hash of the key is held;
+    ///     using the key removes the entry.
+    /// </summary>
+    private sealed record TransferKeyEntry(
+        byte[] KeyHash,
+        FileTransferDirection Direction,
+        string OwnerPrincipal,
+        string TenantId,
+        DateTime ExpiresAtUtc);
+
+    private readonly ConcurrentDictionary<string, TransferKeyEntry> _keys = new();
+
+    // Serialises check-and-spend of keys, so two requests with the same key cannot both pass.
+    private readonly Lock _keyLock = new();
+
     private readonly string _baseDir;
+    private readonly TimeSpan _keyLifetime;
     private static readonly TimeSpan DefaultTtl = TimeSpan.FromMinutes(30);
 
-    public FileTransferStore()
+    /// <summary>Default lifetime of a one-time transfer key.</summary>
+    internal static readonly TimeSpan DefaultKeyLifetime = TimeSpan.FromMinutes(5);
+
+    /// <summary>Longest lifetime a transfer key may be configured to.</summary>
+    internal static readonly TimeSpan MaxKeyLifetime = TimeSpan.FromMinutes(10);
+
+    public FileTransferStore() : this(DefaultKeyLifetime)
     {
+    }
+
+    /// <param name="keyLifetime">Lifetime of a transfer key; greater than zero and at most <see cref="MaxKeyLifetime" />.</param>
+    public FileTransferStore(TimeSpan keyLifetime)
+    {
+        if (keyLifetime <= TimeSpan.Zero || keyLifetime > MaxKeyLifetime)
+        {
+            throw new ArgumentOutOfRangeException(nameof(keyLifetime),
+                $"The file-transfer key lifetime must be greater than zero and at most {MaxKeyLifetime}.");
+        }
+
+        _keyLifetime = keyLifetime;
         _baseDir = Path.Combine(Path.GetTempPath(), "octo-mcp-file-transfer", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_baseDir);
     }
+
+    /// <summary>The lifetime a newly issued transfer key gets.</summary>
+    internal TimeSpan KeyLifetime => _keyLifetime;
 
     public (string TransferId, string TargetPath) ReserveUpload(
         FileTransferOwner owner, string fileName, TimeSpan? ttl = null)
@@ -86,6 +126,8 @@ internal sealed class FileTransferStore : IFileTransferStore
             return false;
         }
 
+        // The slot cannot be written again, so its key has nothing left to unlock.
+        _keys.TryRemove(transferId, out _);
         _uploads[transferId] = new FileTransferUpload(
             transferId, pending.SessionId, pending.TargetPath, pending.FileName, sizeBytes, pending.ExpiresAtUtc)
         {
@@ -99,6 +141,7 @@ internal sealed class FileTransferStore : IFileTransferStore
         if (_pending.TryGetValue(transferId, out var p) && p.Claimed
             && _pending.TryRemove(new KeyValuePair<string, PendingUpload>(transferId, p)))
         {
+            _keys.TryRemove(transferId, out _);
             TryDeleteFile(p.TargetPath);
         }
     }
@@ -123,6 +166,7 @@ internal sealed class FileTransferStore : IFileTransferStore
 
     public void DeleteUpload(string transferId)
     {
+        _keys.TryRemove(transferId, out _);
         if (_uploads.TryRemove(transferId, out var u))
         {
             TryDeleteFile(u.FilePath);
@@ -181,11 +225,144 @@ internal sealed class FileTransferStore : IFileTransferStore
 
     public void DeleteDownload(string transferId)
     {
+        _keys.TryRemove(transferId, out _);
         if (_downloads.TryRemove(transferId, out var d))
         {
             TryDeleteFile(d.FilePath);
         }
     }
+
+    public IssuedTransferKey? IssueTransferKey(string transferId, FileTransferDirection direction,
+        FileTransferOwner owner, TimeSpan? ttl = null)
+    {
+        if (!owner.CanOwnTransfer)
+        {
+            return null;
+        }
+
+        var now = DateTime.UtcNow;
+        DateTime transferExpiry;
+        if (direction == FileTransferDirection.Upload)
+        {
+            if (!_pending.TryGetValue(transferId, out var p) || p.Claimed
+                || !IsPrincipalOwner(p.OwnerPrincipal, owner.Principal))
+            {
+                return null;
+            }
+
+            transferExpiry = p.ExpiresAtUtc;
+        }
+        else
+        {
+            if (!_downloads.TryGetValue(transferId, out var d) || !IsPrincipalOwner(d.OwnerPrincipal, owner.Principal))
+            {
+                return null;
+            }
+
+            transferExpiry = d.ExpiresAtUtc;
+        }
+
+        var lifetime = ttl.HasValue && ttl.Value < _keyLifetime ? ttl.Value : _keyLifetime;
+        var expires = now.Add(lifetime);
+        if (expires > transferExpiry)
+        {
+            expires = transferExpiry;
+        }
+
+        var key = Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
+        _keys[transferId] = new TransferKeyEntry(HashKey(key), direction, owner.Principal!, owner.TenantId!, expires);
+        return new IssuedTransferKey(key, expires);
+    }
+
+    public (UploadClaimStatus Status, string? TargetPath) TryClaimUploadWithKey(string transferId, string transferKey,
+        TransferKeyCaller caller)
+    {
+        lock (_keyLock)
+        {
+            var key = MatchKey(transferId, transferKey, FileTransferDirection.Upload, caller);
+            if (key == null)
+            {
+                return (UploadClaimStatus.NotFound, null);
+            }
+
+            // The slot must still belong to the key's owner; the claim itself is the same compare-and-swap the bearer
+            // path uses, so a bearer PUT and a key PUT cannot both win either.
+            var (status, target) = TryClaimUpload(transferId, key.OwnerPrincipal);
+            switch (status)
+            {
+                case UploadClaimStatus.Claimed:
+                    _keys.TryRemove(transferId, out _); // spent
+                    return (status, target);
+                case UploadClaimStatus.InProgress:
+                    return (status, null); // key stays unused
+                default:
+                    _keys.TryRemove(transferId, out _); // its transfer is gone
+                    return (UploadClaimStatus.NotFound, null);
+            }
+        }
+    }
+
+    public FileTransferDownload? ConsumeDownloadKey(string transferId, string transferKey, TransferKeyCaller caller)
+    {
+        lock (_keyLock)
+        {
+            var key = MatchKey(transferId, transferKey, FileTransferDirection.Download, caller);
+            if (key == null)
+            {
+                return null;
+            }
+
+            // Spent either way: on success it is used, otherwise its transfer is gone.
+            _keys.TryRemove(transferId, out _);
+            return GetDownload(transferId, key.OwnerPrincipal);
+        }
+    }
+
+    /// <summary>
+    ///     The key entry when <paramref name="transferKey" /> is the live key of the transfer for
+    ///     <paramref name="direction" /> and <paramref name="caller" /> may present it; else null. Called under
+    ///     <see cref="_keyLock" />. Drops an expired key; leaves every other mismatch untouched, so a guess cannot burn
+    ///     the owner's key.
+    /// </summary>
+    private TransferKeyEntry? MatchKey(string transferId, string transferKey, FileTransferDirection direction,
+        TransferKeyCaller caller)
+    {
+        if (string.IsNullOrEmpty(transferKey) || !_keys.TryGetValue(transferId, out var entry))
+        {
+            return null;
+        }
+
+        if (DateTime.UtcNow >= entry.ExpiresAtUtc)
+        {
+            _keys.TryRemove(new KeyValuePair<string, TransferKeyEntry>(transferId, entry));
+            return null;
+        }
+
+        if (entry.Direction != direction
+            || !CryptographicOperations.FixedTimeEquals(HashKey(transferKey), entry.KeyHash))
+        {
+            return null;
+        }
+
+        // A token on the request must be the key's owner (same principal and tenant); an authenticated caller
+        // without a principal (a client-credentials token without tenant_id) never matches.
+        if (caller.IsAuthenticated
+            && (!IsPrincipalOwner(entry.OwnerPrincipal, caller.Principal)
+                || !string.Equals(entry.TenantId, caller.TenantId, StringComparison.Ordinal)))
+        {
+            return null;
+        }
+
+        return entry;
+    }
+
+    private static byte[] HashKey(string key) => SHA256.HashData(Encoding.UTF8.GetBytes(key));
+
+    private static string Base64UrlEncode(byte[] bytes) =>
+        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    /// <summary>Test hook: true while a transfer key is live for the id.</summary>
+    internal bool HasTransferKey(string transferId) => _keys.ContainsKey(transferId);
 
     /// <summary>Test hook: true while a reservation (claimed or not) exists for the id.</summary>
     internal bool IsUploadPending(string transferId) => _pending.ContainsKey(transferId);
@@ -211,6 +388,7 @@ internal sealed class FileTransferStore : IFileTransferStore
             if (now >= p.ExpiresAtUtc)
             {
                 _pending.TryRemove(id, out _);
+                _keys.TryRemove(id, out _);
                 TryDeleteFile(p.TargetPath);
             }
         }
@@ -220,6 +398,14 @@ internal sealed class FileTransferStore : IFileTransferStore
             if (now >= d.ExpiresAtUtc)
             {
                 DeleteDownload(id);
+            }
+        }
+
+        foreach (var (id, k) in _keys)
+        {
+            if (now >= k.ExpiresAtUtc)
+            {
+                _keys.TryRemove(new KeyValuePair<string, TransferKeyEntry>(id, k));
             }
         }
     }

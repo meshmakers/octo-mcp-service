@@ -42,8 +42,10 @@ public sealed class FileTransferControllerTests : IAsyncLifetime
     private static readonly Caller Alice = new("t1", "alice", "octo-cli");
     private static readonly Caller Bob = new("t1", "bob", "octo-cli");
     private static readonly Caller AliceInOtherTenant = new("t2", "alice", "octo-cli");
-    private static readonly Caller AiWorker = new(null, null, "ai-worker");
-    private static readonly Caller MeshAdapter = new(null, null, "mesh-adapter");
+    private static readonly Caller AiWorker = new("t1", null, "ai-worker");
+    private static readonly Caller MeshAdapter = new("t1", null, "mesh-adapter");
+    // A client-credentials token without tenant_id has no owner key and is refused (fail closed).
+    private static readonly Caller TenantlessClient = new(null, null, "ai-worker");
     private static readonly Caller ClientInTenant1 = new("t1", null, "mirrored-client");
     private static readonly Caller SameClientInTenant2 = new("t2", null, "mirrored-client");
 
@@ -111,7 +113,7 @@ public sealed class FileTransferControllerTests : IAsyncLifetime
     private sealed record Caller(string? TenantId, string? SubjectId, string? ClientId)
     {
         public FileTransferOwner Owner(string session = "mcp-session-1") =>
-            new($"{StoreKey}|{session}", Principal); // label as McpSessionContext.GetCallerLabel builds it
+            new($"{StoreKey}|{session}", Principal, TenantId); // as McpSessionContext.GetFileTransferOwner builds it
 
         public string? Principal => new McpCallerPrincipal(SubjectId, ClientId, TenantId, []).TransferOwnerKey;
 
@@ -142,16 +144,18 @@ public sealed class FileTransferControllerTests : IAsyncLifetime
         return (_store.RegisterDownload((owner ?? Alice).Owner(), path, "dump.bin", ttl), path);
     }
 
-    private static HttpRequestMessage Get(string id, string? token, string path = FileTransferRoutes.DownloadPath)
+    private static HttpRequestMessage Get(string id, string? token, string path = FileTransferRoutes.DownloadPath,
+        string? key = null)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, path);
         request.Headers.Add(FileTransferRoutes.TransferIdHeader, id);
         if (token != null) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (key != null) request.Headers.Add(FileTransferRoutes.TransferKeyHeader, key);
         return request;
     }
 
     private static HttpRequestMessage Put(string? id, string? token, HttpContent? content = null,
-        string path = FileTransferRoutes.UploadPath)
+        string path = FileTransferRoutes.UploadPath, string? key = null)
     {
         var request = new HttpRequestMessage(HttpMethod.Put, path)
         {
@@ -160,8 +164,12 @@ public sealed class FileTransferControllerTests : IAsyncLifetime
         request.Content.Headers.ContentType ??= new MediaTypeHeaderValue("application/x-yaml");
         if (id != null) request.Headers.Add(FileTransferRoutes.TransferIdHeader, id);
         if (token != null) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (key != null) request.Headers.Add(FileTransferRoutes.TransferKeyHeader, key);
         return request;
     }
+
+    private string IssueKey(string id, FileTransferDirection direction, Caller? owner = null, TimeSpan? ttl = null) =>
+        _store.IssueTransferKey(id, direction, (owner ?? Alice).Owner(), ttl)!.Key;
 
     private string ReserveFor(Caller caller, out string targetPath, TimeSpan? ttl = null)
     {
@@ -340,8 +348,9 @@ public sealed class FileTransferControllerTests : IAsyncLifetime
         var id = ReserveFor(Alice, out _);
         var (downloadId, _) = RegisterFile([1]);
 
-        (await _http.SendAsync(Put(id, Token(nobody)), Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
-        (await _http.SendAsync(Get(downloadId, Token(nobody)), Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        // Fail closed like a missing token.
+        (await _http.SendAsync(Put(id, Token(nobody)), Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await _http.SendAsync(Get(downloadId, Token(nobody)), Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
@@ -357,8 +366,10 @@ public sealed class FileTransferControllerTests : IAsyncLifetime
 
         foreach (var caller in new[] { Alice, AiWorker, anonymousClient })
         {
-            (await _http.SendAsync(Put(id, Token(caller)), Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
-            (await _http.SendAsync(Put(labelId, Token(caller)), Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+            // The tenantless anonymous client has no owner key at all and is refused like a missing token.
+            var expected = caller == anonymousClient ? HttpStatusCode.Unauthorized : HttpStatusCode.NotFound;
+            (await _http.SendAsync(Put(id, Token(caller)), Ct)).StatusCode.Should().Be(expected);
+            (await _http.SendAsync(Put(labelId, Token(caller)), Ct)).StatusCode.Should().Be(expected);
         }
     }
 
@@ -382,7 +393,8 @@ public sealed class FileTransferControllerTests : IAsyncLifetime
     {
         ClientInTenant1.Principal.Should().Be("c:mirrored-client:t1");
         SameClientInTenant2.Principal.Should().Be("c:mirrored-client:t2");
-        AiWorker.Principal.Should().Be("c:ai-worker:-");
+        AiWorker.Principal.Should().Be("c:ai-worker:t1");
+        TenantlessClient.Principal.Should().BeNull("a client token without tenant_id can own no transfer");
         Alice.Principal.Should().Be(new McpCallerPrincipal("alice", "octo-cli", "t1", []).StoreKeyPrefix);
     }
 
@@ -396,6 +408,290 @@ public sealed class FileTransferControllerTests : IAsyncLifetime
         var response = await _http.SendAsync(Get(downloadId, Token(AiWorker)), Ct);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         (await response.Content.ReadAsByteArrayAsync(Ct)).Should().Equal(5, 6);
+    }
+
+    // ---------------------------------------------------------------- client token without tenant_id
+
+    [Fact]
+    public async Task ClientTokenWithoutTenant_IsRefused_ForAnEntryInTheOldFormat_AndWithAKey()
+    {
+        // An entry stored under the earlier owner key of a tenantless client is not reachable with its token.
+        var legacyOwner = new FileTransferOwner("c:ai-worker|s", "c:ai-worker:-");
+        var (legacyId, legacyTarget) = _store.ReserveUpload(legacyOwner, "model.yaml");
+        _files.Add(legacyTarget);
+        (await _http.SendAsync(Put(legacyId, Token(TenantlessClient)), Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        File.Exists(legacyTarget).Should().BeFalse();
+        var (legacyDownload, legacyPath) = (_store.RegisterDownload(legacyOwner, legacyTarget + ".dl", "f.bin"), legacyTarget + ".dl");
+        File.WriteAllBytes(legacyPath, [1]);
+        _files.Add(legacyPath);
+        (await _http.SendAsync(Get(legacyDownload, Token(TenantlessClient)), Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        File.Exists(legacyPath).Should().BeTrue("nothing is served");
+
+        // The tenantless token cannot ride on someone's valid key either (an authenticated caller must be the owner).
+        var id = ReserveFor(AiWorker, out var target);
+        var key = IssueKey(id, FileTransferDirection.Upload, AiWorker);
+        (await _http.SendAsync(Put(id, Token(TenantlessClient), key: key), Ct)).StatusCode
+            .Should().Be(HttpStatusCode.Unauthorized);
+        File.Exists(target).Should().BeFalse();
+        _store.HasTransferKey(id).Should().BeTrue("a refused request leaves the owner's key unused");
+    }
+
+    // ---------------------------------------------------------------- one-time transfer key
+
+    [Fact]
+    public async Task Upload_WithKeyAndNoToken_Is200_AndTheKeyIsSpent()
+    {
+        var id = ReserveFor(Alice, out _);
+        var key = IssueKey(id, FileTransferDirection.Upload);
+
+        var response = await _http.SendAsync(Put(id, token: null, key: key), Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        _store.HasTransferKey(id).Should().BeFalse();
+        // The tool side still binds to the creator's MCP session.
+        _store.GetUpload(id, Alice.Owner())!.SizeBytes.Should().Be(4);
+        _store.GetUpload(id, Bob.Owner()).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Download_WithKeyAndNoToken_Is200_AndSingleUseStays()
+    {
+        var (id, path) = RegisterFile([4, 5, 6]);
+        var key = IssueKey(id, FileTransferDirection.Download);
+
+        var response = await _http.SendAsync(Get(id, token: null, key: key), Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await response.Content.ReadAsByteArrayAsync(Ct)).Should().Equal(4, 5, 6);
+        await EventuallyAsync(() => !File.Exists(path));
+        File.Exists(path).Should().BeFalse("a complete GET still ends the download");
+        (await _http.SendAsync(Get(id, Token(Alice)), Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Key_Reused_Is401_EvenWhileTheDownloadStillExists()
+    {
+        var (id, path) = RegisterFile([1, 2, 3, 4]);
+        var key = IssueKey(id, FileTransferDirection.Download);
+
+        // A partial read spends the key but keeps the entry for a resume by the owner's token.
+        var partial = Get(id, token: null, key: key);
+        partial.Headers.Range = new RangeHeaderValue(0, 0);
+        (await _http.SendAsync(partial, Ct)).StatusCode.Should().Be(HttpStatusCode.PartialContent);
+
+        (await _http.SendAsync(Get(id, token: null, key: key), Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        File.Exists(path).Should().BeTrue();
+        (await _http.SendAsync(Get(id, Token(Alice)), Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Key_ReusedAfterACompletedUpload_Is401()
+    {
+        var id = ReserveFor(Alice, out _);
+        var key = IssueKey(id, FileTransferDirection.Upload);
+        (await _http.SendAsync(Put(id, token: null, key: key), Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await _http.SendAsync(Put(id, token: null, key: key), Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Key_Expired_Is401_AndTheTransferStaysForTheOwnersToken()
+    {
+        var id = ReserveFor(Alice, out var target);
+        var key = IssueKey(id, FileTransferDirection.Upload, ttl: TimeSpan.Zero);
+        var (downloadId, path) = RegisterFile([7]);
+        var downloadKey = IssueKey(downloadId, FileTransferDirection.Download, ttl: TimeSpan.Zero);
+
+        (await _http.SendAsync(Put(id, token: null, key: key), Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await _http.SendAsync(Get(downloadId, token: null, key: downloadKey), Ct)).StatusCode
+            .Should().Be(HttpStatusCode.Unauthorized);
+
+        File.Exists(target).Should().BeFalse();
+        File.Exists(path).Should().BeTrue();
+        _store.HasTransferKey(id).Should().BeFalse("an expired key is dropped");
+        await OwnerCanStillUpload(id, Alice);
+    }
+
+    [Fact]
+    public async Task Key_OfAnotherTransfer_Is401()
+    {
+        var mine = ReserveFor(Alice, out var target);
+        var other = ReserveFor(Bob, out _);
+        IssueKey(mine, FileTransferDirection.Upload);
+        var bobsKey = IssueKey(other, FileTransferDirection.Upload, Bob);
+
+        (await _http.SendAsync(Put(mine, token: null, key: bobsKey), Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        // A key issued in another tenant (the same subject's transfer there) does not open this one either.
+        var otherTenant = ReserveFor(AliceInOtherTenant, out _);
+        var otherTenantKey = IssueKey(otherTenant, FileTransferDirection.Upload, AliceInOtherTenant);
+        (await _http.SendAsync(Put(mine, token: null, key: otherTenantKey), Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        File.Exists(target).Should().BeFalse();
+        _store.HasTransferKey(mine).Should().BeTrue();
+        _store.HasTransferKey(other).Should().BeTrue("a key presented for another transfer is not spent");
+    }
+
+    [Theory]
+    [MemberData(nameof(ForeignCallers))]
+    public async Task Key_WithTheTokenOfAnotherPrincipal_Is401_AndStaysUsableForTheOwner(string kind)
+    {
+        // Covers another user, another tenant, another client and the same client id with a token of another tenant.
+        var (owner, intruder) = Pair(kind);
+        var id = ReserveFor(owner, out var target);
+        var key = IssueKey(id, FileTransferDirection.Upload, owner);
+        var (downloadId, _) = RegisterFile([3, 3], owner);
+        var downloadKey = IssueKey(downloadId, FileTransferDirection.Download, owner);
+
+        (await _http.SendAsync(Put(id, Token(intruder), key: key), Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await _http.SendAsync(Get(downloadId, Token(intruder), key: downloadKey), Ct)).StatusCode
+            .Should().Be(HttpStatusCode.Unauthorized);
+        File.Exists(target).Should().BeFalse();
+
+        (await _http.SendAsync(Put(id, token: null, key: key), Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _http.SendAsync(Get(downloadId, Token(owner), key: downloadKey), Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Key_ForTheOtherDirection_Is401()
+    {
+        var uploadId = ReserveFor(Alice, out var target);
+        var uploadKey = IssueKey(uploadId, FileTransferDirection.Upload);
+        var (downloadId, path) = RegisterFile([1]);
+        var downloadKey = IssueKey(downloadId, FileTransferDirection.Download);
+
+        // The upload key on the download endpoint (its own id), and the download key on the upload endpoint.
+        (await _http.SendAsync(Get(uploadId, token: null, key: uploadKey), Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await _http.SendAsync(Put(downloadId, token: null, key: downloadKey), Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        File.Exists(target).Should().BeFalse();
+        File.Exists(path).Should().BeTrue();
+        _store.HasTransferKey(uploadId).Should().BeTrue();
+        _store.HasTransferKey(downloadId).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Key_ConcurrentConsume_ExactlyOneRequestWins()
+    {
+        var (id, _) = RegisterFile(new byte[64 * 1024]);
+        var key = IssueKey(id, FileTransferDirection.Download);
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 12)
+            .Select(_ => _http.SendAsync(Get(id, token: null, key: key), HttpCompletionOption.ResponseHeadersRead, Ct)));
+
+        responses.Count(r => r.StatusCode == HttpStatusCode.OK).Should().Be(1);
+        responses.Count(r => r.StatusCode == HttpStatusCode.Unauthorized).Should().Be(11);
+        foreach (var r in responses) r.Dispose();
+    }
+
+    [Fact]
+    public async Task Key_ConcurrentUploads_OnlyOneWritesTheSlot()
+    {
+        var id = ReserveFor(Alice, out _);
+        var key = IssueKey(id, FileTransferDirection.Upload);
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 8)
+            .Select(_ => _http.SendAsync(Put(id, token: null, key: key), Ct)));
+
+        responses.Count(r => r.StatusCode == HttpStatusCode.OK).Should().Be(1);
+        responses.Where(r => r.StatusCode != HttpStatusCode.OK).Select(r => r.StatusCode)
+            .Should().OnlyContain(c => c == HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task EveryKeyRefusal_AndAMissingCredential_GetTheSameBody()
+    {
+        var id = ReserveFor(Alice, out _);
+        var valid = IssueKey(id, FileTransferDirection.Upload);
+        var expiredId = ReserveFor(Alice, out _);
+        var expired = IssueKey(expiredId, FileTransferDirection.Upload, ttl: TimeSpan.Zero);
+        var foreignId = ReserveFor(Bob, out _);
+        IssueKey(foreignId, FileTransferDirection.Upload, Bob);
+        var (downloadId, _) = RegisterFile([1]);
+        var usedKey = IssueKey(downloadId, FileTransferDirection.Download);
+        var partial = Get(downloadId, token: null, key: usedKey);
+        partial.Headers.Range = new RangeHeaderValue(0, 0);
+        (await _http.SendAsync(partial, Ct)).StatusCode.Should().Be(HttpStatusCode.PartialContent);
+
+        var refusals = new List<HttpRequestMessage>
+        {
+            Put(id, token: null),                                          // missing key and token
+            Put(id, token: null, key: "garbage"),                          // wrong key
+            Put(id, token: null, key: ""),                                 // empty key
+            Put(expiredId, token: null, key: expired),                     // expired
+            Put(foreignId, token: null, key: valid),                       // key of another transfer (foreign)
+            Put(id, Token(Bob), key: valid),                               // token of another principal
+            Get(downloadId, token: null, key: usedKey),                    // reused
+            Get(id, token: null, key: valid),                              // wrong direction
+            Put("does-not-exist", token: null, key: valid),                // unknown id
+        };
+        var twoKeys = Put(id, token: null);
+        twoKeys.Headers.Add(FileTransferRoutes.TransferKeyHeader, [valid, valid]);
+        refusals.Add(twoKeys);
+
+        var bodies = new List<string>();
+        var headers = new List<string>();
+        foreach (var request in refusals)
+        {
+            var response = await _http.SendAsync(request, Ct);
+            response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+            bodies.Add(await response.Content.ReadAsStringAsync(Ct));
+            // Every header except the date: same set, same values.
+            headers.Add(string.Join("\n", response.Headers.Concat(response.Content.Headers)
+                .Where(h => h.Key != "Date")
+                .OrderBy(h => h.Key, StringComparer.Ordinal)
+                .Select(h => h.Key + ": " + string.Join(",", h.Value))));
+        }
+
+        bodies.Distinct().Should().ContainSingle("no refusal may tell expired, used, foreign or missing apart");
+        headers.Distinct().Should().ContainSingle("the headers must not tell them apart either");
+        bodies[0].Should().NotContain(id).And.NotContain(valid);
+        (await _http.SendAsync(Put(id, token: null, key: valid), Ct)).StatusCode
+            .Should().Be(HttpStatusCode.OK, "none of the refusals spent the owner's key");
+    }
+
+    [Fact]
+    public async Task CreatorsToken_WinsOverAWrongKey_AndLeavesTheKeyUnspent()
+    {
+        var (id, _) = RegisterFile([2, 4]);
+        var key = IssueKey(id, FileTransferDirection.Download);
+
+        // A partial read keeps the entry, so the key's state is observable afterwards.
+        var request = Get(id, Token(Alice), key: "garbage");
+        request.Headers.Range = new RangeHeaderValue(0, 0);
+        var response = await _http.SendAsync(request, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.PartialContent);
+        _store.HasTransferKey(id).Should().BeTrue("the bearer path does not touch the key");
+        (await _http.SendAsync(Get(id, token: null, key: key), Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task SpansLogsAndBodies_NeverCarryTheTransferKey()
+    {
+        var id = ReserveFor(Alice, out _);
+        var key = IssueKey(id, FileTransferDirection.Upload);
+        var (downloadId, _) = RegisterFile([1, 2]);
+        var downloadKey = IssueKey(downloadId, FileTransferDirection.Download);
+
+        var bodies = new List<string>();
+        foreach (var request in new[]
+                 {
+                     Put(id, Token(Bob), key: key), Put(id, token: null, key: key), Put(id, token: null, key: key),
+                     Get(downloadId, token: null, key: downloadKey), Get(downloadId, token: null, key: downloadKey)
+                 })
+        {
+            var response = await _http.SendAsync(request, Ct);
+            bodies.Add(await response.Content.ReadAsStringAsync(Ct));
+        }
+
+        await EventuallyAsync(() => _spans.Count >= 5);
+        foreach (var secret in new[] { key, downloadKey })
+        {
+            bodies.Should().NotContain(b => b.Contains(secret));
+            _spans.SelectMany(a => a.TagObjects).Select(t => t.Value?.ToString() ?? "")
+                .Should().NotContain(v => v.Contains(secret));
+            _spans.Select(a => a.DisplayName).Should().NotContain(v => v.Contains(secret));
+            _logs.Select(l => l.Text).Should().NotContain(t => t.Contains(secret));
+        }
     }
 
     // ---------------------------------------------------------------- (b) id never in path or query

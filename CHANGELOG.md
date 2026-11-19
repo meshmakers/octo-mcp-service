@@ -20,6 +20,17 @@
   - `prepare_file_upload` and every download-producing tool (`dump_tenant`, `export_archive_data`,
     `export_runtime_model_by_query`, `export_runtime_model_by_deep_graph`, `export_runtime_graphql_sdl`, `download_file`)
     return the path without the id plus the new field `transferIdHeader`; their messages name both headers.
+  - **One-time transfer key** for clients without the raw access token of their MCP connection: `prepare_file_upload`
+    and every download-producing tool also return `transferKey`, `transferKeyHeader` (`X-Transfer-Key`) and
+    `transferKeyExpiresAtUtc`. The endpoints accept the creator's bearer token **or** the key. The key is 256 random
+    bits, stored only as a hash, bound to the transfer, its direction, the creator's principal and tenant, valid
+    `Mcp:FileTransferKeyLifetime` (default 5 minutes, at most 10, checked at start) and spent atomically on first use.
+    A missing, wrong, expired, used, foreign or wrong-direction key, or a key presented with the token of another
+    principal, gets 401 with one identical body.
+  - A client-credentials token without `tenant_id` can no longer own a transfer: the tools refuse to create one and the
+    endpoints refuse it (fail closed).
+  - Fixed: under load an aborted download could be deleted as if it had been delivered (Kestrel discards writes after
+    an abort and cancels `RequestAborted` late); the delivery is now also checked on the response pipe's flush result.
   - Known limitation: no per-caller disk quota yet.
 
 ### Added

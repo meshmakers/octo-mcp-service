@@ -34,6 +34,13 @@ public class McpServiceOptions
     public string PublicUrl { get; set; }
 
     /// <summary>
+    ///     Lifetime of the one-time transfer key a file-transfer tool returns, e.g. <c>00:05:00</c>.
+    ///     Default 5 minutes; must be greater than zero and at most 10 minutes (checked at start). A key never outlives
+    ///     its transfer.
+    /// </summary>
+    public TimeSpan FileTransferKeyLifetime { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>
     ///     (Public) base address of the CAS (Central Authorization Services)
     /// </summary>
     public string AuthorityUrl { get; set; }

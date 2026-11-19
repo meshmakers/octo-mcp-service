@@ -197,7 +197,13 @@ public sealed class PlatformFileTools
             }
 
             var store = server.Services!.GetRequiredService<IFileTransferStore>();
-            var transferId = store.RegisterDownload(McpSessionContext.GetFileTransferOwner(server), tempPath, fileName);
+            var handout = FileTransferHandout.RegisterDownload(server, store, tempPath, fileName);
+            if (handout == null)
+            {
+                return new DownloadPlatformFileResponse { IsSuccess = false, TenantId = ctx.TenantId, ErrorMessage = FileTransferHandout.OwnerRequiredError };
+            }
+
+            var transferId = handout.TransferId;
             tempPath = null; // owned by the store now
             var size = store.GetDownload(transferId, McpCallerPrincipal.FromServer(server)?.TransferOwnerKey)?.SizeBytes ?? download.ContentLength ?? 0;
 
@@ -208,6 +214,9 @@ public sealed class PlatformFileTools
                 TransferId = transferId,
                 DownloadUrlPath = FileTransferRoutes.DownloadPath,
                 TransferIdHeader = FileTransferRoutes.TransferIdHeader,
+                TransferKey = handout.Key.Key,
+                TransferKeyHeader = FileTransferRoutes.TransferKeyHeader,
+                TransferKeyExpiresAtUtc = handout.Key.ExpiresAtUtc,
                 FileName = fileName,
                 ContentType = download.ContentType,
                 SizeBytes = size,

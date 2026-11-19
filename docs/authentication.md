@@ -14,9 +14,10 @@ registers the JWT bearer handler (`AddAuthentication(JwtBearerDefaults.Authentic
 `UseOctoTenantAuthorization()` before mapping the transport; both `app.MapMcp(...)` calls carry
 `.RequireAuthorization(McpAuthorizationPolicy.PolicyName)` — the scope policy of the next section.
 
-`MapObservability` (health/metrics) is intentionally left anonymous. The file-transfer controller carries
-`[Authorize(Policy = McpAuthorizationPolicy.PolicyName)]` itself — the same policy as the MCP transport — and binds every
-entry to the principal that created it (`file-transfer.md`). Without the scheme and the
+`MapObservability` (health/metrics) is intentionally left anonymous. The file-transfer controller is
+`[AllowAnonymous]` at the routing level, because a request may present the one-time transfer key instead of a token; it
+evaluates `McpAuthorizationPolicy.PolicyName` — the same policy as the MCP transport — on the token itself before it
+touches the store, and binds every entry to the principal that created it (`file-transfer.md`). Without the scheme and the
 middleware the direct-engine (family-2/3) tools would serve tenant data from MongoDB with no token at all.
 
 `UseOctoTenantAuthorization` (shared `TenantAuthorizationMiddleware` from octo-common-services)

@@ -83,7 +83,13 @@ public sealed class ArchiveDataTools
             var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}_{effectiveFileName}");
 
             await bot.Client.DownloadDumpToFileAsync(bot.TenantId!, startResponse.JobId, tempPath);
-            var downloadId = store.RegisterDownload(McpSessionContext.GetFileTransferOwner(server), tempPath, effectiveFileName);
+            var handout = FileTransferHandout.RegisterDownload(server, store, tempPath, effectiveFileName);
+            if (handout == null)
+            {
+                return new FileDownloadResponse { IsSuccess = false, TenantId = bot.TenantId, ErrorMessage = FileTransferHandout.OwnerRequiredError };
+            }
+
+            var downloadId = handout.TransferId;
             var size = new FileInfo(tempPath).Length;
 
             var window = from.HasValue || to.HasValue
@@ -97,6 +103,9 @@ public sealed class ArchiveDataTools
                 TransferId = downloadId,
                 DownloadUrlPath = FileTransferRoutes.DownloadPath,
                 TransferIdHeader = FileTransferRoutes.TransferIdHeader,
+                TransferKey = handout.Key.Key,
+                TransferKeyHeader = FileTransferRoutes.TransferKeyHeader,
+                TransferKeyExpiresAtUtc = handout.Key.ExpiresAtUtc,
                 FileName = effectiveFileName,
                 SizeBytes = size,
                 ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),

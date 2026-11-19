@@ -344,4 +344,227 @@ public class FileTransferStoreTests
         store.GetDownload(live, Sess1Principal).Should().NotBeNull();
         store.DeleteDownload(live);
     }
+
+    // ---------------------------------------------------------------- one-time transfer key
+
+    private static readonly FileTransferOwner KeyOwner = new("u:t1:alice|s1", "u:t1:alice", "t1");
+    private static readonly TransferKeyCaller OwnerToken = new(true, "u:t1:alice", "t1");
+
+    [Fact]
+    public void KeyLifetime_DefaultsToFiveMinutes_AndRefusesZeroOrMoreThanTenMinutes()
+    {
+        new FileTransferStore().KeyLifetime.Should().Be(TimeSpan.FromMinutes(5));
+        new FileTransferStore(TimeSpan.FromMinutes(10)).KeyLifetime.Should().Be(TimeSpan.FromMinutes(10));
+
+        var zero = () => new FileTransferStore(TimeSpan.Zero);
+        var tooLong = () => new FileTransferStore(TimeSpan.FromMinutes(10).Add(TimeSpan.FromSeconds(1)));
+        zero.Should().Throw<ArgumentOutOfRangeException>();
+        tooLong.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void IssueTransferKey_IsOpaqueHighEntropy_ExpiresWithinTheLifetime_AndNeverAfterTheTransfer()
+    {
+        var store = new FileTransferStore(TimeSpan.FromMinutes(2));
+        var (id, _) = store.ReserveUpload(KeyOwner, "m.yaml");
+        var before = DateTime.UtcNow;
+
+        var key = store.IssueTransferKey(id, FileTransferDirection.Upload, KeyOwner)!;
+
+        key.Key.Should().MatchRegex("^[A-Za-z0-9_-]{43}$", "256 random bits, base64url");
+        key.Key.Should().NotContain(id);
+        key.ExpiresAtUtc.Should().BeOnOrAfter(before.AddMinutes(2).AddSeconds(-1)).And.BeOnOrBefore(DateTime.UtcNow.AddMinutes(2));
+        store.IssueTransferKey(id, FileTransferDirection.Upload, KeyOwner, TimeSpan.FromHours(1))!.ExpiresAtUtc
+            .Should().BeOnOrBefore(DateTime.UtcNow.AddMinutes(2), "a longer ttl is capped at the configured lifetime");
+
+        var (shortId, _) = store.ReserveUpload(KeyOwner, "m.yaml", TimeSpan.FromSeconds(30));
+        store.IssueTransferKey(shortId, FileTransferDirection.Upload, KeyOwner)!.ExpiresAtUtc
+            .Should().BeOnOrBefore(DateTime.UtcNow.AddSeconds(30), "a key never outlives its transfer");
+    }
+
+    [Fact]
+    public void IssueTransferKey_TwoKeys_AreDifferent_AndTheNewOneReplacesTheOld()
+    {
+        var store = new FileTransferStore();
+        var (id, _) = store.ReserveUpload(KeyOwner, "m.yaml");
+        var first = store.IssueTransferKey(id, FileTransferDirection.Upload, KeyOwner)!.Key;
+        var second = store.IssueTransferKey(id, FileTransferDirection.Upload, KeyOwner)!.Key;
+
+        second.Should().NotBe(first);
+        store.TryClaimUploadWithKey(id, first, TransferKeyCaller.Anonymous).Status.Should().Be(UploadClaimStatus.NotFound);
+        store.TryClaimUploadWithKey(id, second, TransferKeyCaller.Anonymous).Status.Should().Be(UploadClaimStatus.Claimed);
+    }
+
+    [Fact]
+    public void IssueTransferKey_RefusesUnknownForeignWrongDirectionAndTenantlessOwners()
+    {
+        var store = new FileTransferStore();
+        var (id, _) = store.ReserveUpload(KeyOwner, "m.yaml");
+
+        store.IssueTransferKey("unknown", FileTransferDirection.Upload, KeyOwner).Should().BeNull();
+        store.IssueTransferKey(id, FileTransferDirection.Upload, new FileTransferOwner("u:t1:bob|s", "u:t1:bob", "t1"))
+            .Should().BeNull("only the creator gets a key");
+        store.IssueTransferKey(id, FileTransferDirection.Download, KeyOwner).Should().BeNull("an upload has no download key");
+
+        // A client-credentials token without tenant_id: no principal, no tenant (fail closed).
+        var tenantless = new FileTransferOwner("c:ai-worker|s", null, null);
+        tenantless.CanOwnTransfer.Should().BeFalse();
+        var (tenantlessId, _) = store.ReserveUpload(tenantless, "m.yaml");
+        store.IssueTransferKey(tenantlessId, FileTransferDirection.Upload, tenantless).Should().BeNull();
+        new FileTransferOwner("u:-:alice|s", "u:-:alice", null).CanOwnTransfer.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ClaimWithKey_IsSingleUse_AndBindsTheCallersToken()
+    {
+        var store = new FileTransferStore();
+        var (id, _) = store.ReserveUpload(KeyOwner, "m.yaml");
+        var key = store.IssueTransferKey(id, FileTransferDirection.Upload, KeyOwner)!.Key;
+
+        store.TryClaimUploadWithKey(id, key, new TransferKeyCaller(true, "u:t1:bob", "t1")).Status
+            .Should().Be(UploadClaimStatus.NotFound, "another user");
+        store.TryClaimUploadWithKey(id, key, new TransferKeyCaller(true, "u:t1:alice", "t2")).Status
+            .Should().Be(UploadClaimStatus.NotFound, "the owner's principal with a token of another tenant");
+        store.TryClaimUploadWithKey(id, key, new TransferKeyCaller(true, null, null)).Status
+            .Should().Be(UploadClaimStatus.NotFound, "an authenticated caller without owner key");
+        store.HasTransferKey(id).Should().BeTrue();
+
+        store.TryClaimUploadWithKey(id, key, OwnerToken).Status.Should().Be(UploadClaimStatus.Claimed);
+        store.HasTransferKey(id).Should().BeFalse();
+        store.TryClaimUploadWithKey(id, key, OwnerToken).Status.Should().Be(UploadClaimStatus.NotFound, "used");
+    }
+
+    [Fact]
+    public void ClaimWithKey_WhileABearerPutHoldsTheSlot_IsInProgress_AndTheKeyStaysUnused()
+    {
+        var store = new FileTransferStore();
+        var (id, _) = store.ReserveUpload(KeyOwner, "m.yaml");
+        var key = store.IssueTransferKey(id, FileTransferDirection.Upload, KeyOwner)!.Key;
+        store.TryClaimUpload(id, KeyOwner.Principal).Status.Should().Be(UploadClaimStatus.Claimed);
+
+        store.TryClaimUploadWithKey(id, key, TransferKeyCaller.Anonymous).Status.Should().Be(UploadClaimStatus.InProgress);
+        store.HasTransferKey(id).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ConsumeDownloadKey_ExpiredKey_IsRefusedAndDropped_TheDownloadStays()
+    {
+        var store = new FileTransferStore();
+        var path = Path.GetTempFileName();
+        var id = store.RegisterDownload(KeyOwner, path, "f.bin");
+        var key = store.IssueTransferKey(id, FileTransferDirection.Download, KeyOwner, TimeSpan.Zero)!.Key;
+
+        store.ConsumeDownloadKey(id, key, TransferKeyCaller.Anonymous).Should().BeNull();
+        store.HasTransferKey(id).Should().BeFalse();
+        store.GetDownload(id, KeyOwner.Principal).Should().NotBeNull();
+        store.DeleteDownload(id);
+    }
+
+    /// <summary>
+    ///     Starts <paramref name="count" /> dedicated threads that run <paramref name="action" /> at the same moment. Not
+    ///     the thread pool: blocking pool threads would slow down the HTTP tests that run in parallel.
+    /// </summary>
+    private static void RunConcurrently(int count, Action<int> action)
+    {
+        // A kernel event, not a spinning Barrier: spinning threads starve the HTTP tests running in parallel.
+        using var start = new ManualResetEvent(false);
+        var threads = Enumerable.Range(0, count).Select(i => new Thread(() =>
+        {
+            start.WaitOne();
+            action(i);
+        })).ToList();
+        threads.ForEach(t => t.Start());
+        start.Set();
+        threads.ForEach(t => t.Join());
+    }
+
+    [Fact]
+    public void ConsumeDownloadKey_ConcurrentCalls_ExactlyOneWins()
+    {
+        var store = new FileTransferStore();
+        var path = Path.GetTempFileName();
+        var id = store.RegisterDownload(KeyOwner, path, "f.bin");
+        var key = store.IssueTransferKey(id, FileTransferDirection.Download, KeyOwner)!.Key;
+        var wins = 0;
+
+        RunConcurrently(8, _ =>
+        {
+            if (store.ConsumeDownloadKey(id, key, TransferKeyCaller.Anonymous) != null)
+            {
+                Interlocked.Increment(ref wins);
+            }
+        });
+
+        wins.Should().Be(1);
+        store.DeleteDownload(id);
+    }
+
+    [Fact]
+    public void ConcurrentKeyAndBearerClaims_OnlyOneWins()
+    {
+        var store = new FileTransferStore();
+        var (id, _) = store.ReserveUpload(KeyOwner, "m.yaml");
+        var key = store.IssueTransferKey(id, FileTransferDirection.Upload, KeyOwner)!.Key;
+        var claimed = 0;
+
+        RunConcurrently(8, i =>
+        {
+            var status = i % 2 == 0
+                ? store.TryClaimUploadWithKey(id, key, TransferKeyCaller.Anonymous).Status
+                : store.TryClaimUpload(id, KeyOwner.Principal).Status;
+            if (status == UploadClaimStatus.Claimed)
+            {
+                Interlocked.Increment(ref claimed);
+            }
+        });
+
+        claimed.Should().Be(1);
+    }
+
+    [Fact]
+    public void Keys_AreRemovedWithTheirTransfer_AndBySweep()
+    {
+        var store = new FileTransferStore();
+        var (completed, completedPath) = store.ReserveUpload(KeyOwner, "m.yaml");
+        store.IssueTransferKey(completed, FileTransferDirection.Upload, KeyOwner);
+        File.WriteAllText(completedPath, "x");
+        store.TryClaimUpload(completed, KeyOwner.Principal);
+        store.CompleteUpload(completed, 1).Should().BeTrue();
+        store.HasTransferKey(completed).Should().BeFalse("a completed upload has nothing left to unlock");
+
+        var (cancelled, _) = store.ReserveUpload(KeyOwner, "m.yaml");
+        store.IssueTransferKey(cancelled, FileTransferDirection.Upload, KeyOwner);
+        store.CancelTransfer(cancelled, KeyOwner);
+        store.HasTransferKey(cancelled).Should().BeFalse();
+
+        var download = store.RegisterDownload(KeyOwner, Path.GetTempFileName(), "f.bin");
+        store.IssueTransferKey(download, FileTransferDirection.Download, KeyOwner);
+        store.DeleteDownload(download);
+        store.HasTransferKey(download).Should().BeFalse();
+
+        var (swept, _) = store.ReserveUpload(KeyOwner, "m.yaml");
+        store.IssueTransferKey(swept, FileTransferDirection.Upload, KeyOwner, TimeSpan.Zero);
+        store.SweepExpired();
+        store.HasTransferKey(swept).Should().BeFalse();
+        store.TryClaimUpload(swept, KeyOwner.Principal).Status.Should().Be(UploadClaimStatus.Claimed,
+            "an expired key does not end its transfer");
+    }
+
+    [Fact]
+    public void TheStore_HoldsOnlyTheHashOfAKey()
+    {
+        var store = new FileTransferStore();
+        var (id, _) = store.ReserveUpload(KeyOwner, "m.yaml");
+        var key = store.IssueTransferKey(id, FileTransferDirection.Upload, KeyOwner)!.Key;
+
+        var keys = (System.Collections.IDictionary)typeof(FileTransferStore)
+            .GetField("_keys", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(store)!;
+        var entry = keys[id]!;
+        var values = entry.GetType().GetProperties().Select(p => p.GetValue(entry)).ToList();
+
+        values.OfType<string>().Should().NotContain(v => v.Contains(key), "no clear key in the store");
+        values.OfType<byte[]>().Should().ContainSingle()
+            .Which.Should().Equal(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)));
+    }
 }

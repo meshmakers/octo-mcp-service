@@ -106,7 +106,8 @@ internal static class McpSessionContext
     /// <param name="server">MCP server instance — provides DI access to the request context.</param>
     public static FileTransferOwner GetFileTransferOwner(McpServer server)
     {
-        return new FileTransferOwner(GetCallerLabel(server), McpCallerPrincipal.FromServer(server)?.TransferOwnerKey);
+        var principal = McpCallerPrincipal.FromServer(server);
+        return new FileTransferOwner(GetCallerLabel(server), principal?.TransferOwnerKey, principal?.TenantId);
     }
 
     /// <summary>

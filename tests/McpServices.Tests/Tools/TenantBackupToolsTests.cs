@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Moq;
@@ -41,7 +42,12 @@ public class TenantBackupToolsTests : ToolTestBase
         result.FileName.Should().Be("target-tenant-dump.tar.gz");
         result.DownloadUrlPath.Should().Be("/file-transfer/download", "the transfer id never travels in the URL");
         result.TransferIdHeader.Should().Be("X-Transfer-Id");
+        result.TransferKeyHeader.Should().Be("X-Transfer-Key");
+        result.TransferKey.Should().NotBeNullOrEmpty();
+        result.Message.Should().NotContain(result.TransferKey!);
         FileTransferStore.GetDownload(result.TransferId!, CallerPrincipal).Should().NotBeNull();
+        FileTransferStore.ConsumeDownloadKey(result.TransferId!, result.TransferKey!, TransferKeyCaller.Anonymous)
+            .Should().NotBeNull("the key unlocks this download once");
         MockBotClient.Verify(c => c.StartDumpRepositoryAsync("target-tenant", false), Times.Once);
     }
 

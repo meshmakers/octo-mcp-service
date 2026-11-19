@@ -51,14 +51,27 @@ public sealed class FileTransferTools
         }
 
         var store = server.Services!.GetRequiredService<IFileTransferStore>();
-        var (transferId, _) = store.ReserveUpload(McpSessionContext.GetFileTransferOwner(server), fileName);
+        // A caller that cannot own a transfer (no tenant_id on a client-credentials token) gets none.
+        var handout = FileTransferHandout.ReserveUpload(server, store, fileName);
+        if (handout == null)
+        {
+            return new PrepareFileUploadResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = FileTransferHandout.OwnerRequiredError
+            };
+        }
 
+        var transferId = handout.TransferId;
         return new PrepareFileUploadResponse
         {
             IsSuccess = true,
             TransferId = transferId,
             UploadUrlPath = FileTransferRoutes.UploadPath,
             TransferIdHeader = FileTransferRoutes.TransferIdHeader,
+            TransferKey = handout.Key.Key,
+            TransferKeyHeader = FileTransferRoutes.TransferKeyHeader,
+            TransferKeyExpiresAtUtc = handout.Key.ExpiresAtUtc,
             ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
             Message =
                 $"Reserved upload slot. {FileTransferRoutes.UploadInstruction(transferId)}, " +

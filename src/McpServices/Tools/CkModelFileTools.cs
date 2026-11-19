@@ -363,7 +363,13 @@ public sealed class CkModelFileTools
 
         var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}_{fileName}");
         await bot.DownloadDumpToFileAsync(tenantId, jobId, tempPath);
-        var downloadId = store.RegisterDownload(McpSessionContext.GetFileTransferOwner(server), tempPath, fileName);
+        var handout = FileTransferHandout.RegisterDownload(server, store, tempPath, fileName);
+        if (handout == null)
+        {
+            return new FileDownloadResponse { IsSuccess = false, TenantId = tenantId, ErrorMessage = FileTransferHandout.OwnerRequiredError };
+        }
+
+        var downloadId = handout.TransferId;
         var size = new FileInfo(tempPath).Length;
 
         return new FileDownloadResponse
@@ -373,6 +379,9 @@ public sealed class CkModelFileTools
             TransferId = downloadId,
             DownloadUrlPath = FileTransferRoutes.DownloadPath,
             TransferIdHeader = FileTransferRoutes.TransferIdHeader,
+            TransferKey = handout.Key.Key,
+            TransferKeyHeader = FileTransferRoutes.TransferKeyHeader,
+            TransferKeyExpiresAtUtc = handout.Key.ExpiresAtUtc,
             FileName = fileName,
             SizeBytes = size,
             ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),

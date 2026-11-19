@@ -69,12 +69,14 @@ internal sealed record McpCallerPrincipal(
     ///     (<c>u:&lt;tenant&gt;:&lt;sub&gt;</c>, tenant included); a client-credentials caller is
     ///     <c>c:&lt;client_id&gt;:&lt;tenant&gt;</c>, so the same client id with a token of another tenant (a mirrored
     ///     client, a per-tenant service token) is another owner. Kept apart from <see cref="StoreKeyPrefix" />, whose
-    ///     format the session token store depends on. Null when the caller has neither subject nor client id.
+    ///     format the session token store depends on. Null when the caller has neither subject nor client id, and for a
+    ///     client-credentials token without <c>tenant_id</c> (fail closed): such a token can neither create nor
+    ///     fetch a transfer.
     /// </summary>
     public string? TransferOwnerKey => IsUserPrincipal
         ? StoreKeyPrefix
-        : ClientId != null
-            ? $"c:{ClientId}:{TenantId ?? "-"}"
+        : ClientId != null && !string.IsNullOrEmpty(TenantId)
+            ? $"c:{ClientId}:{TenantId}"
             : null;
 
     /// <summary>

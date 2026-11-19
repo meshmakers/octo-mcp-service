@@ -533,7 +533,13 @@ public sealed class CustomAppGenerationTools
                 ErrorMessage = outcome.ErrorMessage,
             };
         }
-        var transferId = store.RegisterDownload(McpSessionContext.GetFileTransferOwner(server), tempPath, fileName);
+        var handout = FileTransferHandout.RegisterDownload(server, store, tempPath, fileName);
+        if (handout == null)
+        {
+            return new ExportRuntimeGraphqlSdlResponse { IsSuccess = false, TenantId = resolvedTenantId, ErrorMessage = FileTransferHandout.OwnerRequiredError };
+        }
+
+        var transferId = handout.TransferId;
         var size = outcome.ByteCount ?? new FileInfo(tempPath).Length;
 
         return new ExportRuntimeGraphqlSdlResponse
@@ -543,6 +549,9 @@ public sealed class CustomAppGenerationTools
             TransferId = transferId,
             DownloadUrlPath = FileTransferRoutes.DownloadPath,
             TransferIdHeader = FileTransferRoutes.TransferIdHeader,
+            TransferKey = handout.Key.Key,
+            TransferKeyHeader = FileTransferRoutes.TransferKeyHeader,
+            TransferKeyExpiresAtUtc = handout.Key.ExpiresAtUtc,
             FileName = fileName,
             ByteCount = size,
             ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
