@@ -42,6 +42,8 @@ public class ArchiveDataToolsTests : ToolTestBase
         result.DownloadUrlPath.Should().Be("/file-transfer/download", "the transfer id never travels in the URL");
         result.TransferIdHeader.Should().Be("X-Transfer-Id");
         FileTransferStore.GetDownload(result.TransferId!, CallerPrincipal).Should().NotBeNull();
+        AssertOneTimeDownloadKey(result.TransferId, result.TransferKey, result.TransferKeyHeader,
+            result.TransferKeyExpiresAtUtc, result.Message);
         MockBotClient.Verify(c => c.StartExportArchiveDataAsync("test-tenant", "arch-1", null, null), Times.Once);
     }
 

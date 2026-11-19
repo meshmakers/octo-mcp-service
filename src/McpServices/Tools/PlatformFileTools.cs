@@ -155,7 +155,7 @@ public sealed class PlatformFileTools
     [Description(
         "Fetch a file of the platform file system (System.Files) of a tenant. Address it either by 'root' + " +
         "'path' or by 'rtId'. The bytes are staged on the MCP server; the result carries a downloadUrlPath " +
-        "to GET with the transferId in the X-Transfer-Id header and the bearer token (valid ~30 minutes) — they never travel inside the tool result. Equivalent to octo-cli " +
+        "to GET with the transferId in the X-Transfer-Id header and the transferKey of the result in the X-Transfer-Key header (one use, a few minutes) or the bearer token of this connection (the download stays ~30 minutes) — they never travel inside the tool result. Equivalent to octo-cli " +
         "DownloadFile.")]
     public static async Task<DownloadPlatformFileResponse> DownloadFile(
         McpServer server,

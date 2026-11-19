@@ -6,8 +6,8 @@
 
 - **AB#6988** — The file-transfer endpoints are no longer anonymous and the transfer id is out of the URL. **Breaking for
   HTTP clients of `/file-transfer/*`.**
-  - `PUT /file-transfer/upload` and `GET /file-transfer/download` require the bearer token of the MCP connection and the
-    same policy as the MCP transport (no or invalid token 401, missing platform API scope 403).
+  - `PUT /file-transfer/upload` and `GET /file-transfer/download` require the creator's bearer token (same policy as
+    the MCP transport: no or invalid token 401, missing platform API scope 403) or the one-time transfer key below.
   - The id travels in the request header `X-Transfer-Id`; the routes `/file-transfer/{upload,download}/{id}` are removed
     (404) and the query is not read, so access logs and span attributes (`url.*`, `http.route`) no longer carry it.
     Error responses and log lines do not echo it.

@@ -590,6 +590,8 @@ public class CustomAppGenerationToolsTests : ToolTestBase
         result.TransferId.Should().NotBeNullOrWhiteSpace();
         result.DownloadUrlPath.Should().Be("/file-transfer/download", "the transfer id never travels in the URL");
         result.TransferIdHeader.Should().Be("X-Transfer-Id");
+        AssertOneTimeDownloadKey(result.TransferId, result.TransferKey, result.TransferKeyHeader,
+            result.TransferKeyExpiresAtUtc, result.Message);
         result.FileName.Should().Be("schema-test-tenant.json");
         result.ByteCount.Should().Be(payload.Length);
         result.ExpiresAtUtc.Should().BeAfter(DateTime.UtcNow);

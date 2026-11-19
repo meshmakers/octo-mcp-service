@@ -21,8 +21,9 @@ public sealed class FileTransferTools
     [McpServerTool(Name = "prepare_file_upload")]
     [Description(
         "Reserve a slot for an upcoming file upload. Returns an opaque transferId and the relative URL path " +
-        "the caller must PUT the file body to, with the transferId in the X-Transfer-Id header, the bearer token " +
-        "of this connection and a Content-Type. The slot expires after ~30 minutes and takes one PUT. After PUTting the body, " +
+        "the caller must PUT the file body to, with the transferId in the X-Transfer-Id header, the transferKey of the " +
+        "result in the X-Transfer-Key header (one use, a few minutes) or the bearer token of this connection, and a " +
+        "Content-Type. The slot expires after ~30 minutes and takes one PUT. After PUTting the body, " +
         "pass the transferId to the actual import / restore tool (e.g. import_ck_model, restore_tenant).")]
     public static async Task<PrepareFileUploadResponse> PrepareFileUpload(
         McpServer server,

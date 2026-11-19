@@ -27,7 +27,7 @@ public sealed class ArchiveDataTools
         "export job reads the rows directly from CrateDB. When both fromUtc and toUtc are omitted the whole " +
         "archive is exported; when supplied (ISO-8601 UTC, e.g. '2026-01-01T00:00:00Z') the half-open window " +
         "[fromUtc, toUtc) is exported. Waits for the job to complete (default 30 min) then registers the ZIP " +
-        "for download — GET /file-transfer/download with the transferId in the X-Transfer-Id header and the bearer token of this connection to fetch. Pair with import_archive_data to " +
+        "for download — GET /file-transfer/download with the transferId in the X-Transfer-Id header and the transferKey of the result in the X-Transfer-Key header (one use, a few minutes) or the bearer token of this connection to fetch. Pair with import_archive_data to " +
         "move archive data between tenants/environments.")]
     public static async Task<FileDownloadResponse> ExportArchiveData(
         McpServer server,

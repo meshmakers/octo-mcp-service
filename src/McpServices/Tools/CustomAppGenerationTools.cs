@@ -441,7 +441,8 @@ public sealed class CustomAppGenerationTools
     [Description(
         "Fetch the live OctoMesh runtime GraphQL introspection for the tenant (M3 " +
         "B-2c-schema-availability). Streams the body into a file-transfer entry; the agent " +
-        "downloads via GET DownloadUrlPath, saves to src/custom-app/schema.json, then runs " +
+        "downloads via GET DownloadUrlPath (transferId in the X-Transfer-Id header and the transferKey of the result in the X-Transfer-Key header (one use, a few minutes) or the bearer token of this connection), " +
+        "saves to src/custom-app/schema.json, then runs " +
         "`npx graphql-codegen --config codegen.yml --schema schema.json`. Per-tenant: the " +
         "GraphQL surface varies with the tenant's CK model. Read-only against the " +
         "asset-services GraphQL endpoint; never mutates. Requires access to the addressed tenant (the token is " +

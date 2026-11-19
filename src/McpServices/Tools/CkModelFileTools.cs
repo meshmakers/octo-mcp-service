@@ -122,7 +122,7 @@ public sealed class CkModelFileTools
     [McpServerTool(Name = "export_runtime_model_by_query")]
     [Description(
         "Export runtime entities matched by a query to a zip file. Waits for the export job to complete, then " +
-        "returns a transferId — GET /file-transfer/download with the transferId in the X-Transfer-Id header and the bearer token of this connection. Equivalent to " +
+        "returns a transferId — GET /file-transfer/download with the transferId in the X-Transfer-Id header and the transferKey of the result in the X-Transfer-Key header (one use, a few minutes) or the bearer token of this connection. Equivalent to " +
         "octo-cli ExportRtByQuery.")]
     public static async Task<FileDownloadResponse> ExportRuntimeModelByQuery(
         McpServer server,
@@ -167,7 +167,8 @@ public sealed class CkModelFileTools
     [McpServerTool(Name = "export_runtime_model_by_deep_graph")]
     [Description(
         "Export the deep graph starting from the given runtime IDs of a CK type to a zip file. Waits for the " +
-        "export job, returns a downloadId. Equivalent to octo-cli ExportRtByDeepGraph.")]
+        "export job, returns a transferId — GET /file-transfer/download with the transferId in the X-Transfer-Id header " +
+        "and the transferKey of the result in the X-Transfer-Key header (one use, a few minutes) or the bearer token of this connection. Equivalent to octo-cli ExportRtByDeepGraph.")]
     public static async Task<FileDownloadResponse> ExportRuntimeModelByDeepGraph(
         McpServer server,
         [Description("List of starting runtime IDs.")] List<string> originRtIds,

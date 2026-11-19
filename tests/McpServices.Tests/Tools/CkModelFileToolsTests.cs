@@ -153,6 +153,8 @@ public class CkModelFileToolsTests : ToolTestBase
 
         // The download is queryable from the store.
         FileTransferStore.GetDownload(result.TransferId!, CallerPrincipal).Should().NotBeNull();
+        AssertOneTimeDownloadKey(result.TransferId, result.TransferKey, result.TransferKeyHeader,
+            result.TransferKeyExpiresAtUtc, result.Message);
     }
 
     [Fact]
@@ -188,6 +190,8 @@ public class CkModelFileToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
         result.TransferId.Should().NotBeNullOrEmpty();
+        AssertOneTimeDownloadKey(result.TransferId, result.TransferKey, result.TransferKeyHeader,
+            result.TransferKeyExpiresAtUtc, result.Message);
     }
 
     [Fact]

@@ -186,6 +186,8 @@ public class PlatformFileToolsTests : ToolTestBase
         var stored = FileTransferStore.GetDownload(result.TransferId!, CallerPrincipal);
         stored.Should().NotBeNull();
         File.ReadAllText(stored!.FilePath).Should().Be("hello");
+        AssertOneTimeDownloadKey(result.TransferId, result.TransferKey, result.TransferKeyHeader,
+            result.TransferKeyExpiresAtUtc, result.Message);
     }
 
     [Fact]

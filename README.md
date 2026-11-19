@@ -382,8 +382,10 @@ Large-file operations use out-of-band streaming endpoints alongside the JSON-RPC
 ```
 
 Reservations and downloads expire after **30 minutes**; a background sweeper purges them. The transfer id is a secret
-while it lives: it travels only in the `X-Transfer-Id` header, never in the URL. Only the principal that created a
-transfer (same user and tenant, or same client id and tenant) can PUT or GET it; anyone else gets 404. An upload takes one PUT
+while it lives: it travels only in the `X-Transfer-Id` header, never in the URL. A transfer can be PUT or fetched only
+with the bearer token of the principal that created it (same user and tenant, or same client id and tenant; any other
+token gets 404) or with its one-time key from the tool result (`X-Transfer-Key`, one use, 5 minutes by default; any key
+failure gets 401). The key is a secret too. An upload takes one PUT
 (a concurrent second PUT gets 409, a failed PUT ends the reservation); a download is deleted after the first complete GET.
 
 ## 📖 Usage Examples

@@ -22,7 +22,7 @@ public sealed class TenantBackupTools
     [Description(
         "Create a dump of a tenant's data and publish it as a downloadable .tar.gz file. Waits for the dump " +
         "job to complete (default 30 min) then registers the file for download. " +
-        "GET /file-transfer/download with the transferId in the X-Transfer-Id header and the bearer token of this connection to fetch. When includeArchiveData=true the backup also includes " +
+        "GET /file-transfer/download with the transferId in the X-Transfer-Id header and the transferKey of the result in the X-Transfer-Key header (one use, a few minutes) or the bearer token of this connection to fetch. When includeArchiveData=true the backup also includes " +
         "all archives' CrateDB rows — the result is a larger '.octobak.zip' file instead of a plain .tar.gz. " +
         "Equivalent to octo-cli DumpTenant.")]
     public static async Task<FileDownloadResponse> DumpTenant(
