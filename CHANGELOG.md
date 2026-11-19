@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+### Security
+
+- **AB#6988** — The file-transfer endpoints are no longer anonymous and the transfer id is out of the URL. **Breaking for
+  HTTP clients of `/file-transfer/*`.**
+  - `PUT /file-transfer/upload` and `GET /file-transfer/download` require the creator's bearer token (same policy as
+    the MCP transport: no or invalid token 401, missing platform API scope 403) or the one-time transfer key below.
+  - The id travels in the request header `X-Transfer-Id`; the routes `/file-transfer/{upload,download}/{id}` are removed
+    (404) and the query is not read, so access logs and span attributes (`url.*`, `http.route`) no longer carry it.
+    Error responses and log lines do not echo it.
+  - An entry is served only to the principal that created it (`McpCallerPrincipal.TransferOwnerKey`: same user and
+    tenant, or same client id and tenant, so a mirrored client of another tenant is refused); anyone else gets 404, like an unknown id. An entry or caller without a principal matches
+    nobody. The tool side keeps its session binding and checks the same owner key, so a mirrored client of another
+    tenant cannot consume or cancel the upload through a tool either.
+  - The first PUT claims the upload slot atomically: a concurrent second PUT gets 409; a failed or aborted PUT ends the
+    reservation and deletes the partial file (a new `prepare_file_upload` is needed).
+  - `prepare_file_upload` and every download-producing tool (`dump_tenant`, `export_archive_data`,
+    `export_runtime_model_by_query`, `export_runtime_model_by_deep_graph`, `export_runtime_graphql_sdl`, `download_file`)
+    return the path without the id plus the new field `transferIdHeader`; their messages name both headers.
+  - **One-time transfer key** for clients without the raw access token of their MCP connection: `prepare_file_upload`
+    and every download-producing tool also return `transferKey`, `transferKeyHeader` (`X-Transfer-Key`) and
+    `transferKeyExpiresAtUtc`. The endpoints accept the creator's bearer token **or** the key. The key is 256 random
+    bits, stored only as a hash, bound to the transfer, its direction, the creator's principal and tenant, valid
+    `Mcp:FileTransferKeyLifetime` (default 5 minutes, at most 10, checked at start) and spent atomically on first use.
+    A missing, wrong, expired, used, foreign or wrong-direction key, or a key presented with the token of another
+    principal, gets 401 with one identical body.
+  - A client-credentials token without `tenant_id` can no longer own a transfer: the tools refuse to create one and the
+    endpoints refuse it (fail closed).
+  - Fixed: under load an aborted download could be deleted as if it had been delivered (Kestrel discards writes after
+    an abort and cancels `RequestAborted` late); the delivery is now also checked on the response pipe's flush result.
+  - Known limitation: no per-caller disk quota yet.
+
 ### Added
 
 - **AB#9182** — New tool `refresh_blueprint_catalogs(catalogName?)`, the MCP mirror of octo-cli `RefreshBlueprintCatalogs`:

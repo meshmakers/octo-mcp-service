@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
+using Meshmakers.Octo.Backend.McpServices.Routing;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
@@ -121,7 +122,7 @@ public sealed class CkModelFileTools
     [McpServerTool(Name = "export_runtime_model_by_query")]
     [Description(
         "Export runtime entities matched by a query to a zip file. Waits for the export job to complete, then " +
-        "returns a downloadId — fetch the file via GET /file-transfer/download/{downloadId}. Equivalent to " +
+        "returns a transferId — GET /file-transfer/download with the transferId in the X-Transfer-Id header and the transferKey of the result in the X-Transfer-Key header (one use, a few minutes) or the bearer token of this connection. Equivalent to " +
         "octo-cli ExportRtByQuery.")]
     public static async Task<FileDownloadResponse> ExportRuntimeModelByQuery(
         McpServer server,
@@ -166,7 +167,8 @@ public sealed class CkModelFileTools
     [McpServerTool(Name = "export_runtime_model_by_deep_graph")]
     [Description(
         "Export the deep graph starting from the given runtime IDs of a CK type to a zip file. Waits for the " +
-        "export job, returns a downloadId. Equivalent to octo-cli ExportRtByDeepGraph.")]
+        "export job, returns a transferId — GET /file-transfer/download with the transferId in the X-Transfer-Id header " +
+        "and the transferKey of the result in the X-Transfer-Key header (one use, a few minutes) or the bearer token of this connection. Equivalent to octo-cli ExportRtByDeepGraph.")]
     public static async Task<FileDownloadResponse> ExportRuntimeModelByDeepGraph(
         McpServer server,
         [Description("List of starting runtime IDs.")] List<string> originRtIds,
@@ -226,7 +228,7 @@ public sealed class CkModelFileTools
         }
 
         var store = server.Services!.GetRequiredService<IFileTransferStore>();
-        var upload = store.GetUpload(transferId, McpSessionContext.GetCallerLabel(server));
+        var upload = store.GetUpload(transferId, McpSessionContext.GetFileTransferOwner(server));
         if (upload == null)
         {
             return new JobStartedResponse
@@ -362,9 +364,13 @@ public sealed class CkModelFileTools
 
         var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}_{fileName}");
         await bot.DownloadDumpToFileAsync(tenantId, jobId, tempPath);
+        var handout = FileTransferHandout.RegisterDownload(server, store, tempPath, fileName);
+        if (handout == null)
+        {
+            return new FileDownloadResponse { IsSuccess = false, TenantId = tenantId, ErrorMessage = FileTransferHandout.OwnerRequiredError };
+        }
 
-        var sessionId = McpSessionContext.GetCallerLabel(server);
-        var downloadId = store.RegisterDownload(sessionId, tempPath, fileName);
+        var downloadId = handout.TransferId;
         var size = new FileInfo(tempPath).Length;
 
         return new FileDownloadResponse
@@ -372,12 +378,16 @@ public sealed class CkModelFileTools
             IsSuccess = true,
             TenantId = tenantId,
             TransferId = downloadId,
-            DownloadUrlPath = $"/file-transfer/download/{downloadId}",
+            DownloadUrlPath = FileTransferRoutes.DownloadPath,
+            TransferIdHeader = FileTransferRoutes.TransferIdHeader,
+            TransferKey = handout.Key.Key,
+            TransferKeyHeader = FileTransferRoutes.TransferKeyHeader,
+            TransferKeyExpiresAtUtc = handout.Key.ExpiresAtUtc,
             FileName = fileName,
             SizeBytes = size,
             ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
             Message =
-                $"{opName} ready. GET '/file-transfer/download/{downloadId}' to fetch ({size:N0} bytes)."
+                $"{opName} ready. {FileTransferRoutes.DownloadInstruction(downloadId)} to fetch ({size:N0} bytes)."
         };
     }
 }

@@ -14,6 +14,7 @@ namespace McpServices.Tests.Tools;
 public class FileTransferOwnershipTests : ToolTestBase
 {
     private const string OtherSession = "someone-else|their-mcp-session";
+    private const string OtherPrincipal = "c:someone-else";
 
     public FileTransferOwnershipTests()
     {
@@ -24,15 +25,15 @@ public class FileTransferOwnershipTests : ToolTestBase
     private (string TransferId, string Path) StageForeignUpload()
     {
         CallerSession.Should().NotBe(OtherSession);
-        var (id, path) = FileTransferStore.ReserveUpload(OtherSession, "foreign.bin");
+        var (id, path) = FileTransferStore.ReserveUpload(new FileTransferOwner(OtherSession, OtherPrincipal), "foreign.bin");
         File.WriteAllBytes(path, [1, 2, 3]);
-        FileTransferStore.CompleteUpload(id, 3);
+        CompleteStagedUpload(id, 3, OtherPrincipal);
         return (id, path);
     }
 
     private void AssertUntouchedForOwner(string transferId, string path)
     {
-        FileTransferStore.GetUpload(transferId, OtherSession).Should().NotBeNull(
+        FileTransferStore.GetUpload(transferId, new FileTransferOwner(OtherSession, OtherPrincipal)).Should().NotBeNull(
             "a foreign attempt must neither consume nor delete the owner's upload");
         File.Exists(path).Should().BeTrue();
     }
@@ -132,9 +133,9 @@ public class FileTransferOwnershipTests : ToolTestBase
     {
         var prep = await FileTransferTools.PrepareFileUpload(MockServer.Object, "model.json");
         prep.IsSuccess.Should().BeTrue();
-        var target = FileTransferStore.TryReserveTarget(prep.TransferId!)!;
+        var target = ClaimStagedUpload(prep.TransferId!);
         File.WriteAllText(target, "{}");
-        FileTransferStore.CompleteUpload(prep.TransferId!, 2);
+        FileTransferStore.CompleteUpload(prep.TransferId!, 2).Should().BeTrue();
         MockAssetClient.Setup(c => c.ImportCkModelAsync(DefaultTenantId, It.IsAny<string>()))
             .ReturnsAsync("job-1");
         MockBotClient.Setup(c => c.GetImportJobStatus("job-1"))
@@ -150,9 +151,9 @@ public class FileTransferOwnershipTests : ToolTestBase
     {
         // Two real, authenticated principals — the session label is derived from the principal.
         var prep = await FileTransferTools.PrepareFileUpload(MockServer.Object, "model.json");
-        var target = FileTransferStore.TryReserveTarget(prep.TransferId!)!;
+        var target = ClaimStagedUpload(prep.TransferId!);
         File.WriteAllText(target, "{}");
-        FileTransferStore.CompleteUpload(prep.TransferId!, 2);
+        FileTransferStore.CompleteUpload(prep.TransferId!, 2).Should().BeTrue();
 
         GivenAuthenticatedCaller(subjectId: "another-user");
         GivenAuthenticated();
@@ -161,5 +162,27 @@ public class FileTransferOwnershipTests : ToolTestBase
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("not found or expired");
         File.Exists(target).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task SameClientIdInAnotherTenant_CannotConsumeOrCancelTheUpload()
+    {
+        // A mirrored client: the same client id in two tenants has the same session label (the token-store key
+        // has no tenant for a client), but another principal.
+        GivenServicePrincipalCaller("mirrored-client", "tenant-a");
+        var owner = CallerOwner;
+        var (id, path) = FileTransferStore.ReserveUpload(owner, "dump.tar.gz");
+        File.WriteAllBytes(path, [1, 2, 3]);
+        CompleteStagedUpload(id, 3);
+
+        GivenServicePrincipalCaller("mirrored-client", "tenant-b");
+        CallerOwner.SessionLabel.Should().Be(owner.SessionLabel);
+        CallerOwner.Principal.Should().NotBe(owner.Principal);
+
+        FileTransferStore.GetUpload(id, CallerOwner).Should().BeNull();
+        var cancel = await FileTransferTools.CancelFileTransfer(MockServer.Object, id);
+        cancel.IsSuccess.Should().BeTrue();
+        FileTransferStore.GetUpload(id, owner).Should().NotBeNull("the foreign cancel is a silent no-op");
+        File.Exists(path).Should().BeTrue();
     }
 }

@@ -112,7 +112,9 @@ try
     builder.Services.AddSingleton<ITenantTokenExchanger, TenantTokenExchanger>();
     builder.Services.AddTransient<ITenantResolutionService, TenantResolutionService>();
     builder.Services.AddSingleton<IOctoServiceClientFactory, OctoServiceClientFactory>();
-    builder.Services.AddSingleton<IFileTransferStore, FileTransferStore>();
+    // The one-time transfer key lifetime comes from Mcp:FileTransferKeyLifetime (validated at start).
+    builder.Services.AddSingleton<IFileTransferStore>(sp =>
+        new FileTransferStore(sp.GetRequiredService<IOptions<McpServiceOptions>>().Value.FileTransferKeyLifetime));
     builder.Services.AddSingleton<IToolRiskRegistry, ToolRiskRegistry>();
     builder.Services.AddHostedService<FileTransferSweeper>();
     builder.Services.AddHttpClient("identity")
@@ -311,8 +313,9 @@ try
 
     app.MapObservability();
 
-    // AB#4315: authenticate every MCP request. Health/metrics (MapObservability) and the
-    // file-transfer endpoints stay anonymous — only the MCP transport below is gated.
+    // Authenticate every MCP request. Health/metrics (MapObservability) stay anonymous; the MCP transport
+    // below is gated by the policy. The file-transfer controller checks the same policy itself and also accepts a
+    // one-time transfer key, so it is anonymous at the routing level.
     app.UseAuthentication();
     app.UseAuthorization();
     // Validate the route {tenantId} against the token's tenant claim. Client-credentials service

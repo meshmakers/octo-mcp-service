@@ -1,3 +1,4 @@
+using FluentAssertions;
 using Meshmakers.Octo.Runtime.Contracts.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Meshmakers.Octo.Backend.McpServices.Services;
@@ -67,6 +68,50 @@ public abstract class ToolTestBase : TestBase
     ///     upload's stored session with. Evaluated lazily so it follows <c>GivenRequestPrincipal</c>.
     /// </summary>
     protected string CallerSession => McpSessionContext.GetCallerLabel(MockServer.Object);
+
+    /// <summary>The owner tag (session label and principal) a tool stores for the current test caller.</summary>
+    internal FileTransferOwner CallerOwner => McpSessionContext.GetFileTransferOwner(MockServer.Object);
+
+    /// <summary>The principal the HTTP endpoints compare for the current test caller.</summary>
+    internal string? CallerPrincipal => McpCallerPrincipal.FromServer(MockServer.Object)?.TransferOwnerKey;
+
+    /// <summary>
+    ///     Does what a successful PUT does: claims the slot for <paramref name="principal" /> (default: the current
+    ///     caller) and commits it with <paramref name="sizeBytes" />. The bytes must already be at the target path.
+    /// </summary>
+    internal void CompleteStagedUpload(string transferId, long sizeBytes, string? principal = null)
+    {
+        var (status, _) = FileTransferStore.TryClaimUpload(transferId, principal ?? CallerPrincipal);
+        if (status != UploadClaimStatus.Claimed || !FileTransferStore.CompleteUpload(transferId, sizeBytes))
+        {
+            throw new InvalidOperationException($"Staging the upload failed: {status}.");
+        }
+    }
+
+    /// <summary>
+    ///     Asserts the one-time key of a download-producing tool result: the header name, an opaque 256-bit key that is
+    ///     not in the message, an expiry within the default lifetime, and that the key opens the download exactly once.
+    /// </summary>
+    internal void AssertOneTimeDownloadKey(string? transferId, string? transferKey, string? transferKeyHeader,
+        DateTime? transferKeyExpiresAtUtc, string? message)
+    {
+        transferKeyHeader.Should().Be("X-Transfer-Key");
+        transferKey.Should().MatchRegex("^[A-Za-z0-9_-]{43}$");
+        transferKeyExpiresAtUtc.Should().NotBeNull()
+            .And.BeAfter(DateTime.UtcNow).And.BeOnOrBefore(DateTime.UtcNow.AddMinutes(5));
+        (message ?? "").Should().NotContain(transferKey!).And.Contain("X-Transfer-Key");
+        FileTransferStore.ConsumeDownloadKey(transferId!, transferKey!, TransferKeyCaller.Anonymous)
+            .Should().NotBeNull("the key opens this download");
+        FileTransferStore.ConsumeDownloadKey(transferId!, transferKey!, TransferKeyCaller.Anonymous)
+            .Should().BeNull("the key works once");
+    }
+
+    /// <summary>Claims the slot of a prepared upload for the current caller and returns the path to write to.</summary>
+    internal string ClaimStagedUpload(string transferId)
+    {
+        var (status, target) = FileTransferStore.TryClaimUpload(transferId, CallerPrincipal);
+        return status == UploadClaimStatus.Claimed ? target! : throw new InvalidOperationException(status.ToString());
+    }
 
     protected ToolTestBase()
     {

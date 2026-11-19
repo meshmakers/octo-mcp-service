@@ -350,9 +350,9 @@ public class KnowledgeRuntimeImportRefusalTests : ToolTestBase
 
     private string StageUpload(string content, string fileName = "model.yaml")
     {
-        var (id, path) = FileTransferStore.ReserveUpload(CallerSession, fileName);
+        var (id, path) = FileTransferStore.ReserveUpload(CallerOwner, fileName);
         File.WriteAllText(path, content);
-        FileTransferStore.CompleteUpload(id, content.Length);
+        CompleteStagedUpload(id, content.Length);
         return id;
     }
 
@@ -361,7 +361,7 @@ public class KnowledgeRuntimeImportRefusalTests : ToolTestBase
 
     private string StageZipUpload(params (string Name, string Content)[] entries)
     {
-        var (id, path) = FileTransferStore.ReserveUpload(CallerSession, "model.zip");
+        var (id, path) = FileTransferStore.ReserveUpload(CallerOwner, "model.zip");
         using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
         {
             foreach (var (name, content) in entries)
@@ -371,7 +371,7 @@ public class KnowledgeRuntimeImportRefusalTests : ToolTestBase
             }
         }
 
-        FileTransferStore.CompleteUpload(id, new FileInfo(path).Length);
+        CompleteStagedUpload(id, new FileInfo(path).Length);
         return id;
     }
 
@@ -580,9 +580,9 @@ public class KnowledgeRuntimeImportRefusalTests : ToolTestBase
     [Fact]
     public async Task ImportRuntimeModel_CorruptZip_IsRefusedWithAGenericMessage_AndDoesNotThrow()
     {
-        var (id, path) = FileTransferStore.ReserveUpload(CallerSession, "model.zip");
+        var (id, path) = FileTransferStore.ReserveUpload(CallerOwner, "model.zip");
         File.WriteAllBytes(path, [(byte)'P', (byte)'K', 3, 4, 0, 1, 2, 3, 4, 5, 6, 7]);
-        FileTransferStore.CompleteUpload(id, 12);
+        CompleteStagedUpload(id, 12);
 
         var result = await CkModelFileTools.ImportRuntimeModel(MockServer.Object, id);
 
@@ -612,9 +612,9 @@ public class KnowledgeRuntimeImportRefusalTests : ToolTestBase
     [Fact]
     public async Task ImportRuntimeModel_UploadFileMissing_IsRefused_NotImportedUnchecked()
     {
-        var (id, path) = FileTransferStore.ReserveUpload(CallerSession, "model.yaml");
+        var (id, path) = FileTransferStore.ReserveUpload(CallerOwner, "model.yaml");
         File.WriteAllText(path, PageModel);
-        FileTransferStore.CompleteUpload(id, PageModel.Length);
+        CompleteStagedUpload(id, PageModel.Length);
         File.Delete(path);
 
         var result = await CkModelFileTools.ImportRuntimeModel(MockServer.Object, id);
@@ -631,9 +631,9 @@ public class KnowledgeRuntimeImportRefusalTests : ToolTestBase
         // the file that was checked, not the rewritten slot.
         GivenKnowledgeTenant();
         const string clean = "entities:\n  - ckTypeId: Basic/Asset\n";
-        var (transferId, uploadPath) = FileTransferStore.ReserveUpload(CallerSession, "model.yaml");
+        var (transferId, uploadPath) = FileTransferStore.ReserveUpload(CallerOwner, "model.yaml");
         File.WriteAllText(uploadPath, clean);
-        FileTransferStore.CompleteUpload(transferId, clean.Length);
+        CompleteStagedUpload(transferId, clean.Length);
 
         var slotRewritten = false;
         MockCkCacheService

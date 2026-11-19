@@ -52,7 +52,7 @@ configuration). The three layers have different cost profiles and different vali
 | `**/Tools/{RuntimeAggregation,StreamData*}Tools.cs`, `**/Services/{AggregationMapper,AvailableArchivePaths*}.cs`, `**/Models/{Aggregation,Filters}/**` | `docs/aggregation-tools.md` |
 | `**/Program.cs`, `**/Configuration/**`, `**/SystemApi/**`, `**/Services/McpSession*.cs`, `**/Services/Tenant*.cs`, `**/Tools/AuthenticationTools.cs` | `docs/authentication.md` |
 | `src/McpServices.MethodClients/**`, `**/UserManagementTools.cs`, `**/RoleManagementTools.cs`, `**/ErrorTextRedactor.cs`, `**/McpPayloadLogFilter.cs` | `docs/ck-method-clients.md` |
-| `**/Routing/**`, `**/Services/*FileTransferStore.cs`, `**/Services/{EndTrackingStream,CkDraftInlinePackager}.cs`, `**/Tools/{FileTransfer,PlatformFile,CkModel*}Tools.cs` | `docs/file-transfer.md` |
+| `**/Routing/**`, `**/Services/*FileTransferStore.cs`, `**/Services/{EndTrackingStream,DeliveryTrackingResponseStream,FileTransferHandout,CkDraftInlinePackager}.cs`, `**/Tools/{FileTransfer,PlatformFile,CkModel*}Tools.cs` | `docs/file-transfer.md` |
 | `src/McpServices.ContentGuard/**`, `**/Services/ContentGuard/**`, `**/Services/KnowledgeUrl*.cs`, `**/KnowledgeFetchOptions.cs` | `docs/knowledge-input-guards.md` |
 | `**/Tools/KnowledgeTools.cs`, `**/Services/Knowledge/**`, `**/Resources/Knowledge*.cs`, `**/Prompts/**`, `**/Configuration/McpServerSetup.cs` | `docs/knowledge-tools.md` |
 | `**/Services/Knowledge{WriteRefusal,ImportCheck}.cs`, `**/Services/PrivateTempDirectory.cs`, `**/Knowledge*Update*.cs`, `**/Tools/KnowledgeLintTools.cs` | `docs/knowledge-write-guards.md` |
@@ -126,8 +126,10 @@ of `McpServices`. Every public type, property, and method on a new tool class ne
   (`ResolveAccessTokenAsync(server, tenantId)`); a failed exchange is an error, never a fallback to the home token:
   `docs/authentication.md`.
 - **Both MCP endpoints keep the transport policy, and a new controller carries its own `[Authorize]`**; nothing in
-  `Program.cs` gates a controller. Only `FileTransferController` is anonymous, by design (`docs/file-transfer.md`):
-  `docs/authentication.md`.
+  `Program.cs` gates a controller. The one exception is `FileTransferController`: it is `[AllowAnonymous]` because a
+  request may present the one-time transfer key instead of a token, and it checks the MCP transport policy on the token
+  itself before it touches the store; it serves an entry only to the principal that created it or to the holder of the
+  entry's key, with id and key in headers, never in the URL (`docs/file-transfer.md`): `docs/authentication.md`.
 - **Decide the `[McpRisk]` level of a new tool with its implementation.** A tool without the attribute counts as
   `Low` and runs without approval: `docs/tool-conventions.md`, section 8.
 - **Knowledge pages are written only by the knowledge tools**, through the content guard; the generic write tools

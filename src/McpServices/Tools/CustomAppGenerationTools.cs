@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text.RegularExpressions;
 using Meshmakers.Octo.Backend.McpServices.Models;
+using Meshmakers.Octo.Backend.McpServices.Routing;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Server;
@@ -440,7 +441,8 @@ public sealed class CustomAppGenerationTools
     [Description(
         "Fetch the live OctoMesh runtime GraphQL introspection for the tenant (M3 " +
         "B-2c-schema-availability). Streams the body into a file-transfer entry; the agent " +
-        "downloads via GET DownloadUrlPath, saves to src/custom-app/schema.json, then runs " +
+        "downloads via GET DownloadUrlPath (transferId in the X-Transfer-Id header and the transferKey of the result in the X-Transfer-Key header (one use, a few minutes) or the bearer token of this connection), " +
+        "saves to src/custom-app/schema.json, then runs " +
         "`npx graphql-codegen --config codegen.yml --schema schema.json`. Per-tenant: the " +
         "GraphQL surface varies with the tenant's CK model. Read-only against the " +
         "asset-services GraphQL endpoint; never mutates. Requires access to the addressed tenant (the token is " +
@@ -532,9 +534,13 @@ public sealed class CustomAppGenerationTools
                 ErrorMessage = outcome.ErrorMessage,
             };
         }
+        var handout = FileTransferHandout.RegisterDownload(server, store, tempPath, fileName);
+        if (handout == null)
+        {
+            return new ExportRuntimeGraphqlSdlResponse { IsSuccess = false, TenantId = resolvedTenantId, ErrorMessage = FileTransferHandout.OwnerRequiredError };
+        }
 
-        var sessionId = McpSessionContext.GetCallerLabel(server);
-        var transferId = store.RegisterDownload(sessionId, tempPath, fileName);
+        var transferId = handout.TransferId;
         var size = outcome.ByteCount ?? new FileInfo(tempPath).Length;
 
         return new ExportRuntimeGraphqlSdlResponse
@@ -542,13 +548,17 @@ public sealed class CustomAppGenerationTools
             IsSuccess = true,
             TenantId = resolvedTenantId,
             TransferId = transferId,
-            DownloadUrlPath = $"/file-transfer/download/{transferId}",
+            DownloadUrlPath = FileTransferRoutes.DownloadPath,
+            TransferIdHeader = FileTransferRoutes.TransferIdHeader,
+            TransferKey = handout.Key.Key,
+            TransferKeyHeader = FileTransferRoutes.TransferKeyHeader,
+            TransferKeyExpiresAtUtc = handout.Key.ExpiresAtUtc,
             FileName = fileName,
             ByteCount = size,
             ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
             Message =
                 $"Introspection for tenant '{resolvedTenantId}' ready ({size:N0} bytes). " +
-                $"GET '/file-transfer/download/{transferId}' to fetch.",
+                $"{FileTransferRoutes.DownloadInstruction(transferId)} to fetch.",
         };
     }
 

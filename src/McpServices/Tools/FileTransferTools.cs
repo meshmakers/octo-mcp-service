@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
+using Meshmakers.Octo.Backend.McpServices.Routing;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using ModelContextProtocol.Server;
 
@@ -20,7 +21,9 @@ public sealed class FileTransferTools
     [McpServerTool(Name = "prepare_file_upload")]
     [Description(
         "Reserve a slot for an upcoming file upload. Returns an opaque transferId and the relative URL path " +
-        "the caller must PUT the file body to. The slot expires after ~30 minutes. After PUTting the body, " +
+        "the caller must PUT the file body to, with the transferId in the X-Transfer-Id header, the transferKey of the " +
+        "result in the X-Transfer-Key header (one use, a few minutes) or the bearer token of this connection, and a " +
+        "Content-Type. The slot expires after ~30 minutes and takes one PUT. After PUTting the body, " +
         "pass the transferId to the actual import / restore tool (e.g. import_ck_model, restore_tenant).")]
     public static async Task<PrepareFileUploadResponse> PrepareFileUpload(
         McpServer server,
@@ -49,18 +52,31 @@ public sealed class FileTransferTools
         }
 
         var store = server.Services!.GetRequiredService<IFileTransferStore>();
-        var sessionId = McpSessionContext.GetCallerLabel(server);
-        var (transferId, _) = store.ReserveUpload(sessionId, fileName);
+        // A caller that cannot own a transfer (no tenant_id on a client-credentials token) gets none.
+        var handout = FileTransferHandout.ReserveUpload(server, store, fileName);
+        if (handout == null)
+        {
+            return new PrepareFileUploadResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = FileTransferHandout.OwnerRequiredError
+            };
+        }
 
+        var transferId = handout.TransferId;
         return new PrepareFileUploadResponse
         {
             IsSuccess = true,
             TransferId = transferId,
-            UploadUrlPath = $"/file-transfer/upload/{transferId}",
+            UploadUrlPath = FileTransferRoutes.UploadPath,
+            TransferIdHeader = FileTransferRoutes.TransferIdHeader,
+            TransferKey = handout.Key.Key,
+            TransferKeyHeader = FileTransferRoutes.TransferKeyHeader,
+            TransferKeyExpiresAtUtc = handout.Key.ExpiresAtUtc,
             ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
             Message =
-                $"Reserved upload slot. PUT the file body to '/file-transfer/upload/{transferId}' " +
-                "and then call the matching import / restore tool with this transferId."
+                $"Reserved upload slot. {FileTransferRoutes.UploadInstruction(transferId)}, " +
+                "then call the matching import / restore tool with this transferId."
         };
     }
 
@@ -86,7 +102,7 @@ public sealed class FileTransferTools
 
         var store = server.Services!.GetRequiredService<IFileTransferStore>();
         // AB#6989: only the owning session can cancel; a foreign id is a silent no-op (same answer as unknown).
-        store.CancelTransfer(transferId, McpSessionContext.GetCallerLabel(server));
+        store.CancelTransfer(transferId, McpSessionContext.GetFileTransferOwner(server));
 
         return Task.FromResult(new FileTransferResponse
         {

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
+using Meshmakers.Octo.Backend.McpServices.Routing;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using ModelContextProtocol.Server;
 
@@ -10,7 +11,7 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 /// <summary>
 ///     Tenant backup tools — dump + restore via the Bot service. Mirrors octo-cli DumpTenant + RestoreTenant.
 ///     Both operations can move multi-GB files; uploads use the standard prepare_file_upload flow, downloads
-///     produce a downloadId you can fetch via /file-transfer/download/{id}.
+///     produce a transfer id you fetch via GET /file-transfer/download with the id in the X-Transfer-Id header.
 /// </summary>
 [McpServerToolType]
 public sealed class TenantBackupTools
@@ -20,8 +21,8 @@ public sealed class TenantBackupTools
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
         "Create a dump of a tenant's data and publish it as a downloadable .tar.gz file. Waits for the dump " +
-        "job to complete (default 30 min) then registers the file for download. GET " +
-        "/file-transfer/download/{downloadId} to fetch. When includeArchiveData=true the backup also includes " +
+        "job to complete (default 30 min) then registers the file for download. " +
+        "GET /file-transfer/download with the transferId in the X-Transfer-Id header and the transferKey of the result in the X-Transfer-Key header (one use, a few minutes) or the bearer token of this connection to fetch. When includeArchiveData=true the backup also includes " +
         "all archives' CrateDB rows — the result is a larger '.octobak.zip' file instead of a plain .tar.gz. " +
         "Equivalent to octo-cli DumpTenant.")]
     public static async Task<FileDownloadResponse> DumpTenant(
@@ -64,9 +65,13 @@ public sealed class TenantBackupTools
             var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}_{effectiveFileName}");
 
             await bot.Client.DownloadDumpToFileAsync(targetTenantId, startResponse.JobId, tempPath);
+            var handout = FileTransferHandout.RegisterDownload(server, store, tempPath, effectiveFileName);
+            if (handout == null)
+            {
+                return new FileDownloadResponse { IsSuccess = false, TenantId = bot.TenantId, ErrorMessage = FileTransferHandout.OwnerRequiredError };
+            }
 
-            var sessionId = McpSessionContext.GetCallerLabel(server);
-            var downloadId = store.RegisterDownload(sessionId, tempPath, effectiveFileName);
+            var downloadId = handout.TransferId;
             var size = new FileInfo(tempPath).Length;
 
             return new FileDownloadResponse
@@ -74,13 +79,17 @@ public sealed class TenantBackupTools
                 IsSuccess = true,
                 TenantId = bot.TenantId,
                 TransferId = downloadId,
-                DownloadUrlPath = $"/file-transfer/download/{downloadId}",
+                DownloadUrlPath = FileTransferRoutes.DownloadPath,
+                TransferIdHeader = FileTransferRoutes.TransferIdHeader,
+                TransferKey = handout.Key.Key,
+                TransferKeyHeader = FileTransferRoutes.TransferKeyHeader,
+                TransferKeyExpiresAtUtc = handout.Key.ExpiresAtUtc,
                 FileName = effectiveFileName,
                 SizeBytes = size,
                 ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
                 Message =
                     $"Dump of tenant '{targetTenantId}' ready ({size:N0} bytes). " +
-                    $"GET '/file-transfer/download/{downloadId}' to fetch."
+                    $"{FileTransferRoutes.DownloadInstruction(downloadId)} to fetch."
             };
         }
         catch (Exception ex)
@@ -135,7 +144,7 @@ public sealed class TenantBackupTools
         }
 
         var store = server.Services!.GetRequiredService<IFileTransferStore>();
-        var upload = store.GetUpload(transferId, McpSessionContext.GetCallerLabel(server));
+        var upload = store.GetUpload(transferId, McpSessionContext.GetFileTransferOwner(server));
         if (upload == null)
         {
             return new JobStartedResponse

@@ -20,9 +20,9 @@ public class CkModelValidationToolsTests : ToolTestBase
 
     private string StageUpload(string fileName = "draft.zip")
     {
-        var (id, path) = FileTransferStore.ReserveUpload(CallerSession, fileName);
+        var (id, path) = FileTransferStore.ReserveUpload(CallerOwner, fileName);
         File.WriteAllText(path, "PK");
-        FileTransferStore.CompleteUpload(id, 2);
+        CompleteStagedUpload(id, 2);
         return id;
     }
 
@@ -58,7 +58,7 @@ public class CkModelValidationToolsTests : ToolTestBase
         MockAssetClient.Verify(c => c.ImportCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
         MockAssetClient.Verify(c => c.ImportCkModelAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()),
             Times.Never);
-        FileTransferStore.GetUpload(transferId, CallerSession).Should().NotBeNull();
+        FileTransferStore.GetUpload(transferId, CallerOwner).Should().NotBeNull();
     }
 
     [Fact]

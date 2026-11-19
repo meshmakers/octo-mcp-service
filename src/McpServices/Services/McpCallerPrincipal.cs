@@ -65,6 +65,21 @@ internal sealed record McpCallerPrincipal(
             : null;
 
     /// <summary>
+    ///     Owner key of a file transfer: who may PUT or GET it over HTTP. A user is <see cref="StoreKeyPrefix" />
+    ///     (<c>u:&lt;tenant&gt;:&lt;sub&gt;</c>, tenant included); a client-credentials caller is
+    ///     <c>c:&lt;client_id&gt;:&lt;tenant&gt;</c>, so the same client id with a token of another tenant (a mirrored
+    ///     client, a per-tenant service token) is another owner. Kept apart from <see cref="StoreKeyPrefix" />, whose
+    ///     format the session token store depends on. Null when the caller has neither subject nor client id, and for a
+    ///     client-credentials token without <c>tenant_id</c> (fail closed): such a token can neither create nor
+    ///     fetch a transfer.
+    /// </summary>
+    public string? TransferOwnerKey => IsUserPrincipal
+        ? StoreKeyPrefix
+        : ClientId != null && !string.IsNullOrEmpty(TenantId)
+            ? $"c:{ClientId}:{TenantId}"
+            : null;
+
+    /// <summary>
     ///     Reads the caller off the request principal reachable through the server's
     ///     <see cref="IHttpContextAccessor" />. Returns null when the caller is not authenticated, or when
     ///     the host never registered an accessor — resolved with <c>GetService</c> so such a host degrades

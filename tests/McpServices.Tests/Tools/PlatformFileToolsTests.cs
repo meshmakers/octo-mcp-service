@@ -24,9 +24,9 @@ public class PlatformFileToolsTests : ToolTestBase
 
     private string StageUpload(string content = "hello")
     {
-        var (id, path) = FileTransferStore.ReserveUpload(CallerSession, "a.txt");
+        var (id, path) = FileTransferStore.ReserveUpload(CallerOwner, "a.txt");
         File.WriteAllText(path, content);
-        FileTransferStore.CompleteUpload(id, content.Length);
+        CompleteStagedUpload(id, content.Length);
         return id;
     }
 
@@ -107,7 +107,7 @@ public class PlatformFileToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeTrue();
         result.Entry!.RtId.Should().Be(FileRtId);
-        FileTransferStore.GetUpload(transferId, CallerSession).Should().BeNull();
+        FileTransferStore.GetUpload(transferId, CallerOwner).Should().BeNull();
     }
 
     [Theory]
@@ -165,7 +165,7 @@ public class PlatformFileToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("NAME_CONFLICT");
-        FileTransferStore.GetUpload(transferId, CallerSession).Should().NotBeNull();
+        FileTransferStore.GetUpload(transferId, CallerOwner).Should().NotBeNull();
     }
 
     // ── download_file ───────────────────────────────────────────────────────
@@ -181,10 +181,13 @@ public class PlatformFileToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue();
         result.FileName.Should().Be("a.txt");
         result.SizeBytes.Should().Be(5);
-        result.DownloadUrlPath.Should().Be($"/file-transfer/download/{result.TransferId}");
-        var stored = FileTransferStore.GetDownload(result.TransferId!);
+        result.DownloadUrlPath.Should().Be("/file-transfer/download", "the transfer id never travels in the URL");
+        result.TransferIdHeader.Should().Be("X-Transfer-Id");
+        var stored = FileTransferStore.GetDownload(result.TransferId!, CallerPrincipal);
         stored.Should().NotBeNull();
         File.ReadAllText(stored!.FilePath).Should().Be("hello");
+        AssertOneTimeDownloadKey(result.TransferId, result.TransferKey, result.TransferKeyHeader,
+            result.TransferKeyExpiresAtUtc, result.Message);
     }
 
     [Fact]

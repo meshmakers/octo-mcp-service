@@ -29,7 +29,10 @@ using var session = await tenantRepository.GetSessionAsync(security.SecurityCont
 The caller identity is read off `IHttpContextAccessor.HttpContext.User` — the principal the JWT
 bearer handler produced *after* it verified signature, issuer and lifetime. `Services/McpCallerPrincipal.cs`
 is the one reader of those claims (it lives here so the tenant gate and the session-token
-binding cannot disagree on what a "service token" is).
+binding cannot disagree on what a "service token" is). It derives two keys: `StoreKeyPrefix`
+(`u:<tenant>:<sub>` / `c:<client_id>`) for the session token store, and `TransferOwnerKey` for the owner of a file
+transfer, which adds the tenant for a client (`c:<client_id>:<tenant>`) so a mirrored client of another tenant is
+another owner (`file-transfer.md`).
 
 **It must not come from `McpSessionContext.TryGetAccessTokenAsync`.** The store is a *cache of
 tokens*, not a statement about who is calling; its key is derived from this very

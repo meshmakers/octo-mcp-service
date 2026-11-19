@@ -588,13 +588,16 @@ public class CustomAppGenerationToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue();
         result.TenantId.Should().Be("test-tenant");
         result.TransferId.Should().NotBeNullOrWhiteSpace();
-        result.DownloadUrlPath.Should().Be($"/file-transfer/download/{result.TransferId}");
+        result.DownloadUrlPath.Should().Be("/file-transfer/download", "the transfer id never travels in the URL");
+        result.TransferIdHeader.Should().Be("X-Transfer-Id");
+        AssertOneTimeDownloadKey(result.TransferId, result.TransferKey, result.TransferKeyHeader,
+            result.TransferKeyExpiresAtUtc, result.Message);
         result.FileName.Should().Be("schema-test-tenant.json");
         result.ByteCount.Should().Be(payload.Length);
         result.ExpiresAtUtc.Should().BeAfter(DateTime.UtcNow);
 
         // The download entry must exist in the store so the agent's GET resolves.
-        var download = FileTransferStore.GetDownload(result.TransferId!);
+        var download = FileTransferStore.GetDownload(result.TransferId!, CallerPrincipal);
         download.Should().NotBeNull();
         download!.FileName.Should().Be("schema-test-tenant.json");
         File.Exists(download.FilePath).Should().BeTrue();

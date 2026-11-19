@@ -39,4 +39,25 @@ public class ValidateMcpServiceOptionsTests
         result.Failed.Should().BeTrue();
         result.FailureMessage.Should().Contain("PublicUrl");
     }
+
+    [Fact]
+    public void Validate_FileTransferKeyLifetime_DefaultsToFiveMinutes_AndAcceptsUpToTenMinutes()
+    {
+        new McpServiceOptions().FileTransferKeyLifetime.Should().Be(TimeSpan.FromMinutes(5));
+        Sut.Validate(null, new McpServiceOptions { FileTransferKeyLifetime = TimeSpan.FromMinutes(10) })
+            .Succeeded.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-60)]
+    [InlineData(601)]
+    public void Validate_FileTransferKeyLifetime_OutOfRange_Fails(int seconds)
+    {
+        var result = Sut.Validate(null,
+            new McpServiceOptions { FileTransferKeyLifetime = TimeSpan.FromSeconds(seconds) });
+
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain("FileTransferKeyLifetime");
+    }
 }

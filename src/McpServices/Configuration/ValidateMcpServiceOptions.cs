@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Backend.McpServices.Options;
 using Microsoft.Extensions.Options;
 
@@ -20,6 +21,14 @@ internal sealed class ValidateMcpServiceOptions : IValidateOptions<McpServiceOpt
     /// </summary>
     public ValidateOptionsResult Validate(string? name, McpServiceOptions options)
     {
+        if (options.FileTransferKeyLifetime <= TimeSpan.Zero
+            || options.FileTransferKeyLifetime > FileTransferStore.MaxKeyLifetime)
+        {
+            return ValidateOptionsResult.Fail(
+                $"Mcp:FileTransferKeyLifetime must be greater than zero and at most {FileTransferStore.MaxKeyLifetime} " +
+                $"(configured: {options.FileTransferKeyLifetime}).");
+        }
+
         if (!Uri.TryCreate(options.PublicUrl, UriKind.Absolute, out var publicUri)
             || (publicUri.Scheme != Uri.UriSchemeHttp && publicUri.Scheme != Uri.UriSchemeHttps))
         {
