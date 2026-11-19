@@ -31,9 +31,9 @@ public class DataModelManagementRequiredTests : ToolTestBase
 
     private (string transferId, string filePath) StageUpload()
     {
-        var (id, path) = FileTransferStore.ReserveUpload(CallerSession, "model.json");
+        var (id, path) = FileTransferStore.ReserveUpload(CallerOwner, "model.json");
         File.WriteAllText(path, "{}");
-        FileTransferStore.CompleteUpload(id, 2);
+        CompleteStagedUpload(id, 2);
         return (id, path);
     }
 

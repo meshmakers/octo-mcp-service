@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
+using Meshmakers.Octo.Backend.McpServices.Routing;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Files;
 using ModelContextProtocol.Server;
@@ -10,7 +11,7 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 
 /// <summary>
 ///     Tools for the platform file system of a tenant (System.Files, AB#6171). Bytes move over the MCP
-///     file-transfer channel (<c>prepare_file_upload</c> / <c>/file-transfer/download/{id}</c>), never through
+///     file-transfer channel (<c>prepare_file_upload</c> / <c>/file-transfer/download</c> with the id in a header), never through
 ///     tool parameters. Mirrors octo-cli GetFiles, UploadFile, DownloadFile. Files are addressed by the
 ///     well-known name of a folder root (default <c>Files</c>) plus a '/'-separated path.
 /// </summary>
@@ -154,7 +155,7 @@ public sealed class PlatformFileTools
     [Description(
         "Fetch a file of the platform file system (System.Files) of a tenant. Address it either by 'root' + " +
         "'path' or by 'rtId'. The bytes are staged on the MCP server; the result carries a downloadUrlPath " +
-        "to GET (valid ~30 minutes) — they never travel inside the tool result. Equivalent to octo-cli " +
+        "to GET with the transferId in the X-Transfer-Id header and the bearer token (valid ~30 minutes) — they never travel inside the tool result. Equivalent to octo-cli " +
         "DownloadFile.")]
     public static async Task<DownloadPlatformFileResponse> DownloadFile(
         McpServer server,
@@ -196,21 +197,22 @@ public sealed class PlatformFileTools
             }
 
             var store = server.Services!.GetRequiredService<IFileTransferStore>();
-            var transferId = store.RegisterDownload(McpSessionContext.GetCallerLabel(server), tempPath, fileName);
+            var transferId = store.RegisterDownload(McpSessionContext.GetFileTransferOwner(server), tempPath, fileName);
             tempPath = null; // owned by the store now
-            var size = store.GetDownload(transferId)?.SizeBytes ?? download.ContentLength ?? 0;
+            var size = store.GetDownload(transferId, McpCallerPrincipal.FromServer(server)?.StoreKeyPrefix)?.SizeBytes ?? download.ContentLength ?? 0;
 
             return new DownloadPlatformFileResponse
             {
                 IsSuccess = true,
                 TenantId = ctx.TenantId,
                 TransferId = transferId,
-                DownloadUrlPath = $"/file-transfer/download/{transferId}",
+                DownloadUrlPath = FileTransferRoutes.DownloadPath,
+                TransferIdHeader = FileTransferRoutes.TransferIdHeader,
                 FileName = fileName,
                 ContentType = download.ContentType,
                 SizeBytes = size,
                 ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
-                Message = $"Ready. GET '/file-transfer/download/{transferId}' to fetch ({size:N0} bytes)."
+                Message = $"Ready. {FileTransferRoutes.DownloadInstruction(transferId)} to fetch ({size:N0} bytes)."
             };
         }
         catch (Exception ex)

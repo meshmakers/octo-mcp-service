@@ -23,9 +23,9 @@ public class CkModelFileToolsTests : ToolTestBase
 
     private (string transferId, string filePath) StageUpload(string content = "{}", string fileName = "model.json")
     {
-        var (id, path) = FileTransferStore.ReserveUpload(CallerSession, fileName);
+        var (id, path) = FileTransferStore.ReserveUpload(CallerOwner, fileName);
         File.WriteAllText(path, content);
-        FileTransferStore.CompleteUpload(id, content.Length);
+        CompleteStagedUpload(id, content.Length);
         return (id, path);
     }
 
@@ -146,12 +146,13 @@ public class CkModelFileToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeTrue();
         result.TransferId.Should().NotBeNullOrEmpty();
-        result.DownloadUrlPath.Should().Be($"/file-transfer/download/{result.TransferId}");
+        result.DownloadUrlPath.Should().Be("/file-transfer/download", "the transfer id never travels in the URL");
+        result.TransferIdHeader.Should().Be("X-Transfer-Id");
         result.FileName.Should().Be("myexport.zip");
         result.SizeBytes.Should().BeGreaterThan(0);
 
         // The download is queryable from the store.
-        FileTransferStore.GetDownload(result.TransferId!).Should().NotBeNull();
+        FileTransferStore.GetDownload(result.TransferId!, CallerPrincipal).Should().NotBeNull();
     }
 
     [Fact]

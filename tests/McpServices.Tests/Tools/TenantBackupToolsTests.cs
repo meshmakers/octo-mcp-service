@@ -39,8 +39,9 @@ public class TenantBackupToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue(result.ErrorMessage ?? "");
         result.TransferId.Should().NotBeNullOrEmpty();
         result.FileName.Should().Be("target-tenant-dump.tar.gz");
-        result.DownloadUrlPath.Should().StartWith("/file-transfer/download/");
-        FileTransferStore.GetDownload(result.TransferId!).Should().NotBeNull();
+        result.DownloadUrlPath.Should().Be("/file-transfer/download", "the transfer id never travels in the URL");
+        result.TransferIdHeader.Should().Be("X-Transfer-Id");
+        FileTransferStore.GetDownload(result.TransferId!, CallerPrincipal).Should().NotBeNull();
         MockBotClient.Verify(c => c.StartDumpRepositoryAsync("target-tenant", false), Times.Once);
     }
 
@@ -122,9 +123,9 @@ public class TenantBackupToolsTests : ToolTestBase
 
     private (string transferId, string filePath) StageRestoreUpload()
     {
-        var (id, path) = FileTransferStore.ReserveUpload(CallerSession, "dump.tar.gz");
+        var (id, path) = FileTransferStore.ReserveUpload(CallerOwner, "dump.tar.gz");
         File.WriteAllBytes(path, [0, 1, 2]);
-        FileTransferStore.CompleteUpload(id, 3);
+        CompleteStagedUpload(id, 3);
         return (id, path);
     }
 

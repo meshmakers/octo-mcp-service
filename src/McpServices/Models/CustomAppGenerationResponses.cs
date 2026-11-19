@@ -338,7 +338,7 @@ public sealed class ApplyScaffoldTypeBinding
 
 /// <summary>
 ///     Response of <c>export_runtime_graphql_sdl</c> (M3 B-2c-schema-availability). The
-///     introspection body lands at <c>/file-transfer/download/{TransferId}</c> — the agent
+///     introspection body lands at <c>/file-transfer/download</c> (id in the <c>X-Transfer-Id</c> header) — the agent
 ///     downloads it to <c>src/custom-app/schema.json</c> and feeds it to graphql-codegen.
 ///     Per-tenant — different tenants have different CK models, so the GraphQL surface
 ///     (the dynamically typed <c>runtime.</c> fields) varies.
@@ -376,9 +376,15 @@ public sealed class ExportRuntimeGraphqlSdlResponse
     ///     Server-relative URL path the agent issues a GET against to download the
     ///     introspection JSON. Combined with the workspace's <c>$MCP_PUBLIC_BASE_URL</c>
     ///     (or the host the agent's MCP transport already knows), the full URL is
-    ///     <c>{base}/file-transfer/download/{TransferId}</c>.
+    ///     <c>{base}/file-transfer/download</c>; the id goes into the <see cref="TransferIdHeader" /> header.
     /// </summary>
     public string? DownloadUrlPath { get; set; }
+
+    /// <summary>
+    ///     Name of the request header that carries <see cref="TransferId" /> (<c>X-Transfer-Id</c>). The id is never
+    ///     part of the URL path; send it in this header together with the bearer token of the MCP connection.
+    /// </summary>
+    public string? TransferIdHeader { get; set; }
 
     /// <summary>Suggested file name to save the download as.</summary>
     public string? FileName { get; set; }

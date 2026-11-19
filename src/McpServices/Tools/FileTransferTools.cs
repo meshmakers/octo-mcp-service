@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
+using Meshmakers.Octo.Backend.McpServices.Routing;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using ModelContextProtocol.Server;
 
@@ -20,7 +21,8 @@ public sealed class FileTransferTools
     [McpServerTool(Name = "prepare_file_upload")]
     [Description(
         "Reserve a slot for an upcoming file upload. Returns an opaque transferId and the relative URL path " +
-        "the caller must PUT the file body to. The slot expires after ~30 minutes. After PUTting the body, " +
+        "the caller must PUT the file body to, with the transferId in the X-Transfer-Id header, the bearer token " +
+        "of this connection and a Content-Type. The slot expires after ~30 minutes and takes one PUT. After PUTting the body, " +
         "pass the transferId to the actual import / restore tool (e.g. import_ck_model, restore_tenant).")]
     public static async Task<PrepareFileUploadResponse> PrepareFileUpload(
         McpServer server,
@@ -49,18 +51,18 @@ public sealed class FileTransferTools
         }
 
         var store = server.Services!.GetRequiredService<IFileTransferStore>();
-        var sessionId = McpSessionContext.GetCallerLabel(server);
-        var (transferId, _) = store.ReserveUpload(sessionId, fileName);
+        var (transferId, _) = store.ReserveUpload(McpSessionContext.GetFileTransferOwner(server), fileName);
 
         return new PrepareFileUploadResponse
         {
             IsSuccess = true,
             TransferId = transferId,
-            UploadUrlPath = $"/file-transfer/upload/{transferId}",
+            UploadUrlPath = FileTransferRoutes.UploadPath,
+            TransferIdHeader = FileTransferRoutes.TransferIdHeader,
             ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
             Message =
-                $"Reserved upload slot. PUT the file body to '/file-transfer/upload/{transferId}' " +
-                "and then call the matching import / restore tool with this transferId."
+                $"Reserved upload slot. {FileTransferRoutes.UploadInstruction(transferId)}, " +
+                "then call the matching import / restore tool with this transferId."
         };
     }
 

@@ -7,58 +7,86 @@ applies_to: **/Routing/**, **/Services/*FileTransferStore.cs, **/Services/{EndTr
 
 ## File I/O Architecture
 
-Tools that need to receive or produce files use a separate HTTP channel: the JSON-RPC tool call coordinates an opaque transfer id, and the actual bytes flow through `FileTransferController` at `/file-transfer/{upload,download}/{id}`.
+Tools that need to receive or produce files use a separate HTTP channel: the JSON-RPC tool call coordinates an opaque transfer id, and the actual bytes flow through `FileTransferController` at `/file-transfer/upload` and `/file-transfer/download`, with the id in the `X-Transfer-Id` request header (`Routing/FileTransferRoutes.cs`).
 
 ### Components
 
 - `IFileTransferStore` / `FileTransferStore` — in-memory + disk-backed buffers. Reservations live in `_pending`; completed uploads in `_uploads`; pending downloads in `_downloads`. Files land in `Path.GetTempPath()/octo-mcp-file-transfer/<random>/`.
 - `FileTransferSweeper` — `BackgroundService` that purges expired entries + their files every 5 min.
-- `FileTransferController` — `PUT /file-transfer/upload/{id}` writes the body to the reserved path (5 GiB cap, streaming chunked). `GET /file-transfer/download/{id}` streams the file with range support and is single-use (deleted after the first complete GET).
+- `FileTransferController` — `PUT /file-transfer/upload` claims the reserved slot named by the `X-Transfer-Id` header and writes the body to its path (5 GiB cap, streaming chunked). `GET /file-transfer/download` streams the file named by the header with range support and is single-use (deleted after the first complete GET). Both require the MCP transport policy (see *Security*).
 - `JobPollingHelper` — generic async-job poller for asset + bot service jobs (Succeeded/Failed/Timeout).
 
 ### Upload-then-import flow
 
 ```
-prepare_file_upload(fileName) → { transferId, uploadUrlPath }
-HTTP PUT to <publicUrl>/file-transfer/upload/{transferId}
+prepare_file_upload(fileName) → { transferId, uploadUrlPath: "/file-transfer/upload", transferIdHeader: "X-Transfer-Id" }
+HTTP PUT to <publicUrl>/file-transfer/upload   (headers: X-Transfer-Id, Authorization: Bearer, Content-Type)
 import_ck_model(transferId, tenantId) → waits for job, returns jobId
 ```
 
-Inside the import tool: `store.GetUpload(transferId, McpSessionContext.GetCallerLabel(server))` returns the on-disk path (only for the session that reserved the upload, see *Security*); pass that to the SDK call (which requires a file path argument, e.g. `ImportCkModelAsync(tenantId, filePath)`). On success, `store.DeleteUpload(transferId)` to clean up.
+`prepare_file_upload` stores the owner with `McpSessionContext.GetFileTransferOwner(server)` (session label and
+principal). Inside the import tool: `store.GetUpload(transferId, McpSessionContext.GetCallerLabel(server))` returns the on-disk path (only for the session that reserved the upload, see *Security*); pass that to the SDK call (which requires a file path argument, e.g. `ImportCkModelAsync(tenantId, filePath)`). On success, `store.DeleteUpload(transferId)` to clean up.
 
 ### Export-then-download flow
 
 ```
-export_runtime_model_by_query(queryId) → starts asset job → polls → bot downloads to temp file → store.RegisterDownload(...) → returns { transferId, downloadUrlPath }
-HTTP GET <publicUrl>/file-transfer/download/{transferId}
+export_runtime_model_by_query(queryId) → starts asset job → polls → bot downloads to temp file → store.RegisterDownload(GetFileTransferOwner(server), ...) → returns { transferId, downloadUrlPath: "/file-transfer/download", transferIdHeader }
+HTTP GET <publicUrl>/file-transfer/download   (headers: X-Transfer-Id, Authorization: Bearer)
 ```
 
 ### Security
 
-The HTTP endpoints stay **anonymous** by design (curl-based clients must keep working): the random 128-bit
-transfer id (`Guid.NewGuid().ToString("N")`, 30 min TTL) in the URL path is the capability. The rules below narrow what
-that capability allows:
+Invariant: an upload or download succeeds only for a request with a valid bearer token whose principal is the principal
+that created the transfer, and the transfer id never appears in a URL, log record or span attribute.
 
-- **Session binding (tool side).** The store records the owner (`McpSessionContext.GetCallerLabel(server)`: the
-  validated principal's store key, plus `|<Mcp-Session-Id>` when the client sends that header) for every
-  reservation and download. `GetUpload(transferId, callerSessionId)` returns the upload **only for that owner**; every
-  consuming tool (`import_ck_model`, `import_runtime_model`, `restore_tenant`, `import_archive_data`, `upload_file`)
+- **Bearer token, same policy as MCP.** `FileTransferController` carries
+  `[Authorize(Policy = McpAuthorizationPolicy.PolicyName)]`: no or an invalid token answers 401, a token without the
+  platform API scope 403, before the store is touched. Clients send the token of their MCP connection
+  (`Authorization: Bearer <token>`); a curl user takes the same token. The check runs in the service, not only at a
+  gateway, because only the service can bind the request to the creator.
+- **Bound to the creator's principal (HTTP side).** Every reservation and download stores
+  `FileTransferOwner(SessionLabel, Principal)` (`McpSessionContext.GetFileTransferOwner`). The endpoints compare the
+  caller's `McpCallerPrincipal.StoreKeyPrefix` (`u:<tenant>:<sub>` for a user, `c:<client_id>` for a client-credentials
+  token) with the stored principal, ordinal (`FileTransferStore.IsPrincipalOwner`). Another user, the same subject in
+  another tenant, or another client id gets **404**, exactly like an unknown or expired id, and the entry stays for its
+  owner. Fails closed: a missing principal on either side (a creator or caller without subject and client id) or the
+  shared `anonymous` label never matches. The `Mcp-Session-Id` header plays no part on the HTTP side (a plain PUT/GET
+  does not carry it); it is no identity there.
+- **Session binding (tool side).** The tools keep comparing the session label (`McpSessionContext.GetCallerLabel(server)`:
+  the validated principal's store key, plus `|<Mcp-Session-Id>` when the client sends that header).
+  `GetUpload(transferId, callerSessionId)` returns the upload **only for that owner**; every consuming tool
+  (`import_ck_model`, `import_runtime_model`, `restore_tenant`, `import_archive_data`, `upload_file`, `validate_ck_model`)
   passes the caller's label and a foreign id gets exactly the answer an unknown/expired id gets (`Upload '<id>' not
-  found or expired.`) — no information leak, the owner's file stays untouched. `cancel_file_transfer` goes through
-  `CancelTransfer(id, caller)`: foreign id = silent no-op with the usual success answer. The shared `anonymous` label
-  (`McpSessionContext.AnonymousCallerLabel`, unidentifiable caller) **never matches** — it fails closed.
-  New tools that consume an upload must pass the caller label; never add a `GetUpload` overload without one.
-- **Single-use download.** `GET /file-transfer/download/{id}` deletes the entry **and** the temp file once the last
+  found or expired.`). `cancel_file_transfer` goes through `CancelTransfer(id, caller)`: foreign id = silent no-op
+  with the usual success answer. The `anonymous` label never matches. New tools that consume an upload must pass the
+  caller label; never add a `GetUpload` overload without one.
+- **Id out of the URL.** The id travels only in the `X-Transfer-Id` header: no route carries it in the path, the query
+  is not read (an id there is refused with 400 because the header is missing), and the old routes
+  `/file-transfer/{upload,download}/{id}` answer 404. Access logs, `url.path`, `url.full`, `url.query` and `http.route`
+  therefore hold only the fixed paths. The ASP.NET Core instrumentation records no request headers by default; a
+  deployment that turns on request-header capture must not list `X-Transfer-Id`. Error responses and log lines of the
+  controller never name the id (the success answer of a PUT returns it to its owner, as before). Tool results return
+  `uploadUrlPath` / `downloadUrlPath` without the id plus `transferIdHeader` and the id in `transferId`.
+- **One PUT per upload.** The first PUT claims the slot atomically (`TryClaimUpload`, compare-and-swap on the pending
+  entry); a concurrent second PUT of the owner gets **409** (a foreign caller still gets 404, so 409 tells nothing
+  about someone else's id). A PUT that fails or is aborted (client gone, I/O error, 5 GiB cap exceeded) **ends the
+  reservation** and deletes the partial file (`AbortUpload`): the client needs a new `prepare_file_upload`. A PUT after
+  a completed upload answers 404. A PUT still needs a `Content-Type` header (framework behaviour).
+- **Single-use download.** `GET /file-transfer/download` deletes the entry **and** the temp file once the last
   byte was served and the client did not abort (`EndTrackingStream` + `Response.OnCompleted`, checked against
   `RequestAborted`). A second GET is 404. An aborted transfer, or a range that stops before the end of the file,
-  keeps the entry so the client can resume with a range request; the entry is then deleted when the resume reaches
+  keeps the entry so the owner can resume with a range request; the entry is then deleted when the resume reaches
   the end, or by the TTL sweeper at the latest. Parallel chunked downloads: the chunk that reaches the end deletes
   the file for the others — download sequentially.
-- **Still open** (separate follow-ups): bearer token on `/file-transfer`, atomic claim of the upload slot
-  (two parallel PUTs on one id), disk quota / limit of concurrent reservations. A PUT still needs a `Content-Type`
-  header (framework behaviour, not a documented rule).
+- **Expiry.** Reservations and downloads live 30 minutes from creation; an expired id answers 404.
+- **Known limitation:** no per-caller disk quota or limit of concurrent reservations; with the token required this is
+  no longer open to anonymous callers.
 
-For stricter setups, put the service behind your own auth gateway. **Do not** add base64-in-tool-parameter as an alternative path — the file-transfer endpoints are the only sanctioned mechanism for binary payloads.
+Tests: `Routing/FileTransferControllerTests` (one test per abuse case, against Kestrel with the real JWT bearer handler,
+the transport policy and the OpenTelemetry ASP.NET Core instrumentation), `Services/FileTransferStoreTests`,
+`Tools/FileTransferOwnershipTests`.
+
+**Do not** add base64-in-tool-parameter as an alternative path — the file-transfer endpoints are the only sanctioned mechanism for binary payloads.
 
 ### Platform file system tools (`PlatformFileTools`)
 

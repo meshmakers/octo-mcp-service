@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text.RegularExpressions;
 using Meshmakers.Octo.Backend.McpServices.Models;
+using Meshmakers.Octo.Backend.McpServices.Routing;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Server;
@@ -532,9 +533,7 @@ public sealed class CustomAppGenerationTools
                 ErrorMessage = outcome.ErrorMessage,
             };
         }
-
-        var sessionId = McpSessionContext.GetCallerLabel(server);
-        var transferId = store.RegisterDownload(sessionId, tempPath, fileName);
+        var transferId = store.RegisterDownload(McpSessionContext.GetFileTransferOwner(server), tempPath, fileName);
         var size = outcome.ByteCount ?? new FileInfo(tempPath).Length;
 
         return new ExportRuntimeGraphqlSdlResponse
@@ -542,13 +541,14 @@ public sealed class CustomAppGenerationTools
             IsSuccess = true,
             TenantId = resolvedTenantId,
             TransferId = transferId,
-            DownloadUrlPath = $"/file-transfer/download/{transferId}",
+            DownloadUrlPath = FileTransferRoutes.DownloadPath,
+            TransferIdHeader = FileTransferRoutes.TransferIdHeader,
             FileName = fileName,
             ByteCount = size,
             ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
             Message =
                 $"Introspection for tenant '{resolvedTenantId}' ready ({size:N0} bytes). " +
-                $"GET '/file-transfer/download/{transferId}' to fetch.",
+                $"{FileTransferRoutes.DownloadInstruction(transferId)} to fetch.",
         };
     }
 

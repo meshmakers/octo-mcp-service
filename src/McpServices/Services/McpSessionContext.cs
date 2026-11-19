@@ -98,6 +98,18 @@ internal static class McpSessionContext
     }
 
     /// <summary>
+    ///     Owner tag of a new file transfer: the session label the tools compare (<see cref="GetCallerLabel" />) and
+    ///     the principal (<see cref="McpCallerPrincipal.StoreKeyPrefix" />) the HTTP endpoints compare, because a plain
+    ///     PUT or GET carries no <c>Mcp-Session-Id</c>. An unidentifiable caller gets a null principal, which matches
+    ///     nobody.
+    /// </summary>
+    /// <param name="server">MCP server instance — provides DI access to the request context.</param>
+    public static FileTransferOwner GetFileTransferOwner(McpServer server)
+    {
+        return new FileTransferOwner(GetCallerLabel(server), McpCallerPrincipal.FromServer(server)?.StoreKeyPrefix);
+    }
+
+    /// <summary>
     ///     Returns the access token for the current session, or null if the caller is not
     ///     authenticated. Transparently performs an OAuth2 <c>refresh_token</c> grant when the
     ///     stored access token is expired (or within the refresh margin) but a refresh token is

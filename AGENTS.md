@@ -126,7 +126,8 @@ of `McpServices`. Every public type, property, and method on a new tool class ne
   (`ResolveAccessTokenAsync(server, tenantId)`); a failed exchange is an error, never a fallback to the home token:
   `docs/authentication.md`.
 - **Both MCP endpoints keep the transport policy, and a new controller carries its own `[Authorize]`**; nothing in
-  `Program.cs` gates a controller. Only `FileTransferController` is anonymous, by design (`docs/file-transfer.md`):
+  `Program.cs` gates a controller. `FileTransferController` carries the MCP transport policy and serves an entry only
+  to the principal that created it, with the transfer id in a header, never in the URL (`docs/file-transfer.md`):
   `docs/authentication.md`.
 - **Decide the `[McpRisk]` level of a new tool with its implementation.** A tool without the attribute counts as
   `Low` and runs without approval: `docs/tool-conventions.md`, section 8.

@@ -14,8 +14,9 @@ registers the JWT bearer handler (`AddAuthentication(JwtBearerDefaults.Authentic
 `UseOctoTenantAuthorization()` before mapping the transport; both `app.MapMcp(...)` calls carry
 `.RequireAuthorization(McpAuthorizationPolicy.PolicyName)` — the scope policy of the next section.
 
-`MapObservability` (health/metrics) and the file-transfer endpoints are intentionally left anonymous — only the
-MCP transport is gated (the file-transfer protection is described in `file-transfer.md`). Without the scheme and the
+`MapObservability` (health/metrics) is intentionally left anonymous. The file-transfer controller carries
+`[Authorize(Policy = McpAuthorizationPolicy.PolicyName)]` itself — the same policy as the MCP transport — and binds every
+entry to the principal that created it (`file-transfer.md`). Without the scheme and the
 middleware the direct-engine (family-2/3) tools would serve tenant data from MongoDB with no token at all.
 
 `UseOctoTenantAuthorization` (shared `TenantAuthorizationMiddleware` from octo-common-services)
@@ -173,8 +174,9 @@ Consequences:
   `check_auth_status` refuse outright in that case (there is no slot to park a device code in that
   isn't shared). Both endpoints require a validated bearer, so a principal is always
   present in production. `McpSessionContext.GetCallerLabel` is the deliberately non-null variant, used
-  **only** for the file-transfer ownership tag (transfers authorise on the opaque 128-bit transfer id,
-  not on the session).
+  **only** for the file-transfer ownership tag of the tools. The HTTP endpoints of the file transfer compare
+  the principal (`StoreKeyPrefix`) instead, because a plain PUT or GET carries no `Mcp-Session-Id`
+  (`file-transfer.md`).
 
 **2. A stored token is verified before it is used.** `VerifyBinding` requires the token's `sub` **and**
 `tenant_id` to equal the request principal's; an opaque token fails because it cannot be bound at all.

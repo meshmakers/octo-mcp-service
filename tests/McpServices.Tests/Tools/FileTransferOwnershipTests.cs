@@ -14,6 +14,7 @@ namespace McpServices.Tests.Tools;
 public class FileTransferOwnershipTests : ToolTestBase
 {
     private const string OtherSession = "someone-else|their-mcp-session";
+    private const string OtherPrincipal = "c:someone-else";
 
     public FileTransferOwnershipTests()
     {
@@ -24,9 +25,9 @@ public class FileTransferOwnershipTests : ToolTestBase
     private (string TransferId, string Path) StageForeignUpload()
     {
         CallerSession.Should().NotBe(OtherSession);
-        var (id, path) = FileTransferStore.ReserveUpload(OtherSession, "foreign.bin");
+        var (id, path) = FileTransferStore.ReserveUpload(new FileTransferOwner(OtherSession, OtherPrincipal), "foreign.bin");
         File.WriteAllBytes(path, [1, 2, 3]);
-        FileTransferStore.CompleteUpload(id, 3);
+        CompleteStagedUpload(id, 3, OtherPrincipal);
         return (id, path);
     }
 
@@ -132,9 +133,9 @@ public class FileTransferOwnershipTests : ToolTestBase
     {
         var prep = await FileTransferTools.PrepareFileUpload(MockServer.Object, "model.json");
         prep.IsSuccess.Should().BeTrue();
-        var target = FileTransferStore.TryReserveTarget(prep.TransferId!)!;
+        var target = ClaimStagedUpload(prep.TransferId!);
         File.WriteAllText(target, "{}");
-        FileTransferStore.CompleteUpload(prep.TransferId!, 2);
+        FileTransferStore.CompleteUpload(prep.TransferId!, 2).Should().BeTrue();
         MockAssetClient.Setup(c => c.ImportCkModelAsync(DefaultTenantId, It.IsAny<string>()))
             .ReturnsAsync("job-1");
         MockBotClient.Setup(c => c.GetImportJobStatus("job-1"))
@@ -150,9 +151,9 @@ public class FileTransferOwnershipTests : ToolTestBase
     {
         // Two real, authenticated principals — the session label is derived from the principal.
         var prep = await FileTransferTools.PrepareFileUpload(MockServer.Object, "model.json");
-        var target = FileTransferStore.TryReserveTarget(prep.TransferId!)!;
+        var target = ClaimStagedUpload(prep.TransferId!);
         File.WriteAllText(target, "{}");
-        FileTransferStore.CompleteUpload(prep.TransferId!, 2);
+        FileTransferStore.CompleteUpload(prep.TransferId!, 2).Should().BeTrue();
 
         GivenAuthenticatedCaller(subjectId: "another-user");
         GivenAuthenticated();

@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Security
+
+- **AB#6988** — The file-transfer endpoints are no longer anonymous and the transfer id is out of the URL. **Breaking for
+  HTTP clients of `/file-transfer/*`.**
+  - `PUT /file-transfer/upload` and `GET /file-transfer/download` require the bearer token of the MCP connection and the
+    same policy as the MCP transport (no or invalid token 401, missing platform API scope 403).
+  - The id travels in the request header `X-Transfer-Id`; the routes `/file-transfer/{upload,download}/{id}` are removed
+    (404) and the query is not read, so access logs and span attributes (`url.*`, `http.route`) no longer carry it.
+    Error responses and log lines do not echo it.
+  - An entry is served only to the principal that created it (`McpCallerPrincipal.StoreKeyPrefix`: same user and
+    tenant, or same client id); anyone else gets 404, like an unknown id. An entry or caller without a principal matches
+    nobody. The tool side keeps its session binding.
+  - The first PUT claims the upload slot atomically: a concurrent second PUT gets 409; a failed or aborted PUT ends the
+    reservation and deletes the partial file (a new `prepare_file_upload` is needed).
+  - `prepare_file_upload` and every download-producing tool (`dump_tenant`, `export_archive_data`,
+    `export_runtime_model_by_query`, `export_runtime_model_by_deep_graph`, `export_runtime_graphql_sdl`, `download_file`)
+    return the path without the id plus the new field `transferIdHeader`; their messages name both headers.
+  - Known limitation: no per-caller disk quota yet.
+
 ### Added
 
 - **AB#9182** — New tool `refresh_blueprint_catalogs(catalogName?)`, the MCP mirror of octo-cli `RefreshBlueprintCatalogs`:

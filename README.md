@@ -206,7 +206,7 @@ dotnet run
 - Archive Data: `export_archive_data` · `import_archive_data`
 - Fixup Scripts: `run_fixup_scripts`<sup>‡</sup> (create via generic `create_entity` with `RtFixup` CK type)
 - Platform file system (5): `list_files` · `upload_file` · `download_file` · `create_folder` · `delete_file`<sup>‡</sup> (System.Files; bytes via the file-transfer endpoints, no `enable_*` needed)
-- HTTP: `PUT /file-transfer/upload/{id}` · `GET /file-transfer/download/{id}` (range-enabled, 5 GiB cap; uploads are bound to the reserving session, downloads are single-use)
+- HTTP: `PUT /file-transfer/upload` · `GET /file-transfer/download` with the transfer id in the `X-Transfer-Id` header and the bearer token of the MCP connection (range-enabled, 5 GiB cap; bound to the principal that created the transfer, one PUT per upload, downloads are single-use)
 
 ### **Runtime + Stream Data Aggregations** (12)
 - Runtime aggregation (2): `query_entities_aggregation` · `query_entities_grouping`
@@ -357,8 +357,11 @@ Large-file operations use out-of-band streaming endpoints alongside the JSON-RPC
 ### Upload flow (import / restore)
 ```
 1. Tool call: prepare_file_upload(fileName)
-   → { transferId, uploadUrlPath: "/file-transfer/upload/{transferId}" }
+   → { transferId, uploadUrlPath: "/file-transfer/upload", transferIdHeader: "X-Transfer-Id" }
 2. HTTP PUT the file body to <publicUrl> + uploadUrlPath
+   with headers  X-Transfer-Id: <transferId>
+                 Authorization: Bearer <the token of the MCP connection>
+                 Content-Type: application/octet-stream (any type; the header is required)
    → { transferId, sizeBytes }
 3. Tool call: import_ck_model(transferId, tenantId)
    or:        restore_tenant(transferId, targetTenantId, databaseName, confirm: true)
@@ -369,12 +372,17 @@ Large-file operations use out-of-band streaming endpoints alongside the JSON-RPC
 ```
 1. Tool call: dump_tenant(targetTenantId)
    or:        export_runtime_model_by_query(queryId)
-   → { transferId, downloadUrlPath: "/file-transfer/download/{transferId}" }
+   → { transferId, downloadUrlPath: "/file-transfer/download", transferIdHeader: "X-Transfer-Id" }
 2. HTTP GET <publicUrl> + downloadUrlPath
+   with headers  X-Transfer-Id: <transferId>
+                 Authorization: Bearer <the token of the MCP connection>
    → Streams the bytes with Content-Disposition + range support
 ```
 
-Reservations and downloads expire after **30 minutes**; a background sweeper purges them.
+Reservations and downloads expire after **30 minutes**; a background sweeper purges them. The transfer id is a secret
+while it lives: it travels only in the `X-Transfer-Id` header, never in the URL. Only the principal that created a
+transfer (same user and tenant, or same client id) can PUT or GET it; anyone else gets 404. An upload takes one PUT
+(a concurrent second PUT gets 409, a failed PUT ends the reservation); a download is deleted after the first complete GET.
 
 ## 📖 Usage Examples
 
@@ -423,8 +431,9 @@ Reservations and downloads expire after **30 minutes**; a background sweeper pur
 ### **Dump a tenant and download the .tar.gz**
 ```json
 { "tool": "dump_tenant", "parameters": { "targetTenantId": "acme" } }
-// Response: { transferId: "abc123", downloadUrlPath: "/file-transfer/download/abc123", ... }
-// Then: HTTP GET https://mcp.example.com/file-transfer/download/abc123
+// Response: { transferId: "abc123", downloadUrlPath: "/file-transfer/download", transferIdHeader: "X-Transfer-Id", ... }
+// Then: curl -H "X-Transfer-Id: abc123" -H "Authorization: Bearer $TOKEN" -o acme.tar.gz \
+//         https://mcp.example.com/file-transfer/download
 ```
 
 ### **Aggregate sensor readings grouped by facility**

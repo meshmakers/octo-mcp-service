@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
+using Meshmakers.Octo.Backend.McpServices.Routing;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
@@ -121,7 +122,7 @@ public sealed class CkModelFileTools
     [McpServerTool(Name = "export_runtime_model_by_query")]
     [Description(
         "Export runtime entities matched by a query to a zip file. Waits for the export job to complete, then " +
-        "returns a downloadId — fetch the file via GET /file-transfer/download/{downloadId}. Equivalent to " +
+        "returns a transferId — GET /file-transfer/download with the transferId in the X-Transfer-Id header and the bearer token of this connection. Equivalent to " +
         "octo-cli ExportRtByQuery.")]
     public static async Task<FileDownloadResponse> ExportRuntimeModelByQuery(
         McpServer server,
@@ -362,9 +363,7 @@ public sealed class CkModelFileTools
 
         var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}_{fileName}");
         await bot.DownloadDumpToFileAsync(tenantId, jobId, tempPath);
-
-        var sessionId = McpSessionContext.GetCallerLabel(server);
-        var downloadId = store.RegisterDownload(sessionId, tempPath, fileName);
+        var downloadId = store.RegisterDownload(McpSessionContext.GetFileTransferOwner(server), tempPath, fileName);
         var size = new FileInfo(tempPath).Length;
 
         return new FileDownloadResponse
@@ -372,12 +371,13 @@ public sealed class CkModelFileTools
             IsSuccess = true,
             TenantId = tenantId,
             TransferId = downloadId,
-            DownloadUrlPath = $"/file-transfer/download/{downloadId}",
+            DownloadUrlPath = FileTransferRoutes.DownloadPath,
+            TransferIdHeader = FileTransferRoutes.TransferIdHeader,
             FileName = fileName,
             SizeBytes = size,
             ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
             Message =
-                $"{opName} ready. GET '/file-transfer/download/{downloadId}' to fetch ({size:N0} bytes)."
+                $"{opName} ready. {FileTransferRoutes.DownloadInstruction(downloadId)} to fetch ({size:N0} bytes)."
         };
     }
 }

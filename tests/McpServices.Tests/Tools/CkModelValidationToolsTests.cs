@@ -20,9 +20,9 @@ public class CkModelValidationToolsTests : ToolTestBase
 
     private string StageUpload(string fileName = "draft.zip")
     {
-        var (id, path) = FileTransferStore.ReserveUpload(CallerSession, fileName);
+        var (id, path) = FileTransferStore.ReserveUpload(CallerOwner, fileName);
         File.WriteAllText(path, "PK");
-        FileTransferStore.CompleteUpload(id, 2);
+        CompleteStagedUpload(id, 2);
         return id;
     }
 

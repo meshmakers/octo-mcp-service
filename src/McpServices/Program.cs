@@ -311,8 +311,8 @@ try
 
     app.MapObservability();
 
-    // AB#4315: authenticate every MCP request. Health/metrics (MapObservability) and the
-    // file-transfer endpoints stay anonymous — only the MCP transport below is gated.
+    // Authenticate every MCP request. Health/metrics (MapObservability) stay anonymous; the MCP transport
+    // below and the file-transfer controller (its own [Authorize] with the same policy) are gated.
     app.UseAuthentication();
     app.UseAuthorization();
     // Validate the route {tenantId} against the token's tenant claim. Client-credentials service

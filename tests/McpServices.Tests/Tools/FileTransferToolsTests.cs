@@ -20,8 +20,9 @@ public class FileTransferToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeTrue();
         result.TransferId.Should().NotBeNullOrEmpty();
-        result.UploadUrlPath.Should().StartWith("/file-transfer/upload/");
-        result.UploadUrlPath.Should().Contain(result.TransferId!);
+        result.UploadUrlPath.Should().Be("/file-transfer/upload", "the transfer id never travels in the URL");
+        result.TransferIdHeader.Should().Be("X-Transfer-Id");
+        result.Message.Should().Contain("X-Transfer-Id: " + result.TransferId).And.Contain("Authorization: Bearer");
     }
 
     [Fact]
@@ -51,9 +52,9 @@ public class FileTransferToolsTests : ToolTestBase
         prep.IsSuccess.Should().BeTrue();
 
         // Simulate the upload completing in the store.
-        var target = FileTransferStore.TryReserveTarget(prep.TransferId!)!;
+        var target = ClaimStagedUpload(prep.TransferId!);
         File.WriteAllText(target, "x");
-        FileTransferStore.CompleteUpload(prep.TransferId!, 1);
+        FileTransferStore.CompleteUpload(prep.TransferId!, 1).Should().BeTrue();
 
         var result = await FileTransferTools.CancelFileTransfer(MockServer.Object, prep.TransferId!);
 

@@ -68,6 +68,32 @@ public abstract class ToolTestBase : TestBase
     /// </summary>
     protected string CallerSession => McpSessionContext.GetCallerLabel(MockServer.Object);
 
+    /// <summary>The owner tag (session label and principal) a tool stores for the current test caller.</summary>
+    internal FileTransferOwner CallerOwner => McpSessionContext.GetFileTransferOwner(MockServer.Object);
+
+    /// <summary>The principal the HTTP endpoints compare for the current test caller.</summary>
+    internal string? CallerPrincipal => McpCallerPrincipal.FromServer(MockServer.Object)?.StoreKeyPrefix;
+
+    /// <summary>
+    ///     Does what a successful PUT does: claims the slot for <paramref name="principal" /> (default: the current
+    ///     caller) and commits it with <paramref name="sizeBytes" />. The bytes must already be at the target path.
+    /// </summary>
+    internal void CompleteStagedUpload(string transferId, long sizeBytes, string? principal = null)
+    {
+        var (status, _) = FileTransferStore.TryClaimUpload(transferId, principal ?? CallerPrincipal);
+        if (status != UploadClaimStatus.Claimed || !FileTransferStore.CompleteUpload(transferId, sizeBytes))
+        {
+            throw new InvalidOperationException($"Staging the upload failed: {status}.");
+        }
+    }
+
+    /// <summary>Claims the slot of a prepared upload for the current caller and returns the path to write to.</summary>
+    internal string ClaimStagedUpload(string transferId)
+    {
+        var (status, target) = FileTransferStore.TryClaimUpload(transferId, CallerPrincipal);
+        return status == UploadClaimStatus.Claimed ? target! : throw new InvalidOperationException(status.ToString());
+    }
+
     protected ToolTestBase()
     {
         MockTokenStore = new Mock<IMcpSessionTokenStore>();

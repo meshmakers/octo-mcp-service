@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Globalization;
 using Meshmakers.Octo.Backend.McpServices.Models;
+using Meshmakers.Octo.Backend.McpServices.Routing;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using ModelContextProtocol.Server;
@@ -26,7 +27,7 @@ public sealed class ArchiveDataTools
         "export job reads the rows directly from CrateDB. When both fromUtc and toUtc are omitted the whole " +
         "archive is exported; when supplied (ISO-8601 UTC, e.g. '2026-01-01T00:00:00Z') the half-open window " +
         "[fromUtc, toUtc) is exported. Waits for the job to complete (default 30 min) then registers the ZIP " +
-        "for download — GET /file-transfer/download/{downloadId} to fetch. Pair with import_archive_data to " +
+        "for download — GET /file-transfer/download with the transferId in the X-Transfer-Id header and the bearer token of this connection to fetch. Pair with import_archive_data to " +
         "move archive data between tenants/environments.")]
     public static async Task<FileDownloadResponse> ExportArchiveData(
         McpServer server,
@@ -82,9 +83,7 @@ public sealed class ArchiveDataTools
             var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}_{effectiveFileName}");
 
             await bot.Client.DownloadDumpToFileAsync(bot.TenantId!, startResponse.JobId, tempPath);
-
-            var sessionId = McpSessionContext.GetCallerLabel(server);
-            var downloadId = store.RegisterDownload(sessionId, tempPath, effectiveFileName);
+            var downloadId = store.RegisterDownload(McpSessionContext.GetFileTransferOwner(server), tempPath, effectiveFileName);
             var size = new FileInfo(tempPath).Length;
 
             var window = from.HasValue || to.HasValue
@@ -96,13 +95,14 @@ public sealed class ArchiveDataTools
                 IsSuccess = true,
                 TenantId = bot.TenantId,
                 TransferId = downloadId,
-                DownloadUrlPath = $"/file-transfer/download/{downloadId}",
+                DownloadUrlPath = FileTransferRoutes.DownloadPath,
+                TransferIdHeader = FileTransferRoutes.TransferIdHeader,
                 FileName = effectiveFileName,
                 SizeBytes = size,
                 ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
                 Message =
                     $"Archive '{archiveRtId}' export ready ({window}, {size:N0} bytes). " +
-                    $"GET '/file-transfer/download/{downloadId}' to fetch."
+                    $"{FileTransferRoutes.DownloadInstruction(downloadId)} to fetch."
             };
         }
         catch (Exception ex)

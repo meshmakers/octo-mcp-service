@@ -9,8 +9,17 @@ internal sealed class FileTransferStore : IFileTransferStore
     private readonly ConcurrentDictionary<string, FileTransferUpload> _uploads = new();
     private readonly ConcurrentDictionary<string, FileTransferDownload> _downloads = new();
 
-    /// <summary>Holds an upload before it's committed: target path + session + expiry.</summary>
-    private sealed record PendingUpload(string SessionId, string TargetPath, string FileName, DateTime ExpiresAtUtc);
+    /// <summary>
+    ///     Holds an upload before it's committed: owner, target path and expiry. <see cref="Claimed" /> is set by the
+    ///     first PUT (compare-and-swap), so a second PUT on the same id cannot write to the same file.
+    /// </summary>
+    private sealed record PendingUpload(
+        string SessionId,
+        string? OwnerPrincipal,
+        string TargetPath,
+        string FileName,
+        DateTime ExpiresAtUtc,
+        bool Claimed);
 
     private readonly ConcurrentDictionary<string, PendingUpload> _pending = new();
 
@@ -24,25 +33,71 @@ internal sealed class FileTransferStore : IFileTransferStore
     }
 
     public (string TransferId, string TargetPath) ReserveUpload(
-        string sessionId, string fileName, TimeSpan? ttl = null)
+        FileTransferOwner owner, string fileName, TimeSpan? ttl = null)
     {
         var id = Guid.NewGuid().ToString("N");
-        // Strip path separators from the suggested file name; keep just the extension as a hint.
+        // Strip path separators from the suggested file name; keep just the extension as a hint. The disk name
+        // carries no transfer id: it is a fresh random value.
         var safeName = string.IsNullOrWhiteSpace(fileName) ? "upload.bin" : Path.GetFileName(fileName);
-        var target = Path.Combine(_baseDir, id + "_" + safeName);
-        _pending[id] = new PendingUpload(sessionId, target, safeName, DateTime.UtcNow.Add(ttl ?? DefaultTtl));
+        var target = Path.Combine(_baseDir, Guid.NewGuid().ToString("N") + "_" + safeName);
+        _pending[id] = new PendingUpload(owner.SessionLabel, owner.Principal, target, safeName,
+            DateTime.UtcNow.Add(ttl ?? DefaultTtl), Claimed: false);
         return (id, target);
     }
 
-    public void CompleteUpload(string transferId, long sizeBytes)
+    public (UploadClaimStatus Status, string? TargetPath) TryClaimUpload(string transferId, string? callerPrincipal)
     {
-        if (!_pending.TryRemove(transferId, out var pending))
+        while (true)
         {
-            return;
+            // The owner check comes first: a foreign principal never learns whether the id exists or is busy.
+            if (!_pending.TryGetValue(transferId, out var p) || !IsPrincipalOwner(p.OwnerPrincipal, callerPrincipal))
+            {
+                return (UploadClaimStatus.NotFound, null);
+            }
+
+            if (DateTime.UtcNow >= p.ExpiresAtUtc)
+            {
+                if (_pending.TryRemove(new KeyValuePair<string, PendingUpload>(transferId, p)))
+                {
+                    TryDeleteFile(p.TargetPath);
+                }
+
+                return (UploadClaimStatus.NotFound, null);
+            }
+
+            if (p.Claimed)
+            {
+                return (UploadClaimStatus.InProgress, null);
+            }
+
+            // Compare-and-swap: exactly one concurrent PUT wins; a loser re-reads and sees Claimed (or the entry gone).
+            if (_pending.TryUpdate(transferId, p with { Claimed = true }, p))
+            {
+                return (UploadClaimStatus.Claimed, p.TargetPath);
+            }
+        }
+    }
+
+    public bool CompleteUpload(string transferId, long sizeBytes)
+    {
+        if (!_pending.TryGetValue(transferId, out var pending) || !pending.Claimed
+            || !_pending.TryRemove(new KeyValuePair<string, PendingUpload>(transferId, pending)))
+        {
+            return false;
         }
 
         _uploads[transferId] = new FileTransferUpload(
             transferId, pending.SessionId, pending.TargetPath, pending.FileName, sizeBytes, pending.ExpiresAtUtc);
+        return true;
+    }
+
+    public void AbortUpload(string transferId)
+    {
+        if (_pending.TryGetValue(transferId, out var p) && p.Claimed
+            && _pending.TryRemove(new KeyValuePair<string, PendingUpload>(transferId, p)))
+        {
+            TryDeleteFile(p.TargetPath);
+        }
     }
 
     public FileTransferUpload? GetUpload(string transferId, string callerSessionId)
@@ -75,12 +130,15 @@ internal sealed class FileTransferStore : IFileTransferStore
         }
     }
 
-    public string RegisterDownload(string sessionId, string filePath, string fileName, TimeSpan? ttl = null)
+    public string RegisterDownload(FileTransferOwner owner, string filePath, string fileName, TimeSpan? ttl = null)
     {
         var id = Guid.NewGuid().ToString("N");
         var size = File.Exists(filePath) ? new FileInfo(filePath).Length : 0L;
         _downloads[id] = new FileTransferDownload(
-            id, sessionId, filePath, fileName, size, DateTime.UtcNow.Add(ttl ?? DefaultTtl));
+            id, owner.SessionLabel, filePath, fileName, size, DateTime.UtcNow.Add(ttl ?? DefaultTtl))
+        {
+            OwnerPrincipal = owner.Principal
+        };
         return id;
     }
 
@@ -101,9 +159,10 @@ internal sealed class FileTransferStore : IFileTransferStore
         }
     }
 
-    public FileTransferDownload? GetDownload(string transferId)
+    public FileTransferDownload? GetDownload(string transferId, string? callerPrincipal)
     {
-        if (!_downloads.TryGetValue(transferId, out var d))
+        // A foreign principal gets exactly the answer an unknown id gets.
+        if (!_downloads.TryGetValue(transferId, out var d) || !IsPrincipalOwner(d.OwnerPrincipal, callerPrincipal))
         {
             return null;
         }
@@ -125,26 +184,12 @@ internal sealed class FileTransferStore : IFileTransferStore
         }
     }
 
-    /// <summary>
-    ///     Look up the on-disk path the controller should write to for the given reservation.
-    ///     Returns null when the reservation is unknown or expired.
-    /// </summary>
-    internal string? TryReserveTarget(string transferId)
-    {
-        if (!_pending.TryGetValue(transferId, out var p))
-        {
-            return null;
-        }
+    /// <summary>Test hook: true while a reservation (claimed or not) exists for the id.</summary>
+    internal bool IsUploadPending(string transferId) => _pending.ContainsKey(transferId);
 
-        if (DateTime.UtcNow >= p.ExpiresAtUtc)
-        {
-            _pending.TryRemove(transferId, out _);
-            TryDeleteFile(p.TargetPath);
-            return null;
-        }
-
-        return p.TargetPath;
-    }
+    /// <summary>Test hook: true while a PUT holds the claim of the id.</summary>
+    internal bool IsUploadClaimed(string transferId) =>
+        _pending.TryGetValue(transferId, out var p) && p.Claimed;
 
     internal void SweepExpired()
     {
@@ -186,6 +231,19 @@ internal sealed class FileTransferStore : IFileTransferStore
         return !string.IsNullOrEmpty(callerSessionId)
                && callerSessionId != McpSessionContext.AnonymousCallerLabel
                && string.Equals(ownerSessionId, callerSessionId, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    ///     True when the HTTP caller's <paramref name="callerPrincipal" /> is the principal that created the entry.
+    ///     Fails closed: a missing principal on either side, or the shared anonymous label, never matches.
+    /// </summary>
+    internal static bool IsPrincipalOwner(string? ownerPrincipal, string? callerPrincipal)
+    {
+        return !string.IsNullOrEmpty(ownerPrincipal)
+               && !string.IsNullOrEmpty(callerPrincipal)
+               && ownerPrincipal != McpSessionContext.AnonymousCallerLabel
+               && callerPrincipal != McpSessionContext.AnonymousCallerLabel
+               && string.Equals(ownerPrincipal, callerPrincipal, StringComparison.Ordinal);
     }
 
     private static void TryDeleteFile(string path)
