@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Communication.v4;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
@@ -15,6 +16,7 @@ public class PipelineToolsTests : ToolTestBase
     public PipelineToolsTests()
     {
         GivenAuthenticated();
+        _ = CkMethods; // the pipeline writes run as CK methods on the tenant client
     }
 
     [Fact]
@@ -47,8 +49,11 @@ public class PipelineToolsTests : ToolTestBase
             AdapterId, PipelineId, "name: my-pipeline\nnodes: []");
 
         result.IsSuccess.Should().BeTrue();
-        MockCommunicationClient.Verify(c => c.DeployPipelineAsync(AdapterId, PipelineId,
-            "name: my-pipeline\nnodes: []"), Times.Once);
+        CkMethods.RtIdOf("SystemCommunicationPipelineDeploy").Should().Be(PipelineId);
+        var input = CkMethods.InputOf("SystemCommunicationPipelineDeploy");
+        CkMethodFake.Str(input, "adapterRtId").Should().Be(AdapterId);
+        CkMethodFake.Str(input, "pipelineDefinition").Should().Be("name: my-pipeline\nnodes: []");
+        AssertNoCommunicationRestWrite();
     }
 
     [Fact]
@@ -56,8 +61,7 @@ public class PipelineToolsTests : ToolTestBase
     {
         var result = await PipelineTools.DeployPipeline(MockServer.Object, AdapterId, PipelineId, "");
         result.IsSuccess.Should().BeFalse();
-        MockCommunicationClient.Verify(c => c.DeployPipelineAsync(It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     [Fact]
@@ -72,32 +76,33 @@ public class PipelineToolsTests : ToolTestBase
     [Fact]
     public async Task ExecutePipeline_HappyPath_ReturnsExecutionId()
     {
-        MockCommunicationClient.Setup(c => c.ExecutePipelineAsync(PipelineId, null, false))
-            .ReturnsAsync("exec-1234");
+        CkMethods.Succeeds(new RtPipelineExecutionStartResultRecordDto { ExecutionId = "exec-1234" });
 
         var result = await PipelineTools.ExecutePipeline(MockServer.Object, PipelineId);
 
         result.IsSuccess.Should().BeTrue();
         result.ExecutionId.Should().Be("exec-1234");
+        CkMethods.RtIdOf("SystemCommunicationPipelineExecute").Should().Be(PipelineId);
+        CkMethodFake.Bool(CkMethods.InputOf("SystemCommunicationPipelineExecute"), "isDryRun").Should().BeFalse();
+        AssertNoCommunicationRestWrite();
     }
 
     [Fact]
     public async Task ExecutePipeline_WithInput_PassesInput()
     {
-        MockCommunicationClient.Setup(c => c.ExecutePipelineAsync(PipelineId, "{\"k\":1}", false))
-            .ReturnsAsync("exec-2");
+        CkMethods.Succeeds(new RtPipelineExecutionStartResultRecordDto { ExecutionId = "exec-2" });
 
         var result = await PipelineTools.ExecutePipeline(MockServer.Object, PipelineId, "{\"k\":1}");
 
         result.IsSuccess.Should().BeTrue();
         result.ExecutionId.Should().Be("exec-2");
+        CkMethodFake.Str(CkMethods.InputOf("SystemCommunicationPipelineExecute"), "input").Should().Be("{\"k\":1}");
     }
 
     [Fact]
     public async Task DryRunPipeline_HappyPath_CallsSdkWithIsDryRunTrue()
     {
-        MockCommunicationClient.Setup(c => c.ExecutePipelineAsync(PipelineId, null, true))
-            .ReturnsAsync("dryrun-1");
+        CkMethods.Succeeds(new RtPipelineExecutionStartResultRecordDto { ExecutionId = "dryrun-1" });
 
         var result = await PipelineTools.DryRunPipeline(MockServer.Object, PipelineId);
 
@@ -105,16 +110,14 @@ public class PipelineToolsTests : ToolTestBase
         result.ExecutionId.Should().Be("dryrun-1");
         result.SdkHonouredLoadNodes.Should().NotBeNullOrEmpty();
         result.SdkHonouredLoadNodes!.Should().Contain("ApplyChanges@1");
-        MockCommunicationClient.Verify(c => c.ExecutePipelineAsync(PipelineId, null, true), Times.Once);
-        MockCommunicationClient.Verify(c => c.ExecutePipelineAsync(It.IsAny<string>(), It.IsAny<string>(), false),
-            Times.Never);
+        CkMethodFake.Bool(CkMethods.InputOf("SystemCommunicationPipelineExecute"), "isDryRun").Should().BeTrue();
+        AssertNoCommunicationRestWrite();
     }
 
     [Fact]
     public async Task DryRunPipeline_WithInput_PassesInputAndIsDryRunTrue()
     {
-        MockCommunicationClient.Setup(c => c.ExecutePipelineAsync(PipelineId, "{\"k\":1}", true))
-            .ReturnsAsync("dryrun-2");
+        CkMethods.Succeeds(new RtPipelineExecutionStartResultRecordDto { ExecutionId = "dryrun-2" });
 
         var result = await PipelineTools.DryRunPipeline(MockServer.Object, PipelineId, "{\"k\":1}");
 
@@ -129,8 +132,7 @@ public class PipelineToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("pipelineId");
-        MockCommunicationClient.Verify(c => c.ExecutePipelineAsync(It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<bool>()), Times.Never);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     [Fact]
@@ -141,8 +143,7 @@ public class PipelineToolsTests : ToolTestBase
         var result = await PipelineTools.DryRunPipeline(MockServer.Object, PipelineId);
 
         result.IsSuccess.Should().BeFalse();
-        MockCommunicationClient.Verify(c => c.ExecutePipelineAsync(It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<bool>()), Times.Never);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     [Fact]
@@ -163,8 +164,7 @@ public class PipelineToolsTests : ToolTestBase
     [Fact]
     public async Task SetPipelineDebug_Enable_CallsSdkWithTrue()
     {
-        MockCommunicationClient.Setup(c => c.SetPipelineDebuggingAsync(PipelineId, true))
-            .ReturnsAsync(new SetPipelineDebugResultDto(true, true));
+        CkMethods.Succeeds(new RtPipelineDebugResultRecordDto { Enabled = true, AppliedToRunningAdapter = true });
 
         var result = await PipelineTools.SetPipelineDebug(MockServer.Object, PipelineId, true);
 
@@ -176,13 +176,15 @@ public class PipelineToolsTests : ToolTestBase
     [Fact]
     public async Task SetPipelineDebug_Disable_CallsSdkWithFalse()
     {
-        MockCommunicationClient.Setup(c => c.SetPipelineDebuggingAsync(PipelineId, false))
-            .ReturnsAsync(new SetPipelineDebugResultDto(false, false));
+        CkMethods.Succeeds(new RtPipelineDebugResultRecordDto { Enabled = false, AppliedToRunningAdapter = false });
 
         var result = await PipelineTools.SetPipelineDebug(MockServer.Object, PipelineId, false);
 
         result.IsSuccess.Should().BeTrue();
-        MockCommunicationClient.Verify(c => c.SetPipelineDebuggingAsync(PipelineId, false), Times.Once);
+        result.Result!.Enabled.Should().BeFalse();
+        CkMethods.RtIdOf("SystemCommunicationPipelineSetDebugging").Should().Be(PipelineId);
+        CkMethodFake.Bool(CkMethods.InputOf("SystemCommunicationPipelineSetDebugging"), "enabled").Should().BeFalse();
+        AssertNoCommunicationRestWrite();
     }
 
     [Fact]

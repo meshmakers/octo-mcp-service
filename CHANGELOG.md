@@ -4,6 +4,19 @@
 
 ### Changed
 
+- **Communication wave 3: the communication write tools run a CK method of System.Communication.** `deploy_pipeline`,
+  `execute_pipeline`, `dry_run_pipeline`, `set_pipeline_debug`, `move_pipelines`, `deploy_data_flow`, `undeploy_data_flow`,
+  `deploy_triggers`, `undeploy_triggers`, `undeploy_deployment_site`, `deploy_workload`, `undeploy_workload`,
+  `update_workload_chart_version` and `cancel_queued_execution` call the generated method clients
+  (`construction-kits.yaml`: `System.Communication-[4.19,5.0)`) instead of the REST methods of
+  `ICommunicationServicesClient`; the reads stay on REST. Tool names, parameters and response fields are unchanged.
+  - **Requires communication controller services with System.Communication 4.19; roll them out before this MCP version.**
+    There is no REST fallback: a method the controller does not offer is reported as `IsSuccess=false` with the needed
+    version; nothing is changed.
+  - **The tools need the role `CommunicationManagement`** (the REST endpoints accepted every `octo_api` caller); a caller
+    without it gets `METHOD_FORBIDDEN`.
+  - Refusals are reported as `CODE: message (params)`; a malformed runtime id is refused before any call. A workload is
+    addressed through the client of its concrete type (`ckTypeId` read first, element version ignored).
 - **Identity wave 2: every identity write tool runs a CK method of System.Identity.** Groups, roles, clients (create,
   update, delete, roles, groups, overlays, mirrors), API scopes, API resources, client and API resource secrets, identity
   providers, e-mail domain group rules, external tenant user mappings and admin provisioning call the generated method

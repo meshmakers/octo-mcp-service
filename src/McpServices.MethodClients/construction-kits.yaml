@@ -3,5 +3,10 @@
 # client RtUserMethodClient from this range; the role tools call User.AddRole / User.RemoveRole through it.
 # 3.2.0 is the first System.Identity version with all User methods of identity wave 1 (octo-sdk
 # docs/method-client-migration-guide.md, "Identity wave 1").
+# System.Communication 4.19.0 is the first version with every method of communication wave 3 (pipeline, data
+# flow, workload, deployment site and trigger operations); its types derive from System/Configuration, so System is
+# imported too (octo-sdk docs/method-client-migration-guide.md, "Communication wave 3").
 imports:
+  - System-[2.7,3.0)
+  - System.Communication-[4.19,5.0)
   - System.Identity-[3.8,4.0)

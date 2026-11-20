@@ -15,7 +15,8 @@ namespace McpServices.Tests.Tools;
 ///         <item>every entry carries the tenant-local position <b>and</b> the tenants ahead in the
 ///             rotation, and the response exposes no single global rank (§9.2);</item>
 ///         <item>a leased entry keeps its member id and is counted apart from the waiting ones;</item>
-///         <item>a 409 comes back as <c>Outcome = AlreadyLeased</c> with <c>WasCancelled = false</c>
+///         <item>the declared method error <c>EXECUTION_ALREADY_LEASED</c> (REST: 409) comes back as
+///             <c>Outcome = AlreadyLeased</c> with <c>WasCancelled = false</c>
 ///             on a successful call — not as a tool failure, because interrupting a running pipeline
 ///             is a different operation (§5 "Cancellation");</item>
 ///         <item>an empty queue is an idle pool, not an error.</item>
@@ -28,6 +29,7 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
     public AdapterPoolQueueToolsTests()
     {
         GivenAuthenticated();
+        _ = CkMethods; // the cancel runs as the CK method AdapterPool.CancelQueuedExecution-1 on the tenant client
     }
 
     // ── get_adapter_pool_queue ──────────────────────────────────────────────
@@ -133,19 +135,12 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("confirm=true");
-        MockCommunicationClient.Verify(
-            c => c.CancelQueuedExecutionAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     [Fact]
     public async Task Cancel_WaitingEntry_IsCancelled()
     {
-        MockCommunicationClient.Setup(c => c.CancelQueuedExecutionAsync(PoolId, "e-a2"))
-            .ReturnsAsync(new AdapterPoolQueueCancellationResultDto
-            {
-                Outcome = AdapterPoolQueueCancellationOutcome.Cancelled
-            });
-
         var result = await DataFlowTriggerDeploymentSiteTools.CancelQueuedExecution(MockServer.Object, PoolId, "e-a2",
             confirm: true);
 
@@ -153,18 +148,16 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
         result.WasCancelled.Should().BeTrue();
         result.Outcome.Should().Be(AdapterPoolQueueCancellationOutcome.Cancelled);
         result.Message.Should().Contain("never run");
-        MockCommunicationClient.Verify(c => c.CancelQueuedExecutionAsync(PoolId, "e-a2"), Times.Once);
+        CkMethods.RtIdOf("SystemCommunicationAdapterPoolCancelQueuedExecution").Should().Be(PoolId);
+        CkMethodFake.Str(CkMethods.InputOf("SystemCommunicationAdapterPoolCancelQueuedExecution"), "executionId")
+            .Should().Be("e-a2");
+        AssertNoCommunicationRestWrite();
     }
 
     [Fact]
     public async Task Cancel_AlreadyLeased_IsItsOwnOutcomeAndNotACancellation()
     {
-        MockCommunicationClient.Setup(c => c.CancelQueuedExecutionAsync(PoolId, "e-run"))
-            .ReturnsAsync(new AdapterPoolQueueCancellationResultDto
-            {
-                Outcome = AdapterPoolQueueCancellationOutcome.AlreadyLeased,
-                ServerMessage = "Execution 'e-run' already holds a lease and is no longer queued."
-            });
+        CkMethods.Fails("EXECUTION_ALREADY_LEASED", "Execution 'e-run' already holds a lease and is no longer queued.");
 
         var result = await DataFlowTriggerDeploymentSiteTools.CancelQueuedExecution(MockServer.Object, PoolId, "e-run",
             confirm: true);
@@ -176,16 +169,13 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
         result.Outcome.Should().Be(AdapterPoolQueueCancellationOutcome.AlreadyLeased);
         result.Message.Should().Contain("NOTHING was cancelled");
         result.Message.Should().Contain("different operation");
+        result.Message.Should().Contain("Server said: Execution 'e-run' already holds a lease");
     }
 
     [Fact]
     public async Task Cancel_UnknownEntry_IsNotFoundAndNotACancellation()
     {
-        MockCommunicationClient.Setup(c => c.CancelQueuedExecutionAsync(PoolId, "e-gone"))
-            .ReturnsAsync(new AdapterPoolQueueCancellationResultDto
-            {
-                Outcome = AdapterPoolQueueCancellationOutcome.NotFound
-            });
+        CkMethods.Fails("QUEUED_EXECUTION_NOT_FOUND", "No queued execution 'e-gone'.");
 
         var result = await DataFlowTriggerDeploymentSiteTools.CancelQueuedExecution(MockServer.Object, PoolId, "e-gone",
             confirm: true);
@@ -203,8 +193,7 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
             confirm: true);
 
         result.IsSuccess.Should().BeFalse();
-        MockCommunicationClient.Verify(
-            c => c.CancelQueuedExecutionAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     [Fact]
@@ -217,21 +206,19 @@ public class AdapterPoolQueueToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("Not authenticated");
-        MockCommunicationClient.Verify(
-            c => c.CancelQueuedExecutionAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task Cancel_WhenSdkThrows_ReturnsErrorMessage()
+    public async Task Cancel_Refused_ReturnsTheCode()
     {
-        MockCommunicationClient.Setup(c => c.CancelQueuedExecutionAsync(PoolId, "e-a2"))
-            .ThrowsAsync(new InvalidOperationException("ServiceUnavailable"));
+        CkMethods.Fails("METHOD_FORBIDDEN", "The caller lacks a role.");
 
         var result = await DataFlowTriggerDeploymentSiteTools.CancelQueuedExecution(MockServer.Object, PoolId, "e-a2",
             confirm: true);
 
         result.IsSuccess.Should().BeFalse();
-        result.ErrorMessage.Should().Be("ServiceUnavailable");
+        result.ErrorMessage.Should().StartWith("METHOD_FORBIDDEN");
     }
 
     // ── Risk classification ─────────────────────────────────────────────────

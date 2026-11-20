@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Communication.v4;
 using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
@@ -81,7 +82,13 @@ public sealed class WorkloadTools
             };
         }
 
-        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
+        var invalidId = CommunicationMethodCall.InvalidIdError(("workloadId", workloadId));
+        if (invalidId != null)
+        {
+            return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = invalidId };
+        }
+
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -89,7 +96,15 @@ public sealed class WorkloadTools
 
         try
         {
-            await ctx.Client!.UpdateWorkloadChartVersionAsync(workloadId, chartVersion);
+            var outcome = await CommunicationMethodCall.RunOnWorkloadAsync(ctx.TenantClient!, workloadId,
+                c => c.SetChartVersionAsync(workloadId, chartVersion),
+                c => c.SetChartVersionAsync(workloadId, chartVersion),
+                c => c.SetChartVersionAsync(workloadId, chartVersion));
+            if (!outcome.IsSuccess)
+            {
+                return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = outcome.Error };
+            }
+
             return new CommunicationActionResponse
             {
                 IsSuccess = true,
@@ -280,7 +295,13 @@ public sealed class WorkloadTools
             return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = "workloadId is required." };
         }
 
-        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
+        var invalidId = CommunicationMethodCall.InvalidIdError(("workloadId", workloadId));
+        if (invalidId != null)
+        {
+            return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = invalidId };
+        }
+
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -288,7 +309,13 @@ public sealed class WorkloadTools
 
         try
         {
-            await ctx.Client!.DeployWorkloadAsync(workloadId);
+            var outcome = await CommunicationMethodCall.RunOnWorkloadAsync(ctx.TenantClient!, workloadId,
+                c => c.DeployAsync(workloadId), c => c.DeployAsync(workloadId), c => c.DeployAsync(workloadId));
+            if (!outcome.IsSuccess)
+            {
+                return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = outcome.Error };
+            }
+
             return new CommunicationActionResponse
             {
                 IsSuccess = true,
@@ -329,7 +356,13 @@ public sealed class WorkloadTools
             };
         }
 
-        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
+        var invalidId = CommunicationMethodCall.InvalidIdError(("workloadId", workloadId));
+        if (invalidId != null)
+        {
+            return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = invalidId };
+        }
+
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -337,7 +370,13 @@ public sealed class WorkloadTools
 
         try
         {
-            await ctx.Client!.UndeployWorkloadAsync(workloadId);
+            var outcome = await CommunicationMethodCall.RunOnWorkloadAsync(ctx.TenantClient!, workloadId,
+                c => c.UndeployAsync(workloadId), c => c.UndeployAsync(workloadId), c => c.UndeployAsync(workloadId));
+            if (!outcome.IsSuccess)
+            {
+                return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = outcome.Error };
+            }
+
             return new CommunicationActionResponse
             {
                 IsSuccess = true,
@@ -388,7 +427,13 @@ public sealed class WorkloadTools
             };
         }
 
-        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
+        var invalidTarget = CommunicationMethodCall.InvalidIdError(("targetAdapterId", targetAdapterId));
+        if (invalidTarget != null)
+        {
+            return new MovePipelinesResponse { IsSuccess = false, ErrorMessage = invalidTarget };
+        }
+
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new MovePipelinesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -396,8 +441,43 @@ public sealed class WorkloadTools
 
         try
         {
-            var response = await ctx.Client!.MovePipelinesToAdapterAsync(
-                new MovePipelinesToAdapterRequestDto(pipelineIds, targetAdapterId, redeploy));
+            // One method call per pipeline (Pipeline.MoveToAdapter-1), reported in the former per-item list, as the
+            // controller's REST facade maps it: every error of one pipeline is a failed item and the others still move;
+            // only a refused caller (METHOD_FORBIDDEN, REST 403 for the list) or a controller without the method ends it.
+            var results = new List<MovePipelineResultDto>(pipelineIds.Count);
+            foreach (var pipelineId in pipelineIds)
+            {
+                if (CommunicationMethodCall.InvalidIdError(("pipelineId", pipelineId)) != null)
+                {
+                    results.Add(new MovePipelineResultDto(pipelineId, false, null, null,
+                        $"PipelineRtId '{pipelineId}' is not a valid id"));
+                    continue;
+                }
+
+                var outcome = await CommunicationMethodCall.RunAsync(() =>
+                    new RtPipelineMethodClient(ctx.TenantClient!).MoveToAdapterAsync(pipelineId, targetAdapterId,
+                        redeploy));
+                if (outcome.IsSuccess)
+                {
+                    results.Add(new MovePipelineResultDto(pipelineId, true, outcome.Value?.OldAdapterRtId,
+                        outcome.Value?.NewAdapterRtId, outcome.Value?.Warning));
+                }
+                else if (outcome.ErrorCode == CommunicationMethodCall.TargetNotFoundCode)
+                {
+                    results.Add(new MovePipelineResultDto(pipelineId, false, null, null,
+                        $"Pipeline '{pipelineId}' was not found"));
+                }
+                else if (CommunicationMethodCall.EndsTheBatch(outcome))
+                {
+                    return new MovePipelinesResponse { IsSuccess = false, ErrorMessage = outcome.Error };
+                }
+                else
+                {
+                    results.Add(new MovePipelineResultDto(pipelineId, false, null, null, outcome.Error));
+                }
+            }
+
+            var response = new MovePipelinesToAdapterResponseDto(results);
 
             var success = response.Results.Count(r => r.Success);
             var failure = response.Results.Count(r => !r.Success);
