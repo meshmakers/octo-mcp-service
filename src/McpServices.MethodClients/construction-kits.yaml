@@ -4,4 +4,4 @@
 # 3.2.0 is the first System.Identity version with all User methods of identity wave 1 (octo-sdk
 # docs/method-client-migration-guide.md, "Identity wave 1").
 imports:
-  - System.Identity-[3.2,4.0)
+  - System.Identity-[3.8,4.0)

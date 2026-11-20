@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
@@ -45,13 +46,16 @@ public class EmailDomainGroupRuleToolsTests : ToolTestBase
     [Fact]
     public async Task CreateRule_HappyPath_CallsSdk()
     {
+        CkMethods.Succeeds();
+
         await EmailDomainGroupRuleTools.CreateRule(MockServer.Object,
             "meshmakers.io", GroupId, "internal");
 
-        MockIdentityClient.Verify(c => c.CreateEmailDomainGroupRule(
-            It.Is<EmailDomainGroupRuleDto>(d =>
-                d.EmailDomainPattern == "meshmakers.io" && d.TargetGroupRtId == GroupId &&
-                d.Description == "internal")), Times.Once);
+        var input = CkMethods.InputOf("SystemIdentityEmailDomainGroupRuleCreateEmailDomainGroupRule");
+        CkMethodFake.Str(input, "emailDomainPattern").Should().Be("meshmakers.io");
+        CkMethodFake.Str(input, "targetGroupRtId").Should().Be(GroupId);
+        CkMethodFake.Str(input, "description").Should().Be("internal");
+        MockIdentityClient.Verify(c => c.CreateEmailDomainGroupRule(It.IsAny<EmailDomainGroupRuleDto>()), Times.Never);
     }
 
     [Fact]
@@ -64,13 +68,15 @@ public class EmailDomainGroupRuleToolsTests : ToolTestBase
     [Fact]
     public async Task UpdateRule_HappyPath_CallsSdk()
     {
+        CkMethods.Succeeds();
+
         var result = await EmailDomainGroupRuleTools.UpdateRule(MockServer.Object,
             RuleId, "example.com", GroupId);
 
         result.IsSuccess.Should().BeTrue();
-        MockIdentityClient.Verify(c => c.UpdateEmailDomainGroupRule(
-            It.Is<OctoObjectId>(o => o.ToString() == RuleId),
-            It.Is<EmailDomainGroupRuleDto>(d => d.EmailDomainPattern == "example.com")), Times.Once);
+        CkMethods.RtIdOf("SystemIdentityEmailDomainGroupRuleUpdateEmailDomainGroupRule").Should().Be(RuleId);
+        CkMethodFake.Str(CkMethods.InputOf("SystemIdentityEmailDomainGroupRuleUpdateEmailDomainGroupRule"),
+            "emailDomainPattern").Should().Be("example.com");
     }
 
     [Fact]
@@ -83,11 +89,12 @@ public class EmailDomainGroupRuleToolsTests : ToolTestBase
     [Fact]
     public async Task DeleteRule_WithConfirm_CallsSdk()
     {
+        CkMethods.Succeeds();
+
         var result = await EmailDomainGroupRuleTools.DeleteRule(MockServer.Object,
             RuleId, confirm: true);
         result.IsSuccess.Should().BeTrue();
-        MockIdentityClient.Verify(c => c.DeleteEmailDomainGroupRule(
-            It.Is<OctoObjectId>(o => o.ToString() == RuleId)), Times.Once);
+        CkMethods.RtIdOf("SystemIdentityEmailDomainGroupRuleDeleteEmailDomainGroupRule").Should().Be(RuleId);
     }
 }
 
@@ -119,7 +126,8 @@ public class ExternalTenantUserMappingToolsTests : ToolTestBase
     [Fact]
     public async Task CreateMapping_HappyPath_PassesAllFields()
     {
-        MockIdentityClient.Setup(c => c.GrantExternalTenantUser(It.IsAny<CreateExternalTenantUserMappingDto>()))
+        CkMethods.Succeeds(new RtAdminProvisioningResultRecordDto { MappingRtId = MappingId });
+        MockIdentityClient.Setup(c => c.GetExternalTenantUserMapping(It.IsAny<OctoObjectId>()))
             .ReturnsAsync(new ExternalTenantUserMappingDto { SourceTenantId = "src-tenant", SourceUserName = "alice" });
 
         await ExternalTenantUserMappingTools.CreateMapping(MockServer.Object,
@@ -128,10 +136,14 @@ public class ExternalTenantUserMappingToolsTests : ToolTestBase
             sourceUserName: "alice",
             roleIds: ["r1", "r2"]);
 
-        MockIdentityClient.Verify(c => c.GrantExternalTenantUser(
-            It.Is<CreateExternalTenantUserMappingDto>(d =>
-                d.SourceTenantId == "src-tenant" && d.SourceUserId == "u1" &&
-                d.SourceUserName == "alice" && d.RoleIds!.Count == 2 && d.GroupIds == null)), Times.Once);
+        var input = CkMethods.InputOf("SystemIdentityExternalTenantUserMappingCreateMapping");
+        CkMethodFake.Str(input, "sourceTenantId").Should().Be("src-tenant");
+        CkMethodFake.Str(input, "sourceUserId").Should().Be("u1");
+        CkMethodFake.Str(input, "sourceUserName").Should().Be("alice");
+        CkMethodFake.Strings(input.GetProperty("roleIds")).Should().Equal("r1", "r2");
+        CkMethodFake.Prop(input, "groupIds").Should().BeNull();
+        MockIdentityClient.Verify(c => c.GrantExternalTenantUser(It.IsAny<CreateExternalTenantUserMappingDto>()),
+            Times.Never);
     }
 
     [Fact]
@@ -144,12 +156,14 @@ public class ExternalTenantUserMappingToolsTests : ToolTestBase
     [Fact]
     public async Task UpdateMapping_HappyPath_CallsSdk()
     {
+        CkMethods.Succeeds();
+
         await ExternalTenantUserMappingTools.UpdateMapping(MockServer.Object,
             MappingId, ["r1"]);
 
-        MockIdentityClient.Verify(c => c.UpdateExternalTenantUserMapping(
-            It.Is<OctoObjectId>(o => o.ToString() == MappingId),
-            It.Is<UpdateExternalTenantUserMappingDto>(d => d.RoleIds!.Count == 1)), Times.Once);
+        CkMethods.RtIdOf("SystemIdentityExternalTenantUserMappingUpdateMapping").Should().Be(MappingId);
+        CkMethodFake.Strings(CkMethods.InputOf("SystemIdentityExternalTenantUserMappingUpdateMapping")
+            .GetProperty("roleIds")).Should().Equal("r1");
     }
 
     [Fact]
@@ -162,11 +176,12 @@ public class ExternalTenantUserMappingToolsTests : ToolTestBase
     [Fact]
     public async Task DeleteMapping_WithConfirm_CallsSdk()
     {
+        CkMethods.Succeeds();
+
         var result = await ExternalTenantUserMappingTools.DeleteMapping(MockServer.Object,
             MappingId, confirm: true);
         result.IsSuccess.Should().BeTrue();
-        MockIdentityClient.Verify(c => c.DeleteExternalTenantUserMapping(
-            It.Is<OctoObjectId>(o => o.ToString() == MappingId)), Times.Once);
+        CkMethods.RtIdOf("SystemIdentityExternalTenantUserMappingDeleteMapping").Should().Be(MappingId);
     }
 }
 
@@ -205,35 +220,44 @@ public class AdminProvisioningToolsTests : ToolTestBase
     [Fact]
     public async Task CreateMapping_HappyPath_CallsSdk()
     {
+        CkMethods.Succeeds();
+
         await AdminProvisioningTools.CreateMapping(MockServer.Object,
             "target", "src", "u1", "alice");
 
-        MockIdentityClient.Verify(c => c.CreateAdminProvisioningMapping("target",
-            It.Is<CreateExternalTenantUserMappingDto>(d =>
-                d.SourceTenantId == "src" && d.SourceUserId == "u1" && d.SourceUserName == "alice")),
-            Times.Once);
+        var input = CkMethods.InputOf("SystemIdentityExternalTenantUserMappingProvisionAdmin");
+        CkMethodFake.Str(input, "targetTenantId").Should().Be("target");
+        CkMethodFake.Str(input, "sourceTenantId").Should().Be("src");
+        CkMethodFake.Str(input, "sourceUserId").Should().Be("u1");
+        CkMethodFake.Str(input, "sourceUserName").Should().Be("alice");
+        MockIdentityClient.Verify(c => c.CreateAdminProvisioningMapping(It.IsAny<string>(),
+            It.IsAny<CreateExternalTenantUserMappingDto>()), Times.Never);
     }
 
     [Fact]
     public async Task ProvisionCurrentUser_HappyPath_CallsSdk()
     {
+        CkMethods.Succeeds();
+
         var result = await AdminProvisioningTools.ProvisionCurrentUser(MockServer.Object, "target");
 
         result.IsSuccess.Should().BeTrue();
-        MockIdentityClient.Verify(c => c.ProvisionCurrentUser("target"), Times.Once);
+        CkMethodFake.Str(CkMethods.InputOf("SystemIdentityExternalTenantUserMappingProvisionCurrentUser"),
+            "targetTenantId").Should().Be("target");
+        MockIdentityClient.Verify(c => c.ProvisionCurrentUser(It.IsAny<string>()), Times.Never);
     }
 
     /// <summary>AB#8017: the result names the source identity the mapping was written for (the home identity).</summary>
     [Fact]
     public async Task ProvisionCurrentUser_ReturnsTheSourceIdentityTheMappingWasWrittenFor()
     {
-        MockIdentityClient.Setup(c => c.ProvisionCurrentUser("grandchild"))
-            .ReturnsAsync(new ExternalTenantUserMappingDto
-            {
-                SourceTenantId = "octosystem",
-                SourceUserId = "686a6215fd3e5972ff5693fd",
-                SourceUserName = "alice@example.com"
-            });
+        CkMethods.Succeeds(new RtAdminProvisioningResultRecordDto
+        {
+            SourceTenantId = "octosystem",
+            SourceUserId = "686a6215fd3e5972ff5693fd",
+            SourceUserName = "alice@example.com",
+            Outcome = "created"
+        });
 
         var result = await AdminProvisioningTools.ProvisionCurrentUser(MockServer.Object, "grandchild");
 
@@ -247,8 +271,8 @@ public class AdminProvisioningToolsTests : ToolTestBase
     [Fact]
     public async Task ProvisionCurrentUser_WithoutMappingInTheAnswer_StillReportsSuccess()
     {
-        MockIdentityClient.Setup(c => c.ProvisionCurrentUser("target"))
-            .ReturnsAsync((ExternalTenantUserMappingDto?)null);
+        // The method answered without a result record.
+        CkMethods.Succeeds();
 
         var result = await AdminProvisioningTools.ProvisionCurrentUser(MockServer.Object, "target");
 
@@ -267,10 +291,13 @@ public class AdminProvisioningToolsTests : ToolTestBase
     [Fact]
     public async Task DeleteMapping_WithConfirm_CallsSdk()
     {
+        CkMethods.Succeeds();
+
         var result = await AdminProvisioningTools.DeleteMapping(MockServer.Object,
             "target", MappingId, confirm: true);
         result.IsSuccess.Should().BeTrue();
-        MockIdentityClient.Verify(c => c.DeleteAdminProvisioningMapping("target",
-            It.Is<OctoObjectId>(o => o.ToString() == MappingId)), Times.Once);
+        var input = CkMethods.InputOf("SystemIdentityExternalTenantUserMappingRemoveAdminProvisioning");
+        CkMethodFake.Str(input, "targetTenantId").Should().Be("target");
+        CkMethodFake.Str(input, "mappingRtId").Should().Be(MappingId);
     }
 }

@@ -80,7 +80,7 @@ public sealed class IdentityProviderTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new IdentityProviderResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -88,7 +88,19 @@ public sealed class IdentityProviderTools
 
         try
         {
-            await ctx.Client!.DeleteIdentityProvider(new OctoObjectId(providerId));
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await IdentityProviderMethods.DeleteAsync(ctx.TenantClient!, providerId,
+                    await ctx.Client!.GetIdentityProvider(new OctoObjectId(providerId))));
+            if (!outcome.IsSuccess)
+            {
+                return new IdentityProviderResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new IdentityProviderResponse
             {
                 IsSuccess = true,
@@ -99,7 +111,7 @@ public sealed class IdentityProviderTools
         }
         catch (Exception ex)
         {
-            return new IdentityProviderResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new IdentityProviderResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -114,7 +126,7 @@ public sealed class IdentityProviderTools
         [Description("Display name (unique).")] string name,
         [Description("Provider type: 'google', 'microsoft' or 'facebook'.")] string providerType,
         [Description("OAuth client ID.")] string clientId,
-        [Description("OAuth client secret.")] string clientSecret,
+        [Description("SENSITIVE: sent only in the CK method call, never echoed in an error or message and never logged. OAuth client secret.")] string clientSecret,
         [Description("Enabled flag.")] bool isEnabled = true,
         [Description("Allow new users to self-register via this provider.")] bool? allowSelfRegistration = null,
         [Description("Optional default group RtId for new users.")] string? defaultGroupRtId = null,
@@ -171,7 +183,7 @@ public sealed class IdentityProviderTools
         [Description("Display name (unique).")] string name,
         [Description("Azure Entra ID tenant ID.")] string azureTenantId,
         [Description("Azure client ID.")] string clientId,
-        [Description("Azure client secret.")] string clientSecret,
+        [Description("SENSITIVE: sent only in the CK method call, never echoed in an error or message and never logged. Azure client secret.")] string clientSecret,
         [Description("Enabled flag.")] bool isEnabled = true,
         [Description("Optional authority URL (default: https://login.microsoftonline.com).")] string? authority = null,
         [Description("Allow new users to self-register via this provider.")] bool? allowSelfRegistration = null,
@@ -363,7 +375,7 @@ public sealed class IdentityProviderTools
         IdentityProviderDto dto,
         string name)
     {
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new IdentityProviderResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -371,7 +383,19 @@ public sealed class IdentityProviderTools
 
         try
         {
-            await ctx.Client!.CreateIdentityProvider(dto);
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => IdentityProviderMethods.CreateAsync(ctx.TenantClient!, dto),
+                secretMethod: true);
+            if (!outcome.IsSuccess)
+            {
+                return new IdentityProviderResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error, ClientSecretOf(dto))
+                };
+            }
+
             return new IdentityProviderResponse
             {
                 IsSuccess = true,
@@ -381,7 +405,7 @@ public sealed class IdentityProviderTools
         }
         catch (Exception ex)
         {
-            return new IdentityProviderResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new IdentityProviderResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message, ClientSecretOf(dto)) };
         }
     }
 
@@ -418,7 +442,7 @@ public sealed class IdentityProviderTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new IdentityProviderResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -512,7 +536,19 @@ public sealed class IdentityProviderTools
 
             ApplyOptional(patched, allowSelfRegistration, defaultGroupRtId);
 
-            await ctx.Client.UpdateIdentityProvider(new OctoObjectId(providerId), patched);
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => IdentityProviderMethods.UpdateAsync(ctx.TenantClient!, providerId, patched),
+                secretMethod: true);
+            if (!outcome.IsSuccess)
+            {
+                return new IdentityProviderResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error, clientSecret)
+                };
+            }
+
 
             return new IdentityProviderResponse
             {
@@ -524,7 +560,17 @@ public sealed class IdentityProviderTools
         }
         catch (Exception ex)
         {
-            return new IdentityProviderResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new IdentityProviderResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message, clientSecret) };
         }
     }
+
+    /// <summary>The client secret a provider DTO carries (OAuth and Azure providers), for scrubbing error texts.</summary>
+    private static string? ClientSecretOf(IdentityProviderDto dto) => dto switch
+    {
+        GoogleIdentityProviderDto o => o.ClientSecret,
+        MicrosoftIdentityProviderDto o => o.ClientSecret,
+        FacebookIdentityProviderDto o => o.ClientSecret,
+        AzureEntraIdProviderDto o => o.ClientSecret,
+        _ => null
+    };
 }

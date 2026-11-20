@@ -3,6 +3,7 @@ using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -101,7 +102,7 @@ public sealed class EmailDomainGroupRuleTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new EmailDomainGroupRuleResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -109,12 +110,19 @@ public sealed class EmailDomainGroupRuleTools
 
         try
         {
-            await ctx.Client!.CreateEmailDomainGroupRule(new EmailDomainGroupRuleDto
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => new RtEmailDomainGroupRuleMethodClient(ctx.TenantClient!).CreateEmailDomainGroupRuleAsync(
+                                emailDomainPattern, targetGroupRtId, description));
+            if (!outcome.IsSuccess)
             {
-                EmailDomainPattern = emailDomainPattern,
-                TargetGroupRtId = targetGroupRtId,
-                Description = description
-            });
+                return new EmailDomainGroupRuleResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new EmailDomainGroupRuleResponse
             {
                 IsSuccess = true,
@@ -124,7 +132,7 @@ public sealed class EmailDomainGroupRuleTools
         }
         catch (Exception ex)
         {
-            return new EmailDomainGroupRuleResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new EmailDomainGroupRuleResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -150,7 +158,7 @@ public sealed class EmailDomainGroupRuleTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new EmailDomainGroupRuleResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -158,12 +166,19 @@ public sealed class EmailDomainGroupRuleTools
 
         try
         {
-            await ctx.Client!.UpdateEmailDomainGroupRule(new OctoObjectId(rtId), new EmailDomainGroupRuleDto
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => new RtEmailDomainGroupRuleMethodClient(ctx.TenantClient!).UpdateEmailDomainGroupRuleAsync(rtId,
+                                emailDomainPattern, targetGroupRtId, description));
+            if (!outcome.IsSuccess)
             {
-                EmailDomainPattern = emailDomainPattern,
-                TargetGroupRtId = targetGroupRtId,
-                Description = description
-            });
+                return new EmailDomainGroupRuleResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new EmailDomainGroupRuleResponse
             {
                 IsSuccess = true,
@@ -174,7 +189,7 @@ public sealed class EmailDomainGroupRuleTools
         }
         catch (Exception ex)
         {
-            return new EmailDomainGroupRuleResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new EmailDomainGroupRuleResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -204,7 +219,7 @@ public sealed class EmailDomainGroupRuleTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new EmailDomainGroupRuleResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -212,7 +227,18 @@ public sealed class EmailDomainGroupRuleTools
 
         try
         {
-            await ctx.Client!.DeleteEmailDomainGroupRule(new OctoObjectId(rtId));
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => new RtEmailDomainGroupRuleMethodClient(ctx.TenantClient!).DeleteEmailDomainGroupRuleAsync(rtId));
+            if (!outcome.IsSuccess)
+            {
+                return new EmailDomainGroupRuleResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new EmailDomainGroupRuleResponse
             {
                 IsSuccess = true,
@@ -223,7 +249,7 @@ public sealed class EmailDomainGroupRuleTools
         }
         catch (Exception ex)
         {
-            return new EmailDomainGroupRuleResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new EmailDomainGroupRuleResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 }

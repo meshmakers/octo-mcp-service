@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -60,7 +61,7 @@ public sealed class ApiScopeTools
             return new ApiScopeResponse { IsSuccess = false, ErrorMessage = "name is required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ApiScopeResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -68,13 +69,19 @@ public sealed class ApiScopeTools
 
         try
         {
-            await ctx.Client!.CreateApiScope(new ApiScopeDto
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => new RtApiScopeMethodClient(ctx.TenantClient!).CreateApiScopeAsync(name, displayName, description,
+                                isEnabled, showInDiscoveryDocument: false, required: false, emphasized: false));
+            if (!outcome.IsSuccess)
             {
-                IsEnabled = isEnabled,
-                Name = name,
-                DisplayName = displayName,
-                Description = description
-            });
+                return new ApiScopeResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new ApiScopeResponse
             {
                 IsSuccess = true,
@@ -85,7 +92,7 @@ public sealed class ApiScopeTools
         }
         catch (Exception ex)
         {
-            return new ApiScopeResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ApiScopeResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -106,7 +113,7 @@ public sealed class ApiScopeTools
             return new ApiScopeResponse { IsSuccess = false, ErrorMessage = "name is required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ApiScopeResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -121,7 +128,20 @@ public sealed class ApiScopeTools
                 Description = description,
                 IsEnabled = isEnabled ?? true
             };
-            await ctx.Client!.UpdateApiScope(name, dto);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await new RtApiScopeMethodClient(ctx.TenantClient!).UpdateApiScopeAsync(
+                                await IdentityRtIds.ApiScopeAsync(ctx, name), name, displayName, description, dto.IsEnabled,
+                                showInDiscoveryDocument: false, required: false, emphasized: false));
+            if (!outcome.IsSuccess)
+            {
+                return new ApiScopeResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new ApiScopeResponse
             {
                 IsSuccess = true,
@@ -132,7 +152,7 @@ public sealed class ApiScopeTools
         }
         catch (Exception ex)
         {
-            return new ApiScopeResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ApiScopeResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -161,7 +181,7 @@ public sealed class ApiScopeTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ApiScopeResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -169,7 +189,19 @@ public sealed class ApiScopeTools
 
         try
         {
-            await ctx.Client!.DeleteScope(name);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await new RtApiScopeMethodClient(ctx.TenantClient!).DeleteApiScopeAsync(
+                                await IdentityRtIds.ApiScopeAsync(ctx, name)));
+            if (!outcome.IsSuccess)
+            {
+                return new ApiScopeResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new ApiScopeResponse
             {
                 IsSuccess = true,
@@ -180,7 +212,7 @@ public sealed class ApiScopeTools
         }
         catch (Exception ex)
         {
-            return new ApiScopeResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ApiScopeResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 }

@@ -1,7 +1,11 @@
 using System.ComponentModel;
+using System.Security.Cryptography;
+using System.Text;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants.Methods;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -62,15 +66,17 @@ public sealed class ApiSecretTools
     [McpServerTool(Name = "create_client_secret")]
     [McpRisk(McpRiskLevel.High)]
     [Description(
-        "Create a new API secret on a client. Equivalent to octo-cli CreateApiSecretClient. The server generates " +
+        "Create a new API secret on a client. Requires confirm=true. Equivalent to octo-cli CreateApiSecretClient. The server generates " +
         "the secret (256 bit); the response carries the clear text ONCE in clearTextSecret - capture it, it cannot " +
         "be retrieved again. secretValue is the stored hash that identifies the secret for update/delete. " +
-        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns METHOD_FORBIDDEN with the reason the identity service sends (e.g. requiredRole=SecretManagement).")]
     public static async Task<ApiSecretResponse> CreateClientSecret(
         McpServer server,
         [Description("Client ID.")] string clientId,
         [Description("Optional expiration date (UTC).")] DateTime? expirationDate = null,
         [Description("Optional description.")] string? description = null,
+        [Description("Must be true to actually create the secret (the response carries it in clear text once).")]
+        bool confirm = false,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
         if (string.IsNullOrWhiteSpace(clientId))
@@ -78,7 +84,16 @@ public sealed class ApiSecretTools
             return new ApiSecretResponse { IsSuccess = false, ErrorMessage = "clientId is required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        if (!confirm)
+        {
+            return new ApiSecretResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = $"Refusing to create a secret for client '{clientId}' without confirm=true."
+            };
+        }
+
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -86,11 +101,27 @@ public sealed class ApiSecretTools
 
         try
         {
-            var result = await ctx.Client!.CreateApiSecretForClient(clientId, new ApiSecretDto
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () =>
+                {
+                    var call = await new RtClientMethodClient(ctx.TenantClient!).AddSecretAsync(await IdentityRtIds.ClientAsync(ctx, clientId),
+                        description, expirationDate);
+                    return call.IsSuccess
+                        ? CkMethodResult<ApiSecretDto>.Success(call.InvocationId, GeneratedSecret(call.Value))
+                        : CkMethodResult<ApiSecretDto>.Failure(call.Error!);
+                },
+                secretMethod: true);
+            if (!outcome.IsSuccess)
             {
-                ExpirationDate = expirationDate,
-                Description = description
-            });
+                return new ApiSecretResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
+            var result = outcome.Value!;
             return new ApiSecretResponse
             {
                 IsSuccess = true,
@@ -104,7 +135,7 @@ public sealed class ApiSecretTools
         }
         catch (Exception ex)
         {
-            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityForbiddenMessage.Describe(ex) };
+            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(IdentityForbiddenMessage.Describe(ex)) };
         }
     }
 
@@ -113,11 +144,11 @@ public sealed class ApiSecretTools
     [McpRisk(McpRiskLevel.High)]
     [Description(
         "Update a client secret. Equivalent to octo-cli UpdateApiSecretClient. " +
-        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns METHOD_FORBIDDEN with the reason the identity service sends (e.g. requiredRole=SecretManagement).")]
     public static async Task<ApiSecretResponse> UpdateClientSecret(
         McpServer server,
         [Description("Client ID.")] string clientId,
-        [Description("Existing encrypted value (identifies the secret).")] string valueEncrypted,
+        [Description("SENSITIVE: sent only in the CK method call, never echoed in an error or message and never logged. Stored value of the secret (identifies it; the clear text is accepted too).")] string valueEncrypted,
         [Description("Optional new expiration date (UTC).")] DateTime? expirationDate = null,
         [Description("Optional new description.")] string? description = null,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
@@ -131,7 +162,7 @@ public sealed class ApiSecretTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -139,12 +170,20 @@ public sealed class ApiSecretTools
 
         try
         {
-            await ctx.Client!.UpdateApiSecretClient(clientId, new ApiSecretDto
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await new RtClientMethodClient(ctx.TenantClient!).UpdateSecretAsync(await IdentityRtIds.ClientAsync(ctx, clientId),
+                    valueEncrypted, description, expirationDate),
+                secretMethod: true);
+            if (!outcome.IsSuccess)
             {
-                ValueEncrypted = valueEncrypted,
-                ExpirationDate = expirationDate,
-                Description = description
-            });
+                return new ApiSecretResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error, valueEncrypted)
+                };
+            }
+
             return new ApiSecretResponse
             {
                 IsSuccess = true,
@@ -156,7 +195,7 @@ public sealed class ApiSecretTools
         }
         catch (Exception ex)
         {
-            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityForbiddenMessage.Describe(ex) };
+            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(IdentityForbiddenMessage.Describe(ex), valueEncrypted) };
         }
     }
 
@@ -166,11 +205,11 @@ public sealed class ApiSecretTools
     [Description(
         "Delete a client secret. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli " +
         "DeleteApiSecretClient. " +
-        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns METHOD_FORBIDDEN with the reason the identity service sends (e.g. requiredRole=SecretManagement).")]
     public static async Task<ApiSecretResponse> DeleteClientSecret(
         McpServer server,
         [Description("Client ID.")] string clientId,
-        [Description("Encrypted value (identifies the secret).")] string valueEncrypted,
+        [Description("SENSITIVE: sent only in the CK method call, never echoed in an error or message and never logged. Stored value of the secret (identifies it; the clear text is accepted too).")] string valueEncrypted,
         [Description("Must be true to actually delete.")] bool confirm = false,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
@@ -192,7 +231,7 @@ public sealed class ApiSecretTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -200,7 +239,20 @@ public sealed class ApiSecretTools
 
         try
         {
-            await ctx.Client!.DeleteApiSecretClient(clientId, valueEncrypted);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await new RtClientMethodClient(ctx.TenantClient!).RemoveSecretAsync(await IdentityRtIds.ClientAsync(ctx, clientId),
+                    valueEncrypted),
+                secretMethod: true);
+            if (!outcome.IsSuccess)
+            {
+                return new ApiSecretResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error, valueEncrypted)
+                };
+            }
+
             return new ApiSecretResponse
             {
                 IsSuccess = true,
@@ -212,7 +264,7 @@ public sealed class ApiSecretTools
         }
         catch (Exception ex)
         {
-            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityForbiddenMessage.Describe(ex) };
+            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(IdentityForbiddenMessage.Describe(ex), valueEncrypted) };
         }
     }
 
@@ -260,16 +312,18 @@ public sealed class ApiSecretTools
     [McpServerTool(Name = "create_api_resource_secret")]
     [McpRisk(McpRiskLevel.High)]
     [Description(
-        "Create a new API secret on an API resource. Equivalent to octo-cli CreateApiSecretApiResource. The " +
+        "Create a new API secret on an API resource. Requires confirm=true. Equivalent to octo-cli CreateApiSecretApiResource. The " +
         "server generates the secret (256 bit); the response carries the clear text ONCE in clearTextSecret - " +
         "capture it, it cannot be retrieved again. secretValue is the stored hash that identifies the secret " +
         "for update/delete. " +
-        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns METHOD_FORBIDDEN with the reason the identity service sends (e.g. requiredRole=SecretManagement).")]
     public static async Task<ApiSecretResponse> CreateApiResourceSecret(
         McpServer server,
         [Description("API resource name.")] string apiResourceName,
         [Description("Optional expiration date (UTC).")] DateTime? expirationDate = null,
         [Description("Optional description.")] string? description = null,
+        [Description("Must be true to actually create the secret (the response carries it in clear text once).")]
+        bool confirm = false,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
         if (string.IsNullOrWhiteSpace(apiResourceName))
@@ -277,7 +331,16 @@ public sealed class ApiSecretTools
             return new ApiSecretResponse { IsSuccess = false, ErrorMessage = "apiResourceName is required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        if (!confirm)
+        {
+            return new ApiSecretResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = $"Refusing to create a secret for API resource '{apiResourceName}' without confirm=true."
+            };
+        }
+
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -285,11 +348,27 @@ public sealed class ApiSecretTools
 
         try
         {
-            var result = await ctx.Client!.CreateApiSecretForApiResource(apiResourceName, new ApiSecretDto
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () =>
+                {
+                    var call = await new RtApiResourceMethodClient(ctx.TenantClient!).AddSecretAsync(await IdentityRtIds.ApiResourceAsync(ctx, apiResourceName),
+                        description, expirationDate);
+                    return call.IsSuccess
+                        ? CkMethodResult<ApiSecretDto>.Success(call.InvocationId, GeneratedSecret(call.Value))
+                        : CkMethodResult<ApiSecretDto>.Failure(call.Error!);
+                },
+                secretMethod: true);
+            if (!outcome.IsSuccess)
             {
-                ExpirationDate = expirationDate,
-                Description = description
-            });
+                return new ApiSecretResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
+            var result = outcome.Value!;
             return new ApiSecretResponse
             {
                 IsSuccess = true,
@@ -303,7 +382,7 @@ public sealed class ApiSecretTools
         }
         catch (Exception ex)
         {
-            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityForbiddenMessage.Describe(ex) };
+            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(IdentityForbiddenMessage.Describe(ex)) };
         }
     }
 
@@ -312,11 +391,11 @@ public sealed class ApiSecretTools
     [McpRisk(McpRiskLevel.High)]
     [Description(
         "Update an API resource secret. Equivalent to octo-cli UpdateApiSecretApiResource. " +
-        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns METHOD_FORBIDDEN with the reason the identity service sends (e.g. requiredRole=SecretManagement).")]
     public static async Task<ApiSecretResponse> UpdateApiResourceSecret(
         McpServer server,
         [Description("API resource name.")] string apiResourceName,
-        [Description("Existing encrypted value (identifies the secret).")] string valueEncrypted,
+        [Description("SENSITIVE: sent only in the CK method call, never echoed in an error or message and never logged. Stored value of the secret (identifies it; the clear text is accepted too).")] string valueEncrypted,
         [Description("Optional new expiration date (UTC).")] DateTime? expirationDate = null,
         [Description("Optional new description.")] string? description = null,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
@@ -330,7 +409,7 @@ public sealed class ApiSecretTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -338,12 +417,20 @@ public sealed class ApiSecretTools
 
         try
         {
-            await ctx.Client!.UpdateApiSecretApiResource(apiResourceName, new ApiSecretDto
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await new RtApiResourceMethodClient(ctx.TenantClient!).UpdateSecretAsync(await IdentityRtIds.ApiResourceAsync(ctx, apiResourceName),
+                    valueEncrypted, description, expirationDate),
+                secretMethod: true);
+            if (!outcome.IsSuccess)
             {
-                ValueEncrypted = valueEncrypted,
-                ExpirationDate = expirationDate,
-                Description = description
-            });
+                return new ApiSecretResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error, valueEncrypted)
+                };
+            }
+
             return new ApiSecretResponse
             {
                 IsSuccess = true,
@@ -355,7 +442,7 @@ public sealed class ApiSecretTools
         }
         catch (Exception ex)
         {
-            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityForbiddenMessage.Describe(ex) };
+            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(IdentityForbiddenMessage.Describe(ex), valueEncrypted) };
         }
     }
 
@@ -365,11 +452,11 @@ public sealed class ApiSecretTools
     [Description(
         "Delete an API resource secret. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli " +
         "DeleteApiSecretApiResource. " +
-        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns METHOD_FORBIDDEN with the reason the identity service sends (e.g. requiredRole=SecretManagement).")]
     public static async Task<ApiSecretResponse> DeleteApiResourceSecret(
         McpServer server,
         [Description("API resource name.")] string apiResourceName,
-        [Description("Encrypted value (identifies the secret).")] string valueEncrypted,
+        [Description("SENSITIVE: sent only in the CK method call, never echoed in an error or message and never logged. Stored value of the secret (identifies it; the clear text is accepted too).")] string valueEncrypted,
         [Description("Must be true to actually delete.")] bool confirm = false,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
@@ -392,7 +479,7 @@ public sealed class ApiSecretTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ApiSecretResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -400,7 +487,20 @@ public sealed class ApiSecretTools
 
         try
         {
-            await ctx.Client!.DeleteApiSecretApiResource(apiResourceName, valueEncrypted);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await new RtApiResourceMethodClient(ctx.TenantClient!).RemoveSecretAsync(await IdentityRtIds.ApiResourceAsync(ctx, apiResourceName),
+                    valueEncrypted),
+                secretMethod: true);
+            if (!outcome.IsSuccess)
+            {
+                return new ApiSecretResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error, valueEncrypted)
+                };
+            }
+
             return new ApiSecretResponse
             {
                 IsSuccess = true,
@@ -412,7 +512,20 @@ public sealed class ApiSecretTools
         }
         catch (Exception ex)
         {
-            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityForbiddenMessage.Describe(ex) };
+            return new ApiSecretResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(IdentityForbiddenMessage.Describe(ex), valueEncrypted) };
         }
     }
+
+    /// <summary>
+    ///     The generated secret of <c>AddSecret</c> in the shape the tool returned before: the clear text (shown once) and the
+    ///     stored value that identifies the secret for update and delete. The identity service stores the Base64 SHA-256 of
+    ///     the UTF-8 clear text and lists that value in the secrets of the owner.
+    /// </summary>
+    internal static ApiSecretDto GeneratedSecret(string? clearText) => new()
+    {
+        ValueClearText = clearText,
+        ValueEncrypted = string.IsNullOrEmpty(clearText)
+            ? string.Empty
+            : Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(clearText)))
+    };
 }

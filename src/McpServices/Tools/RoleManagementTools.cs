@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -59,7 +60,7 @@ public sealed class RoleManagementTools
             return new RoleResponse { IsSuccess = false, ErrorMessage = "roleName is required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new RoleResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -67,7 +68,18 @@ public sealed class RoleManagementTools
 
         try
         {
-            await ctx.Client!.CreateRole(new RoleDto { Name = roleName });
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => new RtRoleMethodClient(ctx.TenantClient!).CreateRoleAsync(roleName));
+            if (!outcome.IsSuccess)
+            {
+                return new RoleResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new RoleResponse
             {
                 IsSuccess = true,
@@ -78,7 +90,7 @@ public sealed class RoleManagementTools
         }
         catch (Exception ex)
         {
-            return new RoleResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new RoleResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -97,7 +109,7 @@ public sealed class RoleManagementTools
             return new RoleResponse { IsSuccess = false, ErrorMessage = "roleName and newRoleName are required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new RoleResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -105,7 +117,19 @@ public sealed class RoleManagementTools
 
         try
         {
-            await ctx.Client!.UpdateRole(roleName, new RoleDto { Name = newRoleName });
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await new RtRoleMethodClient(ctx.TenantClient!).UpdateRoleAsync(
+                                await IdentityRtIds.RoleAsync(ctx, roleName), newRoleName));
+            if (!outcome.IsSuccess)
+            {
+                return new RoleResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new RoleResponse
             {
                 IsSuccess = true,
@@ -116,7 +140,7 @@ public sealed class RoleManagementTools
         }
         catch (Exception ex)
         {
-            return new RoleResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new RoleResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -144,7 +168,7 @@ public sealed class RoleManagementTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new RoleResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -152,7 +176,19 @@ public sealed class RoleManagementTools
 
         try
         {
-            await ctx.Client!.DeleteRole(roleName);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await new RtRoleMethodClient(ctx.TenantClient!).DeleteRoleAsync(
+                                await IdentityRtIds.RoleAsync(ctx, roleName)));
+            if (!outcome.IsSuccess)
+            {
+                return new RoleResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new RoleResponse
             {
                 IsSuccess = true,
@@ -163,7 +199,7 @@ public sealed class RoleManagementTools
         }
         catch (Exception ex)
         {
-            return new RoleResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new RoleResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 }

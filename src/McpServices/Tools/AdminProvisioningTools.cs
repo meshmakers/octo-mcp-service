@@ -3,6 +3,8 @@ using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants.Methods;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -83,7 +85,7 @@ public sealed class AdminProvisioningTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new AdminProvisioningResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -91,14 +93,19 @@ public sealed class AdminProvisioningTools
 
         try
         {
-            await ctx.Client!.CreateAdminProvisioningMapping(targetTenantId,
-                new CreateExternalTenantUserMappingDto
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => Mappings(ctx).ProvisionAdminAsync(targetTenantId, sourceTenantId, sourceUserId,
+                                sourceUserName, roleIds));
+            if (!outcome.IsSuccess)
+            {
+                return new AdminProvisioningResponse
                 {
-                    SourceTenantId = sourceTenantId,
-                    SourceUserId = sourceUserId,
-                    SourceUserName = sourceUserName,
-                    RoleIds = roleIds
-                });
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new AdminProvisioningResponse
             {
                 IsSuccess = true,
@@ -111,7 +118,7 @@ public sealed class AdminProvisioningTools
         }
         catch (Exception ex)
         {
-            return new AdminProvisioningResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new AdminProvisioningResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -136,7 +143,7 @@ public sealed class AdminProvisioningTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new AdminProvisioningResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -144,7 +151,27 @@ public sealed class AdminProvisioningTools
 
         try
         {
-            var mapping = await ctx.Client!.ProvisionCurrentUser(targetTenantId);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () =>
+                {
+                    var call = await Mappings(ctx).ProvisionCurrentUserAsync(targetTenantId);
+                    return call.IsSuccess
+                        ? CkMethodResult<ProvisionedIdentity?>.Success(call.InvocationId,
+                            new ProvisionedIdentity(call.Value?.SourceTenantId, call.Value?.SourceUserId,
+                                call.Value?.SourceUserName))
+                        : CkMethodResult<ProvisionedIdentity?>.Failure(call.Error!);
+                });
+            if (!outcome.IsSuccess)
+            {
+                return new AdminProvisioningResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
+            var mapping = outcome.Value;
             if (mapping == null || string.IsNullOrEmpty(mapping.SourceTenantId))
             {
                 return new AdminProvisioningResponse
@@ -173,7 +200,7 @@ public sealed class AdminProvisioningTools
         }
         catch (Exception ex)
         {
-            return new AdminProvisioningResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new AdminProvisioningResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -208,7 +235,7 @@ public sealed class AdminProvisioningTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new AdminProvisioningResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -216,7 +243,18 @@ public sealed class AdminProvisioningTools
 
         try
         {
-            await ctx.Client!.DeleteAdminProvisioningMapping(targetTenantId, new OctoObjectId(mappingRtId));
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => Mappings(ctx).RemoveAdminProvisioningAsync(targetTenantId, mappingRtId));
+            if (!outcome.IsSuccess)
+            {
+                return new AdminProvisioningResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new AdminProvisioningResponse
             {
                 IsSuccess = true,
@@ -227,7 +265,12 @@ public sealed class AdminProvisioningTools
         }
         catch (Exception ex)
         {
-            return new AdminProvisioningResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new AdminProvisioningResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
+
+    private static RtExternalTenantUserMappingMethodClient Mappings(IdentityClientContext ctx) => new(ctx.TenantClient!);
+
+    /// <summary>The source identity an admin provisioning mapping was written for.</summary>
+    private sealed record ProvisionedIdentity(string? SourceTenantId, string? SourceUserId, string? SourceUserName);
 }

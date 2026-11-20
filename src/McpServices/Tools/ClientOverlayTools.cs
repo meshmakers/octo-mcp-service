@@ -2,6 +2,8 @@ using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants.Methods;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -59,7 +61,7 @@ public sealed class ClientOverlayTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ApplyClientOverlayResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -75,7 +77,28 @@ public sealed class ClientOverlayTools
                 AllowedCorsOrigins = cors
             };
 
-            var result = await ctx.Client!.ApplyClientOverlay(clientId, dto);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () =>
+                {
+                    var clientRtId = await IdentityRtIds.ClientAsync(ctx, clientId);
+                    var call = await new RtClientMethodClient(ctx.TenantClient!).ApplyOverlayUrisAsync(clientRtId,
+                        overlayName, redirect, postLogout, cors);
+                    return call.IsSuccess
+                        ? CkMethodResult<ApplyOverlayUrisResultDto>.Success(call.InvocationId,
+                            IdentityMethodResults.ToDto(call.Value, clientId, overlayName))
+                        : CkMethodResult<ApplyOverlayUrisResultDto>.Failure(call.Error!);
+                });
+            if (!outcome.IsSuccess)
+            {
+                return new ApplyClientOverlayResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
+            var result = outcome.Value!;
 
             return new ApplyClientOverlayResponse
             {
@@ -93,7 +116,7 @@ public sealed class ClientOverlayTools
         }
         catch (Exception ex)
         {
-            return new ApplyClientOverlayResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ApplyClientOverlayResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -123,7 +146,7 @@ public sealed class ClientOverlayTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new CleanClientOverlaysResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -132,7 +155,26 @@ public sealed class ClientOverlayTools
         try
         {
             var filter = string.IsNullOrWhiteSpace(overlayName) ? null : overlayName;
-            var result = await ctx.Client!.CleanOverlayEntries(filter);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () =>
+                {
+                    var call = await new RtClientMethodClient(ctx.TenantClient!).CleanOverlayEntriesAsync(filter);
+                    return call.IsSuccess
+                        ? CkMethodResult<CleanOverlayEntriesResultDto>.Success(call.InvocationId,
+                            IdentityMethodResults.ToDto(call.Value, filter))
+                        : CkMethodResult<CleanOverlayEntriesResultDto>.Failure(call.Error!);
+                });
+            if (!outcome.IsSuccess)
+            {
+                return new CleanClientOverlaysResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
+            var result = outcome.Value!;
 
             return new CleanClientOverlaysResponse
             {
@@ -147,7 +189,7 @@ public sealed class ClientOverlayTools
         }
         catch (Exception ex)
         {
-            return new CleanClientOverlaysResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new CleanClientOverlaysResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
