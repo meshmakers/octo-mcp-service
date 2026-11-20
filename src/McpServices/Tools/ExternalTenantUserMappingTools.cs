@@ -4,6 +4,8 @@ using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects.ApiErrors;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants.Methods;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -194,7 +196,7 @@ public sealed class ExternalTenantUserMappingTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ExternalTenantUserMappingResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -202,14 +204,35 @@ public sealed class ExternalTenantUserMappingTools
 
         try
         {
-            var mapping = await ctx.Client!.GrantExternalTenantUser(new CreateExternalTenantUserMappingDto
+            var groups = groupIds is { Count: > 0 } ? groupIds : null;
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () =>
+                {
+                    var call = await new RtExternalTenantUserMappingMethodClient(ctx.TenantClient!).CreateMappingAsync(
+                        sourceTenantId, sourceUserId, sourceUserName, roleIds, groups);
+                    if (!call.IsSuccess)
+                    {
+                        return CkMethodResult<ExternalTenantUserMappingDto>.Failure(call.Error!);
+                    }
+
+                    // The method answers with the provisioning record; the tool keeps returning the mapping as stored.
+                    var created = await ctx.Client!.GetExternalTenantUserMapping(
+                        new OctoObjectId(call.Value?.MappingRtId ?? throw new InvalidOperationException(
+                            "The identity service returned no runtime id for the created mapping.")));
+                    return CkMethodResult<ExternalTenantUserMappingDto>.Success(call.InvocationId, created);
+                });
+            if (!outcome.IsSuccess)
             {
-                SourceTenantId = sourceTenantId,
-                SourceUserId = sourceUserId,
-                SourceUserName = sourceUserName,
-                RoleIds = roleIds,
-                GroupIds = groupIds is { Count: > 0 } ? groupIds : null
-            });
+                return new ExternalTenantUserMappingResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error),
+                    ErrorCode = outcome.ErrorCode == null ? null : FormerErrorCode(outcome.ErrorCode)
+                };
+            }
+
+            var mapping = outcome.Value!;
             return new ExternalTenantUserMappingResponse
             {
                 IsSuccess = true,
@@ -226,7 +249,7 @@ public sealed class ExternalTenantUserMappingTools
             {
                 IsSuccess = false,
                 TenantId = ctx.TenantId,
-                ErrorMessage = problem.Message,
+                ErrorMessage = IdentityMethodCall.SafeText(problem.Message),
                 ErrorCode = problem.Code
             };
         }
@@ -247,7 +270,7 @@ public sealed class ExternalTenantUserMappingTools
             return new ExternalTenantUserMappingResponse { IsSuccess = false, ErrorMessage = "rtId is required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ExternalTenantUserMappingResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -255,8 +278,18 @@ public sealed class ExternalTenantUserMappingTools
 
         try
         {
-            await ctx.Client!.UpdateExternalTenantUserMapping(new OctoObjectId(rtId),
-                new UpdateExternalTenantUserMappingDto { RoleIds = roleIds });
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => new RtExternalTenantUserMappingMethodClient(ctx.TenantClient!).UpdateMappingAsync(rtId, roleIds));
+            if (!outcome.IsSuccess)
+            {
+                return new ExternalTenantUserMappingResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new ExternalTenantUserMappingResponse
             {
                 IsSuccess = true,
@@ -267,7 +300,7 @@ public sealed class ExternalTenantUserMappingTools
         }
         catch (Exception ex)
         {
-            return new ExternalTenantUserMappingResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ExternalTenantUserMappingResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -295,7 +328,7 @@ public sealed class ExternalTenantUserMappingTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ExternalTenantUserMappingResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -303,7 +336,18 @@ public sealed class ExternalTenantUserMappingTools
 
         try
         {
-            await ctx.Client!.DeleteExternalTenantUserMapping(new OctoObjectId(rtId));
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => new RtExternalTenantUserMappingMethodClient(ctx.TenantClient!).DeleteMappingAsync(rtId));
+            if (!outcome.IsSuccess)
+            {
+                return new ExternalTenantUserMappingResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new ExternalTenantUserMappingResponse
             {
                 IsSuccess = true,
@@ -314,7 +358,20 @@ public sealed class ExternalTenantUserMappingTools
         }
         catch (Exception ex)
         {
-            return new ExternalTenantUserMappingResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ExternalTenantUserMappingResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
+
+    /// <summary>
+    ///     The <c>errorCode</c> the REST endpoint answered for a declared error of
+    ///     <c>System.Identity/ExternalTenantUserMapping.CreateMapping-1</c>, so clients that branch on it keep working.
+    /// </summary>
+    internal static string? FormerErrorCode(string methodErrorCode) => methodErrorCode switch
+    {
+        RtExternalTenantUserMappingMethodClient.CreateMappingErrors.SourceTenantNotPermitted => "SourceTenantNotPermitted",
+        RtExternalTenantUserMappingMethodClient.CreateMappingErrors.UnknownGroup => "UnknownGroup",
+        RtExternalTenantUserMappingMethodClient.CreateMappingErrors.MappingAlreadyExists =>
+            "ExternalTenantUserMappingAlreadyExists",
+        _ => methodErrorCode
+    };
 }

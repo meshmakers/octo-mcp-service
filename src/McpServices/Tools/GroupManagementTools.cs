@@ -1,8 +1,10 @@
 using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants.Methods;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -82,7 +84,7 @@ public sealed class GroupManagementTools
         }
     }
 
-    /// <summary>Create a new group.</summary>
+    /// <summary>Create a new group. Runs <c>System.Identity/Group.CreateGroup-1</c>.</summary>
     [McpServerTool(Name = "create_group")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
@@ -100,7 +102,7 @@ public sealed class GroupManagementTools
             return new GroupResponse { IsSuccess = false, ErrorMessage = "groupName is required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new GroupResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -108,12 +110,17 @@ public sealed class GroupManagementTools
 
         try
         {
-            await ctx.Client!.CreateGroup(new CreateGroupDto
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () =>
+                {
+                    var roleNames = await IdentityRtIds.RoleNamesAsync(ctx, roleIds);
+                    return await Groups(ctx).CreateGroupAsync(groupName, description,
+                        roleNames.Count == 0 ? null : roleNames);
+                });
+            if (!outcome.IsSuccess)
             {
-                GroupName = groupName,
-                GroupDescription = description,
-                RoleIds = roleIds
-            });
+                return Failure(ctx, null, outcome.Error);
+            }
 
             return new GroupResponse
             {
@@ -124,11 +131,11 @@ public sealed class GroupManagementTools
         }
         catch (Exception ex)
         {
-            return new GroupResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return Failure(ctx, null, ex.Message);
         }
     }
 
-    /// <summary>Update group metadata (name, description).</summary>
+    /// <summary>Update group metadata (name, description). Runs <c>System.Identity/Group.UpdateGroup-1</c>.</summary>
     [McpServerTool(Name = "update_group")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description("Update group metadata (name, description). Equivalent to octo-cli UpdateGroup.")]
@@ -144,34 +151,12 @@ public sealed class GroupManagementTools
             return new GroupResponse { IsSuccess = false, ErrorMessage = "groupId and groupName are required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
-        if (ctx.Error != null)
-        {
-            return new GroupResponse { IsSuccess = false, ErrorMessage = ctx.Error };
-        }
-
-        try
-        {
-            await ctx.Client!.UpdateGroup(new OctoObjectId(groupId), new UpdateGroupDto
-            {
-                GroupName = groupName,
-                GroupDescription = description
-            });
-            return new GroupResponse
-            {
-                IsSuccess = true,
-                TenantId = ctx.TenantId,
-                GroupId = groupId,
-                Message = $"Group '{groupId}' updated."
-            };
-        }
-        catch (Exception ex)
-        {
-            return new GroupResponse { IsSuccess = false, ErrorMessage = ex.Message };
-        }
+        return await Run(server, tenantId, groupId,
+            ctx => Groups(ctx).UpdateGroupAsync(groupId, groupName, description),
+            $"Group '{groupId}' updated.");
     }
 
-    /// <summary>Delete a group. Destructive: requires confirm=true.</summary>
+    /// <summary>Delete a group. Destructive: requires confirm=true. Runs <c>System.Identity/Group.DeleteGroup-1</c>.</summary>
     [McpServerTool(Name = "delete_group")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description("Delete a group. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli DeleteGroup.")]
@@ -195,30 +180,12 @@ public sealed class GroupManagementTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
-        if (ctx.Error != null)
-        {
-            return new GroupResponse { IsSuccess = false, ErrorMessage = ctx.Error };
-        }
-
-        try
-        {
-            await ctx.Client!.DeleteGroup(new OctoObjectId(groupId));
-            return new GroupResponse
-            {
-                IsSuccess = true,
-                TenantId = ctx.TenantId,
-                GroupId = groupId,
-                Message = $"Group '{groupId}' deleted."
-            };
-        }
-        catch (Exception ex)
-        {
-            return new GroupResponse { IsSuccess = false, ErrorMessage = ex.Message };
-        }
+        return await Run(server, tenantId, groupId,
+            ctx => Groups(ctx).DeleteGroupAsync(groupId),
+            $"Group '{groupId}' deleted.");
     }
 
-    /// <summary>Replace the roles attached to a group.</summary>
+    /// <summary>Replace the roles attached to a group. Runs <c>System.Identity/Group.SetRoles-1</c>.</summary>
     [McpServerTool(Name = "update_group_roles")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
@@ -235,30 +202,12 @@ public sealed class GroupManagementTools
             return new GroupResponse { IsSuccess = false, ErrorMessage = "groupId is required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
-        if (ctx.Error != null)
-        {
-            return new GroupResponse { IsSuccess = false, ErrorMessage = ctx.Error };
-        }
-
-        try
-        {
-            await ctx.Client!.UpdateGroupRoles(new OctoObjectId(groupId), roleIds ?? []);
-            return new GroupResponse
-            {
-                IsSuccess = true,
-                TenantId = ctx.TenantId,
-                GroupId = groupId,
-                Message = $"Roles for group '{groupId}' updated ({roleIds?.Count ?? 0} role(s))."
-            };
-        }
-        catch (Exception ex)
-        {
-            return new GroupResponse { IsSuccess = false, ErrorMessage = ex.Message };
-        }
+        return await Run(server, tenantId, groupId,
+            async ctx => await Groups(ctx).SetRolesAsync(groupId, await IdentityRtIds.RoleNamesAsync(ctx, roleIds)),
+            $"Roles for group '{groupId}' updated ({roleIds?.Count ?? 0} role(s)).");
     }
 
-    /// <summary>Add a user to a group.</summary>
+    /// <summary>Add a user to a group. Runs <c>System.Identity/Group.AddMember-1</c>.</summary>
     [McpServerTool(Name = "add_user_to_group")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description("Add a user to a group. Equivalent to octo-cli AddUserToGroup.")]
@@ -273,30 +222,15 @@ public sealed class GroupManagementTools
             return new GroupResponse { IsSuccess = false, ErrorMessage = "groupId and userId are required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
-        if (ctx.Error != null)
-        {
-            return new GroupResponse { IsSuccess = false, ErrorMessage = ctx.Error };
-        }
-
-        try
-        {
-            await ctx.Client!.AddUserToGroup(new OctoObjectId(groupId), userId);
-            return new GroupResponse
-            {
-                IsSuccess = true,
-                TenantId = ctx.TenantId,
-                GroupId = groupId,
-                Message = $"User '{userId}' added to group '{groupId}'."
-            };
-        }
-        catch (Exception ex)
-        {
-            return new GroupResponse { IsSuccess = false, ErrorMessage = ex.Message };
-        }
+        return await Run(server, tenantId, groupId,
+            ctx => Groups(ctx).AddMemberAsync(groupId, RtGroupMemberKindEnum.User, userId),
+            $"User '{userId}' added to group '{groupId}'.",
+            RtGroupMethodClient.AddMemberErrors.MemberAlreadyInGroup);
     }
 
-    /// <summary>Remove a user from a group. Destructive: requires confirm=true.</summary>
+    /// <summary>
+    ///     Remove a user from a group. Destructive: requires confirm=true. Runs <c>System.Identity/Group.RemoveMember-1</c>.
+    /// </summary>
     [McpServerTool(Name = "remove_user_from_group")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
@@ -323,30 +257,13 @@ public sealed class GroupManagementTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
-        if (ctx.Error != null)
-        {
-            return new GroupResponse { IsSuccess = false, ErrorMessage = ctx.Error };
-        }
-
-        try
-        {
-            await ctx.Client!.RemoveUserFromGroup(new OctoObjectId(groupId), userId);
-            return new GroupResponse
-            {
-                IsSuccess = true,
-                TenantId = ctx.TenantId,
-                GroupId = groupId,
-                Message = $"User '{userId}' removed from group '{groupId}'."
-            };
-        }
-        catch (Exception ex)
-        {
-            return new GroupResponse { IsSuccess = false, ErrorMessage = ex.Message };
-        }
+        return await Run(server, tenantId, groupId,
+            ctx => Groups(ctx).RemoveMemberAsync(groupId, RtGroupMemberKindEnum.User, userId),
+            $"User '{userId}' removed from group '{groupId}'.",
+            RtGroupMethodClient.RemoveMemberErrors.MemberNotInGroup, RtGroupMethodClient.RemoveMemberErrors.MemberNotFound);
     }
 
-    /// <summary>Add a child group to a parent group.</summary>
+    /// <summary>Add a child group to a parent group. Runs <c>System.Identity/Group.AddChildGroup-1</c>.</summary>
     [McpServerTool(Name = "add_group_to_group")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description("Nest one group inside another. Equivalent to octo-cli AddGroupToGroup.")]
@@ -365,30 +282,16 @@ public sealed class GroupManagementTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
-        if (ctx.Error != null)
-        {
-            return new GroupResponse { IsSuccess = false, ErrorMessage = ctx.Error };
-        }
-
-        try
-        {
-            await ctx.Client!.AddGroupToGroup(new OctoObjectId(parentGroupId), childGroupId);
-            return new GroupResponse
-            {
-                IsSuccess = true,
-                TenantId = ctx.TenantId,
-                GroupId = parentGroupId,
-                Message = $"Child group '{childGroupId}' added to parent '{parentGroupId}'."
-            };
-        }
-        catch (Exception ex)
-        {
-            return new GroupResponse { IsSuccess = false, ErrorMessage = ex.Message };
-        }
+        return await Run(server, tenantId, parentGroupId,
+            ctx => Groups(ctx).AddChildGroupAsync(parentGroupId, childGroupId),
+            $"Child group '{childGroupId}' added to parent '{parentGroupId}'.",
+            RtGroupMethodClient.AddChildGroupErrors.ChildGroupAlreadyInGroup);
     }
 
-    /// <summary>Remove a child group from a parent group. Destructive: requires confirm=true.</summary>
+    /// <summary>
+    ///     Remove a child group from a parent group. Destructive: requires confirm=true. Runs
+    ///     <c>System.Identity/Group.RemoveChildGroup-1</c>.
+    /// </summary>
     [McpServerTool(Name = "remove_group_from_group")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
@@ -420,7 +323,23 @@ public sealed class GroupManagementTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        return await Run(server, tenantId, parentGroupId,
+            ctx => Groups(ctx).RemoveChildGroupAsync(parentGroupId, childGroupId),
+            $"Child group '{childGroupId}' removed from parent '{parentGroupId}'.",
+            RtGroupMethodClient.RemoveChildGroupErrors.ChildGroupNotInGroup);
+    }
+
+    private static RtGroupMethodClient Groups(IdentityClientContext ctx) => new(ctx.TenantClient!);
+
+    /// <summary>
+    ///     Builds the context, runs the group method (<see cref="IdentityMethodCall" />, no REST fallback) and maps the
+    ///     outcome to the response the tool returned before. <paramref name="successCodes" /> are the declared errors the
+    ///     identity REST endpoint answered with success (e.g. a member that is already in the group).
+    /// </summary>
+    private static async Task<GroupResponse> Run(McpServer server, string? tenantId, string groupId,
+        Func<IdentityClientContext, Task<CkMethodResult>> method, string successMessage, params string[] successCodes)
+    {
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new GroupResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -428,18 +347,31 @@ public sealed class GroupManagementTools
 
         try
         {
-            await ctx.Client!.RemoveGroupFromGroup(new OctoObjectId(parentGroupId), childGroupId);
+            var outcome = await IdentityMethodCall.RunAsync(() => method(ctx), successCodes: successCodes);
+            if (!outcome.IsSuccess)
+            {
+                return Failure(ctx, groupId, outcome.Error);
+            }
+
             return new GroupResponse
             {
                 IsSuccess = true,
                 TenantId = ctx.TenantId,
-                GroupId = parentGroupId,
-                Message = $"Child group '{childGroupId}' removed from parent '{parentGroupId}'."
+                GroupId = groupId,
+                Message = successMessage
             };
         }
         catch (Exception ex)
         {
-            return new GroupResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return Failure(ctx, groupId, ex.Message);
         }
     }
+
+    private static GroupResponse Failure(IdentityClientContext ctx, string? groupId, string? message) => new()
+    {
+        IsSuccess = false,
+        TenantId = ctx.TenantId,
+        GroupId = groupId,
+        ErrorMessage = IdentityMethodCall.SafeText(message)
+    };
 }

@@ -6,6 +6,8 @@ using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants.Methods;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -107,7 +109,7 @@ public sealed class ClientManagementTools
             return validation;
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -128,7 +130,18 @@ public sealed class ClientManagementTools
                 AutoProvisionInChildTenants = autoProvisionInChildTenants ? true : null
             };
 
-            await ctx.Client!.CreateClient(dto);
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => CreateClientAsync(ctx, dto),
+                secretMethod: true);
+            if (!outcome.IsSuccess)
+            {
+                return new ClientResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error, clientSecret)
+                };
+            }
 
             return new ClientResponse
             {
@@ -142,7 +155,7 @@ public sealed class ClientManagementTools
         }
         catch (Exception ex)
         {
-            return new ClientResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ClientResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message, clientSecret) };
         }
     }
 
@@ -163,7 +176,7 @@ public sealed class ClientManagementTools
             return validation;
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -171,7 +184,7 @@ public sealed class ClientManagementTools
 
         try
         {
-            await ctx.Client!.CreateClient(new ClientDto
+            var dto = new ClientDto
             {
                 IsEnabled = true,
                 ClientId = clientId,
@@ -180,7 +193,20 @@ public sealed class ClientManagementTools
                 AllowedGrantTypes = [OidcConstants.GrantTypes.DeviceCode],
                 AllowedScopes = [CommonConstants.OctoApiFullAccess],
                 IsOfflineAccessEnabled = true
-            });
+            };
+
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => CreateClientAsync(ctx, dto),
+                secretMethod: true);
+            if (!outcome.IsSuccess)
+            {
+                return new ClientResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error, clientSecret)
+                };
+            }
 
             return new ClientResponse
             {
@@ -192,7 +218,7 @@ public sealed class ClientManagementTools
         }
         catch (Exception ex)
         {
-            return new ClientResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ClientResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message, clientSecret) };
         }
     }
 
@@ -222,7 +248,7 @@ public sealed class ClientManagementTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -248,7 +274,18 @@ public sealed class ClientManagementTools
                 FrontChannelLogoutSessionRequired = string.IsNullOrWhiteSpace(frontChannelLogoutUri) ? null : true
             };
 
-            await ctx.Client!.CreateClient(dto);
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => CreateClientAsync(ctx, dto),
+                secretMethod: true);
+            if (!outcome.IsSuccess)
+            {
+                return new ClientResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
 
             return new ClientResponse
             {
@@ -260,7 +297,7 @@ public sealed class ClientManagementTools
         }
         catch (Exception ex)
         {
-            return new ClientResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ClientResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -288,7 +325,7 @@ public sealed class ClientManagementTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -296,7 +333,18 @@ public sealed class ClientManagementTools
 
         try
         {
-            await ctx.Client!.DeleteClient(clientId);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await Clients(ctx).DeleteClientAsync(await IdentityRtIds.ClientAsync(ctx, clientId)));
+            if (!outcome.IsSuccess)
+            {
+                return new ClientResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new ClientResponse
             {
                 IsSuccess = true,
@@ -307,7 +355,7 @@ public sealed class ClientManagementTools
         }
         catch (Exception ex)
         {
-            return new ClientResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ClientResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -369,7 +417,7 @@ public sealed class ClientManagementTools
             return new ClientMirrorBackfillResponse { IsSuccess = false, ErrorMessage = "clientId is required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ClientMirrorBackfillResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -377,7 +425,26 @@ public sealed class ClientManagementTools
 
         try
         {
-            var result = await ctx.Client!.ProvisionClientInExistingTenants(clientId);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () =>
+                {
+                    var call = await Clients(ctx).ProvisionMirrorsAsync(await IdentityRtIds.ClientAsync(ctx, clientId));
+                    return call.IsSuccess
+                        ? CkMethodResult<ClientMirrorBackfillResponseDto>.Success(call.InvocationId,
+                            IdentityMethodResults.ToDto(call.Value))
+                        : CkMethodResult<ClientMirrorBackfillResponseDto>.Failure(call.Error!);
+                });
+            if (!outcome.IsSuccess)
+            {
+                return new ClientMirrorBackfillResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
+            var result = outcome.Value!;
             return new ClientMirrorBackfillResponse
             {
                 IsSuccess = true,
@@ -389,7 +456,7 @@ public sealed class ClientManagementTools
         }
         catch (Exception ex)
         {
-            return new ClientMirrorBackfillResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ClientMirrorBackfillResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -414,7 +481,7 @@ public sealed class ClientManagementTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ClientMirrorProvisionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -422,7 +489,27 @@ public sealed class ClientManagementTools
 
         try
         {
-            var result = await ctx.Client!.ProvisionClientInTenant(clientId, childTenantId);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () =>
+                {
+                    var call = await Clients(ctx).ProvisionMirrorInTenantAsync(
+                        await IdentityRtIds.ClientAsync(ctx, clientId), childTenantId);
+                    return call.IsSuccess
+                        ? CkMethodResult<ClientMirrorProvisionResponseDto>.Success(call.InvocationId,
+                            IdentityMethodResults.ToDto(call.Value))
+                        : CkMethodResult<ClientMirrorProvisionResponseDto>.Failure(call.Error!);
+                });
+            if (!outcome.IsSuccess)
+            {
+                return new ClientMirrorProvisionResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
+            var result = outcome.Value!;
             return new ClientMirrorProvisionResponse
             {
                 IsSuccess = true,
@@ -435,7 +522,7 @@ public sealed class ClientManagementTools
         }
         catch (Exception ex)
         {
-            return new ClientMirrorProvisionResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ClientMirrorProvisionResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -471,7 +558,7 @@ public sealed class ClientManagementTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ClientMirrorProvisionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -479,7 +566,18 @@ public sealed class ClientManagementTools
 
         try
         {
-            await ctx.Client!.UnprovisionClientFromTenant(clientId, childTenantId);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await Clients(ctx).RemoveMirrorAsync(await IdentityRtIds.ClientAsync(ctx, clientId),
+                    childTenantId));
+            if (!outcome.IsSuccess)
+            {
+                return new ClientMirrorProvisionResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
             return new ClientMirrorProvisionResponse
             {
                 IsSuccess = true,
@@ -491,7 +589,7 @@ public sealed class ClientManagementTools
         }
         catch (Exception ex)
         {
-            return new ClientMirrorProvisionResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ClientMirrorProvisionResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -512,7 +610,7 @@ public sealed class ClientManagementTools
             return new ClientResponse { IsSuccess = false, ErrorMessage = "clientId is required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -520,7 +618,18 @@ public sealed class ClientManagementTools
 
         try
         {
-            await ctx.Client!.SetClientAutoProvisionInChildTenants(clientId, enabled);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await Clients(ctx).SetMirrorAutoProvisionAsync(await IdentityRtIds.ClientAsync(ctx, clientId), enabled));
+            if (!outcome.IsSuccess)
+            {
+                return new ClientResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new ClientResponse
             {
                 IsSuccess = true,
@@ -533,9 +642,31 @@ public sealed class ClientManagementTools
         }
         catch (Exception ex)
         {
-            return new ClientResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ClientResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
+
+    /// <summary>
+    ///     <c>System.Identity/Client.CreateClient-1</c> with one parameter per field of <paramref name="dto" /> (the client the
+    ///     tool describes); the server sets the protocol defaults.
+    /// </summary>
+    private static Task<CkMethodResult<string?>> CreateClientAsync(IdentityClientContext ctx, ClientDto dto) =>
+        Clients(ctx).CreateClientAsync(dto.ClientId!, dto.IsEnabled, dto.ClientName, dto.ClientUri,
+            dto.AllowedGrantTypes?.ToList(), dto.RedirectUris?.ToList(), dto.PostLogoutRedirectUris?.ToList(),
+            dto.AllowedCorsOrigins?.ToList(), dto.AllowedScopes?.ToList(), dto.IsOfflineAccessEnabled,
+            dto.RequireClientSecret, dto.ClientSecret, dto.FrontChannelLogoutUri, dto.FrontChannelLogoutSessionRequired,
+            dto.BackChannelLogoutUri, dto.BackChannelLogoutSessionRequired, dto.AutoProvisionInChildTenants);
+
+    private static RtClientMethodClient Clients(IdentityClientContext ctx) => new(ctx.TenantClient!);
+
+    /// <summary>
+    ///     The declared errors of <c>Group.RemoveMember-1</c> the identity REST endpoint answered with success for a client:
+    ///     a client that is not in the group, and a runtime id that names no client (nothing to remove).
+    /// </summary>
+    private static string[] RemoveClientMemberSuccessCodes(string clientId) =>
+        OctoObjectId.TryParse(clientId.Trim(), out _)
+            ? [RtGroupMethodClient.RemoveMemberErrors.MemberNotInGroup, RtGroupMethodClient.RemoveMemberErrors.MemberNotFound]
+            : [RtGroupMethodClient.RemoveMemberErrors.MemberNotInGroup];
 
     private static ClientResponse? ValidateAddClient(string clientId, string clientName, string clientSecret)
     {
@@ -573,7 +704,7 @@ public sealed class ClientManagementTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -584,7 +715,19 @@ public sealed class ClientManagementTools
             var existing = await ctx.Client!.GetClient(clientId);
             var newScopes = (existing.AllowedScopes ?? []).Append(scopeName).ToList();
 
-            await ctx.Client.UpdateClient(clientId, new ClientDto { AllowedScopes = newScopes });
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => Clients(ctx).UpdateClientAsync(existing.RtId ?? throw new RtIdNotResolvedException(
+                    $"The runtime id of client '{clientId}' could not be resolved."), allowedScopes: newScopes),
+                secretMethod: true);
+            if (!outcome.IsSuccess)
+            {
+                return new ClientResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
 
             return new ClientResponse
             {
@@ -596,7 +739,7 @@ public sealed class ClientManagementTools
         }
         catch (Exception ex)
         {
-            return new ClientResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ClientResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -653,7 +796,7 @@ public sealed class ClientManagementTools
             return new ClientResponse { IsSuccess = false, ErrorMessage = "clientId and roleName are required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -661,7 +804,18 @@ public sealed class ClientManagementTools
 
         try
         {
-            await ctx.Client!.AddRoleToClient(clientId, roleName);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await Clients(ctx).AddRoleAsync(await IdentityRtIds.ClientAsync(ctx, clientId), roleName));
+            if (!outcome.IsSuccess)
+            {
+                return new ClientResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new ClientResponse
             {
                 IsSuccess = true,
@@ -672,7 +826,7 @@ public sealed class ClientManagementTools
         }
         catch (Exception ex)
         {
-            return new ClientResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ClientResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -702,7 +856,7 @@ public sealed class ClientManagementTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -710,7 +864,20 @@ public sealed class ClientManagementTools
 
         try
         {
-            await ctx.Client!.RemoveRoleFromClient(clientId, roleName);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await Clients(ctx).RemoveRoleAsync(await IdentityRtIds.ClientAsync(ctx, clientId), roleName),
+                // As the identity REST endpoint: a role that does not exist is not assigned, so there is nothing to remove.
+                successCodes: RtClientMethodClient.RemoveRoleErrors.RoleNotFound);
+            if (!outcome.IsSuccess)
+            {
+                return new ClientResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new ClientResponse
             {
                 IsSuccess = true,
@@ -721,7 +888,7 @@ public sealed class ClientManagementTools
         }
         catch (Exception ex)
         {
-            return new ClientResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ClientResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -741,7 +908,7 @@ public sealed class ClientManagementTools
             return new ClientResponse { IsSuccess = false, ErrorMessage = "clientId is required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -749,7 +916,19 @@ public sealed class ClientManagementTools
 
         try
         {
-            await ctx.Client!.UpdateClientRoles(clientId, roleIds ?? []);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await Clients(ctx).SetRolesAsync(await IdentityRtIds.ClientAsync(ctx, clientId),
+                                await IdentityRtIds.RoleNamesAsync(ctx, roleIds)));
+            if (!outcome.IsSuccess)
+            {
+                return new ClientResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new ClientResponse
             {
                 IsSuccess = true,
@@ -760,7 +939,7 @@ public sealed class ClientManagementTools
         }
         catch (Exception ex)
         {
-            return new ClientResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ClientResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -780,7 +959,7 @@ public sealed class ClientManagementTools
             return new ClientResponse { IsSuccess = false, ErrorMessage = "groupId and clientId are required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -788,7 +967,20 @@ public sealed class ClientManagementTools
 
         try
         {
-            await ctx.Client!.AddClientToGroup(new OctoObjectId(groupId), clientId);
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => new RtGroupMethodClient(ctx.TenantClient!).AddMemberAsync(groupId, RtGroupMemberKindEnum.Client,
+                    clientId),
+                successCodes: RtGroupMethodClient.AddMemberErrors.MemberAlreadyInGroup);
+            if (!outcome.IsSuccess)
+            {
+                return new ClientResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new ClientResponse
             {
                 IsSuccess = true,
@@ -799,7 +991,7 @@ public sealed class ClientManagementTools
         }
         catch (Exception ex)
         {
-            return new ClientResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ClientResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -829,7 +1021,7 @@ public sealed class ClientManagementTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ClientResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -837,7 +1029,20 @@ public sealed class ClientManagementTools
 
         try
         {
-            await ctx.Client!.RemoveClientFromGroup(new OctoObjectId(groupId), clientId);
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => new RtGroupMethodClient(ctx.TenantClient!).RemoveMemberAsync(groupId, RtGroupMemberKindEnum.Client,
+                    clientId),
+                successCodes: RemoveClientMemberSuccessCodes(clientId));
+            if (!outcome.IsSuccess)
+            {
+                return new ClientResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new ClientResponse
             {
                 IsSuccess = true,
@@ -848,7 +1053,7 @@ public sealed class ClientManagementTools
         }
         catch (Exception ex)
         {
-            return new ClientResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ClientResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 }

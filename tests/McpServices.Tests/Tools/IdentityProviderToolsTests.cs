@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
@@ -15,6 +16,21 @@ public class IdentityProviderToolsTests : ToolTestBase
     {
         GivenAuthenticated();
     }
+
+    /// <summary>The input of the single create call, sent through the client of the concrete provider type.</summary>
+    private JsonElement CreateInput(string providerType) =>
+        CkMethods.InputOf($"SystemIdentity{providerType}IdentityProviderCreateIdentityProvider");
+
+    /// <summary>The input of the single update call; asserts the target runtime id.</summary>
+    private JsonElement UpdateInput(string providerType)
+    {
+        var operation = $"SystemIdentity{providerType}IdentityProviderUpdateIdentityProvider";
+        CkMethods.RtIdOf(operation).Should().Be(ProviderId);
+        return CkMethods.InputOf(operation);
+    }
+
+    private void AssertNoRestWrite() =>
+        MockIdentityClient.Invocations.Select(i => i.Method.Name).Should().OnlyContain(n => n.StartsWith("Get"));
 
     [Fact]
     public async Task GetIdentityProviders_HappyPath_ReturnsList()
@@ -51,43 +67,56 @@ public class IdentityProviderToolsTests : ToolTestBase
     [Fact]
     public async Task DeleteIdentityProvider_WithConfirm_CallsSdk()
     {
+        // The delete runs on the client of the stored provider type.
+        MockIdentityClient.Setup(c => c.GetIdentityProvider(It.IsAny<OctoObjectId>()))
+            .ReturnsAsync(new OpenLdapProviderDto { Name = "LDAP" });
+        CkMethods.Succeeds();
+
         var result = await IdentityProviderTools.DeleteIdentityProvider(MockServer.Object,
             ProviderId, confirm: true);
 
         result.IsSuccess.Should().BeTrue();
-        MockIdentityClient.Verify(c => c.DeleteIdentityProvider(
-            It.Is<OctoObjectId>(o => o.ToString() == ProviderId)), Times.Once);
+        CkMethods.RtIdOf("SystemIdentityOpenLdapIdentityProviderDeleteIdentityProvider").Should().Be(ProviderId);
+        AssertNoRestWrite();
     }
 
     [Fact]
     public async Task AddOAuthIdentityProvider_Google_BuildsGoogleDto()
     {
+        CkMethods.Succeeds();
+
         await IdentityProviderTools.AddOAuthIdentityProvider(MockServer.Object,
             name: "G", providerType: "google", clientId: "cid", clientSecret: "csec");
 
-        MockIdentityClient.Verify(c => c.CreateIdentityProvider(
-            It.Is<GoogleIdentityProviderDto>(p => p.Name == "G" && p.ClientId == "cid" && p.ClientSecret == "csec")),
-            Times.Once);
+        var input = CreateInput("Google");
+        CkMethodFake.Str(input, "name").Should().Be("G");
+        CkMethodFake.Str(input, "clientId").Should().Be("cid");
+        CkMethodFake.Str(input, "clientSecret").Should().Be("csec");
+        AssertNoRestWrite();
     }
 
     [Fact]
     public async Task AddOAuthIdentityProvider_Microsoft_BuildsMicrosoftDto()
     {
+        CkMethods.Succeeds();
+
         await IdentityProviderTools.AddOAuthIdentityProvider(MockServer.Object,
             "M", "microsoft", "cid", "csec");
 
-        MockIdentityClient.Verify(c => c.CreateIdentityProvider(
-            It.Is<MicrosoftIdentityProviderDto>(p => p.Name == "M")), Times.Once);
+        CkMethodFake.Str(CreateInput("Microsoft"), "name").Should().Be("M");
+        AssertNoRestWrite();
     }
 
     [Fact]
     public async Task AddOAuthIdentityProvider_Facebook_BuildsFacebookDto()
     {
+        CkMethods.Succeeds();
+
         await IdentityProviderTools.AddOAuthIdentityProvider(MockServer.Object,
             "F", "facebook", "cid", "csec");
 
-        MockIdentityClient.Verify(c => c.CreateIdentityProvider(
-            It.Is<FacebookIdentityProviderDto>(p => p.Name == "F")), Times.Once);
+        CkMethodFake.Str(CreateInput("Facebook"), "name").Should().Be("F");
+        AssertNoRestWrite();
     }
 
     [Fact]
@@ -104,74 +133,96 @@ public class IdentityProviderToolsTests : ToolTestBase
     [Fact]
     public async Task AddOAuthIdentityProvider_AppliesOptionalDefaultGroup()
     {
+        CkMethods.Succeeds();
+
         await IdentityProviderTools.AddOAuthIdentityProvider(MockServer.Object,
             "G", "google", "cid", "csec",
             allowSelfRegistration: false, defaultGroupRtId: "grp-123");
 
-        MockIdentityClient.Verify(c => c.CreateIdentityProvider(
-            It.Is<GoogleIdentityProviderDto>(p =>
-                p.AllowSelfRegistration == false && p.DefaultGroupRtId == "grp-123")), Times.Once);
+        var input = CreateInput("Google");
+        CkMethodFake.Bool(input, "allowSelfRegistration").Should().BeFalse();
+        CkMethodFake.Str(input, "defaultGroupRtId").Should().Be("grp-123");
     }
 
     [Fact]
     public async Task AddAzureEntraIdIdentityProvider_BuildsAzureDto()
     {
+        CkMethods.Succeeds();
+
         await IdentityProviderTools.AddAzureEntraIdIdentityProvider(MockServer.Object,
             name: "Az", azureTenantId: "azure-tid", clientId: "cid", clientSecret: "csec",
             authority: "https://my-authority/");
 
-        MockIdentityClient.Verify(c => c.CreateIdentityProvider(
-            It.Is<AzureEntraIdProviderDto>(p =>
-                p.Name == "Az" && p.TenantId == "azure-tid" &&
-                p.ClientId == "cid" && p.ClientSecret == "csec" &&
-                p.Authority == "https://my-authority/")), Times.Once);
+        var input = CreateInput("AzureEntraId");
+        CkMethodFake.Str(input, "name").Should().Be("Az");
+        CkMethodFake.Str(input, "tenantId").Should().Be("azure-tid");
+        CkMethodFake.Str(input, "clientId").Should().Be("cid");
+        CkMethodFake.Str(input, "clientSecret").Should().Be("csec");
+        CkMethodFake.Str(input, "authority").Should().Be("https://my-authority/");
+        AssertNoRestWrite();
     }
 
     [Fact]
     public async Task AddOpenLdapIdentityProvider_BuildsOpenLdapDto()
     {
+        CkMethods.Succeeds();
+
         await IdentityProviderTools.AddOpenLdapIdentityProvider(MockServer.Object,
             name: "LDAP", host: "ldap.example.com", userBaseDn: "ou=users,dc=example,dc=com",
             port: 389, userNameAttribute: "cn", useTls: false);
 
-        MockIdentityClient.Verify(c => c.CreateIdentityProvider(
-            It.Is<OpenLdapProviderDto>(p =>
-                p.Name == "LDAP" && p.Host == "ldap.example.com" && p.Port == 389 &&
-                p.UserBaseDn == "ou=users,dc=example,dc=com" && p.UserNameAttribute == "cn" &&
-                p.UseTls == false)), Times.Once);
+        var input = CreateInput("OpenLdap");
+        CkMethodFake.Str(input, "name").Should().Be("LDAP");
+        CkMethodFake.Str(input, "host").Should().Be("ldap.example.com");
+        CkMethodFake.Prop(input, "port")!.Value.GetInt32().Should().Be(389);
+        CkMethodFake.Str(input, "userBaseDn").Should().Be("ou=users,dc=example,dc=com");
+        CkMethodFake.Str(input, "userNameAttribute").Should().Be("cn");
+        CkMethodFake.Bool(input, "useTls").Should().BeFalse();
+        AssertNoRestWrite();
     }
 
     [Fact]
     public async Task AddOpenLdapIdentityProvider_DefaultsPortAndAttribute()
     {
+        CkMethods.Succeeds();
+
         await IdentityProviderTools.AddOpenLdapIdentityProvider(MockServer.Object,
             "LDAP", "ldap.example.com", "dc=example");
 
-        MockIdentityClient.Verify(c => c.CreateIdentityProvider(
-            It.Is<OpenLdapProviderDto>(p =>
-                p.Port == 636 && p.UserNameAttribute == "uid" && p.UseTls == true)), Times.Once);
+        var input = CreateInput("OpenLdap");
+        CkMethodFake.Prop(input, "port")!.Value.GetInt32().Should().Be(636);
+        CkMethodFake.Str(input, "userNameAttribute").Should().Be("uid");
+        CkMethodFake.Bool(input, "useTls").Should().BeTrue();
     }
 
     [Fact]
     public async Task AddActiveDirectoryIdentityProvider_BuildsAdDto()
     {
+        CkMethods.Succeeds();
+
         await IdentityProviderTools.AddActiveDirectoryIdentityProvider(MockServer.Object,
             name: "AD", host: "dc.example.com", port: 389, useTls: true);
 
-        MockIdentityClient.Verify(c => c.CreateIdentityProvider(
-            It.Is<MicrosoftAdProviderDto>(p =>
-                p.Name == "AD" && p.Host == "dc.example.com" && p.Port == 389 && p.UseTls == true)), Times.Once);
+        var input = CreateInput("MicrosoftAd");
+        CkMethodFake.Str(input, "name").Should().Be("AD");
+        CkMethodFake.Str(input, "host").Should().Be("dc.example.com");
+        CkMethodFake.Prop(input, "port")!.Value.GetInt32().Should().Be(389);
+        CkMethodFake.Bool(input, "useTls").Should().BeTrue();
+        AssertNoRestWrite();
     }
 
     [Fact]
     public async Task AddOctoTenantIdentityProvider_BuildsOctoTenantDto()
     {
+        CkMethods.Succeeds();
+
         await IdentityProviderTools.AddOctoTenantIdentityProvider(MockServer.Object,
             name: "Parent", parentTenantId: "octosystem");
 
-        MockIdentityClient.Verify(c => c.CreateIdentityProvider(
-            It.Is<OctoTenantIdentityProviderDto>(p =>
-                p.Name == "Parent" && p.ParentTenantId == "octosystem")), Times.Once);
+        var input = CreateInput("OctoTenant");
+        CkMethodFake.Str(input, "name").Should().Be("Parent");
+        CkMethodFake.Str(input, "parentTenantId").Should().Be("octosystem");
+        AssertNoRestWrite();
     }
 
     [Fact]
@@ -188,6 +239,8 @@ public class IdentityProviderToolsTests : ToolTestBase
     [Fact]
     public async Task UpdateIdentityProvider_Google_PreservesTypeAndPatches()
     {
+        CkMethods.Succeeds();
+
         MockIdentityClient.Setup(c => c.GetIdentityProvider(
                 It.Is<OctoObjectId>(o => o.ToString() == ProviderId)))
             .ReturnsAsync(new GoogleIdentityProviderDto
@@ -199,16 +252,19 @@ public class IdentityProviderToolsTests : ToolTestBase
             providerId: ProviderId, name: "New", isEnabled: true,
             clientId: "new-cid", clientSecret: "new-sec");
 
-        MockIdentityClient.Verify(c => c.UpdateIdentityProvider(
-            It.Is<OctoObjectId>(o => o.ToString() == ProviderId),
-            It.Is<GoogleIdentityProviderDto>(p =>
-                p.Name == "New" && p.IsEnabled == true &&
-                p.ClientId == "new-cid" && p.ClientSecret == "new-sec")), Times.Once);
+        var input = UpdateInput("Google");
+        CkMethodFake.Str(input, "name").Should().Be("New");
+        CkMethodFake.Bool(input, "enabled").Should().BeTrue();
+        CkMethodFake.Str(input, "clientId").Should().Be("new-cid");
+        CkMethodFake.Str(input, "clientSecret").Should().Be("new-sec");
+        AssertNoRestWrite();
     }
 
     [Fact]
     public async Task UpdateIdentityProvider_AzureEntra_PreservesTenantAndAuthority()
     {
+        CkMethods.Succeeds();
+
         // AB#5543: GET no longer returns the client secret (write-only, clientSecretIsSet instead).
         MockIdentityClient.Setup(c => c.GetIdentityProvider(It.IsAny<OctoObjectId>()))
             .ReturnsAsync(new AzureEntraIdProviderDto
@@ -225,18 +281,20 @@ public class IdentityProviderToolsTests : ToolTestBase
             providerId: ProviderId, name: "New", isEnabled: true);
 
         // No new secret supplied -> null on the wire = "keep the stored secret".
-        MockIdentityClient.Verify(c => c.UpdateIdentityProvider(
-            It.IsAny<OctoObjectId>(),
-            It.Is<AzureEntraIdProviderDto>(p =>
-                p.Name == "New" && p.TenantId == "azure-tid" &&
-                p.Authority == "https://my-authority/" &&
-                p.ClientId == "old-cid" && p.ClientSecret == null)),
-            Times.Once);
+        var input = UpdateInput("AzureEntraId");
+        CkMethodFake.Str(input, "name").Should().Be("New");
+        CkMethodFake.Str(input, "tenantId").Should().Be("azure-tid");
+        CkMethodFake.Str(input, "authority").Should().Be("https://my-authority/");
+        CkMethodFake.Str(input, "clientId").Should().Be("old-cid");
+        CkMethodFake.Str(input, "clientSecret").Should().BeNull();
+        AssertNoRestWrite();
     }
 
     [Fact]
     public async Task UpdateIdentityProvider_AzureEntra_WithNewSecret_RotatesSecret()
     {
+        CkMethods.Succeeds();
+
         MockIdentityClient.Setup(c => c.GetIdentityProvider(It.IsAny<OctoObjectId>()))
             .ReturnsAsync(new AzureEntraIdProviderDto
             {
@@ -246,15 +304,14 @@ public class IdentityProviderToolsTests : ToolTestBase
         await IdentityProviderTools.UpdateIdentityProvider(MockServer.Object,
             providerId: ProviderId, name: "New", isEnabled: true, clientSecret: "rotated-test-secret");
 
-        MockIdentityClient.Verify(c => c.UpdateIdentityProvider(
-            It.IsAny<OctoObjectId>(),
-            It.Is<AzureEntraIdProviderDto>(p => p.ClientSecret == "rotated-test-secret")),
-            Times.Once);
+        CkMethodFake.Str(UpdateInput("AzureEntraId"), "clientSecret").Should().Be("rotated-test-secret");
     }
 
     [Fact]
     public async Task UpdateIdentityProvider_Google_WithoutSecret_SendsNullAndKeepsClientId()
     {
+        CkMethods.Succeeds();
+
         // Even if a (legacy) server still echoed a secret, the tool must never send it back.
         MockIdentityClient.Setup(c => c.GetIdentityProvider(It.IsAny<OctoObjectId>()))
             .ReturnsAsync(new GoogleIdentityProviderDto
@@ -265,25 +322,24 @@ public class IdentityProviderToolsTests : ToolTestBase
         await IdentityProviderTools.UpdateIdentityProvider(MockServer.Object,
             providerId: ProviderId, name: "New", isEnabled: true);
 
-        MockIdentityClient.Verify(c => c.UpdateIdentityProvider(
-            It.IsAny<OctoObjectId>(),
-            It.Is<GoogleIdentityProviderDto>(p => p.ClientId == "old-cid" && p.ClientSecret == null)),
-            Times.Once);
+        var input = UpdateInput("Google");
+        CkMethodFake.Str(input, "clientId").Should().Be("old-cid");
+        CkMethodFake.Str(input, "clientSecret").Should().BeNull();
+        JsonSerializer.Serialize(CkMethods.Requests).Should().NotContain("echoed-by-old-server");
     }
 
     [Fact]
     public async Task UpdateIdentityProvider_EmptySecret_IsTreatedAsUnchanged()
     {
+        CkMethods.Succeeds();
+
         MockIdentityClient.Setup(c => c.GetIdentityProvider(It.IsAny<OctoObjectId>()))
             .ReturnsAsync(new MicrosoftIdentityProviderDto { Name = "Old", ClientId = "cid" });
 
         await IdentityProviderTools.UpdateIdentityProvider(MockServer.Object,
             providerId: ProviderId, name: "New", isEnabled: true, clientSecret: "");
 
-        MockIdentityClient.Verify(c => c.UpdateIdentityProvider(
-            It.IsAny<OctoObjectId>(),
-            It.Is<MicrosoftIdentityProviderDto>(p => p.ClientSecret == null)),
-            Times.Once);
+        CkMethodFake.Str(UpdateInput("Microsoft"), "clientSecret").Should().BeNull();
     }
 
     [Fact]
@@ -331,6 +387,8 @@ public class IdentityProviderToolsTests : ToolTestBase
     [Fact]
     public async Task UpdateIdentityProvider_OpenLdap_PreservesHostAndUserBaseDn()
     {
+        CkMethods.Succeeds();
+
         MockIdentityClient.Setup(c => c.GetIdentityProvider(It.IsAny<OctoObjectId>()))
             .ReturnsAsync(new OpenLdapProviderDto
             {
@@ -345,18 +403,22 @@ public class IdentityProviderToolsTests : ToolTestBase
         await IdentityProviderTools.UpdateIdentityProvider(MockServer.Object,
             providerId: ProviderId, name: "New", isEnabled: false);
 
-        MockIdentityClient.Verify(c => c.UpdateIdentityProvider(
-            It.IsAny<OctoObjectId>(),
-            It.Is<OpenLdapProviderDto>(p =>
-                p.Name == "New" && p.IsEnabled == false &&
-                p.Host == "ldap.example.com" && p.Port == 389 &&
-                p.UserBaseDn == "ou=u,dc=ex,dc=com" && p.UserNameAttribute == "cn" &&
-                p.UseTls == false)), Times.Once);
+        var input = UpdateInput("OpenLdap");
+        CkMethodFake.Str(input, "name").Should().Be("New");
+        CkMethodFake.Bool(input, "enabled").Should().BeFalse();
+        CkMethodFake.Str(input, "host").Should().Be("ldap.example.com");
+        CkMethodFake.Prop(input, "port")!.Value.GetInt32().Should().Be(389);
+        CkMethodFake.Str(input, "userBaseDn").Should().Be("ou=u,dc=ex,dc=com");
+        CkMethodFake.Str(input, "userNameAttribute").Should().Be("cn");
+        CkMethodFake.Bool(input, "useTls").Should().BeFalse();
+        AssertNoRestWrite();
     }
 
     [Fact]
     public async Task UpdateIdentityProvider_OctoTenant_PreservesParentTenantId()
     {
+        CkMethods.Succeeds();
+
         MockIdentityClient.Setup(c => c.GetIdentityProvider(It.IsAny<OctoObjectId>()))
             .ReturnsAsync(new OctoTenantIdentityProviderDto
             {
@@ -366,15 +428,14 @@ public class IdentityProviderToolsTests : ToolTestBase
         await IdentityProviderTools.UpdateIdentityProvider(MockServer.Object,
             providerId: ProviderId, name: "New", isEnabled: true);
 
-        MockIdentityClient.Verify(c => c.UpdateIdentityProvider(
-            It.IsAny<OctoObjectId>(),
-            It.Is<OctoTenantIdentityProviderDto>(p => p.ParentTenantId == "parent-t")),
-            Times.Once);
+        CkMethodFake.Str(UpdateInput("OctoTenant"), "parentTenantId").Should().Be("parent-t");
     }
 
     [Fact]
     public async Task UpdateIdentityProvider_AppliesOptionalAllowSelfRegistration()
     {
+        CkMethods.Succeeds();
+
         MockIdentityClient.Setup(c => c.GetIdentityProvider(It.IsAny<OctoObjectId>()))
             .ReturnsAsync(new GoogleIdentityProviderDto { Name = "Old" });
 
@@ -382,11 +443,9 @@ public class IdentityProviderToolsTests : ToolTestBase
             providerId: ProviderId, name: "New", isEnabled: true,
             allowSelfRegistration: false, defaultGroupRtId: "grp-1");
 
-        MockIdentityClient.Verify(c => c.UpdateIdentityProvider(
-            It.IsAny<OctoObjectId>(),
-            It.Is<IdentityProviderDto>(p =>
-                p.AllowSelfRegistration == false && p.DefaultGroupRtId == "grp-1")),
-            Times.Once);
+        var input = UpdateInput("Google");
+        CkMethodFake.Bool(input, "allowSelfRegistration").Should().BeFalse();
+        CkMethodFake.Str(input, "defaultGroupRtId").Should().Be("grp-1");
     }
 
     [Fact]

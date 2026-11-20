@@ -44,11 +44,14 @@ public class RoleManagementToolsTests : ToolTestBase
     [Fact]
     public async Task CreateRole_HappyPath_CallsSdk()
     {
+        CkMethods.Succeeds(RoleRtId);
+
         var result = await RoleManagementTools.CreateRole(MockServer.Object, "Auditors");
 
         result.IsSuccess.Should().BeTrue();
         result.RoleName.Should().Be("Auditors");
-        MockIdentityClient.Verify(c => c.CreateRole(It.Is<RoleDto>(r => r.Name == "Auditors")), Times.Once);
+        CkMethodFake.Str(CkMethods.InputOf("SystemIdentityRoleCreateRole"), "name").Should().Be("Auditors");
+        MockIdentityClient.Verify(c => c.CreateRole(It.IsAny<RoleDto>()), Times.Never);
     }
 
     [Fact]
@@ -63,11 +66,15 @@ public class RoleManagementToolsTests : ToolTestBase
     [Fact]
     public async Task UpdateRole_HappyPath_CallsSdk()
     {
+        MockIdentityClient.Setup(c => c.GetRoleByName("Old")).ReturnsAsync(new RoleDto { Id = RoleRtId, Name = "Old" });
+        CkMethods.Succeeds();
+
         var result = await RoleManagementTools.UpdateRole(MockServer.Object, "Old", "New");
 
         result.IsSuccess.Should().BeTrue();
         result.RoleName.Should().Be("New");
-        MockIdentityClient.Verify(c => c.UpdateRole("Old", It.Is<RoleDto>(r => r.Name == "New")), Times.Once);
+        CkMethods.RtIdOf("SystemIdentityRoleUpdateRole").Should().Be(RoleRtId);
+        CkMethodFake.Str(CkMethods.InputOf("SystemIdentityRoleUpdateRole"), "name").Should().Be("New");
     }
 
     [Fact]
@@ -82,9 +89,16 @@ public class RoleManagementToolsTests : ToolTestBase
     [Fact]
     public async Task DeleteRole_WithConfirm_CallsSdk()
     {
+        MockIdentityClient.Setup(c => c.GetRoleByName("Auditors"))
+            .ReturnsAsync(new RoleDto { Id = RoleRtId, Name = "Auditors" });
+        CkMethods.Succeeds();
+
         var result = await RoleManagementTools.DeleteRole(MockServer.Object, "Auditors", confirm: true);
 
         result.IsSuccess.Should().BeTrue();
-        MockIdentityClient.Verify(c => c.DeleteRole("Auditors"), Times.Once);
+        CkMethods.RtIdOf("SystemIdentityRoleDeleteRole").Should().Be(RoleRtId);
+        MockIdentityClient.Verify(c => c.DeleteRole(It.IsAny<string>()), Times.Never);
     }
+
+    private const string RoleRtId = "507f1f77bcf86cd799439099";
 }

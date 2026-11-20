@@ -60,6 +60,14 @@ public abstract class ToolTestBase : TestBase
     /// </summary>
     protected Mock<ITenantClient> MockTenantClient { get; }
 
+    private CkMethodFake? _ckMethods;
+
+    /// <summary>
+    ///     Answers the CK method calls of the identity tools on <see cref="MockTenantClient" /> (success by default) and
+    ///     records their requests. Created on first use, so tests that set up the tenant client themselves are not affected.
+    /// </summary>
+    protected CkMethodFake CkMethods => _ckMethods ??= new CkMethodFake(MockTenantClient);
+
     /// <summary>File-transfer store — real instance, in-memory. Internal because the store type is internal.</summary>
     internal FileTransferStore FileTransferStore { get; }
 

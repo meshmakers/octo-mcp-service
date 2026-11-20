@@ -1,6 +1,8 @@
 using FluentAssertions;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.ConstructionKit.Contracts;
 using Moq;
 using Xunit;
 
@@ -36,12 +38,16 @@ public class ApiResourceToolsTests : ToolTestBase
     [Fact]
     public async Task CreateApiResource_HappyPath_PassesScopes()
     {
+        CkMethods.Succeeds();
+
         await ApiResourceTools.CreateApiResource(MockServer.Object,
             name: "octo_api", displayName: "Octo API", scopes: ["read", "write"]);
 
-        MockIdentityClient.Verify(c => c.CreateApiResource(It.Is<ApiResourceDto>(d =>
-            d.Name == "octo_api" && d.DisplayName == "Octo API" &&
-            d.Scopes!.Contains("read") && d.Scopes.Contains("write"))), Times.Once);
+        var input = CkMethods.InputOf("SystemIdentityApiResourceCreateApiResource");
+        CkMethodFake.Str(input, "name").Should().Be("octo_api");
+        CkMethodFake.Str(input, "displayName").Should().Be("Octo API");
+        CkMethodFake.Strings(input.GetProperty("scopes")).Should().Equal("read", "write");
+        MockIdentityClient.Verify(c => c.CreateApiResource(It.IsAny<ApiResourceDto>()), Times.Never);
     }
 
     [Fact]
@@ -54,12 +60,16 @@ public class ApiResourceToolsTests : ToolTestBase
     [Fact]
     public async Task UpdateApiResource_HappyPath_CallsSdk()
     {
+        CkMethods.GivenQueryReturns(new RtApiResourceDto { RtId = new OctoObjectId(ResourceRtId), Name = "octo_api" });
+
         var result = await ApiResourceTools.UpdateApiResource(MockServer.Object,
             "octo_api", displayName: "Octo Public");
 
         result.IsSuccess.Should().BeTrue();
-        MockIdentityClient.Verify(c => c.UpdateApiResource("octo_api",
-            It.Is<ApiResourceDto>(d => d.DisplayName == "Octo Public")), Times.Once);
+        CkMethods.RtIdOf("SystemIdentityApiResourceUpdateApiResource").Should().Be(ResourceRtId);
+        var input = CkMethods.InputOf("SystemIdentityApiResourceUpdateApiResource");
+        CkMethodFake.Str(input, "name").Should().Be("octo_api");
+        CkMethodFake.Str(input, "displayName").Should().Be("Octo Public");
     }
 
     [Fact]
@@ -73,11 +83,28 @@ public class ApiResourceToolsTests : ToolTestBase
     [Fact]
     public async Task DeleteApiResource_WithConfirm_CallsSdk()
     {
+        CkMethods.GivenQueryReturns(new RtApiResourceDto { RtId = new OctoObjectId(ResourceRtId), Name = "octo_api" });
+
         var result = await ApiResourceTools.DeleteApiResource(MockServer.Object,
             "octo_api", confirm: true);
         result.IsSuccess.Should().BeTrue();
-        MockIdentityClient.Verify(c => c.DeleteApiResource("octo_api"), Times.Once);
+        CkMethods.RtIdOf("SystemIdentityApiResourceDeleteApiResource").Should().Be(ResourceRtId);
+        MockIdentityClient.Verify(c => c.DeleteApiResource(It.IsAny<string>()), Times.Never);
     }
+
+    [Fact]
+    public async Task DeleteApiResource_Unknown_IsReportedAsNotFound_NoMethodCall()
+    {
+        CkMethods.GivenQueryReturns<RtApiResourceDto>();
+
+        var result = await ApiResourceTools.DeleteApiResource(MockServer.Object, "ghost", confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be("API resource 'ghost' not found.");
+        CkMethods.Requests.Should().BeEmpty();
+    }
+
+    private const string ResourceRtId = "507f1f77bcf86cd799439088";
 }
 
 public class ApiScopeToolsTests : ToolTestBase
@@ -110,11 +137,16 @@ public class ApiScopeToolsTests : ToolTestBase
     [Fact]
     public async Task CreateApiScope_HappyPath_CallsSdk()
     {
+        CkMethods.Succeeds();
+
         await ApiScopeTools.CreateApiScope(MockServer.Object,
             "read", displayName: "Read", description: "read scope");
 
-        MockIdentityClient.Verify(c => c.CreateApiScope(It.Is<ApiScopeDto>(d =>
-            d.Name == "read" && d.DisplayName == "Read" && d.Description == "read scope")), Times.Once);
+        var input = CkMethods.InputOf("SystemIdentityApiScopeCreateApiScope");
+        CkMethodFake.Str(input, "name").Should().Be("read");
+        CkMethodFake.Str(input, "displayName").Should().Be("Read");
+        CkMethodFake.Str(input, "description").Should().Be("read scope");
+        MockIdentityClient.Verify(c => c.CreateApiScope(It.IsAny<ApiScopeDto>()), Times.Never);
     }
 
     [Fact]
@@ -127,12 +159,15 @@ public class ApiScopeToolsTests : ToolTestBase
     [Fact]
     public async Task UpdateApiScope_HappyPath_CallsSdk()
     {
+        CkMethods.GivenQueryReturns(new RtApiScopeDto { RtId = new OctoObjectId(ScopeRtId), Name = "read" });
+
         var result = await ApiScopeTools.UpdateApiScope(MockServer.Object,
             "read", displayName: "Read Access");
 
         result.IsSuccess.Should().BeTrue();
-        MockIdentityClient.Verify(c => c.UpdateApiScope("read",
-            It.Is<ApiScopeDto>(d => d.DisplayName == "Read Access")), Times.Once);
+        CkMethods.RtIdOf("SystemIdentityApiScopeUpdateApiScope").Should().Be(ScopeRtId);
+        CkMethodFake.Str(CkMethods.InputOf("SystemIdentityApiScopeUpdateApiScope"), "displayName")
+            .Should().Be("Read Access");
     }
 
     [Fact]
@@ -146,8 +181,13 @@ public class ApiScopeToolsTests : ToolTestBase
     [Fact]
     public async Task DeleteApiScope_WithConfirm_CallsSdk()
     {
+        CkMethods.GivenQueryReturns(new RtApiScopeDto { RtId = new OctoObjectId(ScopeRtId), Name = "read" });
+
         var result = await ApiScopeTools.DeleteApiScope(MockServer.Object, "read", confirm: true);
         result.IsSuccess.Should().BeTrue();
-        MockIdentityClient.Verify(c => c.DeleteScope("read"), Times.Once);
+        CkMethods.RtIdOf("SystemIdentityApiScopeDeleteApiScope").Should().Be(ScopeRtId);
+        MockIdentityClient.Verify(c => c.DeleteScope(It.IsAny<string>()), Times.Never);
     }
+
+    private const string ScopeRtId = "507f1f77bcf86cd799439077";
 }

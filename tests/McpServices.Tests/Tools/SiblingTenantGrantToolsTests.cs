@@ -122,8 +122,11 @@ public class SiblingTenantGrantToolsTests : ToolTestBase
     [Fact]
     public async Task Grant_WithTwoGroups_ReturnsTheStoredMapping()
     {
-        MockIdentityClient.Setup(c => c.GrantExternalTenantUser(It.Is<CreateExternalTenantUserMappingDto>(d =>
-                d.GroupIds!.SequenceEqual(new[] { GroupA, GroupB }))))
+        // ExternalTenantUserMapping.CreateMapping-1 answers the provisioning record; the tool returns the stored mapping.
+        CkMethods.Succeeds(new Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3
+            .RtAdminProvisioningResultRecordDto { MappingRtId = "6a1b2c3d4e5f60718293a4c0" });
+        MockIdentityClient.Setup(c => c.GetExternalTenantUserMapping(
+                It.Is<Meshmakers.Octo.ConstructionKit.Contracts.OctoObjectId>(o => o.ToString() == "6a1b2c3d4e5f60718293a4c0")))
             .ReturnsAsync(new ExternalTenantUserMappingDto
             {
                 Id = new Meshmakers.Octo.ConstructionKit.Contracts.OctoObjectId("6a1b2c3d4e5f60718293a4c0"),
@@ -134,6 +137,8 @@ public class SiblingTenantGrantToolsTests : ToolTestBase
             "686a6215fd3e5972ff5693fd", "whatever", groupIds: [GroupA, GroupB]);
 
         result.IsSuccess.Should().BeTrue();
+        CkMethodFake.Strings(CkMethods.InputOf("SystemIdentityExternalTenantUserMappingCreateMapping")
+            .GetProperty("groupIds")).Should().Equal(GroupA, GroupB);
         result.RtId.Should().Be("6a1b2c3d4e5f60718293a4c0");
         result.Mapping!.GroupNames.Should().Equal("Operators", "Viewers");
         result.Message.Should().Contain("'alice'");
@@ -142,24 +147,24 @@ public class SiblingTenantGrantToolsTests : ToolTestBase
     [Fact]
     public async Task Grant_SourceTenantNotPermitted_ReturnsTheCode()
     {
-        MockIdentityClient.Setup(c => c.GrantExternalTenantUser(It.IsAny<CreateExternalTenantUserMappingDto>()))
-            .ThrowsAsync(Problem(HttpStatusCode.Forbidden,
-                "{\"status\":403,\"title\":\"Source tenant not permitted\",\"code\":\"SourceTenantNotPermitted\"}"));
+        // A declared error of the method; the tool keeps the error code the REST endpoint answered.
+        CkMethods.Fails("SOURCE_TENANT_NOT_PERMITTED", "Source tenant not permitted.");
 
         var result = await ExternalTenantUserMappingTools.CreateMapping(MockServer.Object, "meshmakers", "u1", "alice",
             groupIds: [GroupA]);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("SourceTenantNotPermitted");
-        result.ErrorMessage.Should().Be("Source tenant not permitted (HTTP 403, code SourceTenantNotPermitted)");
+        result.ErrorMessage.Should().Be("SOURCE_TENANT_NOT_PERMITTED: Source tenant not permitted.");
+        MockIdentityClient.Verify(c => c.GrantExternalTenantUser(It.IsAny<CreateExternalTenantUserMappingDto>()),
+            Times.Never);
     }
 
     [Fact]
     public async Task Grant_UnknownGroup_NamesTheIds()
     {
-        MockIdentityClient.Setup(c => c.GrantExternalTenantUser(It.IsAny<CreateExternalTenantUserMappingDto>()))
-            .ThrowsAsync(Problem(HttpStatusCode.BadRequest,
-                "{\"status\":400,\"title\":\"Unknown group\",\"code\":\"UnknownGroup\",\"unknownGroupIds\":[\"" + GroupB + "\"]}"));
+        CkMethods.Fails("UNKNOWN_GROUP", "Unknown group.",
+            new Dictionary<string, string> { ["unknownGroupIds"] = GroupB });
 
         var result = await ExternalTenantUserMappingTools.CreateMapping(MockServer.Object, "meshmakers", "u1", "alice",
             groupIds: [GroupB]);

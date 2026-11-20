@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -61,7 +62,7 @@ public sealed class ApiResourceTools
             return new ApiResourceResponse { IsSuccess = false, ErrorMessage = "name is required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ApiResourceResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -69,14 +70,19 @@ public sealed class ApiResourceTools
 
         try
         {
-            await ctx.Client!.CreateApiResource(new ApiResourceDto
+            var outcome = await IdentityMethodCall.RunAsync(
+                () => new RtApiResourceMethodClient(ctx.TenantClient!).CreateApiResourceAsync(name, displayName,
+                                description, isEnabled, showInDiscoveryDocument: false, requireResourceIndicator: false, scopes: scopes));
+            if (!outcome.IsSuccess)
             {
-                IsEnabled = isEnabled,
-                Name = name,
-                DisplayName = displayName,
-                Description = description,
-                Scopes = scopes
-            });
+                return new ApiResourceResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new ApiResourceResponse
             {
                 IsSuccess = true,
@@ -87,7 +93,7 @@ public sealed class ApiResourceTools
         }
         catch (Exception ex)
         {
-            return new ApiResourceResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ApiResourceResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -111,7 +117,7 @@ public sealed class ApiResourceTools
             return new ApiResourceResponse { IsSuccess = false, ErrorMessage = "name is required." };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ApiResourceResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -127,7 +133,20 @@ public sealed class ApiResourceTools
                 Scopes = scopes,
                 IsEnabled = isEnabled ?? true
             };
-            await ctx.Client!.UpdateApiResource(name, dto);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await new RtApiResourceMethodClient(ctx.TenantClient!).UpdateApiResourceAsync(
+                                await IdentityRtIds.ApiResourceAsync(ctx, name), name, displayName, description, dto.IsEnabled,
+                                showInDiscoveryDocument: false, requireResourceIndicator: false, scopes: scopes));
+            if (!outcome.IsSuccess)
+            {
+                return new ApiResourceResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new ApiResourceResponse
             {
                 IsSuccess = true,
@@ -138,7 +157,7 @@ public sealed class ApiResourceTools
         }
         catch (Exception ex)
         {
-            return new ApiResourceResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ApiResourceResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 
@@ -168,7 +187,7 @@ public sealed class ApiResourceTools
             };
         }
 
-        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ApiResourceResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -176,7 +195,19 @@ public sealed class ApiResourceTools
 
         try
         {
-            await ctx.Client!.DeleteApiResource(name);
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await new RtApiResourceMethodClient(ctx.TenantClient!).DeleteApiResourceAsync(
+                                await IdentityRtIds.ApiResourceAsync(ctx, name)));
+            if (!outcome.IsSuccess)
+            {
+                return new ApiResourceResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
             return new ApiResourceResponse
             {
                 IsSuccess = true,
@@ -187,7 +218,7 @@ public sealed class ApiResourceTools
         }
         catch (Exception ex)
         {
-            return new ApiResourceResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ApiResourceResponse { IsSuccess = false, ErrorMessage = IdentityMethodCall.SafeText(ex.Message) };
         }
     }
 }
