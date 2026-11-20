@@ -221,6 +221,16 @@ public abstract class ToolTestBase : TestBase
             .Returns((McpSessionTokens?)null);
     }
 
+    /// <summary>
+    ///     The communication writes run as CK methods on the tenant client: no write (a method that is not a <c>Get…</c>
+    ///     read or a property) reached the REST communication client.
+    /// </summary>
+    protected void AssertNoCommunicationRestWrite() =>
+        MockCommunicationClient.Invocations
+            .Where(i => !i.Method.IsSpecialName && !i.Method.Name.StartsWith("Get", StringComparison.Ordinal))
+            .Select(i => i.Method.Name)
+            .Should().BeEmpty();
+
     /// <summary>Mark the current MCP session token as expired.</summary>
     protected void GivenTokenExpired(string accessToken = "expired-token")
     {

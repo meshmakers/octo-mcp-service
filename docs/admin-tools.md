@@ -9,8 +9,8 @@ applies_to: **/Tools/{DataFlowTriggerDeploymentSite,TenantManagement,AiLifecycle
 
 `get_adapter_pool_queue` and `cancel_queued_execution` (in `DataFlowTriggerDeploymentSiteTools`) are the MCP
 third of the queue surface the leasing concept asks for — the same view Refinery Studio and
-`octo-cli` show, all three off one endpoint
-(`GET`/`DELETE {tenantId}/v1/adapterPool/{id}/queue[/{executionId}]`). Three properties are design
+`octo-cli` show, all three read one endpoint (`GET {tenantId}/v1/adapterPool/{id}/queue`); the cancel runs the CK method
+`AdapterPool.CancelQueuedExecution-1` (role `CommunicationManagement`, see `ck-method-clients.md`). Three properties are design
 decisions, not implementation detail, and a future "improvement" is most likely to undo exactly
 these:
 
@@ -19,7 +19,8 @@ these:
   next runs before item 2 of the tenant being served now. The tool description says so explicitly,
   because the AI reading it is precisely the consumer that would otherwise compute a helpful,
   wrong rank. `AdapterPoolQueueToolsTests` pins that no response property is rank-shaped.
-- **`AlreadyLeased` (409) and `NotFound` (404) are outcomes of a call that worked**, so `IsSuccess`
+- **`AlreadyLeased` (declared error `EXECUTION_ALREADY_LEASED`, REST 409) and `NotFound`
+  (`QUEUED_EXECUTION_NOT_FOUND`, REST 404) are outcomes of a call that worked**, so `IsSuccess`
   stays `true` and the distinction travels in `Outcome`/`WasCancelled`. Reporting the 409 as a
   failure invites a retry, and retrying is not what the caller should do — interrupting the running
   pipeline is a **different operation** on a different path.

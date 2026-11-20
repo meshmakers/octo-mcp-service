@@ -104,6 +104,57 @@ are unchanged.
 | `create_external_tenant_user_mapping`, `update_external_tenant_user_mapping`, `delete_external_tenant_user_mapping` | `ExternalTenantUserMapping.CreateMapping`, `UpdateMapping`, `DeleteMapping` |
 | `create_admin_provisioning_mapping`, `provision_current_user_as_admin`, `delete_admin_provisioning_mapping` | `ExternalTenantUserMapping.ProvisionAdmin`, `ProvisionCurrentUser`, `RemoveAdminProvisioning` |
 
+### Communication wave 3: the communication write tools
+
+Since System.Communication 4.19 the communication write tools run a CK method of `System.Communication` on the tenant client
+(`CommunicationClientContext.TryBuildAsync(…, withTenantClient: true)`); `construction-kits.yaml` imports
+`System.Communication-[4.19,5.0)` and `System-[2.7,3.0)` (the communication types derive from `System/Configuration`). The
+reads (`get_*`), the communication lifecycle and enable/disable tools, the workload resource tools and the service account
+impersonation switch stay on REST. Tool names, parameters and response fields are unchanged.
+
+- **Helper.** `Tools/CommunicationMethodCall.RunAsync` returns a `CommunicationMethodOutcome` (success, value, error text,
+  error code, declared message, `IsUnavailable`); error texts pass `ErrorTextRedactor.Redact`.
+- **Role.** Every method requires the role `CommunicationManagement` (and the scope `octo_api`); the REST endpoints let every
+  `octo_api` caller through. A caller without the role now gets `METHOD_FORBIDDEN`.
+- **No REST fallback.** A method the controller does not offer (a document the asset repository rejects because its schema
+  lacks it, or `METHOD_HANDLER_NOT_AVAILABLE`) gives `IsSuccess=false` with a text that names communication controller
+  services with System.Communication 4.19 and says nothing was changed; for `METHOD_HANDLER_NOT_AVAILABLE` it also names a
+  controller restart (the handler is missing for a moment while the controller restarts).
+- **Runtime ids.** Every id a method takes is checked first (`InvalidIdError`): a malformed id is refused before any call,
+  instead of a GraphQL validation error of the asset repository.
+- **Workloads.** `DeployableWorkload.Deploy`, `Undeploy` and `SetChartVersion` are declared on the abstract type and run on
+  the client of the concrete type. `ResolveWorkloadKindAsync` reads the workload's `ckTypeId` with a GraphQL query and
+  compares the version-less form (`System.Communication/Adapter-1`, `-2`, … are all `Adapter`); an unknown workload is
+  `Workload '<id>' not found.` without a method call.
+- **Results.** A method that always returns a record (`Pipeline.Execute`, `Pipeline.SetDebugging`) and answers success without
+  it is a failure (`returned no result`). `move_pipelines` calls `Pipeline.MoveToAdapter` once per pipeline and builds the
+  former per-item list, as the controller's REST facade does: every error of one pipeline (declared, unknown pipeline,
+  `METHOD_TIMEOUT`, a success without the move record, …) is a failed item and the other pipelines still move.
+  `METHOD_FORBIDDEN` ends the batch; a missing method ends it only before a pipeline was moved, later (a controller restart
+  during the batch) it is a failed item, so the list still says which pipelines were moved. `cancel_queued_execution` maps the declared errors `EXECUTION_ALREADY_LEASED` / `QUEUED_EXECUTION_NOT_FOUND` to the
+  outcomes `AlreadyLeased` / `NotFound` of a successful call, as before.
+- **Sensitive parameters.** `pipelineDefinition` (`deploy_pipeline`) and `pipelineInput` (`execute_pipeline`,
+  `dry_run_pipeline`) are sensitive method parameters, marked `SENSITIVE:` in their description
+  (`CommunicationMethodCall.SensitiveParameterPrefix`); `CommunicationMethodCall.ScrubSensitive` removes the value and every
+  line of eight or more characters of it from every error text of these tools, the method refusals and the exceptions outside
+  the method protocol alike.
+- **Tests.** `CommunicationMethodToolsTests` runs every tool: its operation, no REST write (`AssertNoCommunicationRestWrite`),
+  `METHOD_FORBIDDEN`, the missing-method and restart texts, an invalid id, a missing result record, a platform error of one
+  pipeline of a move list, and the scrubbed definition. `WorkloadToolsTests` covers the workload type with element versions
+  `-1`/`-2`; the data flow, pipeline and queue tool tests check the method variables.
+
+| Tool | CK method (`System.Communication/…-1`) |
+|------|----------------------------------------|
+| `deploy_pipeline` | `Pipeline.Deploy` (target = the pipeline) |
+| `execute_pipeline`, `dry_run_pipeline` | `Pipeline.Execute` (`isDryRun` false / true) |
+| `set_pipeline_debug` | `Pipeline.SetDebugging` |
+| `move_pipelines` | `Pipeline.MoveToAdapter`, once per pipeline |
+| `deploy_data_flow`, `undeploy_data_flow` | `DataFlow.Deploy`, `Undeploy` |
+| `deploy_triggers`, `undeploy_triggers` | `PipelineTrigger.DeployAll`, `UndeployAll` (static) |
+| `undeploy_deployment_site` | `DeploymentSite.Undeploy` |
+| `deploy_workload`, `undeploy_workload`, `update_workload_chart_version` | `DeployableWorkload.Deploy`, `Undeploy`, `SetChartVersion` on `Adapter`, `AdapterPool` or `Application` |
+| `cancel_queued_execution` | `AdapterPool.CancelQueuedExecution` |
+
 **Password methods.** `create_user` and `reset_user_password` have **no REST fallback** (by decision): when the
 asset repository rejects the document (GraphQL validation, every error with `extensions.number`) or answers
 `METHOD_HANDLER_NOT_AVAILABLE` (identity too old or `Methods:Identity:EnablePasswordMethods=false`), the tool returns a message

@@ -1,7 +1,10 @@
 using System.ComponentModel;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Communication.v4;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants.Methods;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -11,7 +14,8 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 /// <summary>
 ///     Data Flow + Trigger + Pool tools (Communication Controller), including the adapter pool queue
 ///     (AB#4924 §10). Mirrors the smaller octo-cli commands. Bundled into one class because each
-///     subsystem only has 1–3 operations.
+///     subsystem only has 1–3 operations. The writes run the CK methods of <c>System.Communication</c> through the
+///     generated method clients (<see cref="CommunicationMethodCall" />); the reads stay REST.
 /// </summary>
 [McpServerToolType]
 public sealed class DataFlowTriggerDeploymentSiteTools
@@ -28,7 +32,7 @@ public sealed class DataFlowTriggerDeploymentSiteTools
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
         => await SingleResourceAction(server, tenantId, dataFlowId,
             requiredConfirm: false, confirm: true,
-            (client, id) => client.DeployDataFlowAsync(id),
+            (tenant, id) => new RtDataFlowMethodClient(tenant).DeployAsync(id),
             successMessage: id => $"Data flow '{id}' deployed.");
 
     /// <summary>Undeploy a data flow. Destructive: requires confirm.</summary>
@@ -44,7 +48,7 @@ public sealed class DataFlowTriggerDeploymentSiteTools
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
         => await SingleResourceAction(server, tenantId, dataFlowId,
             requiredConfirm: true, confirm,
-            (client, id) => client.UndeployDataFlowAsync(id),
+            (tenant, id) => new RtDataFlowMethodClient(tenant).UndeployAsync(id),
             successMessage: id => $"Data flow '{id}' undeployed.");
 
     /// <summary>Get aggregated execution status of a data flow.</summary>
@@ -93,7 +97,7 @@ public sealed class DataFlowTriggerDeploymentSiteTools
         McpServer server,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
-        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new CommunicationResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -101,7 +105,13 @@ public sealed class DataFlowTriggerDeploymentSiteTools
 
         try
         {
-            await ctx.Client!.DeployTriggersAsync();
+            var outcome = await CommunicationMethodCall.RunAsync(() =>
+                new RtPipelineTriggerMethodClient(ctx.TenantClient!).DeployAllAsync());
+            if (!outcome.IsSuccess)
+            {
+                return new CommunicationResponse { IsSuccess = false, ErrorMessage = outcome.Error };
+            }
+
             return new CommunicationResponse
             {
                 IsSuccess = true,
@@ -135,7 +145,7 @@ public sealed class DataFlowTriggerDeploymentSiteTools
             };
         }
 
-        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new CommunicationResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -143,7 +153,13 @@ public sealed class DataFlowTriggerDeploymentSiteTools
 
         try
         {
-            await ctx.Client!.UndeployTriggersAsync();
+            var outcome = await CommunicationMethodCall.RunAsync(() =>
+                new RtPipelineTriggerMethodClient(ctx.TenantClient!).UndeployAllAsync());
+            if (!outcome.IsSuccess)
+            {
+                return new CommunicationResponse { IsSuccess = false, ErrorMessage = outcome.Error };
+            }
+
             return new CommunicationResponse
             {
                 IsSuccess = true,
@@ -205,7 +221,7 @@ public sealed class DataFlowTriggerDeploymentSiteTools
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
         => await SingleResourceAction(server, tenantId, deploymentSiteId,
             requiredConfirm: true, confirm,
-            (client, id) => client.UndeployDeploymentSiteAsync(id),
+            (tenant, id) => new RtDeploymentSiteMethodClient(tenant).UndeployAsync(id),
             successMessage: id => $"Deployment site '{id}' undeploy triggered.");
 
     // ── Adapter pool queue (AB#4924 §10) ────────────────────────────────────
@@ -280,7 +296,7 @@ public sealed class DataFlowTriggerDeploymentSiteTools
     [Description(
         "Cancel ONE execution that is still WAITING in an adapter pool's queue. DESTRUCTIVE — the execution " +
         "becomes Cancelled and never runs; it cannot be un-cancelled. Requires confirm=true. This is NOT 'stop " +
-        "that pipeline': an execution that already holds a lease is refused (HTTP 409) and reported as " +
+        "that pipeline': an execution that already holds a lease is refused (EXECUTION_ALREADY_LEASED) and reported as " +
         "outcome=AlreadyLeased with nothing cancelled, because interrupting a running pipeline is a different " +
         "operation on a different path. Find execution ids with get_adapter_pool_queue. The tenant is the " +
         "LENDING tenant that owns the deployment site, not the borrowing tenant whose work is cancelled. Equivalent to " +
@@ -315,7 +331,13 @@ public sealed class DataFlowTriggerDeploymentSiteTools
             };
         }
 
-        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
+        var invalidId = CommunicationMethodCall.InvalidIdError(("adapterPoolId", adapterPoolId));
+        if (invalidId != null)
+        {
+            return new CancelQueuedExecutionResponse { IsSuccess = false, ErrorMessage = invalidId };
+        }
+
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new CancelQueuedExecutionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -323,7 +345,37 @@ public sealed class DataFlowTriggerDeploymentSiteTools
 
         try
         {
-            var result = await ctx.Client!.CancelQueuedExecutionAsync(adapterPoolId, executionId);
+            var outcome = await CommunicationMethodCall.RunAsync(() =>
+                new RtAdapterPoolMethodClient(ctx.TenantClient!).CancelQueuedExecutionAsync(adapterPoolId, executionId));
+
+            // The method answers the two refusals as declared errors; they stay outcomes of their own, as the REST
+            // answers 409 and 404 did.
+            AdapterPoolQueueCancellationResultDto result;
+            if (outcome.IsSuccess)
+            {
+                result = new AdapterPoolQueueCancellationResultDto
+                    { Outcome = AdapterPoolQueueCancellationOutcome.Cancelled };
+            }
+            else if (outcome.ErrorCode == RtAdapterPoolMethodClient.CancelQueuedExecutionErrors.ExecutionAlreadyLeased)
+            {
+                result = new AdapterPoolQueueCancellationResultDto
+                {
+                    Outcome = AdapterPoolQueueCancellationOutcome.AlreadyLeased,
+                    ServerMessage = ErrorTextRedactor.Redact(outcome.ErrorMessage ?? string.Empty)
+                };
+            }
+            else if (outcome.ErrorCode == RtAdapterPoolMethodClient.CancelQueuedExecutionErrors.QueuedExecutionNotFound)
+            {
+                result = new AdapterPoolQueueCancellationResultDto
+                {
+                    Outcome = AdapterPoolQueueCancellationOutcome.NotFound,
+                    ServerMessage = ErrorTextRedactor.Redact(outcome.ErrorMessage ?? string.Empty)
+                };
+            }
+            else
+            {
+                return new CancelQueuedExecutionResponse { IsSuccess = false, ErrorMessage = outcome.Error };
+            }
 
             // 🔴 AlreadyLeased and NotFound are outcomes of a call that worked, so IsSuccess stays
             // true and the distinction travels in Outcome/WasCancelled. Reporting the 409 as a
@@ -367,7 +419,7 @@ public sealed class DataFlowTriggerDeploymentSiteTools
         string resourceId,
         bool requiredConfirm,
         bool confirm,
-        Func<Sdk.ServiceClient.CommunicationControllerServices.ICommunicationServicesClient, string, Task> action,
+        Func<ITenantClient, string, Task<CkMethodResult>> action,
         Func<string, string> successMessage)
     {
         if (string.IsNullOrWhiteSpace(resourceId))
@@ -384,7 +436,13 @@ public sealed class DataFlowTriggerDeploymentSiteTools
             };
         }
 
-        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
+        var invalidId = CommunicationMethodCall.InvalidIdError(("resource id", resourceId));
+        if (invalidId != null)
+        {
+            return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = invalidId };
+        }
+
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -392,7 +450,12 @@ public sealed class DataFlowTriggerDeploymentSiteTools
 
         try
         {
-            await action(ctx.Client!, resourceId);
+            var outcome = await CommunicationMethodCall.RunAsync(() => action(ctx.TenantClient!, resourceId));
+            if (!outcome.IsSuccess)
+            {
+                return new CommunicationActionResponse { IsSuccess = false, ErrorMessage = outcome.Error };
+            }
+
             return new CommunicationActionResponse
             {
                 IsSuccess = true,

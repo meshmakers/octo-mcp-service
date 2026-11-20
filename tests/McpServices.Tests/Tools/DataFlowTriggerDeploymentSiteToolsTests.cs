@@ -14,6 +14,7 @@ public class DataFlowTriggerDeploymentSiteToolsTests : ToolTestBase
     public DataFlowTriggerDeploymentSiteToolsTests()
     {
         GivenAuthenticated();
+        _ = CkMethods; // the communication writes run as CK methods on the tenant client
     }
 
     private const string PoolId = "cc0000000000000000000009";
@@ -26,7 +27,9 @@ public class DataFlowTriggerDeploymentSiteToolsTests : ToolTestBase
         var result = await DataFlowTriggerDeploymentSiteTools.DeployDataFlow(MockServer.Object, DataFlowId);
 
         result.IsSuccess.Should().BeTrue();
-        MockCommunicationClient.Verify(c => c.DeployDataFlowAsync(DataFlowId), Times.Once);
+        CkMethods.OperationNames.Should().ContainSingle().Which.Should().Be("SystemCommunicationDataFlowDeploy");
+        CkMethods.RtIdOf("SystemCommunicationDataFlowDeploy").Should().Be(DataFlowId);
+        AssertNoCommunicationRestWrite();
     }
 
     [Fact]
@@ -42,7 +45,7 @@ public class DataFlowTriggerDeploymentSiteToolsTests : ToolTestBase
         var result = await DataFlowTriggerDeploymentSiteTools.UndeployDataFlow(MockServer.Object, DataFlowId);
 
         result.IsSuccess.Should().BeFalse();
-        MockCommunicationClient.Verify(c => c.UndeployDataFlowAsync(It.IsAny<string>()), Times.Never);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     [Fact]
@@ -51,7 +54,9 @@ public class DataFlowTriggerDeploymentSiteToolsTests : ToolTestBase
         var result = await DataFlowTriggerDeploymentSiteTools.UndeployDataFlow(MockServer.Object, DataFlowId, confirm: true);
 
         result.IsSuccess.Should().BeTrue();
-        MockCommunicationClient.Verify(c => c.UndeployDataFlowAsync(DataFlowId), Times.Once);
+        CkMethods.OperationNames.Should().ContainSingle().Which.Should().Be("SystemCommunicationDataFlowUndeploy");
+        CkMethods.RtIdOf("SystemCommunicationDataFlowUndeploy").Should().Be(DataFlowId);
+        AssertNoCommunicationRestWrite();
     }
 
     [Fact]
@@ -87,7 +92,8 @@ public class DataFlowTriggerDeploymentSiteToolsTests : ToolTestBase
         var result = await DataFlowTriggerDeploymentSiteTools.DeployTriggers(MockServer.Object);
 
         result.IsSuccess.Should().BeTrue();
-        MockCommunicationClient.Verify(c => c.DeployTriggersAsync(), Times.Once);
+        CkMethods.OperationNames.Should().ContainSingle().Which.Should().Be("SystemCommunicationPipelineTriggerDeployAll");
+        AssertNoCommunicationRestWrite();
     }
 
     [Fact]
@@ -104,7 +110,7 @@ public class DataFlowTriggerDeploymentSiteToolsTests : ToolTestBase
         var result = await DataFlowTriggerDeploymentSiteTools.UndeployTriggers(MockServer.Object);
 
         result.IsSuccess.Should().BeFalse();
-        MockCommunicationClient.Verify(c => c.UndeployTriggersAsync(), Times.Never);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     [Fact]
@@ -113,7 +119,8 @@ public class DataFlowTriggerDeploymentSiteToolsTests : ToolTestBase
         var result = await DataFlowTriggerDeploymentSiteTools.UndeployTriggers(MockServer.Object, confirm: true);
 
         result.IsSuccess.Should().BeTrue();
-        MockCommunicationClient.Verify(c => c.UndeployTriggersAsync(), Times.Once);
+        CkMethods.OperationNames.Should().ContainSingle().Which.Should().Be("SystemCommunicationPipelineTriggerUndeployAll");
+        AssertNoCommunicationRestWrite();
     }
 
     // ── Pools ───────────────────────────────────────────────────────────────
@@ -157,7 +164,7 @@ public class DataFlowTriggerDeploymentSiteToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("confirm=true");
-        MockCommunicationClient.Verify(c => c.UndeployDeploymentSiteAsync(It.IsAny<string>()), Times.Never);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     [Fact]
@@ -167,7 +174,9 @@ public class DataFlowTriggerDeploymentSiteToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeTrue();
         result.ResourceId.Should().Be(PoolId);
-        MockCommunicationClient.Verify(c => c.UndeployDeploymentSiteAsync(PoolId), Times.Once);
+        CkMethods.OperationNames.Should().ContainSingle().Which.Should().Be("SystemCommunicationDeploymentSiteUndeploy");
+        CkMethods.RtIdOf("SystemCommunicationDeploymentSiteUndeploy").Should().Be(PoolId);
+        AssertNoCommunicationRestWrite();
     }
 
     [Fact]
@@ -178,7 +187,7 @@ public class DataFlowTriggerDeploymentSiteToolsTests : ToolTestBase
         var result = await DataFlowTriggerDeploymentSiteTools.UndeployDeploymentSite(MockServer.Object, PoolId, confirm: true);
 
         result.IsSuccess.Should().BeFalse();
-        MockCommunicationClient.Verify(c => c.UndeployDeploymentSiteAsync(It.IsAny<string>()), Times.Never);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     [Fact]
@@ -187,18 +196,18 @@ public class DataFlowTriggerDeploymentSiteToolsTests : ToolTestBase
         var result = await DataFlowTriggerDeploymentSiteTools.UndeployDeploymentSite(MockServer.Object, "", confirm: true);
 
         result.IsSuccess.Should().BeFalse();
-        MockCommunicationClient.Verify(c => c.UndeployDeploymentSiteAsync(It.IsAny<string>()), Times.Never);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     [Fact]
     public async Task UndeployPool_WhenSdkThrows_ReturnsErrorMessage()
     {
-        MockCommunicationClient.Setup(c => c.UndeployDeploymentSiteAsync(PoolId))
-            .ThrowsAsync(new InvalidOperationException("BadRequest: pool is already undeployed"));
+        CkMethods.Fails("DEPLOYMENT_SITE_UNDEPLOY_FAILED", "The deployment site is not deployed.");
 
         var result = await DataFlowTriggerDeploymentSiteTools.UndeployDeploymentSite(MockServer.Object, PoolId, confirm: true);
 
         result.IsSuccess.Should().BeFalse();
-        result.ErrorMessage.Should().Be("BadRequest: pool is already undeployed");
+        result.ErrorMessage.Should().Be("DEPLOYMENT_SITE_UNDEPLOY_FAILED: The deployment site is not deployed.");
+        AssertNoCommunicationRestWrite();
     }
 }

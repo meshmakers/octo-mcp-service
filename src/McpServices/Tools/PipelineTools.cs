@@ -1,3 +1,5 @@
+using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Communication.v4;
 using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -64,7 +66,8 @@ public sealed class PipelineTools
         McpServer server,
         [Description("Adapter runtime ID the pipeline runs on.")] string adapterId,
         [Description("Pipeline runtime ID.")] string pipelineId,
-        [Description("Pipeline definition (YAML or JSON) as a string.")] string pipelineDefinition,
+        [Description(CommunicationMethodCall.SensitiveParameterPrefix +
+                     "Pipeline definition (YAML or JSON) as a string.")] string pipelineDefinition,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
         if (string.IsNullOrWhiteSpace(adapterId) || string.IsNullOrWhiteSpace(pipelineId) ||
@@ -77,7 +80,13 @@ public sealed class PipelineTools
             };
         }
 
-        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
+        var invalidId = CommunicationMethodCall.InvalidIdError(("adapterId", adapterId), ("pipelineId", pipelineId));
+        if (invalidId != null)
+        {
+            return new PipelineDeploymentResponse { IsSuccess = false, ErrorMessage = invalidId };
+        }
+
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new PipelineDeploymentResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -85,7 +94,17 @@ public sealed class PipelineTools
 
         try
         {
-            await ctx.Client!.DeployPipelineAsync(adapterId, pipelineId, pipelineDefinition);
+            // The definition is a sensitive method parameter (it can carry credentials); it is never echoed.
+            var outcome = await CommunicationMethodCall.RunAsync(() =>
+                new RtPipelineMethodClient(ctx.TenantClient!).DeployAsync(pipelineId, adapterId, pipelineDefinition));
+            if (!outcome.IsSuccess)
+            {
+                return new PipelineDeploymentResponse
+                {
+                    IsSuccess = false, ErrorMessage = CommunicationMethodCall.ScrubSensitive(outcome.Error, pipelineDefinition)
+                };
+            }
+
             return new PipelineDeploymentResponse
             {
                 IsSuccess = true,
@@ -96,7 +115,10 @@ public sealed class PipelineTools
         }
         catch (Exception ex)
         {
-            return new PipelineDeploymentResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new PipelineDeploymentResponse
+            {
+                IsSuccess = false, ErrorMessage = CommunicationMethodCall.ScrubSensitive(ex.Message, pipelineDefinition)
+            };
         }
     }
 
@@ -107,7 +129,8 @@ public sealed class PipelineTools
     public static async Task<ExecutePipelineResponse> ExecutePipeline(
         McpServer server,
         [Description("Pipeline runtime ID.")] string pipelineId,
-        [Description("Optional pipeline input (string — JSON, YAML, or plain).")] string? pipelineInput = null,
+        [Description(CommunicationMethodCall.SensitiveParameterPrefix +
+                     "Optional pipeline input (string — JSON, YAML, or plain).")] string? pipelineInput = null,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
         if (string.IsNullOrWhiteSpace(pipelineId))
@@ -115,7 +138,13 @@ public sealed class PipelineTools
             return new ExecutePipelineResponse { IsSuccess = false, ErrorMessage = "pipelineId is required." };
         }
 
-        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
+        var invalidId = CommunicationMethodCall.InvalidIdError(("pipelineId", pipelineId));
+        if (invalidId != null)
+        {
+            return new ExecutePipelineResponse { IsSuccess = false, ErrorMessage = invalidId };
+        }
+
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ExecutePipelineResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -123,7 +152,25 @@ public sealed class PipelineTools
 
         try
         {
-            var executionId = await ctx.Client!.ExecutePipelineAsync(pipelineId, pipelineInput);
+            var outcome = await CommunicationMethodCall.RunAsync(() =>
+                new RtPipelineMethodClient(ctx.TenantClient!).ExecuteAsync(pipelineId, pipelineInput, isDryRun: false));
+            if (!outcome.IsSuccess)
+            {
+                return new ExecutePipelineResponse
+                {
+                    IsSuccess = false, ErrorMessage = CommunicationMethodCall.ScrubSensitive(outcome.Error, pipelineInput)
+                };
+            }
+
+            var executionId = outcome.Value?.ExecutionId;
+            if (string.IsNullOrWhiteSpace(executionId))
+            {
+                return new ExecutePipelineResponse
+                {
+                    IsSuccess = false, ErrorMessage = CommunicationMethodCall.NoResultText("Pipeline.Execute-1")
+                };
+            }
+
             return new ExecutePipelineResponse
             {
                 IsSuccess = true,
@@ -135,7 +182,10 @@ public sealed class PipelineTools
         }
         catch (Exception ex)
         {
-            return new ExecutePipelineResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ExecutePipelineResponse
+            {
+                IsSuccess = false, ErrorMessage = CommunicationMethodCall.ScrubSensitive(ex.Message, pipelineInput)
+            };
         }
     }
 
@@ -182,7 +232,8 @@ public sealed class PipelineTools
     public static async Task<DryRunPipelineResponse> DryRunPipeline(
         McpServer server,
         [Description("Pipeline runtime ID.")] string pipelineId,
-        [Description("Optional pipeline input (string — JSON, YAML, or plain).")] string? pipelineInput = null,
+        [Description(CommunicationMethodCall.SensitiveParameterPrefix +
+                     "Optional pipeline input (string — JSON, YAML, or plain).")] string? pipelineInput = null,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
         if (string.IsNullOrWhiteSpace(pipelineId))
@@ -190,7 +241,13 @@ public sealed class PipelineTools
             return new DryRunPipelineResponse { IsSuccess = false, ErrorMessage = "pipelineId is required." };
         }
 
-        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
+        var invalidId = CommunicationMethodCall.InvalidIdError(("pipelineId", pipelineId));
+        if (invalidId != null)
+        {
+            return new DryRunPipelineResponse { IsSuccess = false, ErrorMessage = invalidId };
+        }
+
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new DryRunPipelineResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -198,7 +255,25 @@ public sealed class PipelineTools
 
         try
         {
-            var executionId = await ctx.Client!.ExecutePipelineAsync(pipelineId, pipelineInput, isDryRun: true);
+            var outcome = await CommunicationMethodCall.RunAsync(() =>
+                new RtPipelineMethodClient(ctx.TenantClient!).ExecuteAsync(pipelineId, pipelineInput, isDryRun: true));
+            if (!outcome.IsSuccess)
+            {
+                return new DryRunPipelineResponse
+                {
+                    IsSuccess = false, ErrorMessage = CommunicationMethodCall.ScrubSensitive(outcome.Error, pipelineInput)
+                };
+            }
+
+            var executionId = outcome.Value?.ExecutionId;
+            if (string.IsNullOrWhiteSpace(executionId))
+            {
+                return new DryRunPipelineResponse
+                {
+                    IsSuccess = false, ErrorMessage = CommunicationMethodCall.NoResultText("Pipeline.Execute-1")
+                };
+            }
+
             return new DryRunPipelineResponse
             {
                 IsSuccess = true,
@@ -214,7 +289,10 @@ public sealed class PipelineTools
         }
         catch (Exception ex)
         {
-            return new DryRunPipelineResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new DryRunPipelineResponse
+            {
+                IsSuccess = false, ErrorMessage = CommunicationMethodCall.ScrubSensitive(ex.Message, pipelineInput)
+            };
         }
     }
 
@@ -235,7 +313,13 @@ public sealed class PipelineTools
             return new SetPipelineDebugResponse { IsSuccess = false, ErrorMessage = "pipelineId is required." };
         }
 
-        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
+        var invalidId = CommunicationMethodCall.InvalidIdError(("pipelineId", pipelineId));
+        if (invalidId != null)
+        {
+            return new SetPipelineDebugResponse { IsSuccess = false, ErrorMessage = invalidId };
+        }
+
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new SetPipelineDebugResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -243,7 +327,23 @@ public sealed class PipelineTools
 
         try
         {
-            var dto = await ctx.Client!.SetPipelineDebuggingAsync(pipelineId, enabled);
+            var outcome = await CommunicationMethodCall.RunAsync(() =>
+                new RtPipelineMethodClient(ctx.TenantClient!).SetDebuggingAsync(pipelineId, enabled));
+            if (!outcome.IsSuccess)
+            {
+                return new SetPipelineDebugResponse { IsSuccess = false, ErrorMessage = outcome.Error };
+            }
+
+            if (outcome.Value == null)
+            {
+                return new SetPipelineDebugResponse
+                {
+                    IsSuccess = false, ErrorMessage = CommunicationMethodCall.NoResultText("Pipeline.SetDebugging-1")
+                };
+            }
+
+            var dto = new SetPipelineDebugResultDto(outcome.Value.Enabled ?? enabled,
+                outcome.Value.AppliedToRunningAdapter ?? false);
             return new SetPipelineDebugResponse
             {
                 IsSuccess = true,
