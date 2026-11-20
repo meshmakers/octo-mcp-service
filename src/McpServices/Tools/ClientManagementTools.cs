@@ -99,7 +99,7 @@ public sealed class ClientManagementTools
         McpServer server,
         [Description("Unique client ID.")] string clientId,
         [Description("Display name of the client.")] string clientName,
-        [Description("Client secret.")] string clientSecret,
+        [Description("SENSITIVE: sent only in the CK method call, never echoed in an error or message and never logged. Client secret.")] string clientSecret,
         [Description("If true, the client is auto-provisioned into every new sub-tenant.")] bool autoProvisionInChildTenants = false,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
@@ -167,7 +167,7 @@ public sealed class ClientManagementTools
         McpServer server,
         [Description("Unique client ID.")] string clientId,
         [Description("Display name of the client.")] string clientName,
-        [Description("Client secret.")] string clientSecret,
+        [Description("SENSITIVE: sent only in the CK method call, never echoed in an error or message and never logged. Client secret.")] string clientSecret,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
         var validation = ValidateAddClient(clientId, clientName, clientSecret);

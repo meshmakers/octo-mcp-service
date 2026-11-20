@@ -66,20 +66,31 @@ public sealed class ApiSecretTools
     [McpServerTool(Name = "create_client_secret")]
     [McpRisk(McpRiskLevel.High)]
     [Description(
-        "Create a new API secret on a client. Equivalent to octo-cli CreateApiSecretClient. The server generates " +
+        "Create a new API secret on a client. Requires confirm=true. Equivalent to octo-cli CreateApiSecretClient. The server generates " +
         "the secret (256 bit); the response carries the clear text ONCE in clearTextSecret - capture it, it cannot " +
         "be retrieved again. secretValue is the stored hash that identifies the secret for update/delete. " +
-        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns METHOD_FORBIDDEN with the reason the identity service sends (e.g. requiredRole=SecretManagement).")]
     public static async Task<ApiSecretResponse> CreateClientSecret(
         McpServer server,
         [Description("Client ID.")] string clientId,
         [Description("Optional expiration date (UTC).")] DateTime? expirationDate = null,
         [Description("Optional description.")] string? description = null,
+        [Description("Must be true to actually create the secret (the response carries it in clear text once).")]
+        bool confirm = false,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
         if (string.IsNullOrWhiteSpace(clientId))
         {
             return new ApiSecretResponse { IsSuccess = false, ErrorMessage = "clientId is required." };
+        }
+
+        if (!confirm)
+        {
+            return new ApiSecretResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = $"Refusing to create a secret for client '{clientId}' without confirm=true."
+            };
         }
 
         var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
@@ -133,11 +144,11 @@ public sealed class ApiSecretTools
     [McpRisk(McpRiskLevel.High)]
     [Description(
         "Update a client secret. Equivalent to octo-cli UpdateApiSecretClient. " +
-        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns METHOD_FORBIDDEN with the reason the identity service sends (e.g. requiredRole=SecretManagement).")]
     public static async Task<ApiSecretResponse> UpdateClientSecret(
         McpServer server,
         [Description("Client ID.")] string clientId,
-        [Description("Existing encrypted value (identifies the secret).")] string valueEncrypted,
+        [Description("SENSITIVE: sent only in the CK method call, never echoed in an error or message and never logged. Stored value of the secret (identifies it; the clear text is accepted too).")] string valueEncrypted,
         [Description("Optional new expiration date (UTC).")] DateTime? expirationDate = null,
         [Description("Optional new description.")] string? description = null,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
@@ -194,11 +205,11 @@ public sealed class ApiSecretTools
     [Description(
         "Delete a client secret. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli " +
         "DeleteApiSecretClient. " +
-        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns METHOD_FORBIDDEN with the reason the identity service sends (e.g. requiredRole=SecretManagement).")]
     public static async Task<ApiSecretResponse> DeleteClientSecret(
         McpServer server,
         [Description("Client ID.")] string clientId,
-        [Description("Encrypted value (identifies the secret).")] string valueEncrypted,
+        [Description("SENSITIVE: sent only in the CK method call, never echoed in an error or message and never logged. Stored value of the secret (identifies it; the clear text is accepted too).")] string valueEncrypted,
         [Description("Must be true to actually delete.")] bool confirm = false,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
@@ -301,21 +312,32 @@ public sealed class ApiSecretTools
     [McpServerTool(Name = "create_api_resource_secret")]
     [McpRisk(McpRiskLevel.High)]
     [Description(
-        "Create a new API secret on an API resource. Equivalent to octo-cli CreateApiSecretApiResource. The " +
+        "Create a new API secret on an API resource. Requires confirm=true. Equivalent to octo-cli CreateApiSecretApiResource. The " +
         "server generates the secret (256 bit); the response carries the clear text ONCE in clearTextSecret - " +
         "capture it, it cannot be retrieved again. secretValue is the stored hash that identifies the secret " +
         "for update/delete. " +
-        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns METHOD_FORBIDDEN with the reason the identity service sends (e.g. requiredRole=SecretManagement).")]
     public static async Task<ApiSecretResponse> CreateApiResourceSecret(
         McpServer server,
         [Description("API resource name.")] string apiResourceName,
         [Description("Optional expiration date (UTC).")] DateTime? expirationDate = null,
         [Description("Optional description.")] string? description = null,
+        [Description("Must be true to actually create the secret (the response carries it in clear text once).")]
+        bool confirm = false,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
         if (string.IsNullOrWhiteSpace(apiResourceName))
         {
             return new ApiSecretResponse { IsSuccess = false, ErrorMessage = "apiResourceName is required." };
+        }
+
+        if (!confirm)
+        {
+            return new ApiSecretResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = $"Refusing to create a secret for API resource '{apiResourceName}' without confirm=true."
+            };
         }
 
         var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
@@ -369,11 +391,11 @@ public sealed class ApiSecretTools
     [McpRisk(McpRiskLevel.High)]
     [Description(
         "Update an API resource secret. Equivalent to octo-cli UpdateApiSecretApiResource. " +
-        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns METHOD_FORBIDDEN with the reason the identity service sends (e.g. requiredRole=SecretManagement).")]
     public static async Task<ApiSecretResponse> UpdateApiResourceSecret(
         McpServer server,
         [Description("API resource name.")] string apiResourceName,
-        [Description("Existing encrypted value (identifies the secret).")] string valueEncrypted,
+        [Description("SENSITIVE: sent only in the CK method call, never echoed in an error or message and never logged. Stored value of the secret (identifies it; the clear text is accepted too).")] string valueEncrypted,
         [Description("Optional new expiration date (UTC).")] DateTime? expirationDate = null,
         [Description("Optional new description.")] string? description = null,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
@@ -430,11 +452,11 @@ public sealed class ApiSecretTools
     [Description(
         "Delete an API resource secret. DESTRUCTIVE — requires confirm=true. Equivalent to octo-cli " +
         "DeleteApiSecretApiResource. " +
-        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns the message of the identity service naming the missing role.")]
+        "Needs the tenant role SecretManagement (TenantManagement/UserManagement only while the cluster runs SecretManagementRoleEnforcement=Warn); a refused call returns METHOD_FORBIDDEN with the reason the identity service sends (e.g. requiredRole=SecretManagement).")]
     public static async Task<ApiSecretResponse> DeleteApiResourceSecret(
         McpServer server,
         [Description("API resource name.")] string apiResourceName,
-        [Description("Encrypted value (identifies the secret).")] string valueEncrypted,
+        [Description("SENSITIVE: sent only in the CK method call, never echoed in an error or message and never logged. Stored value of the secret (identifies it; the clear text is accepted too).")] string valueEncrypted,
         [Description("Must be true to actually delete.")] bool confirm = false,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {

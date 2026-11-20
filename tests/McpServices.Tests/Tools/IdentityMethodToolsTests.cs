@@ -1,5 +1,7 @@
 using System.Text.Json;
 using FluentAssertions;
+using GraphQL;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants;
 using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
@@ -204,14 +206,14 @@ public class IdentityMethodToolsTests : ToolTestBase
             "SystemIdentityClientCreateClient", Result: ClientRtId, Secret: true),
         ["add_scope_to_client"] = new(t => Box(ClientManagementTools.AddScopeToClient(t.MockServer.Object, "app", "scope1")),
             "SystemIdentityClientUpdateClient", ClientRtId, Secret: true),
-        ["create_client_secret"] = new(t => Box(ApiSecretTools.CreateClientSecret(t.MockServer.Object, "app")),
+        ["create_client_secret"] = new(t => Box(ApiSecretTools.CreateClientSecret(t.MockServer.Object, "app", confirm: true)),
             "SystemIdentityClientAddSecret", ClientRtId, "generated", Secret: true),
         ["update_client_secret"] = new(t => Box(ApiSecretTools.UpdateClientSecret(t.MockServer.Object, "app", "stored")),
             "SystemIdentityClientUpdateSecret", ClientRtId, Secret: true),
         ["delete_client_secret"] = new(
             t => Box(ApiSecretTools.DeleteClientSecret(t.MockServer.Object, "app", "stored", confirm: true)),
             "SystemIdentityClientRemoveSecret", ClientRtId, Secret: true),
-        ["create_api_resource_secret"] = new(t => Box(ApiSecretTools.CreateApiResourceSecret(t.MockServer.Object, "res1")),
+        ["create_api_resource_secret"] = new(t => Box(ApiSecretTools.CreateApiResourceSecret(t.MockServer.Object, "res1", confirm: true)),
             "SystemIdentityApiResourceAddSecret", ResourceRtId, "generated", Secret: true),
         ["update_api_resource_secret"] = new(
             t => Box(ApiSecretTools.UpdateApiResourceSecret(t.MockServer.Object, "res1", "stored")),
@@ -313,6 +315,25 @@ public class IdentityMethodToolsTests : ToolTestBase
 
         Outcome(result).IsSuccess.Should().BeFalse();
         Outcome(result).ErrorMessage.Should().Contain("System.Identity 3.8");
+        AssertNoRestWrite();
+    }
+
+    [Fact]
+    public async Task Tool_MalformedRuntimeId_IsReportedAsItIs_NotAsAMissingIdentityVersion()
+    {
+        CkMethods.Throws(new QlQueryErrorException("GraphQL error",
+        [
+            new GraphQLError
+            {
+                Message = "Variable '$rtId' is invalid. Unable to convert 'operators' to 'OctoObjectId'.",
+                Extensions = new Map { ["code"] = "INVALID_VALUE", ["number"] = "5.8" }
+            }
+        ]));
+
+        var result = await Cases["delete_group"].Invoke(this);
+
+        Outcome(result).IsSuccess.Should().BeFalse();
+        Outcome(result).ErrorMessage.Should().NotContain("System.Identity 3.8");
         AssertNoRestWrite();
     }
 

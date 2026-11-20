@@ -69,10 +69,13 @@ are unchanged.
 - **Results** (`Tools/IdentityMethodResults`). Overlay, mirror and provisioning result records are mapped to the DTOs the
   tools returned before. `create_external_tenant_user_mapping` reads the stored mapping (`GetExternalTenantUserMapping`)
   for its `mapping` field.
-- **Secrets.** `create_client_secret` / `create_api_resource_secret` run `AddSecret`, which generates the secret on the
-  server: the clear text appears only in `clearTextSecret`; `secretValue` is the stored value (Base64 SHA-256 of the
-  UTF-8 clear text, as the identity service stores and lists it). `clientSecret` (client and identity provider tools) and
-  `secretValue` go only into the method call and are scrubbed from every text. `McpPayloadLogFilter` keeps the tool
+- **Secrets.** `create_client_secret` / `create_api_resource_secret` require `confirm=true` (as `reset_user_password`;
+  without it the tool refuses before any call) and run `AddSecret`, which generates the secret on the server: the clear
+  text appears only in `clearTextSecret`; `secretValue` is the stored value (Base64 SHA-256 of the UTF-8 clear text, as
+  the identity service stores and lists it). `clientSecret` (client and identity provider tools) and `valueEncrypted`
+  (update and delete secret tools) are marked `SENSITIVE:`; they go into the method call and are scrubbed from every
+  error and message. The update and delete secret tools still echo the `valueEncrypted` they were given in their
+  `secretValue` response field, as before; pass the stored value, not the clear text. `McpPayloadLogFilter` keeps the tool
   arguments out of the logs. No tool rotates mirror secrets.
 - **Tests.** `ToolTestBase.CkMethods` (`CkMethodFake`) answers the method calls and records them (`OperationNames`,
   `RtIdOf`, `InputOf`). `IdentityMethodToolsTests` runs every write tool through: the operation and target, no REST write,

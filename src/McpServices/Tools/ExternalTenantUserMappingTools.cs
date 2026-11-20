@@ -216,9 +216,29 @@ public sealed class ExternalTenantUserMappingTools
                     }
 
                     // The method answers with the provisioning record; the tool keeps returning the mapping as stored.
-                    var created = await ctx.Client!.GetExternalTenantUserMapping(
-                        new OctoObjectId(call.Value?.MappingRtId ?? throw new InvalidOperationException(
-                            "The identity service returned no runtime id for the created mapping.")));
+                    // The mapping is written at this point: a failed read-back must not report a failure (a retry would
+                    // then be refused as a duplicate), so the record's own fields stand in for it.
+                    ExternalTenantUserMappingDto? created = null;
+                    try
+                    {
+                        created = string.IsNullOrEmpty(call.Value?.MappingRtId)
+                            ? null
+                            : await ctx.Client!.GetExternalTenantUserMapping(new OctoObjectId(call.Value.MappingRtId));
+                    }
+                    catch (Exception)
+                    {
+                        created = null;
+                    }
+
+                    created ??= new ExternalTenantUserMappingDto
+                    {
+                        Id = string.IsNullOrEmpty(call.Value?.MappingRtId) ? null : new OctoObjectId(call.Value.MappingRtId),
+                        SourceTenantId = call.Value?.SourceTenantId ?? sourceTenantId,
+                        SourceUserId = call.Value?.SourceUserId ?? sourceUserId,
+                        SourceUserName = call.Value?.SourceUserName ?? sourceUserName,
+                        RoleIds = call.Value?.RoleIds?.ToList() ?? [],
+                        GroupNames = call.Value?.GroupNames?.ToList() ?? []
+                    };
                     return CkMethodResult<ExternalTenantUserMappingDto>.Success(call.InvocationId, created);
                 });
             if (!outcome.IsSuccess)

@@ -66,7 +66,7 @@ public class ApiSecretToolsTests : ToolTestBase
         // Client.AddSecret-1 generates the secret on the server and answers it once.
         CkMethods.Succeeds("clear-1");
 
-        var result = await ApiSecretTools.CreateClientSecret(MockServer.Object, ClientId, description: "d");
+        var result = await ApiSecretTools.CreateClientSecret(MockServer.Object, ClientId, description: "d", confirm: true);
 
         result.IsSuccess.Should().BeTrue();
         result.ClearTextSecret.Should().Be("clear-1");
@@ -79,6 +79,21 @@ public class ApiSecretToolsTests : ToolTestBase
             "the tool sends no secret material");
         MockIdentityClient.Verify(c => c.CreateApiSecretForClient(It.IsAny<string>(), It.IsAny<ApiSecretDto>()),
             Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateSecret_WithoutConfirm_IsRefused_BeforeAnyCall()
+    {
+        CkMethods.Succeeds();
+
+        var client = await ApiSecretTools.CreateClientSecret(MockServer.Object, ClientId);
+        var resource = await ApiSecretTools.CreateApiResourceSecret(MockServer.Object, ResourceName);
+
+        client.IsSuccess.Should().BeFalse();
+        client.ErrorMessage.Should().Contain("without confirm=true");
+        resource.IsSuccess.Should().BeFalse();
+        resource.ErrorMessage.Should().Contain("without confirm=true");
+        CkMethods.OperationNames.Should().BeEmpty();
     }
 
     [Fact]
@@ -144,7 +159,7 @@ public class ApiSecretToolsTests : ToolTestBase
     {
         CkMethods.Succeeds("clear-2");
 
-        var result = await ApiSecretTools.CreateApiResourceSecret(MockServer.Object, ResourceName);
+        var result = await ApiSecretTools.CreateApiResourceSecret(MockServer.Object, ResourceName, confirm: true);
 
         result.IsSuccess.Should().BeTrue();
         result.ClearTextSecret.Should().Be("clear-2");
@@ -203,17 +218,17 @@ public class ApiSecretToolsTests : ToolTestBase
 
     private async Task<ApiSecretResponse[]> CallEveryWrite() =>
     [
-        await ApiSecretTools.CreateClientSecret(MockServer.Object, ClientId),
+        await ApiSecretTools.CreateClientSecret(MockServer.Object, ClientId, confirm: true),
         await ApiSecretTools.UpdateClientSecret(MockServer.Object, ClientId, "enc-1"),
         await ApiSecretTools.DeleteClientSecret(MockServer.Object, ClientId, "enc-1", confirm: true),
-        await ApiSecretTools.CreateApiResourceSecret(MockServer.Object, ResourceName),
+        await ApiSecretTools.CreateApiResourceSecret(MockServer.Object, ResourceName, confirm: true),
         await ApiSecretTools.UpdateApiResourceSecret(MockServer.Object, ResourceName, "enc-1"),
         await ApiSecretTools.DeleteApiResourceSecret(MockServer.Object, ResourceName, "enc-1", confirm: true)
     ];
 
     private async Task<ApiSecretResponse[]> CallEveryClientWrite() =>
     [
-        await ApiSecretTools.CreateClientSecret(MockServer.Object, ClientId),
+        await ApiSecretTools.CreateClientSecret(MockServer.Object, ClientId, confirm: true),
         await ApiSecretTools.UpdateClientSecret(MockServer.Object, ClientId, "enc-1"),
         await ApiSecretTools.DeleteClientSecret(MockServer.Object, ClientId, "enc-1", confirm: true)
     ];
@@ -268,8 +283,8 @@ public class ApiSecretToolsTests : ToolTestBase
     {
         CkMethods.Succeeds(Canary);
 
-        var client = await ApiSecretTools.CreateClientSecret(MockServer.Object, ClientId);
-        var resource = await ApiSecretTools.CreateApiResourceSecret(MockServer.Object, ResourceName);
+        var client = await ApiSecretTools.CreateClientSecret(MockServer.Object, ClientId, confirm: true);
+        var resource = await ApiSecretTools.CreateApiResourceSecret(MockServer.Object, ResourceName, confirm: true);
 
         foreach (var result in new[] { client, resource })
         {
@@ -319,7 +334,7 @@ public class ApiSecretToolsTests : ToolTestBase
     {
         CkMethods.HandlerNotAvailable();
 
-        var result = await ApiSecretTools.CreateClientSecret(MockServer.Object, ClientId);
+        var result = await ApiSecretTools.CreateClientSecret(MockServer.Object, ClientId, confirm: true);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("System.Identity 3.8").And.Contain("Methods:Identity:EnablePasswordMethods");

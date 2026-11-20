@@ -89,8 +89,20 @@ internal static class IdentityMethodCall
         }, secretMethod, successCodes);
 
     /// <summary>
-    ///     The call was certainly not executed: no live handler, a document the schema rejects (every GraphQL error carries
-    ///     the spec section <c>extensions.number</c>), or a target whose runtime id could not be resolved.
+    ///     The GraphQL validation codes of a schema that lacks the method (unknown field, type or argument). A variable the
+    ///     server cannot coerce (e.g. a malformed runtime id, <c>INVALID_VALUE</c>) is a validation error too, but it says
+    ///     nothing about the identity version, so it is not among them.
+    /// </summary>
+    private static readonly HashSet<string> SchemaLacksMethodCodes = new(StringComparer.Ordinal)
+    {
+        "FIELDS_ON_CORRECT_TYPE", "KNOWN_TYPE_NAMES", "KNOWN_ARGUMENT_NAMES"
+    };
+
+    /// <summary>
+    ///     The call was certainly not executed because the identity service does not offer the method: no live handler, a
+    ///     document the schema rejects because it lacks the method (every GraphQL error carries the spec section
+    ///     <c>extensions.number</c> and at least one names an unknown field, type or argument), or a target whose runtime id
+    ///     could not be resolved. Other validation errors (a malformed id) are reported as they are.
     /// </summary>
     internal static bool IsMethodUnavailable(Exception exception) => exception switch
     {
@@ -98,7 +110,9 @@ internal static class IdentityMethodCall
         CkMethodCallException ck when string.Equals(ck.Code, "METHOD_HANDLER_NOT_AVAILABLE", StringComparison.Ordinal) =>
             true,
         QlQueryErrorException ql => ql.Errors is { Count: > 0 } errors &&
-                                    errors.All(e => e.Extensions != null && e.Extensions.ContainsKey("number")),
+                                    errors.All(e => e.Extensions != null && e.Extensions.ContainsKey("number")) &&
+                                    errors.Any(e => e.Extensions!.TryGetValue("code", out var code) &&
+                                                    code is string c && SchemaLacksMethodCodes.Contains(c)),
         _ => false
     };
 
