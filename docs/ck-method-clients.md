@@ -129,12 +129,15 @@ impersonation switch stay on REST. Tool names, parameters and response fields ar
 - **Results.** A method that always returns a record (`Pipeline.Execute`, `Pipeline.SetDebugging`) and answers success without
   it is a failure (`returned no result`). `move_pipelines` calls `Pipeline.MoveToAdapter` once per pipeline and builds the
   former per-item list, as the controller's REST facade does: every error of one pipeline (declared, unknown pipeline,
-  `METHOD_TIMEOUT`, …) is a failed item and the other pipelines still move; `METHOD_FORBIDDEN` or a missing method ends the
-  batch. `cancel_queued_execution` maps the declared errors `EXECUTION_ALREADY_LEASED` / `QUEUED_EXECUTION_NOT_FOUND` to the
+  `METHOD_TIMEOUT`, a success without the move record, …) is a failed item and the other pipelines still move.
+  `METHOD_FORBIDDEN` ends the batch; a missing method ends it only before a pipeline was moved, later (a controller restart
+  during the batch) it is a failed item, so the list still says which pipelines were moved. `cancel_queued_execution` maps the declared errors `EXECUTION_ALREADY_LEASED` / `QUEUED_EXECUTION_NOT_FOUND` to the
   outcomes `AlreadyLeased` / `NotFound` of a successful call, as before.
 - **Sensitive parameters.** `pipelineDefinition` (`deploy_pipeline`) and `pipelineInput` (`execute_pipeline`,
-  `dry_run_pipeline`) are sensitive method parameters; `CommunicationMethodCall.ScrubSensitive` removes the value and every
-  line of eight or more characters of it from an error text.
+  `dry_run_pipeline`) are sensitive method parameters, marked `SENSITIVE:` in their description
+  (`CommunicationMethodCall.SensitiveParameterPrefix`); `CommunicationMethodCall.ScrubSensitive` removes the value and every
+  line of eight or more characters of it from every error text of these tools, the method refusals and the exceptions outside
+  the method protocol alike.
 - **Tests.** `CommunicationMethodToolsTests` runs every tool: its operation, no REST write (`AssertNoCommunicationRestWrite`),
   `METHOD_FORBIDDEN`, the missing-method and restart texts, an invalid id, a missing result record, a platform error of one
   pipeline of a move list, and the scrubbed definition. `WorkloadToolsTests` covers the workload type with element versions

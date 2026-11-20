@@ -52,11 +52,18 @@ internal static class CommunicationMethodCall
     private const string HandlerNotAvailableCode = "METHOD_HANDLER_NOT_AVAILABLE";
 
     /// <summary>
-    ///     Whether an error of one pipeline of a move list ends the list: a refused caller (the same for every pipeline) or a
-    ///     controller without the method. Every other error is a failed item.
+    ///     Whether an error of one pipeline of a move list ends the list: a refused caller (the same for every pipeline), or
+    ///     a controller without the method while nothing was moved yet. Every other error, and a missing method after a
+    ///     pipeline was moved (a controller restart during the batch), is a failed item, so the list keeps saying which
+    ///     pipelines were moved.
     /// </summary>
-    internal static bool EndsTheBatch<T>(CommunicationMethodOutcome<T> outcome) =>
-        outcome.IsUnavailable || outcome.ErrorCode == ForbiddenCode;
+    internal static bool EndsTheBatch<T>(CommunicationMethodOutcome<T> outcome, bool anythingMoved) =>
+        outcome.ErrorCode == ForbiddenCode || (outcome.IsUnavailable && !anythingMoved);
+
+    /// <summary>The description prefix of a sensitive method parameter (a pipeline definition or input).</summary>
+    internal const string SensitiveParameterPrefix =
+        "SENSITIVE: sent only in the CK method call, never echoed in the response; lines of eight or more characters " +
+        "of it are removed from error texts. ";
 
     /// <summary>The text of a method that answered success without the result record it always returns.</summary>
     internal static string NoResultText(string method) =>

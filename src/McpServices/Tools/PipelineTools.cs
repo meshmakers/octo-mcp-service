@@ -66,7 +66,8 @@ public sealed class PipelineTools
         McpServer server,
         [Description("Adapter runtime ID the pipeline runs on.")] string adapterId,
         [Description("Pipeline runtime ID.")] string pipelineId,
-        [Description("Pipeline definition (YAML or JSON) as a string.")] string pipelineDefinition,
+        [Description(CommunicationMethodCall.SensitiveParameterPrefix +
+                     "Pipeline definition (YAML or JSON) as a string.")] string pipelineDefinition,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
         if (string.IsNullOrWhiteSpace(adapterId) || string.IsNullOrWhiteSpace(pipelineId) ||
@@ -114,7 +115,10 @@ public sealed class PipelineTools
         }
         catch (Exception ex)
         {
-            return new PipelineDeploymentResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new PipelineDeploymentResponse
+            {
+                IsSuccess = false, ErrorMessage = CommunicationMethodCall.ScrubSensitive(ex.Message, pipelineDefinition)
+            };
         }
     }
 
@@ -125,7 +129,8 @@ public sealed class PipelineTools
     public static async Task<ExecutePipelineResponse> ExecutePipeline(
         McpServer server,
         [Description("Pipeline runtime ID.")] string pipelineId,
-        [Description("Optional pipeline input (string — JSON, YAML, or plain).")] string? pipelineInput = null,
+        [Description(CommunicationMethodCall.SensitiveParameterPrefix +
+                     "Optional pipeline input (string — JSON, YAML, or plain).")] string? pipelineInput = null,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
         if (string.IsNullOrWhiteSpace(pipelineId))
@@ -177,7 +182,10 @@ public sealed class PipelineTools
         }
         catch (Exception ex)
         {
-            return new ExecutePipelineResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ExecutePipelineResponse
+            {
+                IsSuccess = false, ErrorMessage = CommunicationMethodCall.ScrubSensitive(ex.Message, pipelineInput)
+            };
         }
     }
 
@@ -224,7 +232,8 @@ public sealed class PipelineTools
     public static async Task<DryRunPipelineResponse> DryRunPipeline(
         McpServer server,
         [Description("Pipeline runtime ID.")] string pipelineId,
-        [Description("Optional pipeline input (string — JSON, YAML, or plain).")] string? pipelineInput = null,
+        [Description(CommunicationMethodCall.SensitiveParameterPrefix +
+                     "Optional pipeline input (string — JSON, YAML, or plain).")] string? pipelineInput = null,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
         if (string.IsNullOrWhiteSpace(pipelineId))
@@ -280,7 +289,10 @@ public sealed class PipelineTools
         }
         catch (Exception ex)
         {
-            return new DryRunPipelineResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new DryRunPipelineResponse
+            {
+                IsSuccess = false, ErrorMessage = CommunicationMethodCall.ScrubSensitive(ex.Message, pipelineInput)
+            };
         }
     }
 

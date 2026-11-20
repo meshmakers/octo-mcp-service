@@ -202,6 +202,111 @@ public class CommunicationMethodToolsTests : ToolTestBase
     }
 
     [Fact]
+    public async Task MovePipelines_AControllerRestartAfterAMove_KeepsTheList()
+    {
+        AnswerMovesInTurn(
+            () => Moved(),
+            () => new QlQueryErrorException("no handler",
+                [new GraphQLError { Message = "No live handler.", Extensions = new Map { ["code"] = "METHOD_HANDLER_NOT_AVAILABLE" } }]),
+            () => Moved());
+
+        var result = await WorkloadTools.MovePipelines(MockServer.Object,
+            [PipelineId, SecondPipelineId, ThirdPipelineId], AdapterId, confirm: true);
+
+        result.IsSuccess.Should().BeTrue();
+        result.SuccessCount.Should().Be(2);
+        result.Result!.Results[1].Success.Should().BeFalse();
+        result.Result.Results[1].ErrorMessage.Should().Contain("restarting");
+    }
+
+    [Fact]
+    public async Task MovePipelines_AControllerWithoutTheMethodBeforeAnyMove_EndsTheBatch()
+    {
+        CkMethods.HandlerNotAvailable();
+
+        var result = await WorkloadTools.MovePipelines(MockServer.Object,
+            [PipelineId, SecondPipelineId], AdapterId, confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("System.Communication 4.19");
+        CkMethods.Requests.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task MovePipelines_ASuccessWithoutTheMoveRecord_IsAFailedItem()
+    {
+        CkMethods.Succeeds();
+
+        var result = await WorkloadTools.MovePipelines(MockServer.Object, [PipelineId], AdapterId, confirm: true);
+
+        result.IsSuccess.Should().BeTrue();
+        result.FailureCount.Should().Be(1);
+        result.Result!.Results[0].ErrorMessage.Should().EndWith("returned no result.");
+    }
+
+    [Theory]
+    [InlineData("execute")]
+    [InlineData("dry_run")]
+    [InlineData("deploy")]
+    public async Task AnErrorOutsideTheMethodProtocol_ThatEchoesTheSensitiveValue_IsScrubbed(string tool)
+    {
+        const string canary = "canary-value-0123456789";
+        CkMethods.Throws(new InvalidOperationException($"The server said: {canary}"));
+
+        var error = tool switch
+        {
+            "execute" => (await PipelineTools.ExecutePipeline(MockServer.Object, PipelineId, canary)).ErrorMessage,
+            "dry_run" => (await PipelineTools.DryRunPipeline(MockServer.Object, PipelineId, canary)).ErrorMessage,
+            _ => (await PipelineTools.DeployPipeline(MockServer.Object, AdapterId, PipelineId, canary)).ErrorMessage
+        };
+
+        error.Should().NotContain(canary).And.Contain("[REDACTED]");
+    }
+
+    [Fact]
+    public void TheSensitiveParameters_AreMarkedSensitive()
+    {
+        var parameters = typeof(PipelineTools).GetMethods()
+            .SelectMany(m => m.GetParameters())
+            .Where(p => p.Name is "pipelineInput" ||
+                        (p.Name == "pipelineDefinition" && p.Member.Name == nameof(PipelineTools.DeployPipeline)))
+            .ToList();
+
+        parameters.Should().HaveCount(3);
+        parameters.Should().OnlyContain(p => ((System.ComponentModel.DescriptionAttribute)p
+            .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false).Single())
+            .Description.StartsWith("SENSITIVE:"));
+    }
+
+    private static RtPipelineMoveResultRecordDto Moved() =>
+        new() { OldAdapterRtId = "old", NewAdapterRtId = AdapterId };
+
+    /// <summary>The n-th method call answers the n-th entry: a record (success) or an exception.</summary>
+    private void AnswerMovesInTurn(params Func<object>[] answers)
+    {
+        var calls = 0;
+        MockTenantClient
+            .Setup(c => c.SendMutationAsync<It.IsAnyType>(It.IsAny<GraphQLRequest>()))
+            .Returns(new InvocationFunc(invocation =>
+            {
+                CkMethods.Requests.Add((GraphQLRequest)invocation.Arguments[0]);
+                var responseType = invocation.Method.GetGenericArguments()[0];
+                var answer = answers[Math.Min(Interlocked.Increment(ref calls), answers.Length) - 1]();
+                if (answer is Exception error)
+                {
+                    return typeof(Task).GetMethod(nameof(Task.FromException), 1, [typeof(Exception)])!
+                        .MakeGenericMethod(responseType).Invoke(null, [error])!;
+                }
+
+                var response = (CkMethodCallResponse)Activator.CreateInstance(responseType, nonPublic: true)!;
+                response.InvocationId = "inv-1";
+                responseType.GetProperty("Result")?.SetValue(response, answer);
+                return typeof(Task).GetMethod(nameof(Task.FromResult))!.MakeGenericMethod(responseType)
+                    .Invoke(null, [response])!;
+            }));
+    }
+
+    [Fact]
     public async Task DeployPipeline_ARefusalThatEchoesTheDefinition_IsScrubbed()
     {
         const string definition = "triggers: []\npassword: s3cr3t-value-long";
