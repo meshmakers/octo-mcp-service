@@ -214,8 +214,9 @@ dotnet run
 - Persisted queries (2): `execute_runtime_query` · `execute_stream_data_query`
 - Archive metadata (4): `get_archive_storage_stats` · `get_rollup_query_metadata` · `resolve_series_query` · `get_archive_coverage`
 
-### **Generic Runtime CRUD + Schema Discovery** (17)
+### **Generic Runtime CRUD + Schema Discovery** (18)
 - CRUD (8): `query_entities` · `query_entities_simple` · `get_entity_by_id` · `create_entity` · `update_entity` · `delete_entity`<sup>‡</sup> · `set_entity_secrets` · `create_entity_with_secrets`
+- CK methods (1): `invoke_ck_method` (medium risk) — calls a CK method with the caller's identity; a refusal carries the GraphQL `extensions` code and parameters
 - Schema (7): `get_available_types` · `get_type_schema` · `get_available_models` · `search_types` · `get_association_tree` · `navigate_associations` · `get_available_archive_paths`
 - Tool Management (4): `list_available_tools` · `get_tool_details` · `get_tool_statistics` · `validate_tool_parameters`
 - Echo (1): `Echo`

@@ -1,6 +1,6 @@
 ---
 description: Identity writes as CK method calls (generated clients), no REST fallback, sensitive parameters and the payload log filter.
-applies_to: src/McpServices.MethodClients/**, **/UserManagementTools.cs, **/RoleManagementTools.cs, **/ErrorTextRedactor.cs, **/McpPayloadLogFilter.cs, **/Identity{Method*,RtIds,ProviderMethods}.cs
+applies_to: src/McpServices.MethodClients/**, **/{CkMethodTools,CkMethodInvocationPlanner,DynamicCkMethodClient}.cs, **/UserManagementTools.cs, **/RoleManagementTools.cs, **/ErrorTextRedactor.cs, **/McpPayloadLogFilter.cs, **/Identity{Method*,RtIds,ProviderMethods}.cs
 ---
 
 # CK method calls and password tools
@@ -33,6 +33,60 @@ called through a **generated CK method client**, not through a REST method marke
 | `create_user` | `System.Identity/User.CreateUser-1` | — |
 | `reset_user_password` | `System.Identity/User.ResetPassword-1` | — |
 
+
+### Generic method calls: `invoke_ck_method`
+
+`Tools/CkMethodTools.InvokeCkMethod` calls one method of any CK type that has no dedicated tool (typically an app method
+such as a booking). It is a family-1 tool: the method runs only through the tenant's GraphQL endpoint, with the caller's
+own token, so the method gateway of the asset repository decides about authorization (method roles, `allowSelf`, scopes,
+data access), the target and the parameters exactly as for a GraphQL caller.
+
+**Invariant.** The tool never does more than the same caller could do with one GraphQL method call on the same tenant. It
+never dispatches through the engine, the dispatcher or the bus (it only reads the CK definitions from the tenant's CK
+cache), never uses a service identity and never retries with another token. It may be narrower than GraphQL, never wider.
+
+- **Flow.** Arguments are checked first (`CkMethodInvocationPlanner.ValidateArguments`, `ParseParameters`), then the tenant
+  gate of the schema tools (`RuntimeSecurityContextResolver.ResolveTenantAccessAsync`) before the CK cache is read, then
+  `CkMethodInvocationPlanner.Plan` builds the document, then the tenant-aware token
+  (`McpSessionContext.ResolveAccessTokenAsync(server, tenantId)`) builds the tenant client
+  (`IOctoServiceClientFactory.CreateTenantClient`) and `DynamicCkMethodClient` (a `CkMethodClientBase`) sends it.
+- **No `*ClientContext` helper (deliberate exception).** The tool needs the tenant gate before it reads the CK cache and
+  only the tenant GraphQL client afterwards; it performs the same three steps as
+  `IdentityClientContext.TryBuildAsync(…, withTenantClient: true)` (tenant resolution, tenant-aware token without a fallback
+  to the home token, fresh client from the factory) without building an unused service client.
+- **Document.** The same mutation the generated SDK clients send:
+  `mutation <Type><Method>($rtId: OctoObjectId!, $input: <DeclaringType><Method>MethodInput[!], $idempotencyKey: String)
+  { runtime { <type>s { <method>(rtId, input, idempotencyKey) { invocationId result {…} } } } }` (`operation {…}` for an
+  asynchronous method; record results select every attribute that is not hidden, secrets as `{ isSet keyMissing setAt }`).
+  Every name comes from the resolved CK definition and must match `^[_A-Za-z][_0-9A-Za-z]*$`; `rtId`, the parameters and
+  the idempotency key only go into the variables.
+- **Refused before any call** (judged from the resolved definition, never from the input text; fail closed when the
+  definition cannot be resolved): a method of a System model (the model name of the concrete type or of the method's
+  declaring type starts with `System` in any case, also when a custom type inherits it or another spelling resolves to it
+  — those methods have dedicated tools with their own risk class and confirm gate), a method of a knowledge page type or
+  a type derived from one (`KnowledgeWriteRefusal.ProtectedTypes`: knowledge pages are written only by the knowledge
+  tools), a method with a `sensitive` result or a `sensitive` parameter, an abstract or unknown type, an unknown method id (the type's key, e.g. `Book` / `Book-2`, or the qualified id), a
+  missing `rtId` for an instance method or an `rtId` for a static method, parameters for a method without parameters,
+  parameters that are not one JSON object, nest deeper than 32 or exceed 256 KiB of UTF-8, an `rtId` that is not 24
+  hexadecimal characters, an idempotency key outside 1 to 128 characters.
+- **Result.** Success: `invocationId` and `result` (raw JSON) or `operation` (handle of an asynchronous method). A refusal of
+  the server: `methodError` with `code`, `parameters` and `details` exactly as in the GraphQL error's `extensions`, plus
+  `declared` (the method lists the code in its `errors`, e.g. `CONCURRENT_CHANGE`; false for platform codes such as
+  `METHOD_FORBIDDEN` or a GraphQL validation code). Free texts pass `ErrorTextRedactor.Redact`; codes and parameters are
+  passed on unchanged.
+- **Known limitation.** No MCP tool reads CK operation results yet: the outcome of an asynchronous method (also a declared
+  error such as `CONCURRENT_CHANGE` that arrives in the operation result) is read through the GraphQL `runtime.operations`
+  query with the operation id; the success message says so.
+- **Declared codes.** `CONCURRENT_CHANGE` is the recommended code a method declares when a conditional write lost against
+  a concurrent call (e.g. a slot booked twice); it is a declared method code, not a platform constant.
+- **Risk.** `[McpRisk(Medium)]`, the class of the generic CRUD write tools (`create_entity`, `update_entity`,
+  `delete_entity`); no confirm gate, because the gateway authorizes and the System methods that have High tools are
+  refused.
+- **Tests.** `CkMethodToolsTests`: the declared code compared with the GraphQL wire answer of the same refused call, the
+  document and variables, asynchronous and record results, and one test per abuse case (other tenant, method without
+  rights, undeclared method, oversized and malformed parameters, injection into the document, System methods in any case,
+  inherited or resolved through another spelling, knowledge page types, sensitive result or parameter, unauthenticated
+  caller, undeclared codes, unresolvable definition).
 ### Identity wave 2: every identity write tool
 
 Since System.Identity 3.8 every identity write tool of groups, roles, clients (create, update, delete, roles, groups,
