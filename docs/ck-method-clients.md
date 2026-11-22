@@ -47,13 +47,10 @@ cache), never uses a service identity and never retries with another token. It m
 
 - **Flow.** Arguments are checked first (`CkMethodInvocationPlanner.ValidateArguments`, `ParseParameters`), then the tenant
   gate of the schema tools (`RuntimeSecurityContextResolver.ResolveTenantAccessAsync`) before the CK cache is read, then
-  `CkMethodInvocationPlanner.Plan` builds the document, then the tenant-aware token
-  (`McpSessionContext.ResolveAccessTokenAsync(server, tenantId)`) builds the tenant client
-  (`IOctoServiceClientFactory.CreateTenantClient`) and `DynamicCkMethodClient` (a `CkMethodClientBase`) sends it.
-- **No `*ClientContext` helper (deliberate exception).** The tool needs the tenant gate before it reads the CK cache and
-  only the tenant GraphQL client afterwards; it performs the same three steps as
-  `IdentityClientContext.TryBuildAsync(…, withTenantClient: true)` (tenant resolution, tenant-aware token without a fallback
-  to the home token, fresh client from the factory) without building an unused service client.
+  `CkMethodInvocationPlanner.Plan` builds the document, then
+  `AssetClientContext.TryBuildAsync(server, tenantId, withTenantClient: true)` builds the tenant GraphQL client with the
+  tenant-aware token (no fallback to the home token; a client for another tenant than the admitted one is refused) and
+  `DynamicCkMethodClient` (a `CkMethodClientBase`) sends it.
 - **Document.** The same mutation the generated SDK clients send:
   `mutation <Type><Method>($rtId: OctoObjectId!, $input: <DeclaringType><Method>MethodInput[!], $idempotencyKey: String)
   { runtime { <type>s { <method>(rtId, input, idempotencyKey) { invocationId result {…} } } } }` (`operation {…}` for an

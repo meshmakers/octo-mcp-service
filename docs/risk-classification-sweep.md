@@ -368,7 +368,7 @@ _Medium=1_  ·  **Owner reviewed:** ☐
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|
-| `invoke_ck_method` | **M** | generic write like `create_entity`; the asset repository's method gateway authorizes with the caller's token; System model methods (dedicated High tools with confirm gates) and sensitive results are refused, so the tool cannot bypass their approval |
+| `invoke_ck_method` | **M** | generic write like `create_entity`; the asset repository's method gateway authorizes with the caller's token; System model methods (dedicated High tools with confirm gates), knowledge page types and methods with a sensitive result or parameter are refused, so the tool cannot bypass their approval or the content guard |
 
 ### SecretMaintenanceTools (3 tools)
 

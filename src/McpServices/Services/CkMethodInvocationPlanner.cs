@@ -16,8 +16,9 @@ namespace Meshmakers.Octo.Backend.McpServices.Services;
 ///         Security invariant: the planner never widens what the caller may do. Every name in the document comes from
 ///         the resolved CK definition and must match the GraphQL name pattern; the caller's <c>rtId</c>, parameters and
 ///         idempotency key only ever go into the variables. Methods declared by a <c>System*</c> model (they have
-///         dedicated tools with their own risk class and confirm gate) and methods with a sensitive result are refused,
-///         judged from the resolved definition, never from the input text. Anything that cannot be resolved is refused
+///         dedicated tools with their own risk class and confirm gate), methods of knowledge page types (and types
+///         derived from them) and methods with a sensitive result or parameter are refused, judged from the resolved
+///         definition, never from the input text. Anything that cannot be resolved is refused
 ///         (fail closed).
 ///     </para>
 /// </summary>

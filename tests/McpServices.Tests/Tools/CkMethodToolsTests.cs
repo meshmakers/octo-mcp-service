@@ -253,7 +253,7 @@ public class CkMethodToolsTests : ToolTestBase
         var result = await CkMethodTools.InvokeCkMethod(MockServer.Object, TypeId, methodId, TargetId);
 
         result.IsSuccess.Should().BeFalse();
-        result.ErrorMessage.Should().Contain("has no method");
+        result.ErrorMessage.Should().Contain("has no method").And.Contain("Methods of the type: Book, Export-1");
         AssertNoCall();
     }
 

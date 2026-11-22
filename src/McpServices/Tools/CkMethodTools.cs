@@ -49,7 +49,8 @@ public static class CkMethodTools
         "System.Communication, ...) are refused: use the dedicated tools. Methods with a sensitive result or a sensitive " +
         "parameter and methods of knowledge page types (use knowledge_upsert_page) are refused. An asynchronous method " +
         "returns its operation handle; its result is read through GraphQL (no MCP tool reads operations yet). " +
-        "Use get_type_details or search_types to find types and their methods.")]
+        "Use search_types or get_available_types to find the type; a call with a method id the type does not have " +
+        "is refused with the list of the type's methods.")]
     public static async Task<InvokeCkMethodResponse> InvokeCkMethod(
         McpServer server,
         [Description("Concrete CK type the method is called on, e.g. 'Sample.Booking-1.0.0/Resource-1' or the runtime id 'Sample.Booking/Resource-1'.")]
@@ -106,15 +107,22 @@ public static class CkMethodTools
 
             plan = resolvedPlan;
 
-            // The caller's own token for exactly this tenant (a failed exchange is an error, never the home token).
-            var token = await McpSessionContext.ResolveAccessTokenAsync(server, resolvedTenantId);
-            if (token.Error != null || token.AccessToken == null)
+            // The family-1 helper: the caller's own token for exactly this tenant (a failed exchange is an error, never
+            // the home token) and a fresh tenant GraphQL client.
+            var ctx = await AssetClientContext.TryBuildAsync(server, resolvedTenantId, withTenantClient: true);
+            if (ctx.Error != null || ctx.TenantClient == null)
             {
-                return Refused(token.Error ?? Constants.NotAuthenticatedError, resolvedTenantId, plan);
+                return Refused(ctx.Error ?? Constants.NotAuthenticatedError, resolvedTenantId, plan);
             }
 
-            var factory = server.Services!.GetRequiredService<IOctoServiceClientFactory>();
-            var client = new DynamicCkMethodClient(factory.CreateTenantClient(resolvedTenantId, token.AccessToken));
+            if (!string.Equals(ctx.TenantId, resolvedTenantId, StringComparison.OrdinalIgnoreCase))
+            {
+                // Fail closed: the client must be bound to the tenant the gate admitted.
+                return Refused($"Tenant mismatch: the client was built for '{ctx.TenantId}', not for '{resolvedTenantId}'.",
+                    resolvedTenantId, plan);
+            }
+
+            var client = new DynamicCkMethodClient(ctx.TenantClient);
             var variables = Variables(plan, rtId, input, idempotencyKey);
 
             if (plan.IsAsync)

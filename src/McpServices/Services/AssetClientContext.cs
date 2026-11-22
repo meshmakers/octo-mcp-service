@@ -1,4 +1,5 @@
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.System;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants;
 using ModelContextProtocol.Server;
 
 namespace Meshmakers.Octo.Backend.McpServices.Services;
@@ -10,13 +11,16 @@ namespace Meshmakers.Octo.Backend.McpServices.Services;
 internal sealed record AssetClientContext(
     IAssetServicesClient? Client,
     string? TenantId,
-    string? Error)
+    string? Error,
+    ITenantClient? TenantClient = null)
 {
     /// <summary>
     ///     Resolves the access token (including lazy refresh) and builds an Asset client for
-    ///     <paramref name="tenantIdParam"/>.
+    ///     <paramref name="tenantIdParam"/>; with <paramref name="withTenantClient"/> also the tenant's GraphQL client
+    ///     (same token), e.g. for CK method calls.
     /// </summary>
-    public static async Task<AssetClientContext> TryBuildAsync(McpServer server, string? tenantIdParam)
+    public static async Task<AssetClientContext> TryBuildAsync(McpServer server, string? tenantIdParam,
+        bool withTenantClient = false)
     {
         try
         {
@@ -35,7 +39,9 @@ internal sealed record AssetClientContext(
             var accessToken = token.AccessToken;
 
             var factory = server.Services!.GetRequiredService<IOctoServiceClientFactory>();
-            return new AssetClientContext(factory.CreateAssetClient(tenantId, accessToken), tenantId, null);
+            var tenantClient = withTenantClient ? factory.CreateTenantClient(tenantId, accessToken) : null;
+            return new AssetClientContext(factory.CreateAssetClient(tenantId, accessToken), tenantId, null,
+                tenantClient);
         }
         catch (Exception ex)
         {
