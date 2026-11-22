@@ -51,7 +51,7 @@ configuration). The three layers have different cost profiles and different vali
 | `**/Tools/{DataFlowTriggerDeploymentSite,TenantManagement,AiLifecycle,ApiSecret,Blueprint}Tools.cs`, `**/Services/{IdentityForbiddenMessage,AiClientContext}.cs` | `docs/admin-tools.md` |
 | `**/Tools/{RuntimeAggregation,StreamData*}Tools.cs`, `**/Services/{AggregationMapper,AvailableArchivePaths*}.cs`, `**/Models/{Aggregation,Filters}/**` | `docs/aggregation-tools.md` |
 | `**/Program.cs`, `**/Configuration/**`, `**/SystemApi/**`, `**/Services/McpSession*.cs`, `**/Services/Tenant*.cs`, `**/Tools/AuthenticationTools.cs` | `docs/authentication.md` |
-| `src/McpServices.MethodClients/**`, `**/UserManagementTools.cs`, `**/RoleManagementTools.cs`, `**/ErrorTextRedactor.cs`, `**/McpPayloadLogFilter.cs`, `**/Identity{Method*,RtIds,ProviderMethods}.cs` | `docs/ck-method-clients.md` |
+| `src/McpServices.MethodClients/**`, `**/{CkMethodTools,CkMethodInvocationPlanner,DynamicCkMethodClient}.cs`, `**/UserManagementTools.cs`, `**/RoleManagementTools.cs`, `**/ErrorTextRedactor.cs`, `**/McpPayloadLogFilter.cs`, `**/Identity{Method*,RtIds,ProviderMethods}.cs` | `docs/ck-method-clients.md` |
 | `**/Routing/**`, `**/Services/*FileTransferStore.cs`, `**/Services/{EndTrackingStream,DeliveryTrackingResponseStream,FileTransferHandout,CkDraftInlinePackager}.cs`, `**/Tools/{FileTransfer,PlatformFile,CkModel*}Tools.cs` | `docs/file-transfer.md` |
 | `src/McpServices.ContentGuard/**`, `**/Services/ContentGuard/**`, `**/Services/KnowledgeUrl*.cs`, `**/KnowledgeFetchOptions.cs` | `docs/knowledge-input-guards.md` |
 | `**/Tools/KnowledgeTools.cs`, `**/Services/Knowledge/**`, `**/Resources/Knowledge*.cs`, `**/Prompts/**`, `**/Configuration/McpServerSetup.cs` | `docs/knowledge-tools.md` |

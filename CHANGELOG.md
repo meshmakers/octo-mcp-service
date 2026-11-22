@@ -71,6 +71,17 @@
 
 ### Added
 
+- **New tool `invoke_ck_method(ckTypeId, methodId, rtId?, parameters?, idempotencyKey?, tenantId?)`**: calls one method of a
+  CK type (an app method such as a booking) through the tenant's GraphQL endpoint with the caller's own token, so the
+  method gateway of the asset repository (method roles, `allowSelf`, scopes, target, parameter validation) decides exactly
+  as for a GraphQL caller. A refused call returns `methodError` with the same `code`, `parameters` and `details` a GraphQL
+  caller reads from `errors[].extensions` (e.g. a declared `CONCURRENT_CHANGE`, or `METHOD_FORBIDDEN`), plus `declared`.
+  Risk **Medium** (write), like the generic CRUD write tools. Refused before any call: methods of System models (they have
+  dedicated tools), knowledge page types, methods with a sensitive result or parameter, an abstract or unknown type or
+  method, malformed or oversized (256 KiB) parameters, a malformed `rtId` or idempotency key. Known limitation: no MCP
+  tool reads CK operation results yet (asynchronous methods return the operation handle). See
+  `docs/ck-method-clients.md`.
+
 - **AB#9182** — New tool `refresh_blueprint_catalogs(catalogName?)`, the MCP mirror of octo-cli `RefreshBlueprintCatalogs`:
   forces a refresh of all blueprint catalog caches of the asset repository, or of one catalog, and returns the result per
   catalog (`Refreshed`, `Skipped`, `Failed` with message) plus the three counts. A failed catalog does not stop the others
