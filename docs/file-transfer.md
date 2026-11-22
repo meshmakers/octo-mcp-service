@@ -175,9 +175,11 @@ no `enable_*` call; `GET {tenant}/v1/files/capabilities` reports `available:fals
 - **Single compiled YAML** from the CK MSBuild output at `bin/<config>/net10.0/octo-ck-libraries/<Project>/out/ck-<name>-<major>.yaml`. Easiest path after a `dotnet build`.
 - **Single compiled JSON** in the same shape as files under `~/.octo/local-catalog/ck-models/v2/<letter>/<Model>/<major>/ck-<name>-<version>.json`.
 - **Zip of a compiled model** (the first `.json`, else the first `.yaml` entry is read as the compiled model).
-- **Not** a zip of the source `ConstructionKit/` folder: `ImportCk` does not compile (checked against the asset repository's
-  `ModelsController.ImportCk` and the bot import job). Compile with `dotnet build` / `octo-ckc` first, or use
-  `validate_ck_model`, which does compile a source zip.
+- **Zip of the source `ConstructionKit/` folder** (a zip that holds `ckModel.yaml`, which decides it): the asset repository's
+  `ModelsController.ImportCk` compiles it on the path of `validate_ck_model` (same extraction limits, same compiler) and queues
+  the compiled model; the bot import job still reads compiled models only. Compile errors fail the call (`400`, code
+  `CK_MODEL_COMPILE_FAILED`, the findings `validate_ck_model` reports) before anything is queued. Needs an asset repository with
+  source-zip support in `ImportCk`; an older one reads a file of the zip as a compiled model and fails.
 - For runtime models: a single YAML/JSON conforming to `runtime-model.schema.json` (an `entities:` list keyed by `rtId` + `ckTypeId`), or a zip thereof.
 
 The tool description says "PUT the file to the returned URL" — historically said "PUT the JSON/zip" which was misleading. Asset-services accepts all of the above; schema validation happens server-side after the file lands in the file-transfer store.
