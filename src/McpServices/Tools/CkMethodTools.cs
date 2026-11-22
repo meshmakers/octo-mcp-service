@@ -112,7 +112,7 @@ public static class CkMethodTools
             var ctx = await AssetClientContext.TryBuildAsync(server, resolvedTenantId, withTenantClient: true);
             if (ctx.Error != null || ctx.TenantClient == null)
             {
-                return Refused(ctx.Error ?? Constants.NotAuthenticatedError, resolvedTenantId, plan);
+                return Refused(ErrorTextRedactor.Redact(ctx.Error ?? Constants.NotAuthenticatedError), resolvedTenantId, plan);
             }
 
             if (!string.Equals(ctx.TenantId, resolvedTenantId, StringComparison.OrdinalIgnoreCase))

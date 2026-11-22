@@ -665,6 +665,21 @@ public class CkMethodToolsTests : ToolTestBase
         result.ErrorMessage.Should().NotContain("eyJhbGciOiJIUzI1NiJ9.e30.abc");
     }
 
+    [Fact]
+    public async Task ClientCreationFailure_IsARefusal_WithARedactedMessage()
+    {
+        // The client context catches the exception and returns its text; the tool redacts it like every free text.
+        MockClientFactory
+            .Setup(f => f.CreateTenantClient(It.IsAny<string>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("exchange failed Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.e30.xyz"));
+
+        var result = await Book();
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().NotContain("eyJhbGciOiJIUzI1NiJ9.e30.xyz");
+        CkMethods.Requests.Should().BeEmpty();
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────────────────────────
 
     private Task<InvokeCkMethodResponse> Book(string? rtId = TargetId,
