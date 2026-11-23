@@ -71,6 +71,15 @@
 
 ### Added
 
+- **`import_ck_model` accepts the draft inline, the same way `validate_ck_model` does.** Pass exactly one of `transferId`
+  (upload, unchanged) or `files` (name/content pairs relative to `ConstructionKit/`, the source folder or one compiled model;
+  1 MiB / 2000 files, over the limit `InlineDraftTooLarge` / message 9005). An MCP-only client without an HTTP client can now
+  validate and import a draft without the upload PUT. A source draft is compiled by the asset repository's `ImportCk` as an
+  uploaded source zip is; on `CK_MODEL_COMPILE_FAILED` the response now carries the findings in `errors`/`warnings`
+  (`messageNumber`, `level`, `file`, `elementPath`, `message`), also for an uploaded source zip, and nothing is queued. Risk
+  level stays Medium; the upload remains the path for larger drafts. The response type is `CkModelImportResponse`
+  (`JobStartedResponse` plus `errors`/`warnings`).
+
 - **New tool `invoke_ck_method(ckTypeId, methodId, rtId?, parameters?, idempotencyKey?, tenantId?)`**: calls one method of a
   CK type (an app method such as a booking) through the tenant's GraphQL endpoint with the caller's own token, so the
   method gateway of the asset repository (method roles, `allowSelf`, scopes, target, parameter validation) decides exactly

@@ -86,46 +86,19 @@ public sealed class CkModelValidationTools
             }
             else
             {
-                CkDraftInlinePackager.Result packaged;
-                try
-                {
-                    packaged = CkDraftInlinePackager.Package(files!, Path.GetTempPath());
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    // The exception text names the server's temp path: not for the client.
-                    return new CkModelValidationResponse
-                    {
-                        IsSuccess = false,
-                        ErrorMessage = "The inline draft could not be staged on the MCP server (temporary storage)."
-                    };
-                }
-
-                if (packaged.TooLarge != null)
+                var staged = CkDraftInlinePackager.Stage(files!, "validate_ck_model");
+                if (staged.FilePath == null)
                 {
                     return new CkModelValidationResponse
                     {
                         IsSuccess = false,
-                        ErrorCode = CkDraftInlinePackager.InlineDraftTooLargeCode,
-                        ErrorMessage = packaged.TooLarge,
-                        Errors =
-                        [
-                            new CkModelValidationMessageDto
-                            {
-                                MessageNumber = CkDraftInlinePackager.InlineDraftTooLargeNumber,
-                                Level = "Error",
-                                Message = packaged.TooLarge
-                            }
-                        ]
+                        ErrorCode = staged.ErrorCode,
+                        ErrorMessage = staged.ErrorMessage,
+                        Errors = staged.Finding == null ? [] : [staged.Finding]
                     };
                 }
 
-                if (packaged.Error != null)
-                {
-                    return new CkModelValidationResponse { IsSuccess = false, ErrorMessage = packaged.Error };
-                }
-
-                filePath = inlinePath = packaged.FilePath!;
+                filePath = inlinePath = staged.FilePath;
             }
 
             var result = await asset.Client!.ValidateCkModelAsync(asset.TenantId!, filePath);

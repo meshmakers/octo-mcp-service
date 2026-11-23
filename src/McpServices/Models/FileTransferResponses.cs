@@ -106,3 +106,17 @@ public class JobStartedResponse : FileTransferResponse
     /// <summary>Job id (poll asset/bot service to track progress).</summary>
     public string? JobId { get; set; }
 }
+
+/// <summary>
+///     Response of <c>import_ck_model</c>. On a refused draft (a source that does not compile, an inline draft over the
+///     limit) <see cref="Errors" /> and <see cref="Warnings" /> carry the findings in the shape <c>validate_ck_model</c>
+///     reports them; otherwise they are empty.
+/// </summary>
+public class CkModelImportResponse : JobStartedResponse
+{
+    /// <summary>Errors of a refused draft: message number, level, file relative to ConstructionKit/, element path, text.</summary>
+    public List<Sdk.ServiceClient.AssetRepositoryServices.CkModelCatalog.CkModelValidationMessageDto> Errors { get; set; } = [];
+
+    /// <summary>Warnings of a refused draft, same shape as <see cref="Errors" />.</summary>
+    public List<Sdk.ServiceClient.AssetRepositoryServices.CkModelCatalog.CkModelValidationMessageDto> Warnings { get; set; } = [];
+}

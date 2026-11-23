@@ -1,5 +1,10 @@
+using System.IO.Compression;
+using System.Net;
 using FluentAssertions;
+using Meshmakers.Octo.Backend.McpServices.Models;
+using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Backend.McpServices.Tools;
+using Meshmakers.Octo.Sdk.ServiceClient;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Moq;
@@ -84,6 +89,243 @@ public class CkModelFileToolsTests : ToolTestBase
         result.ErrorMessage.Should().Contain("schema mismatch");
         // Buffer still there for inspection / retry.
         FileTransferStore.GetUpload(transferId, CallerOwner).Should().NotBeNull();
+    }
+
+    // ── import_ck_model: inline draft ───────────────────────────────────────
+
+    private static List<CkDraftFileDto> SourceDraft() =>
+    [
+        new() { Name = "ckModel.yaml", Content = "modelId: Demo-1.0.0\n" },
+        new() { Name = "types/pump.yaml", Content = "types:\n  - typeId: Pump\n" }
+    ];
+
+    private const string CompileFailedProblem =
+        "{\"type\":\"https://schemas.meshmakers.cloud/errors/ck-model-compile-failed\"," +
+        "\"title\":\"The CK model source does not compile\",\"status\":400," +
+        "\"detail\":\"The CK model source in draft.zip does not compile: 1 error(s).\"," +
+        "\"code\":\"CK_MODEL_COMPILE_FAILED\",\"message\":\"The CK model source in draft.zip does not compile.\"," +
+        "\"fileName\":\"draft.zip\"," +
+        "\"errors\":[{\"messageNumber\":3,\"level\":\"Error\",\"file\":\"types/pump.yaml\"," +
+        "\"elementPath\":\"Demo-1.0.0/Pump-1.Demo/NoSuchAttribute\",\"message\":\"unknown attribute\"," +
+        "\"parameters\":{}}]," +
+        "\"warnings\":[{\"messageNumber\":7,\"level\":\"Warning\",\"file\":\"ckModel.yaml\",\"message\":\"deprecated\"}]}";
+
+    private void GivenCompileFails() =>
+        MockAssetClient.Setup(c => c.ImportCkModelAsync(DefaultTenantId, It.IsAny<string>()))
+            .ThrowsAsync(new ServiceClientResultException("Bad request", HttpStatusCode.BadRequest)
+            {
+                ResponseContent = CompileFailedProblem
+            });
+
+    [Fact]
+    public async Task ImportCkModel_InlineSourceDraft_PostsAZipOfTheFiles_WaitsForTheJob_AndDeletesTheZip()
+    {
+        string? postedPath = null;
+        List<string>? entries = null;
+        string? pumpContent = null;
+        MockAssetClient.Setup(c => c.ImportCkModelAsync(DefaultTenantId, It.IsAny<string>()))
+            .Callback<string, string>((_, path) =>
+            {
+                postedPath = path;
+                using var zip = ZipFile.OpenRead(path);
+                entries = zip.Entries.Select(e => e.FullName).ToList();
+                using var reader = new StreamReader(zip.GetEntry("types/pump.yaml")!.Open());
+                pumpContent = reader.ReadToEnd();
+            })
+            .ReturnsAsync("job-inline");
+        GivenJobSucceeds("job-inline");
+
+        var result = await CkModelFileTools.ImportCkModel(MockServer.Object, files: SourceDraft());
+
+        result.IsSuccess.Should().BeTrue();
+        result.JobId.Should().Be("job-inline");
+        result.TenantId.Should().Be(DefaultTenantId);
+        result.Errors.Should().BeEmpty();
+        entries.Should().BeEquivalentTo("ckModel.yaml", "types/pump.yaml");
+        pumpContent.Should().Contain("typeId: Pump");
+        postedPath.Should().EndWith(".zip");
+        File.Exists(postedPath).Should().BeFalse("an inline draft lives only for the call");
+        MockBotClient.Verify(c => c.GetImportJobStatus("job-inline"), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public async Task ImportCkModel_InlineCompiledModel_PostsAZipWithTheOneFile()
+    {
+        List<string>? entries = null;
+        MockAssetClient.Setup(c => c.ImportCkModelAsync(DefaultTenantId, It.IsAny<string>()))
+            .Callback<string, string>((_, path) =>
+            {
+                using var zip = ZipFile.OpenRead(path);
+                entries = zip.Entries.Select(e => e.FullName).ToList();
+            })
+            .ReturnsAsync("job-compiled");
+        GivenJobSucceeds("job-compiled");
+
+        var result = await CkModelFileTools.ImportCkModel(MockServer.Object,
+            files: [new CkDraftFileDto { Name = "ck-demo-1.yaml", Content = "modelId: Demo-1.0.0\ntypes: []\n" }]);
+
+        result.IsSuccess.Should().BeTrue();
+        result.JobId.Should().Be("job-compiled");
+        entries.Should().Equal("ck-demo-1.yaml");
+    }
+
+    [Fact]
+    public async Task ImportCkModel_InlineSourceThatDoesNotCompile_ReturnsTheFindings_AndQueuesNothing()
+    {
+        string? postedPath = null;
+        MockAssetClient.Setup(c => c.ImportCkModelAsync(DefaultTenantId, It.IsAny<string>()))
+            .Callback<string, string>((_, path) => postedPath = path)
+            .ThrowsAsync(new ServiceClientResultException("Bad request", HttpStatusCode.BadRequest)
+            {
+                ResponseContent = CompileFailedProblem
+            });
+
+        var result = await CkModelFileTools.ImportCkModel(MockServer.Object, files: SourceDraft());
+
+        result.IsSuccess.Should().BeFalse();
+        result.JobId.Should().BeNull();
+        result.ErrorCode.Should().Be("CK_MODEL_COMPILE_FAILED");
+        result.ErrorMessage.Should().Contain("does not compile");
+        var error = result.Errors.Should().ContainSingle().Subject;
+        error.MessageNumber.Should().Be(3);
+        error.Level.Should().Be("Error");
+        error.File.Should().Be("types/pump.yaml");
+        error.ElementPath.Should().Be("Demo-1.0.0/Pump-1.Demo/NoSuchAttribute");
+        error.Message.Should().Be("unknown attribute");
+        result.Warnings.Should().ContainSingle().Which.MessageNumber.Should().Be(7);
+        // No job was started, so nothing is polled; the staged zip is gone.
+        MockBotClient.Verify(c => c.GetImportJobStatus(It.IsAny<string>()), Times.Never);
+        File.Exists(postedPath).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ImportCkModel_UploadedSourceThatDoesNotCompile_ReturnsTheFindings_AndKeepsTheUpload()
+    {
+        var (transferId, _) = StageUpload("PK", "draft.zip");
+        GivenCompileFails();
+
+        var result = await CkModelFileTools.ImportCkModel(MockServer.Object, transferId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("CK_MODEL_COMPILE_FAILED");
+        result.Errors.Should().ContainSingle().Which.File.Should().Be("types/pump.yaml");
+        FileTransferStore.GetUpload(transferId, CallerOwner).Should().NotBeNull("the draft can be fixed and retried");
+    }
+
+    [Fact]
+    public async Task ImportCkModel_OtherServiceProblem_HasNoFindings()
+    {
+        MockAssetClient.Setup(c => c.ImportCkModelAsync(DefaultTenantId, It.IsAny<string>()))
+            .ThrowsAsync(new ServiceClientResultException("Bad request", HttpStatusCode.BadRequest)
+            {
+                ResponseContent = "{\"code\":\"SOMETHING_ELSE\",\"detail\":\"no\",\"errors\":[{\"messageNumber\":1}]}"
+            });
+
+        var result = await CkModelFileTools.ImportCkModel(MockServer.Object, files: SourceDraft());
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("SOMETHING_ELSE");
+        result.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ImportCkModel_InlineDraftOverTheByteLimit_IsRefusedWithTheMessageNumber_AndCallsNothing()
+    {
+        var files = new List<CkDraftFileDto>
+        {
+            new() { Name = "ckModel.yaml", Content = "modelId: Demo-1.0.0" },
+            new() { Name = "types/big.yaml", Content = new string('x', CkDraftInlinePackager.MaxInlineBytes) }
+        };
+
+        var result = await CkModelFileTools.ImportCkModel(MockServer.Object, files: files);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("InlineDraftTooLarge");
+        result.ErrorMessage.Should().Contain("prepare_file_upload").And.Contain("9005")
+            .And.Contain("import_ck_model with the transferId");
+        result.Errors.Should().ContainSingle().Which.MessageNumber.Should().Be(9005);
+        MockAssetClient.Verify(c => c.ImportCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ImportCkModel_TooManyInlineFiles_AreRefused_AndCallNothing()
+    {
+        var files = Enumerable.Range(0, CkDraftInlinePackager.MaxInlineFiles + 1)
+            .Select(i => new CkDraftFileDto { Name = $"types/t{i}.yaml", Content = "x" }).ToList();
+
+        var result = await CkModelFileTools.ImportCkModel(MockServer.Object, files: files);
+
+        result.ErrorCode.Should().Be("InlineDraftTooLarge");
+        MockAssetClient.Verify(c => c.ImportCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ImportCkModel_TransferIdAndFiles_AreRefused_AndCallNothing()
+    {
+        var (transferId, _) = StageUpload();
+
+        var result = await CkModelFileTools.ImportCkModel(MockServer.Object, transferId, SourceDraft());
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("exactly one way");
+        MockAssetClient.Verify(c => c.ImportCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        FileTransferStore.GetUpload(transferId, CallerOwner).Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task ImportCkModel_NeitherTransferIdNorFiles_IsRefused()
+    {
+        var result = await CkModelFileTools.ImportCkModel(MockServer.Object, files: []);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("transferId is required").And.Contain("files");
+        MockAssetClient.Verify(c => c.ImportCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("../ckModel.yaml")]
+    [InlineData("/etc/passwd")]
+    [InlineData("types/../../x.yaml")]
+    [InlineData("C:\\x.yaml")]
+    [InlineData("..\\..\\x.yaml")]
+    [InlineData(" ")]
+    public async Task ImportCkModel_UnsafeInlineFileName_IsRejected_AndCallsNothing(string name)
+    {
+        var result = await CkModelFileTools.ImportCkModel(MockServer.Object,
+            files: [new CkDraftFileDto { Name = "ckModel.yaml", Content = "x" }, new CkDraftFileDto { Name = name, Content = "x" }]);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("Invalid file name");
+        MockAssetClient.Verify(c => c.ImportCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ImportCkModel_InlineUnauthenticated_IsRefused_AndCallsNothing()
+    {
+        GivenUnauthenticated();
+
+        var result = await CkModelFileTools.ImportCkModel(MockServer.Object, files: SourceDraft());
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("Not authenticated");
+        MockAssetClient.Verify(c => c.ImportCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ImportCkModel_InlineJobFails_ReturnsTheError_AndDeletesTheZip()
+    {
+        string? postedPath = null;
+        MockAssetClient.Setup(c => c.ImportCkModelAsync(DefaultTenantId, It.IsAny<string>()))
+            .Callback<string, string>((_, path) => postedPath = path)
+            .ReturnsAsync("job-fail-inline");
+        MockBotClient.Setup(c => c.GetImportJobStatus("job-fail-inline"))
+            .ReturnsAsync(new JobDto { Status = "Failed", ErrorMessage = "dependency missing" });
+
+        var result = await CkModelFileTools.ImportCkModel(MockServer.Object, files: SourceDraft());
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("dependency missing");
+        File.Exists(postedPath).Should().BeFalse();
     }
 
     // ── import_runtime_model ────────────────────────────────────────────────
