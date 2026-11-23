@@ -22,19 +22,28 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 [McpServerToolType]
 public sealed class CkModelFileTools
 {
-    /// <summary>Import a Construction Kit model file: compiled (YAML, JSON, or zipped variant) or a zipped source ConstructionKit/ folder (compiled by the asset repository). Caller must prepare_file_upload first.</summary>
+    /// <summary>
+    ///     Import a Construction Kit model: compiled (YAML, JSON, or zipped variant) or the source ConstructionKit/ folder
+    ///     (compiled by the asset repository). The draft is an upload (<paramref name="transferId" />) or, for MCP-only
+    ///     clients, inline (<paramref name="files" />) in the form <c>validate_ck_model</c> accepts.
+    /// </summary>
     [McpServerTool(Name = "import_ck_model")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
-        "Import a CK model from an uploaded file. Call prepare_file_upload first, PUT the file to the " +
-        "returned URL, then invoke this tool with the transferId. Accepted formats: (1) a single compiled " +
+        "Import a CK model into the target tenant. Pass the draft in exactly one way, the same two ways " +
+        "validate_ck_model accepts: inline as files (name/content pairs, names relative to ConstructionKit/, e.g. " +
+        "ckModel.yaml, types/pump.yaml; or one compiled model file), up to 1 MiB (1048576 bytes of UTF-8 content) " +
+        "and 2000 files - the default for clients without an HTTP client; or, for larger drafts, call " +
+        "prepare_file_upload, PUT the file to the returned URL and pass the transferId. An inline draft over the " +
+        "limit is refused with errorCode InlineDraftTooLarge (message 9005). Accepted content: (1) a single compiled " +
         "YAML built by the CK MSBuild task (typically at bin/<config>/net10.0/octo-ck-libraries/<Project>/" +
         "out/ck-<modelname>-<major>.yaml) — this is the easiest path from a `dotnet build` of a CK project; " +
         "(2) a single compiled JSON in the same catalog format as ~/.octo/local-catalog files; (3) a zip " +
-        "of such a compiled model; (4) a zip of the source ConstructionKit/ folder (the folder with " +
-        "ckModel.yaml) — the same draft validate_ck_model accepts: it is compiled the same way and the " +
-        "compiled model is imported; compile errors fail the call before anything is queued, with the " +
-        "findings validate_ck_model reports (file relative to ConstructionKit/, element path). A zip that " +
+        "of such a compiled model (upload only); (4) the source ConstructionKit/ folder (the folder with " +
+        "ckModel.yaml; inline as its files, or uploaded as a zip) — the same draft validate_ck_model accepts: it " +
+        "is compiled the same way and the compiled model is imported; compile errors fail the call before " +
+        "anything is queued, with errorCode CK_MODEL_COMPILE_FAILED and the findings validate_ck_model reports in " +
+        "errors/warnings (messageNumber, file relative to ConstructionKit/, elementPath, message). A draft that " +
         "holds ckModel.yaml is always treated as source. Validate a draft with validate_ck_model first. " +
         "The model's `dependencies` must already be loaded in the target " +
         "tenant or the job fails — for service-managed deps (System.Communication / StreamData / Reporting " +
@@ -42,14 +51,126 @@ public sealed class CkModelFileTools
         "Equivalent to octo-cli ImportConstructionKitModel. " +
         "Requires the tenant role DataModelManagement (AB#8529); without it the call fails with ErrorCode " +
         "DataModelManagementRequired.")]
-    public static async Task<JobStartedResponse> ImportCkModel(
+    public static async Task<CkModelImportResponse> ImportCkModel(
         McpServer server,
-        [Description("Transfer id from prepare_file_upload.")] string transferId,
+        [Description("Transfer id from prepare_file_upload (file name ending .zip, .yaml or .json). Omit when the " +
+                     "draft is passed inline.")]
+        string? transferId = null,
+        [Description("Inline draft: the files of the ConstructionKit/ folder as name/content pairs (or one compiled " +
+                     "model file). At most 1 MiB of content and 2000 files. Omit when a transferId is passed.")]
+        List<CkDraftFileDto>? files = null,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null,
         [Description("Wait timeout in minutes (default 10).")] int waitTimeoutMinutes = 10)
-        => await RunImport(server, transferId, tenantId, waitTimeoutMinutes,
-            (asset, tid, path) => asset.ImportCkModelAsync(tid, path),
-            opName: "CK model import");
+    {
+        var hasUpload = !string.IsNullOrWhiteSpace(transferId);
+        var hasFiles = files is { Count: > 0 };
+        if (hasUpload == hasFiles)
+        {
+            return new CkModelImportResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = hasUpload
+                    ? "Pass the draft in exactly one way: transferId or files."
+                    : "transferId is required, or pass the draft inline as files."
+            };
+        }
+
+        IFileTransferStore? store = null;
+        string filePath;
+        if (hasUpload)
+        {
+            store = server.Services!.GetRequiredService<IFileTransferStore>();
+            var upload = store.GetUpload(transferId!, McpSessionContext.GetFileTransferOwner(server));
+            if (upload == null)
+            {
+                return new CkModelImportResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = $"Upload '{transferId}' not found or expired."
+                };
+            }
+
+            filePath = upload.FilePath;
+        }
+        else
+        {
+            filePath = string.Empty; // staged below, after the authentication check
+        }
+
+        // Authentication before an inline draft is staged, so an unauthenticated call writes nothing.
+        var asset = await AssetClientContext.TryBuildAsync(server, tenantId);
+        if (asset.Error != null)
+        {
+            return new CkModelImportResponse { IsSuccess = false, ErrorMessage = asset.Error };
+        }
+
+        string? inlinePath = null;
+        try
+        {
+            if (!hasUpload)
+            {
+                var staged = CkDraftInlinePackager.Stage(files!, "import_ck_model");
+                if (staged.FilePath == null)
+                {
+                    return new CkModelImportResponse
+                    {
+                        IsSuccess = false,
+                        ErrorCode = staged.ErrorCode,
+                        ErrorMessage = staged.ErrorMessage,
+                        Errors = staged.Finding == null ? [] : [staged.Finding]
+                    };
+                }
+
+                filePath = inlinePath = staged.FilePath;
+            }
+
+            var bot = await BotClientContext.TryBuildAsync(server, tenantId);
+            if (bot.Error != null)
+            {
+                return new CkModelImportResponse { IsSuccess = false, ErrorMessage = bot.Error };
+            }
+
+            try
+            {
+                var jobId = await asset.Client!.ImportCkModelAsync(asset.TenantId!, filePath);
+                await JobPollingHelper.WaitForJobAsync(bot.Client!, jobId, TimeSpan.FromMinutes(waitTimeoutMinutes));
+
+                // Successful → clean up the upload buffer (an inline draft is deleted below in any case).
+                if (hasUpload)
+                {
+                    store!.DeleteUpload(transferId!);
+                }
+
+                return new CkModelImportResponse
+                {
+                    IsSuccess = true,
+                    TenantId = asset.TenantId,
+                    JobId = jobId,
+                    Message = $"CK model import completed (job '{jobId}')."
+                };
+            }
+            catch (Exception ex)
+            {
+                var problem = ServiceProblemMessage.From(ex);
+                var response = new CkModelImportResponse
+                {
+                    IsSuccess = false, ErrorMessage = problem.Message, ErrorCode = problem.Code
+                };
+                if (CkModelCompileFindings.TryRead(ex, out var errors, out var warnings))
+                {
+                    response.Errors = errors;
+                    response.Warnings = warnings;
+                }
+
+                return response;
+            }
+        }
+        finally
+        {
+            // An inline draft lives only for this call; a refused upload is kept for a fix and a retry.
+            CkDraftInlinePackager.TryDelete(inlinePath);
+        }
+    }
 
     /// <summary>Import a runtime model file (YAML, JSON, or zipped variant). Caller must prepare_file_upload first.</summary>
     [McpServerTool(Name = "import_runtime_model")]
@@ -224,7 +345,7 @@ public sealed class CkModelFileTools
     private static async Task<JobStartedResponse> RunImport(
         McpServer server, string transferId, string? tenantId, int waitTimeoutMinutes,
         Func<Sdk.ServiceClient.AssetRepositoryServices.System.IAssetServicesClient, string, string, Task<string>> sdkCall,
-        string opName, ImportPrecheck? precheck = null)
+        string opName, ImportPrecheck precheck)
     {
         if (string.IsNullOrWhiteSpace(transferId))
         {
@@ -246,11 +367,6 @@ public sealed class CkModelFileTools
         if (asset.Error != null)
         {
             return new JobStartedResponse { IsSuccess = false, ErrorMessage = asset.Error };
-        }
-
-        if (precheck == null)
-        {
-            return await ImportFileAsync(upload.FilePath);
         }
 
         // AB#8568 (CWE-367): the upload slot stays writable for a PUT that started before the upload completed, so the

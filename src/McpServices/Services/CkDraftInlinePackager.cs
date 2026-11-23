@@ -1,12 +1,13 @@
 using System.IO.Compression;
 using System.Text;
 using Meshmakers.Octo.Backend.McpServices.Models;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.CkModelCatalog;
 
 namespace Meshmakers.Octo.Backend.McpServices.Services;
 
 /// <summary>
-///     AB#9005: turns a CK model draft passed inline to <c>validate_ck_model</c> (name/content file pairs) into a
-///     temporary zip file the SDK can post, so an MCP-only client needs no separate upload. Base64 file content is not
+///     AB#9005: turns a CK model draft passed inline to <c>validate_ck_model</c> or <c>import_ck_model</c> (name/content
+///     file pairs) into a temporary zip file the SDK can post, so an MCP-only client needs no separate upload. Base64 file content is not
 ///     accepted (CLAUDE.md: binary payloads go through the file-transfer endpoints).
 ///     <para>
 ///     Memory stays bounded per call (AB#9015): the size limit is checked before anything is decoded, file contents
@@ -38,13 +39,59 @@ internal static class CkDraftInlinePackager
     public sealed record Result(string? FilePath, string? Error, string? TooLarge);
 
     /// <summary>
-    ///     Writes the inline draft files into a temporary zip in <paramref name="tempDirectory" />.
+    ///     Outcome of <see cref="Stage" />: the temporary zip, or the refusal a tool returns as is. <see cref="Finding" />
+    ///     is set for a draft over the limit (message <see cref="InlineDraftTooLargeNumber" />).
     /// </summary>
-    public static Result Package(IReadOnlyList<CkDraftFileDto> files, string tempDirectory)
+    /// <param name="FilePath">Path of the temporary zip; the caller deletes it with <see cref="TryDelete" />.</param>
+    /// <param name="ErrorMessage">Refusal text; no file was written.</param>
+    /// <param name="ErrorCode"><see cref="InlineDraftTooLargeCode" /> for a draft over the limit, else null.</param>
+    /// <param name="Finding">The error finding of a draft over the limit, else null.</param>
+    public sealed record Staged(string? FilePath, string? ErrorMessage, string? ErrorCode,
+        CkModelValidationMessageDto? Finding);
+
+    /// <summary>
+    ///     Stages an inline draft for <paramref name="toolName" /> in the server's temp folder: the size check, the
+    ///     name check and the zip, with the refusals both CK draft tools return the same way. A failure of the temp
+    ///     storage is refused without the exception text (it names the server's temp path).
+    /// </summary>
+    public static Staged Stage(IReadOnlyList<CkDraftFileDto> files, string toolName)
+    {
+        Result packaged;
+        try
+        {
+            packaged = Package(files, Path.GetTempPath(), toolName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new Staged(null, "The inline draft could not be staged on the MCP server (temporary storage).",
+                null, null);
+        }
+
+        if (packaged.TooLarge != null)
+        {
+            return new Staged(null, packaged.TooLarge, InlineDraftTooLargeCode,
+                new CkModelValidationMessageDto
+                {
+                    MessageNumber = InlineDraftTooLargeNumber, Level = "Error", Message = packaged.TooLarge
+                });
+        }
+
+        return packaged.Error != null
+            ? new Staged(null, packaged.Error, null, null)
+            : new Staged(packaged.FilePath, null, null, null);
+    }
+
+    /// <summary>
+    ///     Writes the inline draft files into a temporary zip in <paramref name="tempDirectory" />.
+    ///     <paramref name="toolName" /> is named in the refusal of a draft over the limit (the tool to call with an upload).
+    /// </summary>
+    public static Result Package(IReadOnlyList<CkDraftFileDto> files, string tempDirectory,
+        string toolName = "validate_ck_model")
     {
         if (files.Count > MaxInlineFiles)
         {
-            return TooLarge($"The inline draft has {files.Count} files; at most {MaxInlineFiles} are allowed inline.");
+            return TooLarge($"The inline draft has {files.Count} files; at most {MaxInlineFiles} are allowed inline.",
+                toolName);
         }
 
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -67,7 +114,7 @@ internal static class CkDraftInlinePackager
             total += Encoding.UTF8.GetByteCount(file!.Content ?? string.Empty);
             if (total > MaxInlineBytes)
             {
-                return TooLarge($"The inline draft has more than {MaxInlineBytes} bytes of file content.");
+                return TooLarge($"The inline draft has more than {MaxInlineBytes} bytes of file content.", toolName);
             }
         }
 
@@ -137,11 +184,11 @@ internal static class CkDraftInlinePackager
         return string.Join('/', segments);
     }
 
-    private static Result TooLarge(string reason) =>
+    private static Result TooLarge(string reason, string toolName) =>
         new(null, null,
             $"{reason} Inline drafts are limited to {MaxInlineBytes} bytes and {MaxInlineFiles} files " +
             $"(message {InlineDraftTooLargeNumber}). Upload a larger draft with prepare_file_upload, PUT the zip to the " +
-            "returned URL and call validate_ck_model with the transferId.");
+            $"returned URL and call {toolName} with the transferId.");
 
     /// <summary>Creates the temp zip readable by the service user only (the shared temp folder is world-readable).</summary>
     private static FileStream CreatePrivateFile(string path)

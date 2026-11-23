@@ -182,6 +182,19 @@ no `enable_*` call; `GET {tenant}/v1/files/capabilities` reports `available:fals
   source-zip support in `ImportCk`; an older one reads a file of the zip as a compiled model and fails.
 - For runtime models: a single YAML/JSON conforming to `runtime-model.schema.json` (an `entities:` list keyed by `rtId` + `ckTypeId`), or a zip thereof.
 
+**Inline CK import for MCP-only clients.** `import_ck_model` takes the draft in exactly one of two ways, the same as
+`validate_ck_model`: `transferId` (the upload above) or `files: [{name, content}]` (names relative to `ConstructionKit/`, the source
+folder or one compiled model file). Both or neither are refused. The inline draft goes through the same `CkDraftInlinePackager.Stage`
+as `validate_ck_model` (1 MiB / 2000 files, `InlineDraftTooLarge` with an error 9005 that names `import_ck_model` with a transferId,
+names checked before anything is written, an owner-only temporary zip deleted in `finally`), after the authentication check. The
+zip is posted to the same `ImportCk` as an upload, so a source draft is compiled on the server and a compile error fails the call
+before anything is queued. On `CK_MODEL_COMPILE_FAILED` the tool reads the `errors`/`warnings` extensions of the problem answer
+(`CkModelCompileFindings`) and returns them in `errors`/`warnings` of `CkModelImportResponse`, in the shape `validate_ck_model`
+reports them; this holds for an uploaded source zip too. Job waiting, the risk level (**Medium**, the inline path writes the same
+model as the upload) and the server's `DataModelManagement` check are unchanged; a refused upload is kept for a retry, as before.
+The upload stays the path for drafts above the inline limit and for zips of compiled models. Tests: `CkModelFileToolsTests`
+(section "inline draft").
+
 The tool description says "PUT the file to the returned URL" — historically said "PUT the JSON/zip" which was misleading. Asset-services accepts all of the above; schema validation happens server-side after the file lands in the file-transfer store.
 
 ### validate_ck_model (`CkModelValidationTools`)
