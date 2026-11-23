@@ -153,6 +153,9 @@ not be able to exhaust its memory or CPU. `validate_pipeline_definition` shows t
 - **A cheap verdict first** (`Services/PipelineSchemaEvaluator.cs`): the flag output format gives the verdict; only an
   invalid definition is evaluated again with the list output format for the findings. A failing `if` is no finding
   (it only selects the node type) and is left out.
+- **A large stack**: the evaluation runs on its own thread with a 64 MB stack. JsonSchema.Net recurses per level of the
+  instance and never checks the stack; on a thread-pool thread a recursive config type overflowed it at about 230
+  levels, and a stack overflow ends the process.
 - **A process-wide budget**: at most two evaluations run at once (`PIPELINE_VALIDATION_BUSY` after a 10 s wait for a
   slot) and a call stops waiting after 20 s (`PIPELINE_VALIDATION_BUDGET_EXCEEDED`). JsonSchema.Net cannot be cancelled,
   so an abandoned evaluation keeps its slot until it ends; the slot cap bounds how many can run.

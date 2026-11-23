@@ -20,6 +20,10 @@ namespace Meshmakers.Octo.Backend.McpServices.Services;
 ///             with <see cref="PipelineDefinitionLimits.RefusedCode" />.
 ///         </item>
 ///         <item>
+///             The evaluation runs on its own thread with a large stack (<see cref="RunOnLargeStack{T}" />), so a
+///             deeply nested instance cannot overflow the stack.
+///         </item>
+///         <item>
 ///             At most <see cref="MaxConcurrentEvaluations" /> evaluations run at once in the process; a call that
 ///             finds no free slot within <see cref="SlotWait" /> is refused with <see cref="BusyCode" />.
 ///         </item>
@@ -40,6 +44,12 @@ internal static class PipelineSchemaEvaluator
 
     /// <summary>Deepest nesting of node lists evaluated against a schema with a self-referencing node union.</summary>
     public const int MaxDepthForRecursiveUnions = 2;
+
+    /// <summary>
+    ///     Stack size of the evaluation thread: enough for the deepest document the limits allow
+    ///     (<see cref="PipelineDefinitionLimits.MaxDocumentDepth" />) with a wide margin.
+    /// </summary>
+    public const int EvaluationStackSize = 64 * 1024 * 1024;
 
     /// <summary>Maximum number of schema evaluations running at once in the process.</summary>
     public const int MaxConcurrentEvaluations = 2;
@@ -97,7 +107,7 @@ internal static class PipelineSchemaEvaluator
         {
             // A copy the caller cannot dispose while an evaluation that outlived the budget still reads it.
             var element = definition.Clone();
-            evaluation = Task.Run(() => Evaluate(compiled, element, nestingDepth));
+            evaluation = RunOnLargeStack(() => Evaluate(compiled, element, nestingDepth));
         }
         catch
         {
@@ -120,6 +130,34 @@ internal static class PipelineSchemaEvaluator
         {
             return new Outcome(BudgetExceededCode, false, []);
         }
+    }
+
+    /// <summary>
+    ///     Runs <paramref name="evaluate" /> on a dedicated background thread with a <see cref="EvaluationStackSize" />
+    ///     stack. JsonSchema.Net recurses a few frames per level of the instance and never checks the stack; on a
+    ///     thread-pool thread a recursive config type (a JSON node with a <c>parent</c> of its own type) overflowed
+    ///     the stack at about 230 levels, below the document depth the limits allow, and a stack overflow ends the
+    ///     process. The stack is reserved, not committed, so its memory is only used as deep as the evaluation goes.
+    /// </summary>
+    internal static Task<T> RunOnLargeStack<T>(Func<T> evaluate)
+    {
+        var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                completion.SetResult(evaluate());
+            }
+            catch (Exception ex)
+            {
+                completion.SetException(ex);
+            }
+        }, EvaluationStackSize)
+        {
+            IsBackground = true, Name = "pipeline-schema-evaluation",
+        };
+        thread.Start();
+        return completion.Task;
     }
 
     private static Outcome Evaluate(

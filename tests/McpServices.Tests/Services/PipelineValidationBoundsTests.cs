@@ -372,6 +372,39 @@ public class PipelineValidationBoundsTests : ToolTestBase
         PipelineSchemaCompiler.Compile(GeneratorShapedPipelineSchema.Build()).RecursiveUnions.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task ValidatePipelineDefinition_RecursiveConfigDataAtTheDocumentDepthLimit_DoesNotOverflowTheStack()
+    {
+        // A node whose config type refers to itself through a nullable property (a JSON node with a parent), nested
+        // as deep as the document limit allows. On a thread-pool thread this overflowed the stack (process crash).
+        const string schemaJson = """
+            {"type":"object","properties":{"transformations":{"type":"array","items":{"$ref":"#/$defs/TransformationNode"}}},
+             "$defs":{
+               "TransformationNode":{"oneOf":[{"type":"object","required":["type"],
+                 "properties":{"type":{"const":"FromPolling@1"},"body":{"$ref":"#/$defs/JsonNode"}}}]},
+               "JsonNode":{"type":"object","properties":{"parent":{"oneOf":[{"type":"null"},{"$ref":"#/$defs/JsonNode"}]}}}}}
+            """;
+        GivenSchema(schemaJson);
+        // root mapping, transformations sequence, node mapping, body: 4 levels before the parent chain
+        var levels = PipelineDefinitionLimits.MaxDocumentDepth - 5;
+        var json = "{\"transformations\":[{\"type\":\"FromPolling@1\",\"body\":" +
+                   string.Concat(Enumerable.Repeat("{\"parent\":", levels)) + "null" + new string('}', levels) + "}]}";
+
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, AdapterId, json);
+
+        result.ErrorCode.Should().BeNull(result.Message);
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RunOnLargeStack_PassesResultsAndExceptionsThrough()
+    {
+        (await PipelineSchemaEvaluator.RunOnLargeStack(() => 42)).Should().Be(42);
+        var failing = () => PipelineSchemaEvaluator.RunOnLargeStack<int>(() => throw new InvalidOperationException("x"));
+        await failing.Should().ThrowAsync<InvalidOperationException>();
+    }
+
     private void GivenSchema(string schemaJson) =>
         MockCommunicationClient.Setup(c => c.GetPipelineSchemaAsync(AdapterId)).ReturnsAsync(schemaJson);
 
