@@ -42,7 +42,7 @@ public class PipelineSchemaCompilerTests : ToolTestBase
     [Fact]
     public void Compile_ResolvesLocalDefsReferences()
     {
-        var schema = PipelineSchemaCompiler.Compile(BuildCompositeSchema(3));
+        var schema = PipelineSchemaCompiler.Compile(BuildCompositeSchema(3)).Schema;
 
         using var valid = JsonDocument.Parse("""{"name":"p","nodes":[{"p0":"x"}]}""");
         using var invalid = JsonDocument.Parse("""{"name":"p","nodes":[{"p0":42}]}""");
@@ -78,7 +78,7 @@ public class PipelineSchemaCompilerTests : ToolTestBase
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static WeakReference CompileAndForget(string schemaJson) =>
-        new(PipelineSchemaCompiler.Compile(schemaJson));
+        new(PipelineSchemaCompiler.Compile(schemaJson).Schema);
 
     private static long ForceFullCollection()
     {

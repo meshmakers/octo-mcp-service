@@ -125,6 +125,35 @@ composite schema on every call this way and the pod was OOM-killed. Build reques
 `PipelineSchemaCompiler.Compile` (a per-call `SchemaRegistry`, which still falls back to the global one for the
 meta-schemas). Guard: `tests/McpServices.Tests/Services/PipelineSchemaCompilerTests.cs`.
 
+## 7b. Bound every evaluation of caller-supplied input
+
+A tool that parses or evaluates input the caller supplies runs in the process every tenant shares, so one call must
+not be able to exhaust its memory or CPU. `validate_pipeline_definition` shows the pattern:
+
+- **Limits before any work** (`Services/PipelineDefinitionLimits.cs`): the text length and, for YAML, the node count
+  after alias expansion are checked before the text is parsed (aliases share a node in YAML but are copied by the
+  conversion to JSON, so a small document of nested aliases expands to billions of nodes); the pipeline node count and
+  the nesting depth of node lists are checked before the schema evaluation. A definition above a limit is refused with
+  `ErrorCode = PIPELINE_DEFINITION_LIMIT_EXCEEDED` and a finding that names the limit; it is never evaluated.
+- **A schema shape with linear cost** (`Services/PipelineSchemaCompiler.cs`): the pipeline SDK's composite schema
+  validates each node against a `oneOf` over every node schema, and child-capable nodes (If, ForEach, Switch, ...) refer
+  back to that union for their nested `transformations`. JsonSchema.Net evaluates every branch of a `oneOf` and walks a
+  branch's properties, the nested list included, before it reaches the failing `type` discriminator, so the cost grew by
+  about five to ten times per nesting level in every output format, and four levels of nested If nodes exhausted the
+  process. The compiler rewrites such a union into a dispatch on the node's `type` (`allOf` of
+  `if: {type: const} / then: node schema`, plus an `enum` of the known types); the verdict is the same because every
+  branch requires `type` with its own `const`. A schema that still holds a self-referencing union after the rewrite is
+  evaluated only for definitions whose node lists nest at most two levels deep; deeper ones are refused.
+- **A cheap verdict first** (`Services/PipelineSchemaEvaluator.cs`): the flag output format gives the verdict; only an
+  invalid definition is evaluated again with the list output format for the findings. A failing `if` is no finding
+  (it only selects the node type) and is left out.
+- **A process-wide budget**: at most two evaluations run at once (`PIPELINE_VALIDATION_BUSY` after a 10 s wait for a
+  slot) and a call stops waiting after 20 s (`PIPELINE_VALIDATION_BUDGET_EXCEEDED`). JsonSchema.Net cannot be cancelled,
+  so an abandoned evaluation keeps its slot until it ends; the slot cap bounds how many can run.
+
+Guard: `tests/McpServices.Tests/Services/PipelineValidationBoundsTests.cs` (nested If nodes four and eight levels deep
+validate within bounded time and allocations, verdict parity with the raw union, every limit).
+
 ## 8. Risk classification (`[McpRisk]`) for AI Adapter approval gating
 
 Tools have an optional `[McpRisk(McpRiskLevel.Low|Medium|High)]` attribute that classifies their blast radius. The AI Adapter worker calls `get_tool_risk_metadata` once at session start and uses the result to decide whether a tool call needs to be routed through its user-facing approval gate before running.
