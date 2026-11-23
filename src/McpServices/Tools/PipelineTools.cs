@@ -535,7 +535,9 @@ public sealed class PipelineTools
         "composite pipeline JSON Schema (M4-B.1). Returns the per-error list with JSON " +
         "pointers + node count. Use this BEFORE deploy_pipeline so the agent can iterate " +
         "on the definition without leaving a half-deployed pipeline behind on validation " +
-        "failure. Read-only — never touches the adapter's deployed state.")]
+        "failure. Read-only — never touches the adapter's deployed state. A definition above the size limits " +
+        "(1,000,000 characters, 2,000 nodes, node lists nested 32 levels, 200,000 YAML nodes after aliases) is " +
+        "refused with ErrorCode PIPELINE_DEFINITION_LIMIT_EXCEEDED instead of being evaluated.")]
     public static async Task<ValidatePipelineDefinitionResponse> ValidatePipelineDefinition(
         McpServer server,
         [Description("Adapter runtime ID whose pipeline schema the definition is validated against.")]
@@ -558,6 +560,13 @@ public sealed class PipelineTools
             {
                 IsSuccess = false, ErrorMessage = "pipelineDefinition is required."
             };
+        }
+
+        // Limits first (bounded memory and time per call): an oversized text or a YAML alias bomb is refused before
+        // any parsing that would expand it, and before the schema is even fetched.
+        if (PipelineDefinitionLimits.CheckText(pipelineDefinition) is { } textRefusal)
+        {
+            return RefusedByLimit(null, adapterId, textRefusal);
         }
 
         var ctx = await CommunicationClientContext.TryBuildAsync(server, tenantId);
@@ -619,13 +628,19 @@ public sealed class PipelineTools
             };
         }
 
+        if (PipelineDefinitionLimits.CheckNodes(definitionNode) is { } nodeRefusal)
+        {
+            return RefusedByLimit(ctx.TenantId, adapterId, nodeRefusal);
+        }
+
         // 3. JSON-Schema-validate the parsed definition.
-        JsonSchema schema;
+        PipelineSchemaCompiler.CompiledPipelineSchema compiled;
         try
         {
             // AB#9015: never JsonSchema.FromText(schemaJson) with the default options - that registers the
-            // schema in the process-wide SchemaRegistry.Global and leaks it on every call.
-            schema = PipelineSchemaCompiler.Compile(schemaJson);
+            // schema in the process-wide SchemaRegistry.Global and leaks it on every call. The compiler also
+            // rewrites the node unions into a dispatch on the node type, so nested control nodes cost linear time.
+            compiled = PipelineSchemaCompiler.Compile(schemaJson);
         }
         catch (Exception ex)
         {
@@ -642,32 +657,47 @@ public sealed class PipelineTools
         }
 
         // JsonSchema.Net's Evaluate expects a JsonElement, not a JsonNode — round-trip via
-        // JsonDocument so the schema evaluator sees the same representation it's built on.
-        using var definitionDoc = JsonDocument.Parse(definitionNode.ToJsonString());
-        var evaluation = schema.Evaluate(definitionDoc.RootElement, new EvaluationOptions
+        // JsonDocument so the schema evaluator sees the same representation it's built on. The YAML converter
+        // allows deeper nesting than JsonDocument's default of 64, so the parse takes the converter's depth.
+        var (_, nestingDepth) = PipelineDefinitionLimits.MeasureNodes(definitionNode,
+            PipelineDefinitionLimits.MaxPipelineNodes, PipelineDefinitionLimits.MaxNestingDepth);
+        PipelineSchemaEvaluator.Outcome outcome;
+        try
         {
-            OutputFormat = OutputFormat.List,
-        });
-
-        var errors = new List<ValidatePipelineDefinitionError>();
-        if (!evaluation.IsValid && evaluation.Details != null)
+            using var definitionDoc = JsonDocument.Parse(definitionNode.ToJsonString(),
+                new JsonDocumentOptions { MaxDepth = 512 });
+            outcome = await PipelineSchemaEvaluator.EvaluateAsync(compiled, definitionDoc.RootElement, nestingDepth);
+        }
+        catch (Exception ex) when (ex is JsonException or InsufficientExecutionStackException)
         {
-            foreach (var detail in evaluation.Details)
-            {
-                if (detail.Errors is null) continue;
-                foreach (var (keyword, message) in detail.Errors)
-                {
-                    errors.Add(new ValidatePipelineDefinitionError
-                    {
-                        Path = detail.InstanceLocation.ToString(),
-                        SchemaPath = detail.EvaluationPath.ToString(),
-                        Keyword = keyword,
-                        Message = message,
-                    });
-                }
-            }
+            return RefusedByLimit(ctx.TenantId, adapterId,
+                $"The definition nests too deeply to be evaluated: {ex.Message}");
         }
 
+        if (outcome.ErrorCode == PipelineDefinitionLimits.RefusedCode)
+        {
+            return RefusedByLimit(ctx.TenantId, adapterId, outcome.RefusalMessage!);
+        }
+
+        if (outcome.ErrorCode != null)
+        {
+            return new ValidatePipelineDefinitionResponse
+            {
+                IsSuccess = false,
+                TenantId = ctx.TenantId,
+                AdapterId = adapterId,
+                ErrorCode = outcome.ErrorCode,
+                ErrorMessage = outcome.ErrorCode == PipelineSchemaEvaluator.BusyCode
+                    ? "The MCP server is validating other pipeline definitions right now; try again in a moment."
+                    : $"The schema evaluation did not finish within {PipelineSchemaEvaluator.Budget.TotalSeconds:0} " +
+                      "seconds and was abandoned. Split the pipeline or reduce its nesting.",
+            };
+        }
+
+        var errors = outcome.Findings.Select(f => new ValidatePipelineDefinitionError
+        {
+            Path = f.Path, SchemaPath = f.SchemaPath, Keyword = f.Keyword, Message = f.Message,
+        }).ToList();
         // 4. Node-count sanity (AB#9023): every node of the definition - triggers, transformations and the node lists
         //    nested in control nodes (ForEach, If, Switch cases, Group, ...) - not only a root nodes[] array.
         var nodeCount = CountPipelineNodes(definitionNode);
@@ -677,14 +707,27 @@ public sealed class PipelineTools
             IsSuccess = true,
             TenantId = ctx.TenantId,
             AdapterId = adapterId,
-            IsValid = evaluation.IsValid,
+            IsValid = outcome.IsValid,
             NodeCount = nodeCount,
             Errors = errors,
-            Message = evaluation.IsValid
+            Message = outcome.IsValid
                 ? $"Definition is valid against the adapter's composite schema ({nodeCount} node(s))."
                 : $"Definition has {errors.Count} schema error(s); see Errors for details.",
         };
     }
+
+    private static ValidatePipelineDefinitionResponse RefusedByLimit(string? tenantId, string adapterId,
+        string message) =>
+        new()
+        {
+            IsSuccess = true, // the tool call itself succeeded; the definition is refused, not evaluated
+            IsValid = false,
+            TenantId = tenantId,
+            AdapterId = adapterId,
+            ErrorCode = PipelineDefinitionLimits.RefusedCode,
+            Message = "Definition refused before validation: " + message,
+            Errors = { new ValidatePipelineDefinitionError { Path = "$", Keyword = "limit", Message = message } },
+        };
 
     /// <summary>
     ///     Counts the nodes of a pipeline definition (AB#9023). The walk follows the node containers of the pipeline SDK

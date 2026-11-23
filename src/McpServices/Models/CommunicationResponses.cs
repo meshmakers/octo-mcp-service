@@ -323,6 +323,15 @@ public class MovePipelinesResponse : CommunicationResponse
 /// </summary>
 public class ValidatePipelineDefinitionResponse : CommunicationResponse
 {
+    /// <summary>
+    ///     Machine-readable reason when the definition was refused or not evaluated:
+    ///     <c>PIPELINE_DEFINITION_LIMIT_EXCEEDED</c> (a size, node-count or nesting limit; <see cref="IsValid" /> is
+    ///     false and <see cref="Errors" /> names the limit), <c>PIPELINE_VALIDATION_BUSY</c> or
+    ///     <c>PIPELINE_VALIDATION_BUDGET_EXCEEDED</c> (<see cref="CommunicationResponse.IsSuccess" /> is false).
+    ///     Null otherwise.
+    /// </summary>
+    public string? ErrorCode { get; set; }
+
     /// <summary>Adapter runtime ID the schema validation ran against.</summary>
     public string? AdapterId { get; set; }
 
