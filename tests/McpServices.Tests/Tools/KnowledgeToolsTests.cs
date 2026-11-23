@@ -1843,7 +1843,7 @@ public class KnowledgeToolsTests : TestBase
     {
         var contexts = MockSecureSessionFactory.Invocations
             .Where(i => i.Method.Name == nameof(ISecureSessionFactory.GetSessionAsync))
-            .Select(i => (RtSecurityContext)i.Arguments[0]).ToList();
+            .Select(i => (RtSecurityContext)i.Arguments[0]!).ToList();
         MockSecureSessionFactory.Invocations.Clear();
         return contexts;
     }

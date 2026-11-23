@@ -121,7 +121,7 @@ public class UserManagementToolsTests : ToolTestBase
             .Setup(c => c.SendMutationAsync<It.IsAnyType>(It.IsAny<GraphQLRequest>()))
             .Returns(new InvocationFunc(invocation =>
             {
-                _methodRequests.Add((GraphQLRequest)invocation.Arguments[0]);
+                _methodRequests.Add((GraphQLRequest)invocation.Arguments[0]!);
                 var responseType = invocation.Method.GetGenericArguments()[0];
                 var response = (CkMethodCallResponse)Activator.CreateInstance(responseType, nonPublic: true)!;
                 response.InvocationId = "inv-1";
@@ -149,7 +149,7 @@ public class UserManagementToolsTests : ToolTestBase
         };
         MockTenantClient
             .Setup(c => c.SendMutationAsync<It.IsAnyType>(It.IsAny<GraphQLRequest>()))
-            .Callback(new InvocationAction(invocation => _methodRequests.Add((GraphQLRequest)invocation.Arguments[0])))
+            .Callback(new InvocationAction(invocation => _methodRequests.Add((GraphQLRequest)invocation.Arguments[0]!)))
             .Throws(new QlQueryErrorException(message, [error]));
     }
 
@@ -352,7 +352,7 @@ public class UserManagementToolsTests : ToolTestBase
         };
         MockTenantClient
             .Setup(c => c.SendMutationAsync<It.IsAnyType>(It.IsAny<GraphQLRequest>()))
-            .Callback(new InvocationAction(invocation => _methodRequests.Add((GraphQLRequest)invocation.Arguments[0])))
+            .Callback(new InvocationAction(invocation => _methodRequests.Add((GraphQLRequest)invocation.Arguments[0]!)))
             .Throws(new QlQueryErrorException("GraphQL error", [error]));
     }
 

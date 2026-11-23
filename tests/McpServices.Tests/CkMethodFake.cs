@@ -64,7 +64,7 @@ public sealed class CkMethodFake
             .Setup(c => c.SendMutationAsync<It.IsAnyType>(It.IsAny<GraphQLRequest>()))
             .Returns(new InvocationFunc(invocation =>
             {
-                Requests.Add((GraphQLRequest)invocation.Arguments[0]);
+                Requests.Add((GraphQLRequest)invocation.Arguments[0]!);
                 var responseType = invocation.Method.GetGenericArguments()[0];
                 var response = (CkMethodCallResponse)Activator.CreateInstance(responseType, nonPublic: true)!;
                 response.InvocationId = "inv-1";
@@ -115,7 +115,7 @@ public sealed class CkMethodFake
     {
         _tenantClient
             .Setup(c => c.SendMutationAsync<It.IsAnyType>(It.IsAny<GraphQLRequest>()))
-            .Callback(new InvocationAction(invocation => Requests.Add((GraphQLRequest)invocation.Arguments[0])))
+            .Callback(new InvocationAction(invocation => Requests.Add((GraphQLRequest)invocation.Arguments[0]!)))
             .Throws(exception);
         return this;
     }

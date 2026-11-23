@@ -172,7 +172,7 @@ public class CommunicationMethodToolsTests : ToolTestBase
             .Setup(c => c.SendMutationAsync<It.IsAnyType>(It.IsAny<GraphQLRequest>()))
             .Returns(new InvocationFunc(invocation =>
             {
-                CkMethods.Requests.Add((GraphQLRequest)invocation.Arguments[0]);
+                CkMethods.Requests.Add((GraphQLRequest)invocation.Arguments[0]!);
                 var responseType = invocation.Method.GetGenericArguments()[0];
                 if (Interlocked.Increment(ref calls) == 2)
                 {
@@ -289,7 +289,7 @@ public class CommunicationMethodToolsTests : ToolTestBase
             .Setup(c => c.SendMutationAsync<It.IsAnyType>(It.IsAny<GraphQLRequest>()))
             .Returns(new InvocationFunc(invocation =>
             {
-                CkMethods.Requests.Add((GraphQLRequest)invocation.Arguments[0]);
+                CkMethods.Requests.Add((GraphQLRequest)invocation.Arguments[0]!);
                 var responseType = invocation.Method.GetGenericArguments()[0];
                 var answer = answers[Math.Min(Interlocked.Increment(ref calls), answers.Length) - 1]();
                 if (answer is Exception error)
