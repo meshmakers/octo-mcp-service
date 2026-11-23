@@ -28,10 +28,10 @@
     <ItemGroup>
         <PackageReference Include="NLog.Web.AspNetCore" Version="6.2.0" />
         <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
-        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" />
-        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
-        <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.18.0" />
-        <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.18.0" />
+        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.21.0" />
+        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.21.0" />
+        <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.21.0" />
+        <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.21.0" />
 
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.15" />
         <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.15" />
