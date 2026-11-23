@@ -130,11 +130,15 @@ meta-schemas). Guard: `tests/McpServices.Tests/Services/PipelineSchemaCompilerTe
 A tool that parses or evaluates input the caller supplies runs in the process every tenant shares, so one call must
 not be able to exhaust its memory or CPU. `validate_pipeline_definition` shows the pattern:
 
-- **Limits before any work** (`Services/PipelineDefinitionLimits.cs`): the text length and, for YAML, the node count
-  after alias expansion are checked before the text is parsed (aliases share a node in YAML but are copied by the
-  conversion to JSON, so a small document of nested aliases expands to billions of nodes); the pipeline node count and
-  the nesting depth of node lists are checked before the schema evaluation. A definition above a limit is refused with
-  `ErrorCode = PIPELINE_DEFINITION_LIMIT_EXCEEDED` and a finding that names the limit; it is never evaluated.
+- **Limits before any work** (`Services/PipelineDefinitionLimits.cs`): before the text is parsed, an iterative scan of
+  its YAML token stream (JSON is YAML) checks the length, the nesting depth (256, the converter's own limit: the YAML
+  loader builds its tree recursively before the converter checks the depth, so a deeper document overflows the stack)
+  and the node count after alias expansion (aliases share a node in YAML but are copied by the conversion to JSON, so a
+  small document of nested aliases expands to billions of nodes); an alias whose anchor is not complete yet (recursive,
+  or used before it is defined) is refused outright. The pipeline node count and the nesting depth of node lists are
+  checked before the schema evaluation, following every key that matches a container name case-insensitively. A
+  definition above a limit is refused with `ErrorCode = PIPELINE_DEFINITION_LIMIT_EXCEEDED` and a finding that names the
+  limit; it is never evaluated.
 - **A schema shape with linear cost** (`Services/PipelineSchemaCompiler.cs`): the pipeline SDK's composite schema
   validates each node against a `oneOf` over every node schema, and child-capable nodes (If, ForEach, Switch, ...) refer
   back to that union for their nested `transformations`. JsonSchema.Net evaluates every branch of a `oneOf` and walks a
@@ -142,8 +146,10 @@ not be able to exhaust its memory or CPU. `validate_pipeline_definition` shows t
   about five to ten times per nesting level in every output format, and four levels of nested If nodes exhausted the
   process. The compiler rewrites such a union into a dispatch on the node's `type` (`allOf` of
   `if: {type: const} / then: node schema`, plus an `enum` of the known types); the verdict is the same because every
-  branch requires `type` with its own `const`. A schema that still holds a self-referencing union after the rewrite is
-  evaluated only for definitions whose node lists nest at most two levels deep; deeper ones are refused.
+  branch requires `type` with its own `const`. A schema that still holds a union with two or more ways back to the schema
+  that contains it (through any chain of `$ref`s; an unresolvable reference counts as a way back) is evaluated only for
+  definitions whose node lists nest at most two levels deep; deeper ones are refused. A single way back, such as the
+  nullable self-reference of a recursive data type, stays linear and is allowed.
 - **A cheap verdict first** (`Services/PipelineSchemaEvaluator.cs`): the flag output format gives the verdict; only an
   invalid definition is evaluated again with the list output format for the findings. A failing `if` is no finding
   (it only selects the node type) and is left out.

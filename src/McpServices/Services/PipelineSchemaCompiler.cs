@@ -110,34 +110,239 @@ internal static class PipelineSchemaCompiler
     }
 
     /// <summary>
-    ///     True when a definition under <c>$defs</c> / <c>definitions</c> of <paramref name="root" /> is a
-    ///     <c>oneOf</c> or <c>anyOf</c> whose branches refer to the definition itself (the generator's node union that
-    ///     <see cref="Discriminate" /> could not rewrite).
+    ///     True when a <c>oneOf</c> or <c>anyOf</c> anywhere in <paramref name="root" /> holds two or more
+    ///     <c>$ref</c>s that reach, directly or through other definitions, the schema that contains the union (the
+    ///     generator's node union that <see cref="Discriminate" /> could not rewrite: every child-capable branch
+    ///     reaches back, so each nesting level multiplies the work). A single way back stays linear and does not
+    ///     count. Fails closed: a reference this check cannot resolve to a definition of the document (an absolute
+    ///     URI, an <c>$anchor</c>, <c>$dynamicRef</c>, a pointer into the middle of a schema, the root <c>#</c>)
+    ///     counts as a way back.
     /// </summary>
     internal static bool HasRecursiveUnions(JsonObject root)
     {
+        // Named schemas: every definition, plus the root (everything outside the definition containers).
+        var definitions = new Dictionary<string, JsonNode?>(StringComparer.Ordinal);
         foreach (var containerName in DefinitionContainers)
         {
-            if (root[containerName] is not JsonObject container)
+            if (root[containerName] is JsonObject container)
             {
-                continue;
+                foreach (var (name, definition) in container)
+                {
+                    definitions[$"#/{containerName}/{name}"] = definition;
+                }
+            }
+        }
+
+        var edges = new Dictionary<string, (HashSet<string> Targets, bool Unresolved)>(StringComparer.Ordinal);
+        (HashSet<string> Targets, bool Unresolved) EdgesOf(string name)
+        {
+            if (!edges.TryGetValue(name, out var result))
+            {
+                result = (new HashSet<string>(StringComparer.Ordinal), false);
+                var unresolved = false;
+                CollectReferences(definitions[name], result.Targets, ref unresolved, definitions);
+                result.Unresolved = unresolved;
+                edges[name] = result;
             }
 
-            foreach (var (name, definition) in container)
+            return result;
+        }
+
+        bool Reaches(HashSet<string> start, bool startUnresolved, string owner)
+        {
+            if (startUnresolved)
             {
-                var selfReference = $"\"#/{containerName}/{name}\"";
-                foreach (var keyword in new[] { "oneOf", "anyOf" })
+                return true;
+            }
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var pending = new Stack<string>(start);
+            while (pending.Count > 0)
+            {
+                var name = pending.Pop();
+                if (name == owner)
                 {
-                    if (definition?[keyword] is JsonArray branches &&
-                        branches.ToJsonString().Contains(selfReference, StringComparison.Ordinal))
-                    {
-                        return true;
-                    }
+                    return true;
+                }
+
+                if (!seen.Add(name))
+                {
+                    continue;
+                }
+
+                var (targets, unresolved) = EdgesOf(name);
+                if (unresolved)
+                {
+                    return true;
+                }
+
+                foreach (var target in targets)
+                {
+                    pending.Push(target);
+                }
+            }
+
+            return false;
+        }
+
+        foreach (var (owner, schema) in definitions.Select(d => (d.Key, d.Value))
+                     .Append(("#", root)))
+        {
+            foreach (var union in Unions(schema, skipContainers: owner == "#"))
+            {
+                // One way back is linear (the nullable self-reference "oneOf: [null, $ref self]" of a recursive
+                // data type evaluates one branch per level); two or more multiply per level.
+                var waysBack = ReferenceOccurrences(union, definitions)
+                    .Count(target => target is null ||
+                                     Reaches(new HashSet<string>(StringComparer.Ordinal) { target }, false, owner));
+                if (waysBack >= 2)
+                {
+                    return true;
                 }
             }
         }
 
         return false;
+    }
+
+    // Every oneOf / anyOf array in the subtree, not descending into the definition containers of the root.
+    private static IEnumerable<JsonArray> Unions(JsonNode? node, bool skipContainers)
+    {
+        var pending = new Stack<JsonNode?>();
+        pending.Push(node);
+        while (pending.Count > 0)
+        {
+            switch (pending.Pop())
+            {
+                case JsonObject obj:
+                    foreach (var (key, value) in obj)
+                    {
+                        if (skipContainers && obj == node && DefinitionContainers.Contains(key))
+                        {
+                            continue;
+                        }
+
+                        if (key is "oneOf" or "anyOf" && value is JsonArray branches)
+                        {
+                            yield return branches;
+                        }
+
+                        pending.Push(value);
+                    }
+
+                    break;
+                case JsonArray array:
+                    foreach (var item in array)
+                    {
+                        pending.Push(item);
+                    }
+
+                    break;
+            }
+        }
+    }
+
+    // Collects the definitions the $ref values in the subtree point to; any reference that is not exactly one
+    // definition of the document sets unresolved.
+    private static void CollectReferences(JsonNode? node, HashSet<string> targets, ref bool unresolved,
+        IReadOnlyDictionary<string, JsonNode?> definitions)
+    {
+        var pending = new Stack<JsonNode?>();
+        pending.Push(node);
+        while (pending.Count > 0)
+        {
+            switch (pending.Pop())
+            {
+                case JsonObject obj:
+                    foreach (var (key, value) in obj)
+                    {
+                        if (key is "$ref" or "$dynamicRef" or "$recursiveRef")
+                        {
+                            if (key == "$ref" && value is JsonValue v && v.TryGetValue<string>(out var reference) &&
+                                DecodePointer(reference) is { } target && definitions.ContainsKey(target))
+                            {
+                                targets.Add(target);
+                            }
+                            else
+                            {
+                                unresolved = true;
+                            }
+
+                            continue;
+                        }
+
+                        pending.Push(value);
+                    }
+
+                    break;
+                case JsonArray array:
+                    foreach (var item in array)
+                    {
+                        pending.Push(item);
+                    }
+
+                    break;
+            }
+        }
+    }
+
+    // Every reference in the subtree, one entry per occurrence: the definition it points to, or null when it is not
+    // exactly one definition of the document.
+    private static List<string?> ReferenceOccurrences(JsonNode? node, IReadOnlyDictionary<string, JsonNode?> definitions)
+    {
+        var occurrences = new List<string?>();
+        var pending = new Stack<JsonNode?>();
+        pending.Push(node);
+        while (pending.Count > 0)
+        {
+            switch (pending.Pop())
+            {
+                case JsonObject obj:
+                    foreach (var (key, value) in obj)
+                    {
+                        if (key is "$ref" or "$dynamicRef" or "$recursiveRef")
+                        {
+                            occurrences.Add(key == "$ref" && value is JsonValue v &&
+                                            v.TryGetValue<string>(out var reference) &&
+                                            DecodePointer(reference) is { } target && definitions.ContainsKey(target)
+                                ? target
+                                : null);
+                            continue;
+                        }
+
+                        pending.Push(value);
+                    }
+
+                    break;
+                case JsonArray array:
+                    foreach (var item in array)
+                    {
+                        pending.Push(item);
+                    }
+
+                    break;
+            }
+        }
+
+        return occurrences;
+    }
+
+    // "#/$defs/A%20B~1C" -> "#/$defs/A B/C"; null when the reference is not a local pointer of two segments.
+    private static string? DecodePointer(string reference)
+    {
+        if (!reference.StartsWith("#/", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var segments = Uri.UnescapeDataString(reference[2..]).Split('/');
+        if (segments.Length != 2)
+        {
+            return null;
+        }
+
+        return $"#/{segments[0].Replace("~1", "/").Replace("~0", "~")}/" +
+               segments[1].Replace("~1", "/").Replace("~0", "~");
     }
 
     private static bool TryDiscriminate(JsonObject definition, out JsonObject replacement)

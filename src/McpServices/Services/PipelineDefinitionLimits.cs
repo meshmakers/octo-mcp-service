@@ -26,6 +26,13 @@ internal static class PipelineDefinitionLimits
     /// </summary>
     public const long MaxExpandedYamlNodes = 200_000;
 
+    /// <summary>
+    ///     Maximum nesting depth of the YAML (or JSON) document, the depth the YAML-to-JSON converter accepts. The
+    ///     YAML loader builds its node tree recursively before the converter checks the depth, so a deeper document
+    ///     would overflow the stack (an uncatchable crash) instead of being refused.
+    /// </summary>
+    public const int MaxDocumentDepth = 256;
+
     /// <summary>Maximum number of pipeline nodes (triggers, transformations and nested node lists).</summary>
     public const int MaxPipelineNodes = 2_000;
 
@@ -36,8 +43,11 @@ internal static class PipelineDefinitionLimits
     public const int MaxNestingDepth = 32;
 
     /// <summary>
-    ///     Checks the raw definition text: its length and, for YAML, the number of nodes after alias expansion.
-    ///     Text that does not tokenize as YAML passes here; the parser reports it afterwards.
+    ///     Checks the raw definition text before it is parsed: its length, its nesting depth, the number of nodes
+    ///     after alias expansion, and aliases whose anchor is not complete yet (a recursive anchor, or an alias
+    ///     before its anchor). The scan reads the token stream iteratively, so it cannot itself overflow the stack.
+    ///     JSON is scanned the same way (it is YAML). Text that stops tokenizing passes here once the part before
+    ///     the error is within the limits; the parser reports the error afterwards and reads no further.
     /// </summary>
     /// <returns>The refusal message, or null when the text is within the limits.</returns>
     public static string? CheckText(string definition)
@@ -48,21 +58,7 @@ internal static class PipelineDefinitionLimits
                    "Split the pipeline or move large data out of the definition.";
         }
 
-        long expanded;
-        try
-        {
-            expanded = CountExpandedYamlNodes(definition, MaxExpandedYamlNodes);
-        }
-        catch (YamlException)
-        {
-            return null;
-        }
-
-        return expanded > MaxExpandedYamlNodes
-            ? $"The definition expands to more than {MaxExpandedYamlNodes} YAML nodes once its aliases are " +
-              "resolved; the limit is " + MaxExpandedYamlNodes + ". Write the repeated parts out instead of " +
-              "nesting aliases."
-            : null;
+        return ScanYaml(definition, MaxExpandedYamlNodes, MaxDocumentDepth).Refusal;
     }
 
     /// <summary>
@@ -85,11 +81,14 @@ internal static class PipelineDefinitionLimits
     }
 
     /// <summary>
-    ///     Counts the YAML nodes of <paramref name="text" /> as the conversion to JSON would produce them, with
-    ///     every alias expanded to the size of its anchored node. Stops counting once <paramref name="stopAbove" />
-    ///     is exceeded and returns the count reached so far.
+    ///     Scans <paramref name="text" /> as a YAML token stream and counts its nodes (scalars, sequences, mappings) as
+    ///     the conversion to JSON would produce them, with every alias expanded to the size of its anchored node.
+    ///     Fails closed: stops with a refusal once the count exceeds <paramref name="maxNodes" />, the nesting exceeds
+    ///     <paramref name="maxDepth" />, or an alias names an anchor that is not complete yet (still open, i.e.
+    ///     recursive, or not defined before the alias): the loader would resolve both into a cycle or a forward
+    ///     reference the converter expands without bound. Text that stops tokenizing ends the scan without a refusal.
     /// </summary>
-    internal static long CountExpandedYamlNodes(string text, long stopAbove)
+    internal static (long Expanded, string? Refusal) ScanYaml(string text, long maxNodes, int maxDepth)
     {
         var parser = new Parser(new StringReader(text));
         var anchorSizes = new Dictionary<string, long>(StringComparer.Ordinal);
@@ -106,63 +105,87 @@ internal static class PipelineDefinitionLimits
             }
         }
 
-        while (parser.MoveNext())
+        try
         {
-            switch (parser.Current)
+            while (parser.MoveNext())
             {
-                case Scalar scalar:
-                    Add(1);
-                    if (!scalar.Anchor.IsEmpty)
-                    {
-                        anchorSizes[scalar.Anchor.Value] = 1;
-                    }
-
-                    break;
-                case SequenceStart sequence:
-                    total++;
-                    open.Push((sequence.Anchor.IsEmpty ? null : sequence.Anchor.Value, 1));
-                    break;
-                case MappingStart mapping:
-                    total++;
-                    open.Push((mapping.Anchor.IsEmpty ? null : mapping.Anchor.Value, 1));
-                    break;
-                case SequenceEnd or MappingEnd when open.Count > 0:
+                switch (parser.Current)
                 {
-                    var (anchor, size) = open.Pop();
-                    if (anchor != null)
-                    {
-                        anchorSizes[anchor] = size;
-                    }
+                    case Scalar scalar:
+                        Add(1);
+                        if (!scalar.Anchor.IsEmpty)
+                        {
+                            anchorSizes[scalar.Anchor.Value] = 1;
+                        }
 
-                    if (open.Count > 0)
-                    {
-                        var (parentAnchor, parentSize) = open.Pop();
-                        open.Push((parentAnchor, parentSize + size));
-                    }
+                        break;
+                    case NodeEvent { Anchor: var anchor } and (SequenceStart or MappingStart):
+                        total++;
+                        if (!anchor.IsEmpty)
+                        {
+                            // Redefining an anchor makes later aliases refer to the new node; until it is complete
+                            // an alias to it is recursive.
+                            anchorSizes.Remove(anchor.Value);
+                        }
 
-                    break;
+                        open.Push((anchor.IsEmpty ? null : anchor.Value, 1));
+                        if (open.Count > maxDepth)
+                        {
+                            return (total, $"The definition nests more than {maxDepth} levels deep; the limit is " +
+                                           $"{maxDepth}.");
+                        }
+
+                        break;
+                    case SequenceEnd or MappingEnd when open.Count > 0:
+                    {
+                        var (anchor, size) = open.Pop();
+                        if (anchor != null)
+                        {
+                            anchorSizes[anchor] = size;
+                        }
+
+                        if (open.Count > 0)
+                        {
+                            var (parentAnchor, parentSize) = open.Pop();
+                            open.Push((parentAnchor, parentSize + size));
+                        }
+
+                        break;
+                    }
+                    case AnchorAlias alias:
+                        if (!anchorSizes.TryGetValue(alias.Value.Value, out var aliasSize))
+                        {
+                            return (total, $"The alias *{alias.Value.Value} refers to an anchor that is not defined " +
+                                           "before it or that contains the alias itself; recursive and forward " +
+                                           "aliases are not accepted.");
+                        }
+
+                        Add(aliasSize);
+                        break;
                 }
-                case AnchorAlias alias:
-                    // An alias to an anchor that is still open (a recursive anchor) or unknown counts as one node;
-                    // the parser or the converter refuses those documents afterwards.
-                    Add(anchorSizes.GetValueOrDefault(alias.Value.Value, 1));
-                    break;
-            }
 
-            if (total > stopAbove)
-            {
-                return total;
+                if (total > maxNodes)
+                {
+                    return (total, $"The definition expands to more than {maxNodes} YAML nodes once its aliases " +
+                                   $"are resolved; the limit is {maxNodes}. Write the repeated parts out instead of " +
+                                   "nesting aliases.");
+                }
             }
         }
+        catch (YamlException)
+        {
+            // Not well-formed from here on: the parser refuses it at the same position and reads no further.
+        }
 
-        return total;
+        return (total, null);
     }
 
     /// <summary>
     ///     Counts the pipeline nodes and measures the nesting depth of node lists, following the node containers of
     ///     the pipeline SDK like <c>CountPipelineNodes</c>: root <c>triggers</c>, <c>transformations</c> and
     ///     <c>nodes</c>; inside a node its <c>transformations</c>, the <c>cases[].transformations</c> and the
-    ///     <c>default</c> list of a Switch. Stops once either limit is exceeded.
+    ///     <c>default</c> list of a Switch. Every key that matches a container name case-insensitively is followed.
+    ///     Stops once either limit is exceeded.
     /// </summary>
     internal static (int Count, int Depth) MeasureNodes(JsonNode? definition, int maxCount, int maxDepth)
     {
@@ -174,9 +197,14 @@ internal static class PipelineDefinitionLimits
         var count = 0;
         var deepest = 0;
         var pending = new Stack<(JsonNode? List, int Depth)>();
-        pending.Push((Property(root, "nodes"), 1));
-        pending.Push((Property(root, "transformations"), 1));
-        pending.Push((Property(root, "triggers"), 1));
+        foreach (var container in new[] { "nodes", "transformations", "triggers" })
+        {
+            foreach (var rootList in Properties(root, container))
+            {
+                pending.Push((rootList, 1));
+            }
+        }
+
         while (pending.Count > 0)
         {
             var (list, depth) = pending.Pop();
@@ -194,15 +222,25 @@ internal static class PipelineDefinitionLimits
                     return (count, deepest);
                 }
 
-                pending.Push((Property(node, "transformations"), depth + 1));
-                if (Property(node, "cases") is JsonArray cases)
+                foreach (var child in Properties(node, "transformations"))
+                {
+                    pending.Push((child, depth + 1));
+                }
+
+                foreach (var cases in Properties(node, "cases").OfType<JsonArray>())
                 {
                     foreach (var switchCase in cases.OfType<JsonObject>())
                     {
-                        pending.Push((Property(switchCase, "transformations"), depth + 1));
+                        foreach (var child in Properties(switchCase, "transformations"))
+                        {
+                            pending.Push((child, depth + 1));
+                        }
                     }
 
-                    pending.Push((Property(node, "default"), depth + 1));
+                    foreach (var child in Properties(node, "default"))
+                    {
+                        pending.Push((child, depth + 1));
+                    }
                 }
             }
         }
@@ -210,6 +248,8 @@ internal static class PipelineDefinitionLimits
         return (count, deepest);
     }
 
-    private static JsonNode? Property(JsonObject obj, string name) =>
-        obj.FirstOrDefault(p => string.Equals(p.Key, name, StringComparison.OrdinalIgnoreCase)).Value;
+    // Every property whose name matches case-insensitively: JSON and the YAML converter keep "Transformations" and
+    // "transformations" side by side, and the measurement must not stop at a decoy that only differs in case.
+    private static IEnumerable<JsonNode?> Properties(JsonObject obj, string name) =>
+        obj.Where(p => string.Equals(p.Key, name, StringComparison.OrdinalIgnoreCase)).Select(p => p.Value);
 }

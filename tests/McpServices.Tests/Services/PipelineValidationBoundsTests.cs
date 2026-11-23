@@ -227,9 +227,68 @@ public class PipelineValidationBoundsTests : ToolTestBase
     [InlineData("a: &n [x, y]\nb: *n\nc: *n\n", 13)]
     [InlineData("a: &s x\nb: *s\n", 5)]
     [InlineData("{\"a\": [1, 2]}", 5)]
-    public void CountExpandedYamlNodes_CountsAliasesAtTheSizeOfTheirAnchor(string yaml, long expected)
+    public void ScanYaml_CountsAliasesAtTheSizeOfTheirAnchor(string yaml, long expected)
     {
-        PipelineDefinitionLimits.CountExpandedYamlNodes(yaml, long.MaxValue).Should().Be(expected);
+        var (expanded, refusal) = PipelineDefinitionLimits.ScanYaml(yaml, long.MaxValue, 256);
+
+        refusal.Should().BeNull();
+        expanded.Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_RecursiveAnchor_IsRefusedBeforeItIsLoaded()
+    {
+        // The alias sits inside its own anchor: the loader keeps the cycle and the converter would copy the large
+        // sibling once per level until its depth limit.
+        var draft = $"a: &a [&b [{string.Join(", ", Enumerable.Repeat("x", 1000))}], *a]\n";
+
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, AdapterId, draft);
+
+        AssertRefused(result, "*a ");
+        MockCommunicationClient.Verify(c => c.GetPipelineSchemaAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_AliasBeforeItsAnchor_IsRefused()
+    {
+        // The alias bomb written in reverse order: each level aliases the level defined below it.
+        var sb = new StringBuilder();
+        for (var i = 9; i >= 1; i--)
+        {
+            sb.AppendLine($"a{i}: &a{i} [{string.Join(", ", Enumerable.Repeat($"*a{i - 1}", 10))}]");
+        }
+
+        sb.AppendLine("a0: &a0 [x, x, x, x, x, x, x, x, x, x]");
+
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, AdapterId, sb.ToString());
+
+        AssertRefused(result, "*a8 ");
+    }
+
+    [Theory]
+    [InlineData('[', ']')]
+    [InlineData('{', '}')]
+    public async Task ValidatePipelineDefinition_DeeplyNestedDocument_IsRefusedBeforeTheRecursiveLoad(
+        char open, char close)
+    {
+        // 50,000 levels would overflow the stack of the recursive YAML loader (an uncatchable crash).
+        var draft = new string(open, 50_000) + new string(close, 50_000);
+
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, AdapterId, draft);
+
+        AssertRefused(result, PipelineDefinitionLimits.MaxDocumentDepth.ToString());
+    }
+
+    [Fact]
+    public void MeasureNodes_FollowsEveryCaseVariantOfAContainer()
+    {
+        var definition = JsonNode.Parse("""
+            {"Transformations": [], "transformations": [
+              {"type": "If@1", "Transformations": [], "transformations": [
+                {"type": "If@1", "transformations": [{"type": "X@1"}]}]}]}
+            """);
+
+        PipelineDefinitionLimits.MeasureNodes(definition, 100, 100).Should().Be((3, 3));
     }
 
     [Theory]
@@ -287,6 +346,24 @@ public class PipelineValidationBoundsTests : ToolTestBase
         result.ErrorCode.Should().BeNull();
         result.IsSuccess.Should().BeTrue();
         result.IsValid.Should().BeTrue("additionalProperties leaves only the SetPrimitiveValue schema matching");
+    }
+
+    [Theory]
+    // indirect: two branches are $refs to nodes whose transformations refer back to the union
+    [InlineData("""{"$defs":{"U":{"oneOf":[{"$ref":"#/$defs/IfNode"},{"$ref":"#/$defs/ForEachNode"}]},"IfNode":{"properties":{"transformations":{"items":{"$ref":"#/$defs/U"}}}},"ForEachNode":{"properties":{"transformations":{"items":{"$ref":"#/$defs/U"}}}}}}""", true)]
+    // a definition name that needs pointer escaping
+    [InlineData("""{"$defs":{"a/b":{"anyOf":[{"properties":{"t":{"items":{"$ref":"#/$defs/a~1b"}}}},{"properties":{"u":{"items":{"$ref":"#/$defs/a~1b"}}}}]}}}""", true)]
+    // a reference this check cannot resolve fails closed
+    [InlineData("""{"$defs":{"U":{"oneOf":[{"$ref":"https://example.com/a.json"},{"$ref":"https://example.com/b.json"}]}}}""", true)]
+    [InlineData("""{"properties":{"t":{"oneOf":[{"items":{"$ref":"#"}},{"$dynamicRef":"#node"}]}}}""", true)]
+    // one way back is linear: the nullable self-reference of a recursive data type
+    [InlineData("""{"$defs":{"Json":{"properties":{"parent":{"oneOf":[{"type":"null"},{"$ref":"#/$defs/Json"}]}}}}}""", false)]
+    // unions without a way back
+    [InlineData("""{"$defs":{"U":{"oneOf":[{"$ref":"#/$defs/A"},{"type":"string"}]},"A":{"type":"object"}}}""", false)]
+    [InlineData("""{"properties":{"v":{"oneOf":[{"type":"string"},{"type":"number"}]}}}""", false)]
+    public void HasRecursiveUnions_FindsEveryWayBack(string schemaJson, bool expected)
+    {
+        PipelineSchemaCompiler.HasRecursiveUnions(JsonNode.Parse(schemaJson)!.AsObject()).Should().Be(expected);
     }
 
     [Fact]
