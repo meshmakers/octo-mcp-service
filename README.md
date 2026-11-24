@@ -237,7 +237,7 @@ dotnet run
 passed, none by default). Mandate grants are validated against the tools of this server (`UnknownTool` names the tool;
 `RiskAboveCeiling`); defaults are narrow (no grants, risk Low, change budget 0, write mode Propose). The client secret is
 never returned. `set_agent_enabled false` switches the agent off and disables its client. The writing tools need a
-tenant administrator (`TenantManagement` or `UserManagement`); an agent cannot change itself. Details: `docs/agent-tools.md`.
+tenant administrator (`TenantManagement` or `UserManagement`); agents never manage agents (`AgentCaller`). Every tool call of an agent's client is checked against its mandate (`AgentDisabled`, `ToolNotGranted`, `RiskAboveCeiling`, `MandateUnavailable`, AB#9729). Details: `docs/agent-tools.md`.
 
 ### **Knowledge base** (10 tools + 1 resource template, AB#8484)
 `knowledge_search`, `knowledge_get`, `knowledge_upsert_page`, `knowledge_link`, `knowledge_restore_version`, `knowledge_set_status`,

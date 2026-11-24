@@ -24,8 +24,11 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 ///     directly in the engine with the caller's own session (family 2), so the caller's CK roles decide whether the write
 ///     is allowed; the client is created and switched through the System.Identity CK methods (family 1), which check the
 ///     caller's identity roles. The writing tools first require a tenant administrator (TenantManagement or
-///     UserManagement), because the engine does not protect the agent types yet. Entities are written first: a caller without the right to write them changes nothing in
-///     the identity. A failed identity step removes what the call wrote.
+///     UserManagement) and refuse every agent's service account (<c>AgentCaller</c>); then their engine session carries
+///     the write channel <see cref="AgentModel.WriteChannel" />, the only way System.Ai 4.12.0 admits a write of
+///     <c>Agent</c> and <c>Mandate</c> (AB#9729: agent administration goes through the agent API, GraphQL and the generic
+///     entity tools are refused by the engine). Entities are written first: a caller without the right to write them
+///     changes nothing in the identity. A failed identity step removes what the call wrote.
 /// </summary>
 [McpServerToolType]
 public static class AgentTools
@@ -273,7 +276,7 @@ public static class AgentTools
     [McpServerTool(Name = "update_agent")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
-        "Update an agent (tenant administrators only; an agent cannot change itself). Every parameter is optional; " +
+        "Update an agent (tenant administrators only; agents never manage agents). Every parameter is optional; " +
         "an omitted one keeps its value. Mandate values change the " +
         "agent's own mandate (toolGrants and allowedCkTypes replace the list, [] clears it); a mandate that governs " +
         "several agents is not changed here (pass mandateRtId to switch the agent to another mandate instead). Grants " +
@@ -364,10 +367,6 @@ public static class AgentTools
                     return Refuse("AgentNotFound", $"No agent '{agent}'.", engine.TenantId);
                 }
 
-                if (SelfModification(server, stored) is { } self)
-                {
-                    return self;
-                }
 
                 if (name != null)
                 {
@@ -548,7 +547,7 @@ public static class AgentTools
     [McpServerTool(Name = "set_agent_enabled")]
     [McpRisk(McpRiskLevel.Medium)]
     [Description(
-        "Switch an agent on or off (kill switch; tenant administrators only, never the agent itself). Disabling " +
+        "Switch an agent on or off (kill switch; tenant administrators only, never an agent). Disabling " +
         "sets the agent's Enabled to false first, then disables its service-account client in the tenant identity, so the client can no longer obtain tokens. Enabling switches " +
         "the client on first, then the agent.")]
     public static async Task<AgentResponse> SetAgentEnabled(
@@ -581,10 +580,6 @@ public static class AgentTools
                 return Refuse("AgentNotFound", $"No agent '{agent}'.", engine.TenantId);
             }
 
-            if (SelfModification(server, stored) is { } self)
-            {
-                return self;
-            }
 
             var clientId = AgentModel.ClientIdOf(stored);
             var identity = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
@@ -760,8 +755,8 @@ public static class AgentTools
         }
 
         // The writing tools are for tenant administrators only (the roles the identity requires for the client
-        // methods: TenantManagement or UserManagement). Checked before anything is written, because the engine does
-        // not protect the agent types yet: without this check a role-less caller could change a mandate.
+        // methods: TenantManagement or UserManagement). Checked before anything is written: the write channel these
+        // tools put on their session (below) is what admits the write in the engine (AB#9729).
         if (write && !IsTenantAdministrator(security.SecurityContext))
         {
             return new AgentEngineContext(null, null, security.ResolvedTenantId,
@@ -781,7 +776,56 @@ public static class AgentTools
                 "NoAgentTypes");
         }
 
-        return new AgentEngineContext(repository, security.SecurityContext, repository.TenantId, null);
+        if (!write)
+        {
+            return new AgentEngineContext(repository, security.SecurityContext, repository.TenantId, null);
+        }
+
+        // AB#9729: an agent never manages agents - not itself, not another agent, not a new one - whatever roles its
+        // service account holds. A failed read refuses (fail closed).
+        if (await AgentCallerAsync(server, repository) is { } agentCaller)
+        {
+            return new AgentEngineContext(null, null, repository.TenantId, agentCaller, "AgentCaller");
+        }
+
+        // The channel is set here, in service code, never from caller input; the caller's identity and roles stay.
+        return new AgentEngineContext(repository, security.SecurityContext!.WithWriteChannel(AgentModel.WriteChannel),
+            repository.TenantId, null);
+    }
+
+    /// <summary>
+    ///     The refusal text when the caller's client id is the service account of an agent of the tenant, else null.
+    ///     The lookup runs as the system (an agent's client may not be able to read the agent types), in the resolved
+    ///     tenant only.
+    /// </summary>
+    private static async Task<string?> AgentCallerAsync(McpServer server, ITenantRepository repository)
+    {
+        var callerClientId = McpCallerPrincipal.FromServer(server)?.ClientId;
+        if (string.IsNullOrEmpty(callerClientId))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var session = await repository.GetSessionAsync(RtSecurityContext.System);
+            var agents = await AgentModel.ListAgentsAsync(repository, session);
+            if (agents.Count >= AgentModel.MaxAgents)
+            {
+                return $"The agents of tenant '{repository.TenantId}' could not be read completely; managing agents is " +
+                       "refused until they can (fail closed).";
+            }
+
+            var own = agents.FirstOrDefault(a => string.Equals(AgentModel.ClientIdOf(a), callerClientId, StringComparison.Ordinal));
+            return own == null
+                ? null
+                : $"Client '{callerClientId}' is the service account of agent " +
+                  $"'{own.GetAttributeValueOrDefault("Name")}'; agents never manage agents, their own included.";
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return $"The agents of tenant '{repository.TenantId}' could not be read; managing agents is refused (fail closed).";
+        }
     }
 
     /// <summary>True when the caller holds TenantManagement or UserManagement in the resolved tenant.</summary>
@@ -987,22 +1031,6 @@ public static class AgentTools
                 TenantId = engine.TenantId,
                 Agent = AgentModel.ToAgentDto(agent, await AgentModel.MandateOfAsync(engine.Repo, session, agent))
             };
-    }
-
-    /// <summary>
-    ///     An agent never changes itself: a caller whose client id is the agent's service account is refused
-    ///     (<c>SelfModification</c>), so an agent cannot raise its own mandate or switch its own kill switch. The general
-    ///     write protection of the agent types is the engine's (not yet in place); this guard closes the self path only.
-    /// </summary>
-    private static AgentResponse? SelfModification(McpServer server, RtEntity agent)
-    {
-        var callerClientId = McpCallerPrincipal.FromServer(server)?.ClientId;
-        var agentClientId = AgentModel.ClientIdOf(agent);
-        return callerClientId != null && agentClientId.Length > 0 &&
-               string.Equals(callerClientId, agentClientId, StringComparison.Ordinal)
-            ? Refuse("SelfModification",
-                $"Client '{callerClientId}' is the service account of this agent; an agent cannot change itself.")
-            : null;
     }
 
     private static RtClientMethodClient Clients(IdentityClientContext ctx) => new(ctx.TenantClient!);

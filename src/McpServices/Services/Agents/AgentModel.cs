@@ -32,6 +32,13 @@ internal static class AgentModel
     public const string ToolGrantRecord = "System.Ai/AgentToolGrant";
     public const string GovernedByRole = "System.Ai/GovernedBy";
 
+    /// <summary>
+    ///     The in-process write channel of the agent tools (AB#9729). System.Ai 4.12.0 declares
+    ///     <c>writeAccess { channels: [System.Ai/AgentAdministration] }</c> on <c>Agent</c> and <c>Mandate</c>, so only a
+    ///     session carrying it (and system sessions) may write them.
+    /// </summary>
+    public const string WriteChannel = "System.Ai/AgentAdministration";
+
     /// <summary>Upper bound of the agents and mandates read per call (a tenant holds a handful).</summary>
     public const int MaxAgents = 500;
 
@@ -300,6 +307,27 @@ internal static class AgentModel
         var associations = await repository.GetRtAssociationsAsync(session, new RtEntityId(AgentTypeId, agentRtId),
             RtAssociationExtendedQueryOptions.Create(GraphDirections.Outbound, GovernedByRoleId));
         return associations.Items.Select(a => (OctoObjectId?)a.TargetRtId).FirstOrDefault();
+    }
+
+    /// <summary>The runtime ids of every mandate that governs <paramref name="agentRtId" /> (the mandate check needs exactly one).</summary>
+    public static async Task<IReadOnlyList<OctoObjectId>> GoverningMandateIdsAsync(ITenantRepository repository,
+        IOctoSession session, OctoObjectId agentRtId)
+    {
+        var associations = await repository.GetRtAssociationsAsync(session, new RtEntityId(AgentTypeId, agentRtId),
+            RtAssociationExtendedQueryOptions.Create(GraphDirections.Outbound, GovernedByRoleId));
+        return associations.Items.Select(a => a.TargetRtId).Distinct().ToList();
+    }
+
+    /// <summary>
+    ///     The stored grants of a mandate as pattern and risk index, without normalising (the mandate check judges them).
+    ///     An absent <c>MaxRisk</c> reads as 0 (Low): the engine stores no record defaults.
+    /// </summary>
+    public static IReadOnlyList<(string? Pattern, int MaxRisk)> ReadRawGrants(RtEntity mandate)
+    {
+        var records = mandate.GetAttributeValueOrDefault("ToolGrants") is IEnumerable<RtRecord> list
+            ? list
+            : (IEnumerable<RtRecord>?)mandate.GetRtRecordAttributeValuesOrDefault<RtRecord>("ToolGrants") ?? [];
+        return records.Select(r => (Val(r, "ToolPattern")?.ToString(), ToInt(Val(r, "MaxRisk")))).ToList();
     }
 
     /// <summary>Number of agents a mandate governs.</summary>

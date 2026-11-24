@@ -299,19 +299,118 @@ public class AgentToolsTests : ToolTestBase
         (await AgentTools.GetAgent(MockServer.Object, "Knowledge curator")).IsSuccess.Should().BeTrue();
     }
 
-    [Fact]
-    public async Task WritingTools_TheAgentsOwnClient_IsRefusedEvenAsAdministrator()
+    [Theory]
+    [InlineData(null)] // client-credentials token of the agent's own client
+    [InlineData("user-1")] // on-behalf-of token: a person's subject, the agent's client id
+    public async Task WritingTools_TheAgentsOwnClient_IsRefusedEvenAsAdministrator(string? subject)
     {
         await CreateAsync();
         CkMethods.Requests.Clear();
-        GivenServicePrincipalCaller("agent-knowledge-curator", DefaultTestTenantId, "TenantManagement");
+        var writesBefore = _writeOrder.Count;
+        GivenRequestPrincipal(BuildPrincipal(DefaultTestTenantId, subject, "agent-knowledge-curator", "TenantManagement"));
 
         var update = await AgentTools.UpdateAgent(MockServer.Object, "Knowledge curator", changeBudgetPerRun: 7);
         var disable = await AgentTools.SetAgentEnabled(MockServer.Object, "Knowledge curator", false);
+        var create = await CreateAsync("Second", grants: [new AgentToolGrantDto { ToolPattern = "query_entities" }]);
 
-        update.ErrorCode.Should().Be("SelfModification");
-        disable.ErrorCode.Should().Be("SelfModification");
+        foreach (var result in new[] { update, disable, create })
+        {
+            result.ErrorCode.Should().Be("AgentCaller");
+            result.ErrorMessage.Should().Contain("agent-knowledge-curator").And.Contain("agents never manage agents");
+        }
+
+        _writeOrder.Count.Should().Be(writesBefore, "nothing is written");
         CkMethods.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task WritingTools_AnotherAgentsClient_IsRefused_EvenAsAdministrator()
+    {
+        // An agent with admin roles could otherwise raise a sibling's (or a shared) mandate or create a wider agent.
+        await CreateAsync();
+        await CreateAsync("Other agent");
+        CkMethods.Requests.Clear();
+        GivenServicePrincipalCaller("agent-other-agent", DefaultTestTenantId, "TenantManagement", "UserManagement");
+
+        (await AgentTools.UpdateAgent(MockServer.Object, "Knowledge curator", changeBudgetPerRun: 7))
+            .ErrorCode.Should().Be("AgentCaller");
+        (await CreateAsync("Wider")).ErrorCode.Should().Be("AgentCaller");
+        Of(AgentModel.AgentType).Should().HaveCount(2);
+        CkMethods.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task WritingTools_AgentLookupFails_AreRefusedFailClosed()
+    {
+        await CreateAsync();
+        GivenServicePrincipalCaller("some-admin-client", DefaultTestTenantId, "TenantManagement");
+        MockTenantRepository
+            .Setup(r => r.GetRtEntitiesByTypeAsync(It.IsAny<IOctoSession>(), It.IsAny<RtCkId<CkTypeId>>(),
+                It.IsAny<RtEntityQueryOptions>(), It.IsAny<int?>(), It.IsAny<int?>()))
+            .ThrowsAsync(new TimeoutException("store unavailable"));
+
+        var result = await AgentTools.UpdateAgent(MockServer.Object, "Knowledge curator", changeBudgetPerRun: 7);
+
+        result.ErrorCode.Should().Be("AgentCaller");
+        result.ErrorMessage.Should().Contain("fail closed");
+    }
+
+    [Fact]
+    public void WriteChannel_IsTheChannelOfTheSystemAiWriteAccessBlock()
+    {
+        // System.Ai 4.12.0 (octo-ai-services, types/agent.yaml and mandate.yaml) declares
+        // writeAccess { channels: [System.Ai/AgentAdministration] }; AgentWriteAccessTests there pins the same literal
+        // against the compiled model in a real tenant and proves that every caller without it is refused (message 144).
+        AgentModel.WriteChannel.Should().Be("System.Ai/AgentAdministration");
+        CkWritePrincipals.IsValidChannel(AgentModel.WriteChannel).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task WritingTools_WriteOnTheAgentAdministrationChannel_ForTheCallerItself_ReadsDoNot()
+    {
+        await CreateAsync();
+        await AgentTools.UpdateAgent(MockServer.Object, "Knowledge curator", changeBudgetPerRun: 2);
+        await AgentTools.SetAgentEnabled(MockServer.Object, "Knowledge curator", false);
+        var writeContexts = TakeOpenedSessionContexts();
+
+        writeContexts.Where(c => !c.IsSystem).Should().NotBeEmpty().And.OnlyContain(c =>
+            c.WriteChannel == AgentModel.WriteChannel && c.SubjectId == DefaultCallerSubjectId,
+            "the caller's own session carries the channel; identity and roles stay the caller's");
+        writeContexts.Where(c => c.IsSystem).Should().OnlyContain(c => c.WriteChannel == null,
+            "the system session only reads the agents for the agent-caller refusal");
+
+        await AgentTools.ListAgents(MockServer.Object);
+        await AgentTools.GetAgent(MockServer.Object, "Knowledge curator");
+        TakeOpenedSessionContexts().Should().NotBeEmpty().And.OnlyContain(c => c.WriteChannel == null && !c.IsSystem,
+            "the read tools get no write privilege");
+    }
+
+    [Fact]
+    public async Task GenericEntityTools_OnAMandate_OpenTheirSessionWithoutTheChannel()
+    {
+        // The engine refuses a write of System.Ai/Mandate without the channel (message 144, AgentWriteAccessTests in
+        // octo-ai-services); the generic tools never get it, whoever calls them.
+        await CreateAsync();
+        TakeOpenedSessionContexts();
+        GivenServicePrincipalCaller("agent-knowledge-curator", DefaultTestTenantId, "TenantManagement");
+        GivenEngineRefusesWrites();
+        var mandate = Of(AgentModel.MandateType).Single();
+
+        await RuntimeEntityCrudTools.UpdateEntity(MockServer.Object, mandate.RtId.ToString(), AgentModel.MandateType,
+            [new AttributeUpdateItem { AttributePath = "changeBudgetPerRun", Value = 7 }]);
+
+        TakeOpenedSessionContexts().Should().OnlyContain(c => c.WriteChannel == null);
+        Of(AgentModel.MandateType).Single().GetAttributeValueOrDefault("ChangeBudgetPerRun").Should().Be(0);
+    }
+
+    /// <summary>The security contexts of every session the tools opened since the last call.</summary>
+    private List<RtSecurityContext> TakeOpenedSessionContexts()
+    {
+        var contexts = MockSecureSessionFactory.Invocations
+            .Where(i => i.Method.Name == nameof(ISecureSessionFactory.GetSessionAsync))
+            .Select(i => (RtSecurityContext)i.Arguments[0]!).ToList();
+        MockSecureSessionFactory.Invocations.Clear();
+        return contexts;
     }
 
     [Fact]
