@@ -231,6 +231,14 @@ dotnet run
 - Filters on a secret: only `IsNull` / `IsNotNull`. Other filter operators, aggregations and group-by on a secret are refused with `SecretAttributeNotQueryable`; `get_available_archive_paths` never lists secrets.
 - Identity providers: `clientSecret` is write-only (`clientSecretIsSet` instead; `get_identity_providers` also drops a client secret an older identity service might still return). `update_identity_provider` sends no secret unless a new one is passed. Risk classification and its rationale: `docs/risk-classification-sweep.md`.
 
+### **Agents** (5 tools, AB#8454)
+`create_agent` · `update_agent` · `set_agent_enabled` · `list_agents` · `get_agent` — System.Ai `Agent` +
+`Mandate` (System.Ai 4.12.0) and the agent's service-account client (`agent-<name>`, client_credentials, roles only as
+passed, none by default). Mandate grants are validated against the tools of this server (`UnknownTool` names the tool;
+`RiskAboveCeiling`); defaults are narrow (no grants, risk Low, change budget 0, write mode Propose). The client secret is
+never returned. `set_agent_enabled false` switches the agent off and disables its client. The writing tools need a
+tenant administrator (`TenantManagement` or `UserManagement`); an agent cannot change itself. Details: `docs/agent-tools.md`.
+
 ### **Knowledge base** (10 tools + 1 resource template, AB#8484)
 `knowledge_search`, `knowledge_get`, `knowledge_upsert_page`, `knowledge_link`, `knowledge_restore_version`, `knowledge_set_status`,
 `knowledge_write_lint_report` (AB#8488), `knowledge_list_platform_updates`, `knowledge_adopt_platform_updates`,

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+- **Agent tools (AB#8454, Feature AB#6054).** `create_agent`, `update_agent`, `set_agent_enabled` (Medium risk),
+  `list_agents` and `get_agent` (Low) manage the System.Ai `Agent` and `Mandate` (System.Ai 4.12.0) of a tenant and the
+  agent's service-account client in the tenant identity (System.Identity CK methods). Grants must name tools of this
+  server (`UnknownTool`), stay at or below the risk ceiling and default to a narrow mandate (no grants, Low, budget 0,
+  Propose). The writing tools need a tenant administrator (`TenantManagement` or `UserManagement`, else
+  `NotTenantAdministrator`) and refuse the agent's own client (`SelfModification`). Entities are written with the
+  caller's session before the client is created; a failed identity step removes them again. The client secret is never returned. `docs/agent-tools.md`.
+
 ### Changed
 
 - **No routed `ExecutePipelineRequest` command client (AB#7465).** The service no longer registers it: only the
