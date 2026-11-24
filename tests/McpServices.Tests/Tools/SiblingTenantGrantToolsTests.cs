@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Sdk.ServiceClient.IdentityServices;
 using System.Net;
 using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.Models;
@@ -156,8 +157,7 @@ public class SiblingTenantGrantToolsTests : ToolTestBase
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("SourceTenantNotPermitted");
         result.ErrorMessage.Should().Be("SOURCE_TENANT_NOT_PERMITTED: Source tenant not permitted.");
-        MockIdentityClient.Verify(c => c.GrantExternalTenantUser(It.IsAny<CreateExternalTenantUserMappingDto>()),
-            Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.GrantExternalTenantUser));
     }
 
     [Fact]
@@ -180,8 +180,7 @@ public class SiblingTenantGrantToolsTests : ToolTestBase
             groupIds: [GroupA, " "]);
 
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.GrantExternalTenantUser(It.IsAny<CreateExternalTenantUserMappingDto>()),
-            Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.GrantExternalTenantUser));
     }
 
     // ---- allow-list ----

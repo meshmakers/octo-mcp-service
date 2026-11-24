@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Meshmakers.Octo.Sdk.ServiceClient.IdentityServices;
 using System.ComponentModel;
 using System.Net;
 using System.Reflection;
@@ -77,8 +78,7 @@ public class ApiSecretToolsTests : ToolTestBase
         CkMethodFake.Str(input, "description").Should().Be("d");
         input.EnumerateObject().Select(p => p.Name).Should().BeSubsetOf(["description", "expirationDate"],
             "the tool sends no secret material");
-        MockIdentityClient.Verify(c => c.CreateApiSecretForClient(It.IsAny<string>(), It.IsAny<ApiSecretDto>()),
-            Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CreateApiSecretForClient));
     }
 
     [Fact]
@@ -123,8 +123,7 @@ public class ApiSecretToolsTests : ToolTestBase
     {
         var result = await ApiSecretTools.DeleteClientSecret(MockServer.Object, ClientId, "enc-1");
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.DeleteApiSecretClient(It.IsAny<string>(), It.IsAny<string>()),
-            Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.DeleteApiSecretClient));
     }
 
     [Fact]
@@ -193,8 +192,7 @@ public class ApiSecretToolsTests : ToolTestBase
     {
         var result = await ApiSecretTools.DeleteApiResourceSecret(MockServer.Object, ResourceName, "enc-1");
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.DeleteApiSecretApiResource(
-            It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.DeleteApiSecretApiResource));
     }
 
     [Fact]
@@ -339,8 +337,7 @@ public class ApiSecretToolsTests : ToolTestBase
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("System.Identity 3.8").And.Contain("Methods:Identity:EnablePasswordMethods");
         result.ClearTextSecret.Should().BeNull();
-        MockIdentityClient.Verify(c => c.CreateApiSecretForClient(It.IsAny<string>(), It.IsAny<ApiSecretDto>()),
-            Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CreateApiSecretForClient));
     }
 
     private static int CountOf(string text, string value)

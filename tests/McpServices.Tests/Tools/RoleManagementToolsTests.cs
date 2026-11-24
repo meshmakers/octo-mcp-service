@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.Sdk.ServiceClient.IdentityServices;
 using Moq;
 using Xunit;
 
@@ -51,7 +52,7 @@ public class RoleManagementToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue();
         result.RoleName.Should().Be("Auditors");
         CkMethodFake.Str(CkMethods.InputOf("SystemIdentityRoleCreateRole"), "name").Should().Be("Auditors");
-        MockIdentityClient.Verify(c => c.CreateRole(It.IsAny<RoleDto>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CreateRole));
     }
 
     [Fact]
@@ -60,7 +61,7 @@ public class RoleManagementToolsTests : ToolTestBase
         var result = await RoleManagementTools.CreateRole(MockServer.Object, "");
 
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.CreateRole(It.IsAny<RoleDto>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CreateRole));
     }
 
     [Fact]
@@ -83,7 +84,7 @@ public class RoleManagementToolsTests : ToolTestBase
         var result = await RoleManagementTools.DeleteRole(MockServer.Object, "Auditors");
 
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.DeleteRole(It.IsAny<string>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.DeleteRole));
     }
 
     [Fact]
@@ -97,7 +98,7 @@ public class RoleManagementToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeTrue();
         CkMethods.RtIdOf("SystemIdentityRoleDeleteRole").Should().Be(RoleRtId);
-        MockIdentityClient.Verify(c => c.DeleteRole(It.IsAny<string>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.DeleteRole));
     }
 
     private const string RoleRtId = "507f1f77bcf86cd799439099";
