@@ -13,6 +13,8 @@
 
 ### Added
 
+- **`create_tenant starter=true` (AB#9570, Feature AB#8452).** One call leaves a new child tenant app-ready: create, provision the calling user as administrator, `enable_communication`, `enable_ai` and install the newest `System.Ai.Starter` blueprint (brings `System.Ai.Builder`). `starterSteps` reports each step; a repeated call completes the remaining ones. Needs a user session: client-credentials callers and `scratch=true` are refused before the tenant is created. Requires `System.Ai.Starter` in the blueprint catalogs (octo-ai-services).
+
 - **Only the MCP endpoints accept agent tokens (AB#6054, security).** Both `MapMcp` routes are mapped by
   `MapOctoMcpEndpoints()` with `.AllowAgentTokens()` (octo-common-services); every other endpoint of this service and of
   every OctoMesh API refuses a token with `octo_agent` (`403 AgentTokenNotAccepted` where the token authenticates,

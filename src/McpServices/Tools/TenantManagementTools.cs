@@ -133,8 +133,14 @@ public sealed class TenantManagementTools
         "Create a new child tenant under the given parent tenant. Equivalent to the octo-cli CreateTenant command. " +
         "Note: unlike the CLI, this does NOT automatically provision the calling user as admin — call the identity " +
         "provisioning tools separately once those are exposed. With scratch=true (octo-cli Create --scratch) a " +
-        "client-credentials caller becomes administrator of the tenant it creates. Requires access to the addressed " +
-        "parent tenant itself (the token is exchanged for it).")]
+        "client-credentials caller becomes administrator of the tenant it creates. With starter=true (AB#9570) one call " +
+        "leaves the tenant app-ready: create it, provision the calling user as its administrator, enable_communication, " +
+        "enable_ai and install_blueprint System.Ai.Starter (the newest in the catalogs; it brings System.Ai.Builder, the " +
+        "OctoMesh knowledge pages). starterSteps lists every step with its outcome (done, skipped, failed, notRun); on a " +
+        "failure failedStep names the step, and calling the tool again with the same childTenantId completes the " +
+        "remaining steps and skips the finished ones (an existing tenant is then not an error). starter=true needs a user " +
+        "session: a client-credentials caller, or scratch=true, is refused before anything is created. Requires access to " +
+        "the addressed parent tenant itself (the token is exchanged for it).")]
     public static async Task<CreateTenantResponse> CreateTenant(
         McpServer server,
         [Description("Identifier of the new child tenant (will be lower-cased).")]
@@ -147,8 +153,20 @@ public sealed class TenantManagementTools
                      "this call becomes administrator of the new tenant, so an agent can work in it and clean it up without a " +
                      "human login. Only accepted for a client-credentials token of the direct parent with TenantManagement " +
                      "(403 for a user session); the client must be flagged AutoProvisionInChildTenants. Default false.")]
-        bool scratch = false)
+        bool scratch = false,
+        [Description("Make the tenant app-ready in the same call (AB#9570): administrator, Communication, AI Services and " +
+                     "the starter blueprint System.Ai.Starter. Needs a user session; not with scratch. Default false.")]
+        bool starter = false,
+        [Description("With starter=true: the starter blueprint to install, e.g. 'System.Ai.Starter-1.0.0'. Default: the " +
+                     "newest System.Ai.Starter in the tenant's blueprint catalogs.")]
+        string? starterBlueprintId = null)
     {
+        // AB#9570: refused before anything is created, so no half-provisioned tenant is left behind.
+        if (starter && StarterTenantSequence.RefusalFor(server, scratch) is { } starterRefusal)
+        {
+            return new CreateTenantResponse { IsSuccess = false, ErrorMessage = starterRefusal };
+        }
+
         // AB#7282: the token is exchanged for the addressed (route/parent) tenant, never the home token.
         var target = await ResolveParentAndTokenAsync(server, tenantId);
         if (target.Error != null)
@@ -189,6 +207,14 @@ public sealed class TenantManagementTools
 
             var normalizedChild = childTenantId.ToLowerInvariant();
             var normalizedDb = database.ToLowerInvariant();
+
+            if (starter)
+            {
+                var starterResponse = new CreateTenantResponse();
+                await StarterTenantSequence.RunAsync(server, assetClient, resolvedParent, normalizedChild, normalizedDb,
+                    starterBlueprintId, starterResponse);
+                return starterResponse;
+            }
 
             if (scratch)
             {

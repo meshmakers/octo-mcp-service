@@ -57,6 +57,24 @@ An agent can work in and clean up the scratch tenants it creates without a human
   own session (a client-credentials token for the child) or octo-cli `Delete --disable-features`.
 - Tests: `ScratchTenantToolsTests` (create flag, disableFeatures order, archives, no child token, enable/disable AI).
 
+## Starter tenant: `create_tenant starter=true`
+
+`create_tenant starter=true` (`StarterTenantSequence`) leaves a new child tenant app-ready in one call:
+
+1. `create_tenant` - create the child (skipped when it already exists under the parent);
+2. `provision_admin` - provision the calling user as the child's administrator, unless the session's token exchange for the child already works
+   (identity sets a new tenant up asynchronously, so the provisioning and the exchange are retried);
+3. `enable_communication` and 4. `enable_ai` - each only when the capability is not yet enabled;
+5. `install_blueprint` - the newest `System.Ai.Starter` of the tenant's blueprint catalogs (or `starterBlueprintId`), which brings
+   `System.Ai.Builder` (the knowledge pages) as a dependency; skipped when a starter is already installed.
+
+`starterSteps` lists every step with `done`, `skipped`, `failed` or `notRun`; on a failure `failedStep` names the step and the steps after it are
+`notRun`. Calling the tool again with the same `childTenantId` completes the remaining steps and skips the finished ones.
+
+The steps in the child run with the caller's token for the child (RFC 8693 exchange), and identity issues that only for a user. So `starter=true`
+is **refused before anything is created** for a client-credentials caller and together with `scratch=true`; no half-provisioned tenant is left.
+Tests: `StarterTenantToolsTests`.
+
 ## Blueprint catalog refresh
 
 `refresh_blueprint_catalogs` (`BlueprintTools`, Medium) mirrors octo-cli `RefreshBlueprintCatalogs`: SDK

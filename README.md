@@ -154,7 +154,7 @@ dotnet run
 `authenticate` · `check_auth_status` · `whoami` · `list_tenants`
 
 ### **Tenant Lifecycle** (11)
-`get_tenants` · `get_tenant_features` · `create_tenant` (`scratch`) · `delete_tenant`<sup>‡</sup> (`disableFeatures`) · `clean_tenant`<sup>‡</sup> · `attach_tenant` · `detach_tenant` · `clear_tenant_cache`<sup>‡</sup> · `update_system_ck_model` · `dump_tenant`<sup>📁</sup> · `restore_tenant`<sup>‡📁</sup>
+`get_tenants` · `get_tenant_features` · `create_tenant` (`scratch`, `starter`) · `delete_tenant`<sup>‡</sup> (`disableFeatures`) · `clean_tenant`<sup>‡</sup> · `attach_tenant` · `detach_tenant` · `clear_tenant_cache`<sup>‡</sup> · `update_system_ck_model` · `dump_tenant`<sup>📁</sup> · `restore_tenant`<sup>‡📁</sup>
 
 ### **Identity — Users / Roles / Groups** (21)
 - Users (7): `get_users` · `create_user` · `update_user` · `delete_user`<sup>‡</sup> · `reset_user_password`<sup>‡</sup> · `add_user_to_role` · `remove_user_from_role`<sup>‡</sup>
