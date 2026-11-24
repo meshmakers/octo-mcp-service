@@ -519,4 +519,77 @@ public class AgentMandateGuardTests
         (await ReadResourceAsync(new McpCallerPrincipal("user-1", null, Tenant, []))).Allowed.Should().BeTrue();
         (await ReadResourceAsync(new McpCallerPrincipal(null, "octo-cli", Tenant, []))).Allowed.Should().BeTrue();
     }
+    // ---- interim write-mode rule (AB#9730) ---------------------------------------------------------------------------
+
+    private const int Propose = 0;
+    private const int Direct = 1;
+
+    [Theory]
+    [InlineData("validate_ck_model")]
+    [InlineData("query_entities")]
+    [InlineData("get_type_schema")]
+    [InlineData("knowledge_search")]
+    public async Task ProposeMandate_ReadingTool_IsAllowed(string tool)
+    {
+        _tenant.WriteMode = Propose;
+        _tenant.AddAgent("Builder", AgentClient, High, (tool, Low));
+
+        (await CheckAsync(Client(AgentClient), tool)).Allowed.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("import_ck_model", McpRiskLevel.Medium)]
+    [InlineData("dry_run_pipeline", McpRiskLevel.Medium)]
+    [InlineData("deploy_pipeline", McpRiskLevel.High)]
+    [InlineData("create_entity", McpRiskLevel.Low)] // a Low single-instance write still writes
+    [InlineData("knowledge_upsert_page", McpRiskLevel.Low)]
+    public async Task ProposeMandate_WritingTool_GetsProposeRequired(string tool, McpRiskLevel risk)
+    {
+        _tenant.WriteMode = Propose;
+        _tenant.AddAgent("Builder", AgentClient, High, (tool, High));
+
+        var decision = await CheckAsync(Client(AgentClient), tool, risk);
+
+        decision.Allowed.Should().BeFalse();
+        decision.Code.Should().Be(AgentMandateGuard.ProposeRequired);
+        decision.Message.Should().Contain(tool).And.Contain("Builder").And.Contain("AB#8461/AB#8480");
+    }
+
+    [Fact]
+    public async Task MandateWithoutWriteMode_WritingTool_IsRefusedFailSafe()
+    {
+        _tenant.WriteMode = null;
+        _tenant.AddAgent("Builder", AgentClient, High, ("deploy_pipeline", High));
+
+        (await CheckAsync(Client(AgentClient), "deploy_pipeline", McpRiskLevel.High)).Code.Should()
+            .Be(AgentMandateGuard.ProposeRequired);
+    }
+
+    [Fact]
+    public async Task DirectMandate_GrantedWritingTool_IsAllowed()
+    {
+        _tenant.WriteMode = Direct;
+        _tenant.AddAgent("Builder", AgentClient, High, ("deploy_pipeline", High));
+
+        (await CheckAsync(Client(AgentClient), "deploy_pipeline", McpRiskLevel.High)).Allowed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ProposeMandate_UngrantedTool_StillGetsToolNotGranted()
+    {
+        _tenant.WriteMode = Propose;
+        _tenant.AddAgent("Builder", AgentClient, High, ("query_entities", Low));
+
+        (await CheckAsync(Client(AgentClient), "delete_tenant", McpRiskLevel.High)).Code.Should()
+            .Be(AgentMandateGuard.ToolNotGranted);
+    }
+
+    [Theory]
+    [InlineData("get_entity_by_id", McpRiskLevel.Low, true)]
+    [InlineData("get_something_risky", McpRiskLevel.Medium, false)] // a reading name with a higher risk class writes
+    [InlineData("update_entity", McpRiskLevel.Low, false)]
+    [InlineData("knowledge_set_status", McpRiskLevel.Low, false)]
+    [InlineData("whoami", McpRiskLevel.Low, true)]
+    public void IsReading_NeedsLowRiskAndAReadingName(string tool, McpRiskLevel risk, bool expected) =>
+        AgentMandateGuard.IsReading(tool, risk).Should().Be(expected);
 }

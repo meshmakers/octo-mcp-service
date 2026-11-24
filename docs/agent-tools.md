@@ -68,13 +68,24 @@ enabled); `true` switches the client on first and turns it off again when the ag
 `ServiceAccountClientId` of an agent in the token's own tenant (`tenant_id`) runs a tool only when the agent is enabled and
 its mandate grants the tool at the tool's risk (`IToolRiskRegistry`). This covers client-credentials and on-behalf-of
 tokens of the agent's client. Every other caller (people, octo-cli, Studio, other clients) is not affected. There is no
-run token and no policy decision point yet (concept §3.4, AB#8461): no argument constraints, change budget or WriteMode
-`Propose` are enforced here.
+run token and no policy decision point yet (concept §3.4, AB#8461): no argument constraints or change budget are enforced
+here, and no proposal is created. Until the proposal flow exists (AB#8461/AB#8480), write mode `Propose` is enforced as
+"no change without a proposal" (AB#9730): a mandate whose `WriteMode` is not `Direct` (Propose, or no value) runs only
+reading tools; every other tool is refused with `ProposeRequired`.
 
 Checks, in order: exactly one agent with the client id → `Enabled` is true → exactly one readable `GovernedBy` mandate → a
 grant matches the tool (exact name, or a prefix ending in one `*`; a bare `*`, a `*` elsewhere or an unknown `MaxRisk`
 grants nothing) → tool risk ≤ the highest `MaxRisk` of the matching grants (a grant without `MaxRisk` admits Low) and ≤ the
-mandate's `RiskCeiling`.
+mandate's `RiskCeiling` → under write mode `Propose` the tool is a reading tool.
+
+**Reading tool** (interim rule, AB#9730): the tools of this server carry no read-only or destructive flag, and Low risk also
+holds single-instance writes (`create_entity`, `update_entity`). A tool therefore counts as reading only when its risk is
+Low **and** its name starts with `get_`, `list_`, `query_`, `search_`, `validate_`, `lookup_`, `check_` or `preview_`, or
+is `knowledge_search`, `knowledge_get`, `knowledge_list_platform_updates` or `whoami`
+(`AgentMandateGuard.IsReading`). Every other tool counts as writing, also Medium tools such as `dry_run_pipeline` (load
+nodes that are not retrofitted still write). For the seeded builder agent (System.Ai.Builder, Propose) this means: the
+read and validation tools run; `import_ck_model`, `dry_run_pipeline` and `deploy_pipeline` are refused with
+`ProposeRequired`; identity and tenant tools are refused with `ToolNotGranted`.
 
 | Code | When |
 |---|---|
@@ -84,6 +95,7 @@ mandate's `RiskCeiling`.
 | `NotAnAgent` | The token carries the agent scope `octo_agent`, but the caller is no agent of the token's tenant (user token, client that is no agent, tenant without agent types) |
 | `AgentScopeMissing` | The caller is an agent, but its token does not carry `octo_agent` (an agent client created before AB#9729 option A, or seeded with `octo_api`): such a token would reach the platform unexchanged and without `act`. Give the client the scope `octo_agent` only |
 | `ForbiddenForAgents` | The tool administers identity, agents, tenant backups, secrets or the LLM spend cap (every tool of the client, client secret, API scope and resource, role, user, group, identity provider, external user mapping, e-mail domain rule, cross-tenant grant, client overlay and admin provisioning tools, the agent tools, the tenant dump/restore and secret maintenance tools, and `get_ai_spend`/`set_ai_spend_cap`; `AgentForbiddenTools`). An agent never runs them, whatever its mandate grants or its client's roles: otherwise it could add `octo_api` or roles to its own client, take over `octo-mcpServices-agent-exchange` or create a client outside this check, restore an older, broader mandate or raise its own budget, and so raise its own mandate |
+| `ProposeRequired` | The mandate's write mode is `Propose` (or has no value) and the tool is no reading tool; the reason says "proposal flow not available yet (AB#8461/AB#8480)" |
 | `MandateUnavailable` | Fail closed: no `tenant_id` on a token with a client id, the agents or the mandate cannot be read (store error), several agents with the same client id, the agent list at its read limit (`AgentModel.MaxAgents`), no or several mandates, a mandate that does not exist, a risk ceiling outside Low..High |
 
 A refusal is an error result (`isError: true`) whose text is JSON: `isSuccess` false, `errorCode`, `errorMessage` (the

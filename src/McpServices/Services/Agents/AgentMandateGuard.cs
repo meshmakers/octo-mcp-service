@@ -28,8 +28,17 @@ internal sealed record AgentMandateDecision(bool Allowed, string? Code, string? 
 ///     Order of the checks: agent found exactly once → <c>Enabled</c> is true (<see cref="AgentDisabled" />) → exactly one
 ///     readable <c>GovernedBy</c> mandate → a grant matches the tool (<see cref="ToolNotGranted" />) → tool risk ≤ the
 ///     highest <c>MaxRisk</c> of the matching grants and ≤ the mandate's <c>RiskCeiling</c>
-///     (<see cref="RiskAboveCeiling" />). A grant without <c>MaxRisk</c> admits Low (the engine stores no record
-///     defaults).
+///     (<see cref="RiskAboveCeiling" />) → a writing tool under write mode <c>Propose</c> (<see cref="ProposeRequired" />).
+///     A grant without <c>MaxRisk</c> admits Low (the engine stores no record defaults).
+///     </para>
+///     <para>
+///     Interim write-mode rule (AB#9730): the proposal flow (AB#8461/AB#8480) does not exist yet, so a mandate whose
+///     <c>WriteMode</c> is not <c>Direct</c> (Propose, or no value) may only run tools that write nothing. The tools of
+///     this server carry no read-only or destructive flag, and Low also holds single-instance writes
+///     (<c>create_entity</c>, <c>update_entity</c>). So a tool counts as reading only when its risk class is Low
+///     (<see cref="IToolRiskRegistry" />) and its name starts with a reading verb (<see cref="ReadingPrefixes" />) or is
+///     one of <see cref="ReadingTools" />; every other tool counts as writing. Medium includes tools such as
+///     <c>dry_run_pipeline</c>, whose not-yet-retrofitted load nodes can still write.
 ///     </para>
 ///     <para>
 ///     Fail closed (<see cref="MandateUnavailable" />): a caller with a client id but no <c>tenant_id</c>, a lookup that
@@ -50,6 +59,20 @@ internal static class AgentMandateGuard
     public const string ToolNotGranted = "ToolNotGranted";
     public const string RiskAboveCeiling = "RiskAboveCeiling";
     public const string MandateUnavailable = "MandateUnavailable";
+    public const string ProposeRequired = "ProposeRequired";
+
+    /// <summary>The <c>WriteMode</c> enum value <c>Direct</c> (System.Ai/WriteMode: 0 Propose, 1 Direct).</summary>
+    private const int WriteModeDirect = 1;
+
+    /// <summary>Name prefixes of tools that only read or validate (interim write-mode rule, AB#9730).</summary>
+    internal static readonly string[] ReadingPrefixes =
+        ["get_", "list_", "query_", "search_", "validate_", "lookup_", "check_", "preview_"];
+
+    /// <summary>Tools without a reading prefix that only read (interim write-mode rule, AB#9730).</summary>
+    internal static readonly HashSet<string> ReadingTools = new(StringComparer.Ordinal)
+    {
+        "knowledge_search", "knowledge_get", "knowledge_list_platform_updates", "whoami"
+    };
 
     /// <summary>
     ///     AB#9729: a token with the agent scope <c>octo_agent</c> whose caller is no agent of the token's tenant (a user
@@ -249,8 +272,23 @@ internal static class AgentMandateGuard
                 $"mandate's risk ceiling {AgentModel.RiskNames[ceiling]}.", agentName);
         }
 
+        // Fail safe: only an explicit Direct lets a writing tool through; Propose, no value or an unknown value do not.
+        var writeMode = mandate.GetAttributeValueOrDefault("WriteMode");
+        if (!IsReading(toolName, toolRisk) && (writeMode == null || AgentModel.ToInt(writeMode) != WriteModeDirect))
+        {
+            return AgentMandateDecision.Refuse(ProposeRequired,
+                $"Agent '{agentName}' may not call '{toolName}': its mandate's write mode is Propose and the tool can " +
+                "change the tenant; proposal flow not available yet (AB#8461/AB#8480), so the call is refused.", agentName);
+        }
+
         return new AgentMandateDecision(true, null, null, agentName);
     }
+
+    /// <summary>True when the tool only reads or validates: Low risk and a reading name (interim rule, AB#9730).</summary>
+    internal static bool IsReading(string toolName, McpRiskLevel toolRisk) =>
+        toolRisk == McpRiskLevel.Low &&
+        (ReadingTools.Contains(toolName) ||
+         ReadingPrefixes.Any(p => toolName.StartsWith(p, StringComparison.Ordinal)));
 
     /// <summary>
     ///     True when <paramref name="pattern" /> grants <paramref name="toolName" />: an exact name (ordinal), or a prefix
