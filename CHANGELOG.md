@@ -4,6 +4,9 @@
 
 ### Changed
 
+- **No routed `ExecutePipelineRequest` command client (AB#7465).** The service no longer registers it: only the
+  communication controller publishes that request, and `execute_pipeline` runs the controller's `Pipeline.Execute`
+  method. An architecture test keeps the registration out. No behaviour change.
 - **Dependency pass (AB#9613, Feature AB#9579).** Third-party NuGet packages raised to their newest version on the .NET 10 line: ModelContextProtocol.AspNetCore 2.4.0, NLog.Web.AspNetCore 6.3.0, OpenTelemetry.Exporter.InMemory 1.21.0 (test), Moq 4.21.0, FluentAssertions 8.11.0, xunit.v3 4.0.3, xunit.runner.visualstudio 4.0.1, Microsoft.NET.Test.Sdk 18.12.0, coverlet.collector 10.1.1. Runtime-aligned packages stay on 10.0.15; the 11.0.x line moves with AB#9580. No behaviour change.
 - **Communication wave 3: the communication write tools run a CK method of System.Communication.** `deploy_pipeline`,
   `execute_pipeline`, `dry_run_pipeline`, `set_pipeline_debug`, `move_pipelines`, `deploy_data_flow`, `undeploy_data_flow`,

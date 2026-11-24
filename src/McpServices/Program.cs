@@ -217,7 +217,6 @@ try
             c.AddCommandClient<CreateIdentityDataCommandRequest>(QueueNames.CreateIdentityDataCommand);
             c.AddCommandClient<RemoveRecurringJobsByScheduleGroupRequest>(QueueNames
                 .RemoveRecurringJobsByScheduleGroupCommand);
-            c.AddRoutedCommandClient<ExecutePipelineRequest>();
 
             // c.AddBroadcastEventConsumer<ComControllerAdapterUpdateConsumer, ComControllerAdapterUpdate>();
             // c.AddBroadcastEventConsumer<ComControllerPoolUpdateConsumer, ComControllerPoolUpdate>();
