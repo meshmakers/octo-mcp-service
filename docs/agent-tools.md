@@ -79,11 +79,15 @@ grants nothing) → tool risk ≤ the highest `MaxRisk` of the matching grants (
 mandate's `RiskCeiling` → under write mode `Propose` the tool is a reading tool.
 
 **Reading tool** (interim rule, AB#9730): the tools of this server carry no read-only or destructive flag, and Low risk also
-holds single-instance writes (`create_entity`, `update_entity`). A tool therefore counts as reading only when its risk is
-Low **and** its name starts with `get_`, `list_`, `query_`, `search_`, `validate_`, `lookup_`, `check_` or `preview_`, or
-is `knowledge_search`, `knowledge_get`, `knowledge_list_platform_updates` or `whoami`
-(`AgentMandateGuard.IsReading`). Every other tool counts as writing, also Medium tools such as `dry_run_pipeline` (load
-nodes that are not retrofitted still write). For the seeded builder agent (System.Ai.Builder, Propose) this means: the
+holds single-instance writes (`create_entity`, `update_entity`). A tool therefore counts as reading only when it is named
+in the exact allow list `AgentMandateGuard.ReadingTools` (86 tools, reviewed one by one: the Low `get_`, `list_`, `query_`,
+`search_`, `validate_`, `check_` and `preview_` tools, `knowledge_search`, `knowledge_get`,
+`knowledge_list_platform_updates` and `whoami`; not `check_auth_status`, which completes a login) **and** its risk is Low.
+Every other tool counts as writing, also every tool added later until it is reviewed and listed; a test fails when a
+listed tool is renamed, removed or classified above Low. `dry_run_pipeline` stays writing: it executes the deployed
+pipeline and records an execution, and load nodes that are not retrofitted still fire their real side effect. So until
+AB#8461 the builder validates with `validate_ck_model` and `validate_pipeline_definition`, without a dry run. The
+long-term fix is read-only metadata on the tools themselves. For the seeded builder agent (System.Ai.Builder, Propose) this means: the
 read and validation tools run; `import_ck_model`, `dry_run_pipeline` and `deploy_pipeline` are refused with
 `ProposeRequired`; identity and tenant tools are refused with `ToolNotGranted`.
 

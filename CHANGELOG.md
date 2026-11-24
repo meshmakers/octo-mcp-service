@@ -37,9 +37,9 @@
   the channel-only `writeAccess` of `Agent` and `Mandate` to `AgentTrigger`, `Run` and `ActionRecord` (octo-ai-services#88);
   4.12.0 leaves these three types writable by every tenant administrator. `docs/agent-tools.md`.
 - **Write mode `Propose` enforced as "no change without a proposal" (AB#9730, Feature AB#8451, security).** Until the
-  proposal flow exists (AB#8461/AB#8480), the mandate check refuses every tool that is no reading tool (Low risk and a
-  reading name such as `get_`, `query_`, `validate_`) for a mandate whose `WriteMode` is not `Direct` (Propose or no
-  value) with `ProposeRequired`. The seeded builder agent keeps its read and validation tools; `import_ck_model`,
+  proposal flow exists (AB#8461/AB#8480), the mandate check refuses every tool that is no reading tool (exact allow
+  list `AgentMandateGuard.ReadingTools`, Low risk) for a mandate whose `WriteMode` is not `Direct` (Propose or no value)
+  with `ProposeRequired`. The seeded builder agent keeps its read and validation tools; `import_ck_model`,
   `dry_run_pipeline` and `deploy_pipeline` are refused. Protocol tests with the builder's seeded mandate prove
   `ToolNotGranted` for identity and tenant tools. `docs/agent-tools.md`.
 - **Static mandate check of agent tool calls (AB#9729, Feature AB#6054, security).** A `tools/call` filter

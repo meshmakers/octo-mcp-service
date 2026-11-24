@@ -586,10 +586,35 @@ public class AgentMandateGuardTests
 
     [Theory]
     [InlineData("get_entity_by_id", McpRiskLevel.Low, true)]
-    [InlineData("get_something_risky", McpRiskLevel.Medium, false)] // a reading name with a higher risk class writes
+    [InlineData("get_entity_by_id", McpRiskLevel.Medium, false)] // a listed tool whose risk class rose writes
+    [InlineData("get_something_new", McpRiskLevel.Low, false)] // a reading name alone is not enough
+    [InlineData("check_and_fix_everything", McpRiskLevel.Low, false)]
+    [InlineData("check_auth_status", McpRiskLevel.Low, false)] // completes a login
+    [InlineData("dry_run_pipeline", McpRiskLevel.Medium, false)] // executes the pipeline, load nodes may write
     [InlineData("update_entity", McpRiskLevel.Low, false)]
     [InlineData("knowledge_set_status", McpRiskLevel.Low, false)]
     [InlineData("whoami", McpRiskLevel.Low, true)]
-    public void IsReading_NeedsLowRiskAndAReadingName(string tool, McpRiskLevel risk, bool expected) =>
+    public void IsReading_NeedsTheExactAllowListAndLowRisk(string tool, McpRiskLevel risk, bool expected) =>
         AgentMandateGuard.IsReading(tool, risk).Should().Be(expected);
+
+    [Fact]
+    public void ReadingTools_AreRegisteredToolsOfLowRisk()
+    {
+        // A renamed, removed or re-classified tool breaks this test, so the allow list is reviewed with the change.
+        var registry = new ToolRiskRegistry().GetAll();
+
+        foreach (var tool in AgentMandateGuard.ReadingTools)
+        {
+            registry.Should().ContainKey(tool, "every listed reading tool is a tool of this server");
+            registry[tool].Should().Be(McpRiskLevel.Low, $"{tool} is listed as reading, so it must stay Low");
+        }
+    }
+
+    [Fact]
+    public void ReadingTools_HoldNoneOfTheSeededBuildersWritingTools()
+    {
+        AgentMandateGuard.ReadingTools.Should().NotContain(["import_ck_model", "dry_run_pipeline", "deploy_pipeline"]);
+        AgentMandateGuard.ReadingTools.Should().Contain(["validate_ck_model", "validate_pipeline_definition",
+            "get_pipeline_schema", "query_entities", "knowledge_search", "knowledge_get", "list_blueprints"]);
+    }
 }

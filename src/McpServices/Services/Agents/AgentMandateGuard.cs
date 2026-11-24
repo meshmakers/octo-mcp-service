@@ -35,10 +35,11 @@ internal sealed record AgentMandateDecision(bool Allowed, string? Code, string? 
 ///     Interim write-mode rule (AB#9730): the proposal flow (AB#8461/AB#8480) does not exist yet, so a mandate whose
 ///     <c>WriteMode</c> is not <c>Direct</c> (Propose, or no value) may only run tools that write nothing. The tools of
 ///     this server carry no read-only or destructive flag, and Low also holds single-instance writes
-///     (<c>create_entity</c>, <c>update_entity</c>). So a tool counts as reading only when its risk class is Low
-///     (<see cref="IToolRiskRegistry" />) and its name starts with a reading verb (<see cref="ReadingPrefixes" />) or is
-///     one of <see cref="ReadingTools" />; every other tool counts as writing. Medium includes tools such as
-///     <c>dry_run_pipeline</c>, whose not-yet-retrofitted load nodes can still write.
+///     (<c>create_entity</c>, <c>update_entity</c>). So a tool counts as reading only when it is named in the exact
+///     allow list <see cref="ReadingTools" /> and its risk class is Low (<see cref="IToolRiskRegistry" />); every other
+///     tool, also every tool added later, counts as writing until it is reviewed and listed. <c>dry_run_pipeline</c> is
+///     not listed: it executes the deployed pipeline, records an execution, and load nodes that are not retrofitted
+///     still fire their real side effect. The long-term fix is read-only metadata on the tools themselves.
 ///     </para>
 ///     <para>
 ///     Fail closed (<see cref="MandateUnavailable" />): a caller with a client id but no <c>tenant_id</c>, a lookup that
@@ -64,14 +65,35 @@ internal static class AgentMandateGuard
     /// <summary>The <c>WriteMode</c> enum value <c>Direct</c> (System.Ai/WriteMode: 0 Propose, 1 Direct).</summary>
     private const int WriteModeDirect = 1;
 
-    /// <summary>Name prefixes of tools that only read or validate (interim write-mode rule, AB#9730).</summary>
-    internal static readonly string[] ReadingPrefixes =
-        ["get_", "list_", "query_", "search_", "validate_", "lookup_", "check_", "preview_"];
-
-    /// <summary>Tools without a reading prefix that only read (interim write-mode rule, AB#9730).</summary>
+    /// <summary>
+    ///     The exact names of the tools that only read or validate (interim write-mode rule, AB#9730), reviewed one by one:
+    ///     every Low tool of this server whose name reads (get_, list_, query_, search_, validate_, check_, preview_,
+    ///     knowledge_search/get/list_platform_updates, whoami), without <c>check_auth_status</c> (completes a login).
+    ///     A new tool is writing until it is added here.
+    /// </summary>
     internal static readonly HashSet<string> ReadingTools = new(StringComparer.Ordinal)
     {
-        "knowledge_search", "knowledge_get", "knowledge_list_platform_updates", "whoami"
+        "check_ck_dependencies", "check_ck_upgrade", "get_adapter", "get_adapter_nodes", "get_adapter_pool_queue",
+        "get_adapters", "get_admin_provisioning_mappings", "get_agent", "get_api_resource_secrets",
+        "get_api_resources", "get_api_scopes", "get_archive_coverage", "get_archive_storage_stats",
+        "get_association_tree", "get_available_archive_paths", "get_available_models", "get_available_types",
+        "get_blueprint_history", "get_blueprint_update_info", "get_ck_library_status", "get_client",
+        "get_client_mirrors", "get_client_roles", "get_client_secrets", "get_clients",
+        "get_cross_tenant_grant_permissions", "get_custom_app_template_manifest", "get_data_flow_status",
+        "get_deployment_sites", "get_email_domain_group_rule", "get_email_domain_group_rules", "get_entity_by_id",
+        "get_external_tenant_user_mapping", "get_external_tenant_user_mappings", "get_group", "get_groups",
+        "get_identity_providers", "get_latest_pipeline_execution", "get_pipeline_debug", "get_pipeline_debug_points",
+        "get_pipeline_executions", "get_pipeline_schema", "get_pipeline_status", "get_roles",
+        "get_rollup_query_metadata", "get_rollup_repair_status", "get_secret_inventory", "get_secret_status",
+        "get_tenant_features", "get_tenants", "get_tool_details", "get_tool_risk_metadata", "get_tool_statistics",
+        "get_type_schema", "get_users", "get_workload_resources", "get_workloads_by_chart", "knowledge_get",
+        "knowledge_list_platform_updates", "knowledge_search", "list_agents", "list_available_tools",
+        "list_blueprint_installations", "list_blueprints", "list_ck_catalog_models", "list_ck_catalogs", "list_files",
+        "list_kendo_components", "list_recompute_jobs", "list_rollups_for_archive", "list_tenants",
+        "preview_blueprint_update", "query_entities", "query_entities_aggregation", "query_entities_grouping",
+        "query_entities_simple", "query_stream_data_aggregation", "query_stream_data_downsampling",
+        "query_stream_data_grouping", "query_stream_data_simple", "search_types", "validate_ck_model",
+        "validate_pipeline_definition", "validate_rollups", "validate_tool_parameters", "whoami"
     };
 
     /// <summary>
@@ -284,11 +306,9 @@ internal static class AgentMandateGuard
         return new AgentMandateDecision(true, null, null, agentName);
     }
 
-    /// <summary>True when the tool only reads or validates: Low risk and a reading name (interim rule, AB#9730).</summary>
+    /// <summary>True when the tool only reads or validates: listed in <see cref="ReadingTools" /> and Low risk (AB#9730).</summary>
     internal static bool IsReading(string toolName, McpRiskLevel toolRisk) =>
-        toolRisk == McpRiskLevel.Low &&
-        (ReadingTools.Contains(toolName) ||
-         ReadingPrefixes.Any(p => toolName.StartsWith(p, StringComparison.Ordinal)));
+        toolRisk == McpRiskLevel.Low && ReadingTools.Contains(toolName);
 
     /// <summary>
     ///     True when <paramref name="pattern" /> grants <paramref name="toolName" />: an exact name (ordinal), or a prefix
