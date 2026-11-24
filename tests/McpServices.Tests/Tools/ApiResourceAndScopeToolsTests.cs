@@ -3,6 +3,7 @@ using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.Syst
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.Sdk.ServiceClient.IdentityServices;
 using Moq;
 using Xunit;
 
@@ -47,7 +48,7 @@ public class ApiResourceToolsTests : ToolTestBase
         CkMethodFake.Str(input, "name").Should().Be("octo_api");
         CkMethodFake.Str(input, "displayName").Should().Be("Octo API");
         CkMethodFake.Strings(input.GetProperty("scopes")).Should().Equal("read", "write");
-        MockIdentityClient.Verify(c => c.CreateApiResource(It.IsAny<ApiResourceDto>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CreateApiResource));
     }
 
     [Fact]
@@ -77,7 +78,7 @@ public class ApiResourceToolsTests : ToolTestBase
     {
         var result = await ApiResourceTools.DeleteApiResource(MockServer.Object, "octo_api");
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.DeleteApiResource(It.IsAny<string>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.DeleteApiResource));
     }
 
     [Fact]
@@ -89,7 +90,7 @@ public class ApiResourceToolsTests : ToolTestBase
             "octo_api", confirm: true);
         result.IsSuccess.Should().BeTrue();
         CkMethods.RtIdOf("SystemIdentityApiResourceDeleteApiResource").Should().Be(ResourceRtId);
-        MockIdentityClient.Verify(c => c.DeleteApiResource(It.IsAny<string>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.DeleteApiResource));
     }
 
     [Fact]
@@ -146,7 +147,7 @@ public class ApiScopeToolsTests : ToolTestBase
         CkMethodFake.Str(input, "name").Should().Be("read");
         CkMethodFake.Str(input, "displayName").Should().Be("Read");
         CkMethodFake.Str(input, "description").Should().Be("read scope");
-        MockIdentityClient.Verify(c => c.CreateApiScope(It.IsAny<ApiScopeDto>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CreateApiScope));
     }
 
     [Fact]
@@ -175,7 +176,7 @@ public class ApiScopeToolsTests : ToolTestBase
     {
         var result = await ApiScopeTools.DeleteApiScope(MockServer.Object, "read");
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.DeleteScope(It.IsAny<string>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.DeleteScope));
     }
 
     [Fact]
@@ -186,7 +187,7 @@ public class ApiScopeToolsTests : ToolTestBase
         var result = await ApiScopeTools.DeleteApiScope(MockServer.Object, "read", confirm: true);
         result.IsSuccess.Should().BeTrue();
         CkMethods.RtIdOf("SystemIdentityApiScopeDeleteApiScope").Should().Be(ScopeRtId);
-        MockIdentityClient.Verify(c => c.DeleteScope(It.IsAny<string>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.DeleteScope));
     }
 
     private const string ScopeRtId = "507f1f77bcf86cd799439077";

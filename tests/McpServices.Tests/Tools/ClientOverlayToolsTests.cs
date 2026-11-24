@@ -2,6 +2,7 @@ using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.Sdk.ServiceClient.IdentityServices;
 using Moq;
 using Xunit;
 
@@ -48,8 +49,7 @@ public class ClientOverlayToolsTests : ToolTestBase
         CkMethodFake.Strings(input.GetProperty("redirectUris")).Should().HaveCount(1);
         CkMethodFake.Prop(input, "postLogoutRedirectUris").Should().BeNull();
         CkMethodFake.Prop(input, "allowedCorsOrigins").Should().BeNull();
-        MockIdentityClient.Verify(c => c.ApplyClientOverlay(It.IsAny<string>(), It.IsAny<ApplyOverlayUrisDto>()),
-            Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.ApplyClientOverlay));
     }
 
     [Fact]
@@ -79,8 +79,7 @@ public class ClientOverlayToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("At least one");
-        MockIdentityClient.Verify(
-            c => c.ApplyClientOverlay(It.IsAny<string>(), It.IsAny<ApplyOverlayUrisDto>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.ApplyClientOverlay));
     }
 
     [Fact]
@@ -92,8 +91,7 @@ public class ClientOverlayToolsTests : ToolTestBase
             redirectUris: ["http://localhost:4200/auth-callback"]);
 
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(
-            c => c.ApplyClientOverlay(It.IsAny<string>(), It.IsAny<ApplyOverlayUrisDto>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.ApplyClientOverlay));
     }
 
     [Fact]
@@ -108,8 +106,7 @@ public class ClientOverlayToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("Not authenticated");
-        MockIdentityClient.Verify(
-            c => c.ApplyClientOverlay(It.IsAny<string>(), It.IsAny<ApplyOverlayUrisDto>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.ApplyClientOverlay));
     }
 
     // ---- clean_client_overlays ----
@@ -140,7 +137,7 @@ public class ClientOverlayToolsTests : ToolTestBase
         result.Result!.TotalEntriesRemoved.Should().Be(3);
         result.Result.ClientResults.Single().RedirectUrisRemoved.Should().Be(2);
         CkMethodFake.Str(CkMethods.InputOf(Clean), "overlayName").Should().BeNull();
-        MockIdentityClient.Verify(c => c.CleanOverlayEntries(It.IsAny<string?>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CleanOverlayEntries));
     }
 
     [Fact]
@@ -165,7 +162,7 @@ public class ClientOverlayToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("confirm=true");
-        MockIdentityClient.Verify(c => c.CleanOverlayEntries(It.IsAny<string?>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CleanOverlayEntries));
     }
 
     [Fact]
@@ -177,6 +174,6 @@ public class ClientOverlayToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("Not authenticated");
-        MockIdentityClient.Verify(c => c.CleanOverlayEntries(It.IsAny<string?>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CleanOverlayEntries));
     }
 }

@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Sdk.ServiceClient.IdentityServices;
 using System.Text.Json;
 using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.Tools;
@@ -61,7 +62,7 @@ public class IdentityProviderToolsTests : ToolTestBase
         var result = await IdentityProviderTools.DeleteIdentityProvider(MockServer.Object, ProviderId);
 
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.DeleteIdentityProvider(It.IsAny<OctoObjectId>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.DeleteIdentityProvider));
     }
 
     [Fact]
@@ -127,7 +128,7 @@ public class IdentityProviderToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("Unsupported providerType");
-        MockIdentityClient.Verify(c => c.CreateIdentityProvider(It.IsAny<IdentityProviderDto>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CreateIdentityProvider));
     }
 
     [Fact]
@@ -231,7 +232,7 @@ public class IdentityProviderToolsTests : ToolTestBase
         var result = await IdentityProviderTools.AddOctoTenantIdentityProvider(MockServer.Object, "P", "");
 
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.CreateIdentityProvider(It.IsAny<IdentityProviderDto>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CreateIdentityProvider));
     }
 
     // ── UpdateIdentityProvider — polymorphic fetch+patch+write ──────────────

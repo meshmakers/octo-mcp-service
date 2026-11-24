@@ -2,6 +2,7 @@ using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.Sdk.ServiceClient.IdentityServices;
 using Moq;
 using Xunit;
 
@@ -80,7 +81,7 @@ public class GroupManagementToolsTests : ToolTestBase
         CkMethodFake.Str(input, "groupName").Should().Be("G1");
         CkMethodFake.Str(input, "groupDescription").Should().Be("desc");
         CkMethodFake.Strings(input.GetProperty("roleNames")).Should().Equal("Reader", "Writer");
-        MockIdentityClient.Verify(c => c.CreateGroup(It.IsAny<CreateGroupDto>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CreateGroup));
     }
 
     [Fact]
@@ -104,7 +105,7 @@ public class GroupManagementToolsTests : ToolTestBase
         var result = await GroupManagementTools.DeleteGroup(MockServer.Object, GroupId);
 
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.DeleteGroup(It.IsAny<OctoObjectId>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.DeleteGroup));
     }
 
     [Fact]
@@ -164,8 +165,7 @@ public class GroupManagementToolsTests : ToolTestBase
         var result = await GroupManagementTools.RemoveUserFromGroup(MockServer.Object, GroupId, UserId);
 
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.RemoveUserFromGroup(It.IsAny<OctoObjectId>(), It.IsAny<string>()),
-            Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.RemoveUserFromGroup));
     }
 
     [Fact]
@@ -201,8 +201,7 @@ public class GroupManagementToolsTests : ToolTestBase
             ParentGroupId, ChildGroupId);
 
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.RemoveGroupFromGroup(It.IsAny<OctoObjectId>(), It.IsAny<string>()),
-            Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.RemoveGroupFromGroup));
     }
 
     [Fact]

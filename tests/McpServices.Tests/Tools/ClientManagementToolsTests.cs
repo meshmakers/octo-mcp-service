@@ -4,6 +4,7 @@ using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.Sdk.ServiceClient.IdentityServices;
 using Moq;
 using Xunit;
 
@@ -80,7 +81,7 @@ public class ClientManagementToolsTests : ToolTestBase
         CkMethodFake.Strings(input.GetProperty("allowedGrantTypes")).Should()
             .Contain(OidcConstants.GrantTypes.ClientCredentials);
         CkMethodFake.Strings(input.GetProperty("allowedScopes")).Should().Contain(CommonConstants.OctoApiFullAccess);
-        MockIdentityClient.Verify(c => c.CreateClient(It.IsAny<ClientDto>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CreateClient));
     }
 
     [Fact]
@@ -99,7 +100,7 @@ public class ClientManagementToolsTests : ToolTestBase
     {
         var result = await ClientManagementTools.AddClientCredentialsClient(MockServer.Object, "", "", "");
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.CreateClient(It.IsAny<ClientDto>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CreateClient));
     }
 
     [Fact]
@@ -113,7 +114,7 @@ public class ClientManagementToolsTests : ToolTestBase
         CkMethodFake.Str(input, "clientId").Should().Be("dev");
         CkMethodFake.Bool(input, "enabled").Should().BeTrue();
         CkMethodFake.Strings(input.GetProperty("allowedGrantTypes")).Should().Contain(OidcConstants.GrantTypes.DeviceCode);
-        MockIdentityClient.Verify(c => c.CreateClient(It.IsAny<ClientDto>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CreateClient));
     }
 
     [Fact]
@@ -130,7 +131,7 @@ public class ClientManagementToolsTests : ToolTestBase
         CkMethodFake.Strings(input.GetProperty("allowedGrantTypes")).Should()
             .Contain(OidcConstants.GrantTypes.AuthorizationCode);
         CkMethodFake.Strings(input.GetProperty("redirectUris")).First().Should().Be("https://app.example.com/");
-        MockIdentityClient.Verify(c => c.CreateClient(It.IsAny<ClientDto>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CreateClient));
     }
 
     [Fact]
@@ -154,7 +155,7 @@ public class ClientManagementToolsTests : ToolTestBase
     {
         var result = await ClientManagementTools.DeleteClient(MockServer.Object, "c1");
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.DeleteClient(It.IsAny<string>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.DeleteClient));
     }
 
     [Fact]
@@ -165,7 +166,7 @@ public class ClientManagementToolsTests : ToolTestBase
         var result = await ClientManagementTools.DeleteClient(MockServer.Object, "c1", confirm: true);
         result.IsSuccess.Should().BeTrue();
         CkMethods.RtIdOf("SystemIdentityClientDeleteClient").Should().Be(ClientRtId);
-        MockIdentityClient.Verify(c => c.DeleteClient(It.IsAny<string>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.DeleteClient));
     }
 
     [Fact]
@@ -216,8 +217,7 @@ public class ClientManagementToolsTests : ToolTestBase
     {
         var result = await ClientManagementTools.UnprovisionClientFromTenant(MockServer.Object, "c1", "child-a");
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.UnprovisionClientFromTenant(It.IsAny<string>(), It.IsAny<string>()),
-            Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.UnprovisionClientFromTenant));
     }
 
     [Fact]
@@ -270,7 +270,7 @@ public class ClientManagementToolsTests : ToolTestBase
         CkMethodFake.Strings(input.GetProperty("allowedScopes")).Should().Equal("existing", "octo_api");
         // Only the scopes change: no secret and no other field is sent.
         CkMethodFake.Str(input, "clientSecret").Should().BeNull();
-        MockIdentityClient.Verify(c => c.UpdateClient(It.IsAny<string>(), It.IsAny<ClientDto>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.UpdateClient));
     }
 
     [Fact]
@@ -294,8 +294,7 @@ public class ClientManagementToolsTests : ToolTestBase
         var result = await ClientManagementTools.AddScopeToClient(MockServer.Object, "", "");
 
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.UpdateClient(It.IsAny<string>(), It.IsAny<ClientDto>()),
-            Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.UpdateClient));
     }
 
     // ---------- AB#4183: client role / group assignment ----------
@@ -331,7 +330,7 @@ public class ClientManagementToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue();
         CkMethods.RtIdOf("SystemIdentityClientAddRole").Should().Be(ClientRtId);
         CkMethodFake.Str(CkMethods.InputOf("SystemIdentityClientAddRole"), "roleName").Should().Be("DataAnalyst");
-        MockIdentityClient.Verify(c => c.AddRoleToClient(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.AddRoleToClient));
     }
 
     [Fact]
@@ -339,7 +338,7 @@ public class ClientManagementToolsTests : ToolTestBase
     {
         var result = await ClientManagementTools.AddClientToRole(MockServer.Object, "", "");
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.AddRoleToClient(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.AddRoleToClient));
     }
 
     [Fact]
@@ -348,7 +347,7 @@ public class ClientManagementToolsTests : ToolTestBase
         GivenUnauthenticated();
         var result = await ClientManagementTools.AddClientToRole(MockServer.Object, "c1", "DataAnalyst");
         result.IsSuccess.Should().BeFalse();
-        MockIdentityClient.Verify(c => c.AddRoleToClient(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.AddRoleToClient));
     }
 
     [Fact]
@@ -357,7 +356,7 @@ public class ClientManagementToolsTests : ToolTestBase
         var result = await ClientManagementTools.RemoveClientFromRole(MockServer.Object, "c1", "DataAnalyst");
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("confirm=true");
-        MockIdentityClient.Verify(c => c.RemoveRoleFromClient(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.RemoveRoleFromClient));
     }
 
     [Fact]
@@ -397,7 +396,7 @@ public class ClientManagementToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue();
         CkMethods.RtIdOf("SystemIdentityGroupAddMember").Should().Be(groupId);
         CkMethodFake.Str(CkMethods.InputOf("SystemIdentityGroupAddMember"), "memberId").Should().Be("c1");
-        MockIdentityClient.Verify(c => c.AddClientToGroup(It.IsAny<OctoObjectId>(), It.IsAny<string>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.AddClientToGroup));
     }
 
     [Fact]
@@ -407,8 +406,7 @@ public class ClientManagementToolsTests : ToolTestBase
         var result = await ClientManagementTools.RemoveClientFromGroup(MockServer.Object, groupId, "c1");
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("confirm=true");
-        MockIdentityClient.Verify(c => c.RemoveClientFromGroup(It.IsAny<OctoObjectId>(), It.IsAny<string>()),
-            Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.RemoveClientFromGroup));
     }
 
     [Fact]

@@ -53,29 +53,6 @@ public class IdentityMethodToolsTests : ToolTestBase
         CkMethods.GivenQueryReturns(new RtApiScopeDto { RtId = new OctoObjectId(ScopeRtId), Name = "scope1" });
         CkMethods.GivenQueryReturns(new RtApiResourceDto { RtId = new OctoObjectId(ResourceRtId), Name = "res1" });
 
-        // Answers of the REST fallback where the tool reads a result.
-        MockIdentityClient.Setup(c => c.ApplyClientOverlay(It.IsAny<string>(), It.IsAny<ApplyOverlayUrisDto>()))
-            .ReturnsAsync(new ApplyOverlayUrisResultDto
-            {
-                OverlayName = "dev", ClientId = "app",
-                RedirectUris = new ApplyOverlayUrisListCountDto { Added = 1 },
-                PostLogoutRedirectUris = new ApplyOverlayUrisListCountDto(),
-                AllowedCorsOrigins = new ApplyOverlayUrisListCountDto()
-            });
-        MockIdentityClient.Setup(c => c.CleanOverlayEntries(It.IsAny<string?>()))
-            .ReturnsAsync(new CleanOverlayEntriesResultDto { ClientResults = [] });
-        MockIdentityClient.Setup(c => c.ProvisionClientInExistingTenants(It.IsAny<string>()))
-            .ReturnsAsync(new ClientMirrorBackfillResponseDto(2, 1, 1));
-        MockIdentityClient.Setup(c => c.ProvisionClientInTenant(It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(new ClientMirrorProvisionResponseDto(1, 1, 0));
-        MockIdentityClient.Setup(c => c.GrantExternalTenantUser(It.IsAny<CreateExternalTenantUserMappingDto>()))
-            .ReturnsAsync(new ExternalTenantUserMappingDto { Id = new OctoObjectId(MappingRtId), SourceUserName = "alice" });
-        MockIdentityClient.Setup(c => c.ProvisionCurrentUser(It.IsAny<string>()))
-            .ReturnsAsync(new ExternalTenantUserMappingDto { SourceTenantId = "parent" });
-        MockIdentityClient.Setup(c => c.CreateApiSecretForClient(It.IsAny<string>(), It.IsAny<ApiSecretDto>()))
-            .ReturnsAsync(new ApiSecretDto { ValueEncrypted = "stored", ValueClearText = "clear" });
-        MockIdentityClient.Setup(c => c.CreateApiSecretForApiResource(It.IsAny<string>(), It.IsAny<ApiSecretDto>()))
-            .ReturnsAsync(new ApiSecretDto { ValueEncrypted = "stored", ValueClearText = "clear" });
     }
 
     /// <summary>A tool call: the tool, the operation it must send, its result for a success and whether it carries a secret.</summary>

@@ -3,6 +3,7 @@ using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.Syst
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.Sdk.ServiceClient.IdentityServices;
 using Moq;
 using Xunit;
 
@@ -55,7 +56,7 @@ public class EmailDomainGroupRuleToolsTests : ToolTestBase
         CkMethodFake.Str(input, "emailDomainPattern").Should().Be("meshmakers.io");
         CkMethodFake.Str(input, "targetGroupRtId").Should().Be(GroupId);
         CkMethodFake.Str(input, "description").Should().Be("internal");
-        MockIdentityClient.Verify(c => c.CreateEmailDomainGroupRule(It.IsAny<EmailDomainGroupRuleDto>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CreateEmailDomainGroupRule));
     }
 
     [Fact]
@@ -142,8 +143,7 @@ public class ExternalTenantUserMappingToolsTests : ToolTestBase
         CkMethodFake.Str(input, "sourceUserName").Should().Be("alice");
         CkMethodFake.Strings(input.GetProperty("roleIds")).Should().Equal("r1", "r2");
         CkMethodFake.Prop(input, "groupIds").Should().BeNull();
-        MockIdentityClient.Verify(c => c.GrantExternalTenantUser(It.IsAny<CreateExternalTenantUserMappingDto>()),
-            Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.GrantExternalTenantUser));
     }
 
     [Fact]
@@ -230,8 +230,7 @@ public class AdminProvisioningToolsTests : ToolTestBase
         CkMethodFake.Str(input, "sourceTenantId").Should().Be("src");
         CkMethodFake.Str(input, "sourceUserId").Should().Be("u1");
         CkMethodFake.Str(input, "sourceUserName").Should().Be("alice");
-        MockIdentityClient.Verify(c => c.CreateAdminProvisioningMapping(It.IsAny<string>(),
-            It.IsAny<CreateExternalTenantUserMappingDto>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.CreateAdminProvisioningMapping));
     }
 
     [Fact]
@@ -244,7 +243,7 @@ public class AdminProvisioningToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue();
         CkMethodFake.Str(CkMethods.InputOf("SystemIdentityExternalTenantUserMappingProvisionCurrentUser"),
             "targetTenantId").Should().Be("target");
-        MockIdentityClient.Verify(c => c.ProvisionCurrentUser(It.IsAny<string>()), Times.Never);
+        MockIdentityClient.ShouldNotHaveCalled(nameof(IIdentityServicesClient.ProvisionCurrentUser));
     }
 
     /// <summary>AB#8017: the result names the source identity the mapping was written for (the home identity).</summary>
