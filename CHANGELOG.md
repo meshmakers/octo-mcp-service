@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- **`get_ai_spend` and `set_ai_spend_cap` (AB#8690, new file `Tools/AiSpendTools.cs`).** Read (risk Low) and set (risk High,
+  `confirm=true`, reason) the monthly LLM spend cap of the central-key LLM gateway through the AI service
+  (`{tenant}/v1/aiSpend`, `system/v1/aiSpendCaps`). Setting and reading another tenant need a system-tenant session with the
+  role `AiBudgetAdmin`; the AI service enforces it. Equivalent to octo-cli `GetAiSpend` / `SetAiSpendCap`.
+
 ### Changed
 
 - **No routed `ExecutePipelineRequest` command client (AB#7465).** The service no longer registers it: only the

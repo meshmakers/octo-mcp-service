@@ -315,6 +315,8 @@ _High=2_  ·  **Owner reviewed:** ☐
 |------|---------|------------------|
 | `enable_ai` | **H** | needs Communication enabled on the tenant |
 | `disable_ai` | **H** | reversible flag flip, AI data is kept; precondition for `delete_tenant` / `detach_tenant` |
+| `get_ai_spend` | **L** | read-only: cap and spend of the own tenant, or of another tenant for `AiBudgetAdmin` of the system tenant (AB#8690) |
+| `set_ai_spend_cap` | **H** | decides the central-key LLM spend of a tenant; `confirm=true`, reason; `AiBudgetAdmin` of the system tenant only, audited (AB#8690) |
 
 ### RiskMetadataTools (1 tool)
 

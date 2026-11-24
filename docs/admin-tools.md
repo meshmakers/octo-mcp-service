@@ -43,6 +43,10 @@ An agent can work in and clean up the scratch tenants it creates without a human
 - `enable_ai` / `disable_ai` (`AiLifecycleTools`, High) close the gap of the fourth tenant capability: a tenant with AI Services enabled used to need
   octo-cli `DisableAi` before `delete_tenant`. They use the new `OctoServiceUrls:AiServiceUrl` (default `https://localhost:5019/`; **deployments must set
   `OctoServiceUrls__AiServiceUrl`** or the AI tools fail with the missing-configuration message) and `IOctoServiceClientFactory.CreateAiClient`.
+- `get_ai_spend` (Low) / `set_ai_spend_cap` (High, `confirm=true`, reason required) (`AiSpendTools`, AB#8690) read and set the monthly LLM
+  spend cap of the central-key LLM gateway, like octo-cli `GetAiSpend` / `SetAiSpendCap`. `get_ai_spend` without `targetTenantId` reads the
+  resolved tenant itself; with it, and for `set_ai_spend_cap`, the session must be of the system tenant with the role `AiBudgetAdmin` - the AI
+  service refuses everybody else (403), the tool adds no permission of its own. Every change is audited by the AI service.
 - `delete_tenant` takes `disableFeatures` (requires `confirm=true`): reads the child's capability status, switches off every enabled one - AI Services,
   Communication, Reporting, Stream Data - through the SDK `TenantFeatureDisabler`, then deletes. All of it with **the session's token for the child tenant**
   (`McpSessionContext.ResolveAccessTokenAsync(server, child)`: the home token when the session is the child's, else an RFC 8693 exchange): the capability
