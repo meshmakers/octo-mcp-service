@@ -8,7 +8,9 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 /// <summary>
 ///     <c>create_tenant starter=true</c> (AB#9570): leaves a new child tenant app-ready in one call - create the tenant,
 ///     provision the calling user as its administrator, enable Communication, enable AI Services and install the
-///     starter blueprint <c>System.Ai.Starter</c> (which brings System.Ai.Builder, the knowledge pages).
+///     starter blueprint <c>System.Ai.Starter</c> (which brings System.Ai.Builder: the knowledge pages and, since
+///     Starter 1.1 / Builder 1.2, the builder agent), then check the ready state (<see cref="StarterReadyCheck" />,
+///     AB#9573).
 ///     <para>
 ///     Every step first checks whether it is already done and is then <c>skipped</c>, so calling the tool again for the
 ///     same tenant after a failure completes the remaining steps without repeating finished ones. The first failing step
@@ -29,8 +31,16 @@ internal static class StarterTenantSequence
     internal const string CommunicationStep = "enable_communication";
     internal const string AiStep = "enable_ai";
     internal const string BlueprintStep = "install_blueprint";
+    internal const string ReadyStep = "verify_ready";
 
-    private static readonly string[] Steps = [CreateStep, ProvisionStep, CommunicationStep, AiStep, BlueprintStep];
+    private static readonly string[] Steps =
+        [CreateStep, ProvisionStep, CommunicationStep, AiStep, BlueprintStep, ReadyStep];
+
+    /// <summary>
+    ///     Reads the ready state of the child with the caller's rights: null when ready, else what is missing. Tests
+    ///     replace it; the default is <see cref="StarterReadyCheck.MissingAsync(McpServer, string)" />.
+    /// </summary>
+    internal static Func<McpServer, string, Task<string?>> ReadyProbe { get; set; } = StarterReadyCheck.MissingAsync;
 
     /// <summary>
     ///     Identity sets a new tenant up asynchronously after the create: the admin provisioning and the token for the
@@ -90,7 +100,7 @@ internal static class StarterTenantSequence
         {
             response.IsSuccess = true;
             response.Message = $"Tenant '{childTenantId}' is app-ready: Communication and AI Services enabled, " +
-                               $"{outcome ?? StarterBlueprintName} installed. Steps: " +
+                               $"{outcome ?? StarterBlueprintName} installed, builder agent and knowledge base ready. Steps: " +
                                string.Join(", ", steps.Select(s => $"{s.Step}={s.Outcome}")) + ".";
             return;
         }
@@ -183,7 +193,29 @@ internal static class StarterTenantSequence
         }
 
         // 5. The starter blueprint, unless it is installed already.
-        return await InstallStarterAsync(server, features.Client!, childTenantId, starterBlueprintId, steps);
+        var installed = await InstallStarterAsync(server, features.Client!, childTenantId, starterBlueprintId, steps);
+        if (installed == null)
+        {
+            return null;
+        }
+
+        // 6. Ready state: builder agent, mandate, client and the app-index page, read with the caller's rights. Always
+        //    checked (also on a repeated call), never skipped: it changes nothing.
+        try
+        {
+            var missing = await ReadyProbe(server, childTenantId);
+            steps.Add(missing == null
+                ? Done(ReadyStep, "builder agent enabled (mandate write mode Propose, client agent-builder) and " +
+                                  "knowledge page 'app-index' present")
+                : Failed(ReadyStep, $"'{installed}' is installed but the tenant is not ready: {missing}. Install a " +
+                                    "System.Ai.Starter 1.1 or later (it brings System.Ai.Builder 1.2 with the builder agent)."));
+        }
+        catch (Exception ex)
+        {
+            steps.Add(Failed(ReadyStep, ex.Message));
+        }
+
+        return installed;
     }
 
     private static async Task<bool> EnsureChildAccessAsync(McpServer server, string parentTenantId,

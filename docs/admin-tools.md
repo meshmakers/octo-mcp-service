@@ -66,14 +66,19 @@ An agent can work in and clean up the scratch tenants it creates without a human
    (identity sets a new tenant up asynchronously, so the provisioning and the exchange are retried);
 3. `enable_communication` and 4. `enable_ai` - each only when the capability is not yet enabled;
 5. `install_blueprint` - the newest `System.Ai.Starter` of the tenant's blueprint catalogs (or `starterBlueprintId`), which brings
-   `System.Ai.Builder` (the knowledge pages) as a dependency; skipped when a starter is already installed.
+   `System.Ai.Builder` (the knowledge pages and, from Starter 1.1 / Builder 1.2, the builder agent) as a dependency; skipped when a starter
+   is already installed;
+6. `verify_ready` (AB#9573) - reads, with the caller's own rights in the child (the read path of `knowledge_search`), the ready state: Agent
+   `builder-agent` enabled, Mandate `builder-mandate` with write mode Propose, Client `builder-agent-client` (the agent's service account) and
+   the knowledge page `app-index`. It changes nothing and is never skipped; a starter without the builder agent (System.Ai.Starter 1.0.0)
+   installs but fails here, naming what is missing.
 
 `starterSteps` lists every step with `done`, `skipped`, `failed` or `notRun`; on a failure `failedStep` names the step and the steps after it are
 `notRun`. Calling the tool again with the same `childTenantId` completes the remaining steps and skips the finished ones.
 
 The steps in the child run with the caller's token for the child (RFC 8693 exchange), and identity issues that only for a user. So `starter=true`
 is **refused before anything is created** for a client-credentials caller and together with `scratch=true`; no half-provisioned tenant is left.
-Tests: `StarterTenantToolsTests`.
+Tests: `StarterTenantToolsTests`, `StarterReadyCheckTests`.
 
 ## Blueprint catalog refresh
 

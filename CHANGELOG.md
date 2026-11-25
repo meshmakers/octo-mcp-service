@@ -14,6 +14,7 @@
 ### Added
 
 - **`create_tenant starter=true` (AB#9570, Feature AB#8452).** One call leaves a new child tenant app-ready: create, provision the calling user as administrator, `enable_communication`, `enable_ai` and install the newest `System.Ai.Starter` blueprint (brings `System.Ai.Builder`). `starterSteps` reports each step; a repeated call completes the remaining ones. Needs a user session: client-credentials callers and `scratch=true` are refused before the tenant is created. Requires `System.Ai.Starter` in the blueprint catalogs (octo-ai-services).
+- **`create_tenant starter=true` checks the ready state (AB#9573).** New last step `verify_ready`: the builder agent (`builder-agent`, enabled), its mandate (write mode Propose), its client `builder-agent-client` and the knowledge page `app-index` are there and readable for the caller in the new tenant. Needs System.Ai.Starter 1.1 (System.Ai.Builder 1.2).
 
 - **Only the MCP endpoints accept agent tokens (AB#6054, security).** Both `MapMcp` routes are mapped by
   `MapOctoMcpEndpoints()` with `.AllowAgentTokens()` (octo-common-services); every other endpoint of this service and of

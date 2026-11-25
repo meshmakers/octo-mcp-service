@@ -74,8 +74,8 @@ public class CreateTenantResponse : TenantManagementResponse
 public class StarterStepDto
 {
     /// <summary>
-    ///     Step name: <c>create_tenant</c>, <c>provision_admin</c>, <c>enable_communication</c>, <c>enable_ai</c> or
-    ///     <c>install_blueprint</c>.
+    ///     Step name: <c>create_tenant</c>, <c>provision_admin</c>, <c>enable_communication</c>, <c>enable_ai</c>,
+    ///     <c>install_blueprint</c> or <c>verify_ready</c>.
     /// </summary>
     public string Step { get; set; } = string.Empty;
 

@@ -23,10 +23,17 @@ public class StarterTenantToolsTests : ToolTestBase
     private readonly List<TenantDto> _children = [];
     private readonly List<BlueprintInstallationDto> _installations = [];
     private TenantFeaturesStatusDto _features = Status(false, false);
+    private readonly Dictionary<string, string?> _readyMissing = [];
+    private int _readyProbes;
 
     public StarterTenantToolsTests()
     {
         StarterTenantSequence.RetryDelay = TimeSpan.Zero;
+        StarterTenantSequence.ReadyProbe = (_, tenant) =>
+        {
+            _readyProbes++;
+            return Task.FromResult(_readyMissing.TryGetValue(tenant, out var m) ? m : null);
+        };
         GivenAuthenticated();
         // The steps in the child address it by its id (the base resolver maps everything to the home tenant).
         MockTenantResolution.Setup(t => t.ResolveTenantId(Child)).Returns(Child);
@@ -89,7 +96,7 @@ public class StarterTenantToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
         result.FailedStep.Should().BeNull();
         Outcomes(result).Should().Equal("create_tenant=done", "provision_admin=skipped", "enable_communication=done",
-            "enable_ai=done", "install_blueprint=done");
+            "enable_ai=done", "install_blueprint=done", "verify_ready=done");
         MockAssetClient.Verify(c => c.CreateTenantAsync(Child, Database), Times.Once);
         MockCommunicationClient.Verify(c => c.EnableAsync(Child), Times.Once);
         MockAiClient.Verify(c => c.EnableAsync(Child), Times.Once);
@@ -106,7 +113,7 @@ public class StarterTenantToolsTests : ToolTestBase
 
         again.IsSuccess.Should().BeTrue(again.ErrorMessage);
         Outcomes(again).Should().Equal("create_tenant=skipped", "provision_admin=skipped", "enable_communication=skipped",
-            "enable_ai=skipped", "install_blueprint=skipped");
+            "enable_ai=skipped", "install_blueprint=skipped", "verify_ready=done");
         MockAssetClient.Verify(c => c.CreateTenantAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
         MockCommunicationClient.Verify(c => c.EnableAsync(Child), Times.Once);
         MockAiClient.Verify(c => c.EnableAsync(Child), Times.Once);
@@ -130,14 +137,14 @@ public class StarterTenantToolsTests : ToolTestBase
         first.FailedStep.Should().Be("enable_ai");
         first.ErrorMessage.Should().Contain("enable_ai").And.Contain("Communication is not ready yet");
         Outcomes(first).Should().Equal("create_tenant=done", "provision_admin=skipped", "enable_communication=done",
-            "enable_ai=failed", "install_blueprint=notRun");
+            "enable_ai=failed", "install_blueprint=notRun", "verify_ready=notRun");
         MockAssetClient.Verify(c => c.ApplyBlueprintAsync(Child, It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
 
         var second = await CreateStarter();
 
         second.IsSuccess.Should().BeTrue(second.ErrorMessage);
         Outcomes(second).Should().Equal("create_tenant=skipped", "provision_admin=skipped",
-            "enable_communication=skipped", "enable_ai=done", "install_blueprint=done");
+            "enable_communication=skipped", "enable_ai=done", "install_blueprint=done", "verify_ready=done");
         MockAssetClient.Verify(c => c.CreateTenantAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
         MockCommunicationClient.Verify(c => c.EnableAsync(Child), Times.Once);
     }
@@ -203,7 +210,7 @@ public class StarterTenantToolsTests : ToolTestBase
         result.IsSuccess.Should().BeFalse();
         result.FailedStep.Should().Be("provision_admin");
         Outcomes(result).Should().Equal("create_tenant=done", "provision_admin=failed", "enable_communication=notRun",
-            "enable_ai=notRun", "install_blueprint=notRun");
+            "enable_ai=notRun", "install_blueprint=notRun", "verify_ready=notRun");
         MockCommunicationClient.Verify(c => c.EnableAsync(It.IsAny<string>()), Times.Never);
         MockAiClient.Verify(c => c.EnableAsync(It.IsAny<string>()), Times.Never);
     }
@@ -231,6 +238,44 @@ public class StarterTenantToolsTests : ToolTestBase
         MockAssetClient.Verify(c => c.ListBlueprintsAsync(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
     }
 
+    /// <summary>
+    ///     AB#9573: a starter blueprint without the builder agent (e.g. System.Ai.Starter 1.0.0 with System.Ai.Builder 1.1)
+    ///     installs, but the tenant is not ready: verify_ready fails and names what is missing; once the agent is there a
+    ///     repeated call checks again (verify_ready is never skipped) and succeeds without reinstalling.
+    /// </summary>
+    [Fact]
+    public async Task Starter_WithoutTheBuilderAgent_FailsAtVerifyReady_AndARetryChecksAgain()
+    {
+        _readyMissing[Child] = "no System.Ai/Agent 'builder-agent'";
+
+        var first = await CreateStarter();
+
+        first.IsSuccess.Should().BeFalse();
+        first.FailedStep.Should().Be("verify_ready");
+        first.ErrorMessage.Should().Contain("builder-agent").And.Contain("System.Ai.Starter 1.1");
+        Outcomes(first).Should().Equal("create_tenant=done", "provision_admin=skipped", "enable_communication=done",
+            "enable_ai=done", "install_blueprint=done", "verify_ready=failed");
+
+        _readyMissing.Remove(Child);
+        var second = await CreateStarter();
+
+        second.IsSuccess.Should().BeTrue(second.ErrorMessage);
+        Outcomes(second).Should().EndWith(["install_blueprint=skipped", "verify_ready=done"]);
+        _readyProbes.Should().Be(2);
+        MockAssetClient.Verify(c => c.ApplyBlueprintAsync(Child, It.IsAny<string>(), It.IsAny<bool>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Starter_ReadyProbeThrows_FailsAtVerifyReady()
+    {
+        StarterTenantSequence.ReadyProbe = (_, _) => throw new InvalidOperationException("repository unavailable");
+
+        var result = await CreateStarter();
+
+        result.FailedStep.Should().Be("verify_ready");
+        result.ErrorMessage.Should().Contain("repository unavailable");
+    }
+
     [Fact]
     public async Task WithoutStarter_CreateTenant_IsUnchanged()
     {
@@ -238,6 +283,7 @@ public class StarterTenantToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeTrue();
         result.StarterSteps.Should().BeEmpty();
+        _readyProbes.Should().Be(0);
         MockCommunicationClient.Verify(c => c.EnableAsync(It.IsAny<string>()), Times.Never);
         MockAiClient.Verify(c => c.EnableAsync(It.IsAny<string>()), Times.Never);
     }

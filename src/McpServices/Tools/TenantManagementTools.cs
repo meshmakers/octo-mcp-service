@@ -136,7 +136,8 @@ public sealed class TenantManagementTools
         "client-credentials caller becomes administrator of the tenant it creates. With starter=true (AB#9570) one call " +
         "leaves the tenant app-ready: create it, provision the calling user as its administrator, enable_communication, " +
         "enable_ai and install_blueprint System.Ai.Starter (the newest in the catalogs; it brings System.Ai.Builder, the " +
-        "OctoMesh knowledge pages). starterSteps lists every step with its outcome (done, skipped, failed, notRun); on a " +
+        "OctoMesh knowledge pages and the builder agent), then verify_ready checks that the builder agent, its mandate " +
+        "and the knowledge page app-index are there (AB#9573). starterSteps lists every step with its outcome (done, skipped, failed, notRun); on a " +
         "failure failedStep names the step, and calling the tool again with the same childTenantId completes the " +
         "remaining steps and skips the finished ones (an existing tenant is then not an error). starter=true needs a user " +
         "session: a client-credentials caller, or scratch=true, is refused before anything is created. Requires access to " +
