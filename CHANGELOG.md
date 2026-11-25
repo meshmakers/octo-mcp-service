@@ -66,6 +66,9 @@
 
 ### Security
 
+- **AB#8454** — A failed `create_agent` keeps nothing: when any step after the entity write fails or throws (identity
+  error, transport error of `SetRoles`, failed read-back) the created client, agent and mandate are removed again.
+  `enabled: false` now also creates the service-account client disabled (before, the client was always enabled).
 - **AB#6988** — The file-transfer endpoints are no longer anonymous and the transfer id is out of the URL. **Breaking for
   HTTP clients of `/file-transfer/*`.**
   - `PUT /file-transfer/upload` and `GET /file-transfer/download` require the creator's bearer token (same policy as

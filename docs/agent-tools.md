@@ -50,7 +50,10 @@ sessions are not restricted. A later Studio UI for agents builds on this API, no
 
 `create_agent` writes the entities first, so a caller who may not write them changes nothing in the identity. When the
 identity step fails, the tool deletes the client it created and the agent and mandate it wrote (`IdentityFailed`; the
-message names anything that could not be removed). `set_agent_enabled false` switches the agent off first and the
+message names anything that could not be removed). The same clean-up runs when any later step throws (a transport error
+of `SetRoles`, a failed read-back: `Failed` with "Nothing was kept"), so a failed `create_agent` leaves no orphaned agent,
+mandate or client. `enabled: false` creates the agent disabled **and** its client disabled, so it cannot obtain a token
+before `set_agent_enabled true`. `set_agent_enabled false` switches the agent off first and the
 client second, so the kill switch holds even when the identity call fails (the response says the client is still
 enabled); `true` switches the client on first and turns it off again when the agent write fails.
 

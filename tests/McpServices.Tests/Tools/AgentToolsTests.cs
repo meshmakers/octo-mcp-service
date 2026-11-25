@@ -428,6 +428,67 @@ public class AgentToolsTests : ToolTestBase
     }
 
     [Fact]
+    public async Task Create_RolesCallThrows_DeletesTheCreatedClient_AndRemovesTheEntities()
+    {
+        _ = CkMethods;
+        MockTenantClient
+            .Setup(c => c.SendMutationAsync<It.IsAnyType>(It.Is<GraphQL.GraphQLRequest>(r => r.OperationName == SetRoles)))
+            .Callback(new InvocationAction(i => CkMethods.Requests.Add((GraphQL.GraphQLRequest)i.Arguments[0]!)))
+            .Throws(new InvalidOperationException("roles refused"));
+
+        var result = await CreateAsync(roles: ["660000000000000000000002"], clientSecret: "s3cret-value");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("Failed", "a transport error of the roles call is no declared identity error");
+        CkMethods.OperationNames.Should().ContainInOrder(CreateClient, SetRoles, DeleteClient);
+        _entities.Should().BeEmpty("no orphaned agent or mandate");
+        _associations.Should().BeEmpty();
+        JsonSerializer.Serialize(result).Should().NotContain("s3cret-value");
+    }
+
+    [Fact]
+    public async Task Create_ThrowsAfterTheWrites_DeletesTheClient_AndRemovesTheEntities()
+    {
+        // The read-back after a successful create throws: before the fix the agent, its mandate and its client stayed.
+        MockTenantRepository
+            .Setup(r => r.GetRtEntityByRtIdAsync(It.IsAny<IOctoSession>(), It.IsAny<RtEntityId>()))
+            .ReturnsAsync((IOctoSession _, RtEntityId id) =>
+            {
+                if (Equals(id.CkTypeId, AgentModel.AgentTypeId))
+                {
+                    throw new TimeoutException("store unavailable");
+                }
+
+                return _entities.TryGetValue(id.RtId, out var e) && Equals(e.CkTypeId, id.CkTypeId) ? e : null;
+            });
+
+        var result = await CreateAsync(clientSecret: "s3cret-value");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("Failed");
+        result.ErrorMessage.Should().Contain("Nothing was kept");
+        CkMethods.OperationNames.Should().ContainInOrder(CreateClient, DeleteClient);
+        _entities.Should().BeEmpty("no orphaned agent or mandate");
+        _associations.Should().BeEmpty();
+        JsonSerializer.Serialize(result).Should().NotContain("s3cret-value");
+    }
+
+    [Fact]
+    public async Task Create_Disabled_WritesADisabledAgent_AndADisabledClient()
+    {
+        var result = await AgentTools.CreateAgent(MockServer.Object, "Knowledge curator",
+            "Keep the knowledge pages consistent.", enabled: false);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        Of(AgentModel.AgentType).Single().GetAttributeValueOrDefault("Enabled").Should().Be(false);
+        var input = CkMethods.InputOf(CreateClient);
+        (CkMethodFake.Bool(input, "isEnabled") ?? CkMethodFake.Bool(input, "enabled")).Should()
+            .BeFalse("a disabled agent must not be able to obtain a token");
+        result.Agent!.Enabled.Should().BeFalse();
+        result.Agent.ServiceAccountClientEnabled.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Create_SecretIsNeverInTheResult()
     {
         var result = await CreateAsync(clientSecret: "s3cret-value");
