@@ -159,6 +159,9 @@ not be able to exhaust its memory or CPU. `validate_pipeline_definition` shows t
 - **A process-wide budget**: at most two evaluations run at once (`PIPELINE_VALIDATION_BUSY` after a 10 s wait for a
   slot) and a call stops waiting after 20 s (`PIPELINE_VALIDATION_BUDGET_EXCEEDED`). JsonSchema.Net cannot be cancelled,
   so an abandoned evaluation keeps its slot until it ends; the slot cap bounds how many can run.
+- **A bounded answer** (AB#9731): `Errors` holds at most 50 findings (`PipelineTools.MaxReturnedValidationErrors`);
+  `TotalErrorCount` carries the full count and `ErrorsTruncated` says when findings were left out, so an invalid draft
+  with hundreds of findings cannot flood the caller's context or the shared service.
 
 Guard: `tests/McpServices.Tests/Services/PipelineValidationBoundsTests.cs` (nested If nodes four and eight levels deep
 validate within bounded time and allocations, verdict parity with the raw union, every limit).
