@@ -93,7 +93,7 @@ internal static class AgentMandateGuard
         "list_kendo_components", "list_recompute_jobs", "list_rollups_for_archive", "list_tenants",
         "preview_blueprint_uninstall", "preview_blueprint_update", "query_entities", "query_entities_aggregation", "query_entities_grouping",
         "query_entities_simple", "query_stream_data_aggregation", "query_stream_data_downsampling",
-        "query_stream_data_grouping", "query_stream_data_simple", "search_types", "validate_ck_model",
+        "query_stream_data_grouping", "query_stream_data_simple", "search_types", "validate_blueprint", "validate_ck_model",
         "validate_pipeline_definition", "validate_rollups", "validate_tool_parameters", "whoami"
     };
 

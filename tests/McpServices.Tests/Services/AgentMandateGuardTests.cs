@@ -526,6 +526,7 @@ public class AgentMandateGuardTests
 
     [Theory]
     [InlineData("validate_ck_model")]
+    [InlineData("validate_blueprint")]
     [InlineData("query_entities")]
     [InlineData("get_type_schema")]
     [InlineData("knowledge_search")]
@@ -627,7 +628,7 @@ public class AgentMandateGuardTests
     public void ReadingTools_HoldNoneOfTheSeededBuildersWritingTools()
     {
         AgentMandateGuard.ReadingTools.Should().NotContain(["import_ck_model", "dry_run_pipeline", "deploy_pipeline"]);
-        AgentMandateGuard.ReadingTools.Should().Contain(["validate_ck_model", "validate_pipeline_definition",
+        AgentMandateGuard.ReadingTools.Should().Contain(["validate_ck_model", "validate_blueprint", "validate_pipeline_definition",
             "get_pipeline_schema", "query_entities", "knowledge_search", "knowledge_get", "list_blueprints"]);
     }
 }

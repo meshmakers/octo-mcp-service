@@ -198,6 +198,17 @@ The upload stays the path for drafts above the inline limit and for zips of comp
 
 The tool description says "PUT the file to the returned URL" — historically said "PUT the JSON/zip" which was misleading. Asset-services accepts all of the above; schema validation happens server-side after the file lands in the file-transfer store.
 
+### validate_blueprint (`BlueprintValidationTools`, AB#9371)
+
+Validates a blueprint draft **without installing it**: `validate_blueprint(files: [{name, content}])` with names relative
+to the blueprint root (`blueprint.yaml`, `seed-data/...`; same inline limits as `validate_ck_model`), or
+`prepare_file_upload` (a `.zip` of the blueprint folder or a `blueprint.yaml`) → PUT → `validate_blueprint(transferId)`.
+The tool stages an inline draft as a zip (deleted after the call) and calls `POST {tenantId}/v1/blueprints/validate`
+(SDK `IAssetServicesClient.ValidateBlueprintAsync`). The asset repository runs the engine's `IBlueprintDraftValidator` -
+the same checks as `octo-bpm validate` and the blueprint install - with the CK dependency ranges checked against its CK
+model catalogs. The answer: `isValid`, `blueprintId`, `findings` (`code` 149-167, `level`, `file`, `modelId`, `message`,
+`parameters`), bounded to 100 with `totalFindings` and `truncated`. Risk Low and on `AgentMandateGuard.ReadingTools`.
+
 ### validate_ck_model (`CkModelValidationTools`)
 
 Validates a CK model draft against the tenant **without importing it**: `prepare_file_upload` → PUT → `validate_ck_model(transferId)`,

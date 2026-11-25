@@ -131,6 +131,7 @@ _Low=1_  ·  **Owner reviewed:** ☐
 | Tool | Current | Notes for review |
 |------|---------|------------------|
 | `validate_ck_model` | **L** | read-only validation of a CK model draft, nothing imported or written |
+| `validate_blueprint` | **L** | read-only validation of a blueprint draft (AB#9371), nothing installed or written |
 
 ### CkModelLibraryTools (8 tools)
 

@@ -1,5 +1,5 @@
 ---
-description: Agent management tools (create_agent, update_agent, set_agent_enabled, list_agents, get_agent), mandate validation, the service-account client and its secret, the write channel of the agent types and the static mandate check of every tool call (refusal codes).
+description: Agent tools (create/update/list/get agent, set_agent_enabled), mandates, the service-account client, write channel and the per-call mandate check.
 applies_to: **/Tools/AgentTools.cs, **/Services/Agents/**, **/Models/AgentResponses.cs
 ---
 
@@ -80,13 +80,13 @@ mandate's `RiskCeiling` → under write mode `Propose` the tool is a reading too
 
 **Reading tool** (interim rule, AB#9730): the tools of this server carry no read-only or destructive flag, and Low risk also
 holds single-instance writes (`create_entity`, `update_entity`). A tool therefore counts as reading only when it is named
-in the exact allow list `AgentMandateGuard.ReadingTools` (86 tools, reviewed one by one: the Low `get_`, `list_`, `query_`,
+in the exact allow list `AgentMandateGuard.ReadingTools` (89 tools, reviewed one by one: the Low `get_`, `list_`, `query_`,
 `search_`, `validate_`, `check_` and `preview_` tools, `knowledge_search`, `knowledge_get`,
 `knowledge_list_platform_updates` and `whoami`; not `check_auth_status`, which completes a login) **and** its risk is Low.
 Every other tool counts as writing, also every tool added later until it is reviewed and listed; a test fails when a
 listed tool is renamed, removed or classified above Low. `dry_run_pipeline` stays writing: it executes the deployed
 pipeline and records an execution, and load nodes that are not retrofitted still fire their real side effect. So until
-AB#8461 the builder validates with `validate_ck_model` and `validate_pipeline_definition`, without a dry run. The
+AB#8461 the builder validates with `validate_ck_model`, `validate_blueprint` (AB#9371) and `validate_pipeline_definition`, without a dry run. The
 long-term fix is read-only metadata on the tools themselves. For the seeded builder agent (System.Ai.Builder, Propose) this means: the
 read and validation tools run; `import_ck_model`, `dry_run_pipeline` and `deploy_pipeline` are refused with
 `ProposeRequired`; identity and tenant tools are refused with `ToolNotGranted`.

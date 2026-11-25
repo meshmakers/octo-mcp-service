@@ -36,6 +36,13 @@
 - **System.Ai 4.13.0 for the agent runtime (Feature AB#6054).** The agent tools need System.Ai 4.13.0 or later: it adds
   the channel-only `writeAccess` of `Agent` and `Mandate` to `AgentTrigger`, `Run` and `ActionRecord` (octo-ai-services#88);
   4.12.0 leaves these three types writable by every tenant administrator. `docs/agent-tools.md`.
+- **`validate_blueprint` validates a blueprint draft without installing it (AB#9371, Feature AB#8451).** Inline
+  `files` (blueprint.yaml and the seed files, 1 MiB / 2000 files like `validate_ck_model`) or a `transferId`; staged as a
+  zip and sent to the asset repository's `POST {tenantId}/v1/blueprints/validate` (SDK `ValidateBlueprintAsync`), which
+  runs the engine's shared validator of `octo-bpm validate` and the install path, including the CK dependency ranges
+  against the CK model catalogs. Findings with stable codes 149-167 (`code`, `level`, `file`, `modelId`, `message`),
+  bounded to 100 (`totalFindings`, `truncated`). Risk Low, on the reading allow list (a Propose agent may run it). Needs
+  an asset repository with AB#9371.
 - **`preview_blueprint_uninstall` shows what an uninstall would delete and keep (AB#9034, Feature AB#8451).** Dry run
   over the SDK preview of AB#8966: DeletedEntities (with TenantOwned), TenantOwnedKept (with Reason and ReferencedBy),
   cascaded dependencies and blocking dependents; lists cut at 200 entries (DeletedCount/KeptCount stay complete). Risk
