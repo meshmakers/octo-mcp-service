@@ -179,7 +179,7 @@ dotnet run
 - Admin Provisioning (4): `get_admin_provisioning_mappings` · `create_admin_provisioning_mapping` · `provision_current_user_as_admin` · `delete_admin_provisioning_mapping`<sup>‡</sup>
 
 ### **Asset Repository — Blueprints** (9)
-`list_blueprints` · `refresh_blueprint_catalogs` · `install_blueprint` · `get_blueprint_history` · `get_blueprint_update_info` · `preview_blueprint_update` · `update_blueprint`<sup>‡</sup> · `list_blueprint_installations` · `uninstall_blueprint`<sup>‡</sup>
+`list_blueprints` · `refresh_blueprint_catalogs` · `install_blueprint` · `get_blueprint_history` · `get_blueprint_update_info` · `preview_blueprint_update` · `update_blueprint`<sup>‡</sup> · `list_blueprint_installations` · `preview_blueprint_uninstall` · `uninstall_blueprint`<sup>‡</sup>
 
 ### **Asset Repository — CK Model Libraries** (8)
 `list_ck_catalogs` · `list_ck_catalog_models` · `get_ck_catalog_model_types` · `refresh_ck_catalogs` · `get_ck_library_status` · `check_ck_dependencies` · `check_ck_upgrade` · `import_ck_from_catalog` · `fix_all_ck_models`<sup>‡</sup>

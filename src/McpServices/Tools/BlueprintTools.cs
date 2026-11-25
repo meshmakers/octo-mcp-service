@@ -447,6 +447,103 @@ public sealed class BlueprintTools
         name is not "." and not ".." &&
         name.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '_');
 
+    /// <summary>Error code when the asset service has no uninstall preview route yet (404 without body).</summary>
+    public const string UninstallPreviewUnsupported = "BlueprintUninstallPreviewUnsupported";
+
+    /// <summary>Error code when the service answered without confirming a dry run.</summary>
+    public const string UninstallPreviewNotDryRun = "BlueprintUninstallPreviewNotDryRun";
+
+    /// <summary>Most entities listed per list (deleted, kept); the counts stay complete.</summary>
+    public const int MaxPreviewEntities = 200;
+
+    /// <summary>
+    ///     AB#9034: dry run of a blueprint uninstall - which entities would be deleted and which tenant-owned ones would be
+    ///     kept (with the reason). Never uninstalls: it calls only the preview route, and an answer that is not a dry run
+    ///     is reported as an error.
+    /// </summary>
+    [McpServerTool(Name = "preview_blueprint_uninstall")]
+    [McpRisk(McpRiskLevel.Low)]
+    [Description(
+        "Preview a blueprint uninstall WITHOUT uninstalling: lists the entities it would delete (DeletedEntities, " +
+        "with TenantOwned) and the tenant-owned entities it would keep (TenantOwnedKept, with Reason Edited, " +
+        "Referenced or Created and ReferencedBy), plus cascaded dependencies and blocking dependents. Show this to " +
+        "the user before uninstall_blueprint. Nothing changes. Lists are cut at 200 entries each (counts stay " +
+        "complete). Requires the tenant role DataModelManagement (AB#8529, ErrorCode DataModelManagementRequired). " +
+        "ErrorCode BlueprintUninstallPreviewUnsupported: the asset service is too old for a preview - nothing was " +
+        "uninstalled. Equivalent to octo-cli UninstallBlueprint --dry-run.")]
+    public static async Task<PreviewBlueprintUninstallResponse> PreviewBlueprintUninstall(
+        McpServer server,
+        [Description("Blueprint name to preview the uninstall of.")] string blueprintName,
+        [Description("Cascade: preview removing dependents and orphan deps too.")] bool cascade = false,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(blueprintName))
+        {
+            return new PreviewBlueprintUninstallResponse { IsSuccess = false, ErrorMessage = "blueprintName is required." };
+        }
+
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new PreviewBlueprintUninstallResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            var result = await ctx.Client!.PreviewUninstallBlueprintAsync(ctx.TenantId!, blueprintName, cascade);
+            if (!result.DryRun)
+            {
+                return new PreviewBlueprintUninstallResponse
+                {
+                    IsSuccess = false,
+                    TenantId = ctx.TenantId,
+                    ErrorCode = UninstallPreviewNotDryRun,
+                    ErrorMessage = "The asset service answered the preview without confirming a dry run; the result is " +
+                                   "not shown. Update the platform before relying on the preview."
+                };
+            }
+
+            var deleted = result.DeletedEntities.Count;
+            var kept = result.TenantOwnedKept.Count;
+            var truncated = deleted > MaxPreviewEntities || kept > MaxPreviewEntities;
+            result.DeletedEntities = result.DeletedEntities.Take(MaxPreviewEntities).ToList();
+            result.TenantOwnedKept = result.TenantOwnedKept.Take(MaxPreviewEntities).ToList();
+            return new PreviewBlueprintUninstallResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                Result = result,
+                DeletedCount = deleted,
+                KeptCount = kept,
+                Truncated = truncated,
+                Message = result.BlockingDependents.Count > 0
+                    ? $"Preview: uninstall of '{blueprintName}' would be blocked by dependents: " +
+                      $"{string.Join(", ", result.BlockingDependents)} (cascade=true removes them first). Nothing changed."
+                    : $"Preview: uninstall of '{blueprintName}' would delete {deleted} entities and keep {kept} " +
+                      $"tenant-owned entities ({result.CascadedDependencies.Count} cascaded). Nothing changed." +
+                      (truncated ? $" Lists cut at {MaxPreviewEntities} entries." : "")
+            };
+        }
+        catch (Exception ex)
+        {
+            var problem = ServiceProblemMessage.From(ex);
+            if (problem.Code == null
+                && ex is ServiceClientResultException { HttpStatusCode: System.Net.HttpStatusCode.NotFound } notFound
+                && string.IsNullOrWhiteSpace(notFound.ResponseContent))
+            {
+                return new PreviewBlueprintUninstallResponse
+                {
+                    IsSuccess = false,
+                    ErrorCode = UninstallPreviewUnsupported,
+                    ErrorMessage = "The asset service does not offer an uninstall preview (update the platform). " +
+                                   "Nothing was uninstalled."
+                };
+            }
+
+            return new PreviewBlueprintUninstallResponse { IsSuccess = false, ErrorMessage = problem.Message, ErrorCode = problem.Code };
+        }
+    }
+
     /// <summary>Uninstall a blueprint from the tenant. Destructive: requires confirm.</summary>
     [McpServerTool(Name = "uninstall_blueprint")]
     [McpRisk(McpRiskLevel.High)]

@@ -36,6 +36,15 @@
 - **System.Ai 4.13.0 for the agent runtime (Feature AB#6054).** The agent tools need System.Ai 4.13.0 or later: it adds
   the channel-only `writeAccess` of `Agent` and `Mandate` to `AgentTrigger`, `Run` and `ActionRecord` (octo-ai-services#88);
   4.12.0 leaves these three types writable by every tenant administrator. `docs/agent-tools.md`.
+- **`preview_blueprint_uninstall` shows what an uninstall would delete and keep (AB#9034, Feature AB#8451).** Dry run
+  over the SDK preview of AB#8966: DeletedEntities (with TenantOwned), TenantOwnedKept (with Reason and ReferencedBy),
+  cascaded dependencies and blocking dependents; lists cut at 200 entries (DeletedCount/KeptCount stay complete). Risk
+  Low, on the reading allow list. It never calls the uninstall: an asset repository without the preview route gives
+  ErrorCode `BlueprintUninstallPreviewUnsupported`, an answer that is not a dry run `BlueprintUninstallPreviewNotDryRun`.
+  Needs the tenant role DataModelManagement like the preview route.
+- **`validate_pipeline_definition` caps its error list (AB#9731).** At most 50 entries in `Errors`; `TotalErrorCount`
+  has the full count and `ErrorsTruncated` says when entries were left out, so an invalid draft with hundreds of findings
+  cannot flood the caller's context. Keywords and codes unchanged.
 - **`get_ck_catalog_model_types` reads a catalog model version without importing it (AB#9370, Feature AB#8451).** Types
   with attributes and associations, association roles and enums of e.g. `Basic-2.7.0`, filtered and paged (take ≤ 50),
   so an agent reuses public kits before it builds its own model. Risk Low, on the reading allow list of the mandate

@@ -109,6 +109,7 @@ _High=2 · Low=5 · Medium=2_  ·  **Owner reviewed:** ☐
 | `preview_blueprint_update` | **L** | |
 | `update_blueprint` | **M** | |
 | `list_blueprint_installations` | **L** | |
+| `preview_blueprint_uninstall` | **L** | AB#9034: dry run via the preview route only (deleted vs. kept entities); an old server gives ErrorCode BlueprintUninstallPreviewUnsupported, never an uninstall |
 | `uninstall_blueprint` | **H** | |
 | `refresh_blueprint_catalogs` | **M** | same level as `refresh_ck_catalogs` |
 
