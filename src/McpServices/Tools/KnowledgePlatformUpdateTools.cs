@@ -41,7 +41,8 @@ public static class KnowledgePlatformUpdateTools
         "version); knowledge_adopt_platform_updates switches it. state Available: the page was edited in the tenant and " +
         "keeps its content (the knowledge lint reports PlatformUpdateAvailable); a person adopts the newer version with " +
         "knowledge_restore_version or dismisses it with knowledge_dismiss_platform_update. Deleted pages are not listed. " +
-        "Changes nothing.")]
+        "The AI service adopts Adoptable pages by itself every 15 minutes, so this list shows what is still pending now. " +
+        "Changes nothing. CLI: octo-cli -c ListKnowledgePlatformUpdates.")]
     public static async Task<KnowledgePlatformUpdatesResponse> KnowledgeListPlatformUpdates(
         McpServer server,
         [Description("Tenant to read from. Falls back to URL route.")] string? tenantId = null)
@@ -84,11 +85,13 @@ public static class KnowledgePlatformUpdateTools
         "title, kind, summary, sections, citations and status from that version, CurrentVersion points to it (no new " +
         "version is written), LinksTo follows the links the version declares, and AdoptedByRun records runRef. Edited " +
         "pages are never changed (see knowledge_list_platform_updates). The content guard checks every page before it " +
-        "is written. A second call without a new blueprint version writes nothing. Needs System.Ai 4.10.0.")]
+        "is written. A second call without a new blueprint version writes nothing. The AI service already does this by " +
+        "itself every 15 minutes for every AI tenant; call this tool only to adopt immediately (e.g. right after a " +
+        "blueprint update). Needs System.Ai 4.10.0. CLI: octo-cli -c AdoptKnowledgePlatformUpdates (--dryRun lists only).")]
     public static async Task<KnowledgeAdoptPlatformUpdatesResponse> KnowledgeAdoptPlatformUpdates(
         McpServer server,
-        [Description("Reference of the run that adopts (the maintenance pipeline run, up to 200 characters); stored on " +
-                     "every switched page as AdoptedByRun.")]
+        [Description("Reference of whoever adopts, up to 200 characters, e.g. a rollout, change or ticket id; stored on " +
+                     "every switched page as AdoptedByRun. The AI service's own 15-minute pass uses its own reference.")]
         string runRef,
         [Description("Tenant to write to. Falls back to URL route.")] string? tenantId = null,
         CancellationToken cancellationToken = default)
