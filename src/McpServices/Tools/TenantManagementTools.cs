@@ -135,7 +135,8 @@ public sealed class TenantManagementTools
         "provisioning tools separately once those are exposed. With scratch=true (octo-cli Create --scratch) a " +
         "client-credentials caller becomes administrator of the tenant it creates. With starter=true (AB#9570) one call " +
         "leaves the tenant app-ready: create it, provision the calling user as its administrator, enable_communication, " +
-        "enable_ai and install_blueprint System.Ai.Starter (the newest in the catalogs; it brings System.Ai.Builder, the " +
+        "enable_ai, default_spend_cap (AB#9572: the cluster's default monthly LLM cap, only when the parent is the system " +
+        "tenant, else skipped with the reason and the tenant stays at key source None) and install_blueprint System.Ai.Starter (the newest in the catalogs; it brings System.Ai.Builder, the " +
         "OctoMesh knowledge pages and the builder agent), then verify_ready checks that the builder agent, its mandate " +
         "and the knowledge page app-index are there (AB#9573). starterSteps lists every step with its outcome (done, skipped, failed, notRun); on a " +
         "failure failedStep names the step, and calling the tool again with the same childTenantId completes the " +

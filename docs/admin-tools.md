@@ -65,10 +65,17 @@ An agent can work in and clean up the scratch tenants it creates without a human
 2. `provision_admin` - provision the calling user as the child's administrator, unless the session's token exchange for the child already works
    (identity sets a new tenant up asynchronously, so the provisioning and the exchange are retried);
 3. `enable_communication` and 4. `enable_ai` - each only when the capability is not yet enabled;
-5. `install_blueprint` - the newest `System.Ai.Starter` of the tenant's blueprint catalogs (or `starterBlueprintId`), which brings
+5. `default_spend_cap` (AB#9572) - only when the parent is the system tenant (the platform operator's starter path): asks the AI service
+   (`IAiServicesClient.ApplyStarterDefaultSpendCapAsync`, `POST system/v1/aiSpendCaps/{tenantId}/starterDefault`, caller's token for the
+   system tenant, role `TenantManagement`) for the cluster's default monthly LLM cap on the central key. The request has no amount; the AI
+   service takes it from `StarterSpendCap:DefaultTenantSpendCapEur` and never changes an existing entry. `done` = created, `skipped` = the
+   tenant had an entry (`exists`), no default is configured (`notConfigured`), the parent is not the system tenant, or the AI service refused
+   the caller (401/403); in all skipped cases without a new entry the tenant stays at key source None and the LLM gateway stays closed for it.
+   Other errors fail the step;
+6. `install_blueprint` - the newest `System.Ai.Starter` of the tenant's blueprint catalogs (or `starterBlueprintId`), which brings
    `System.Ai.Builder` (the knowledge pages and, from Starter 1.1 / Builder 1.2, the builder agent) as a dependency; skipped when a starter
    is already installed;
-6. `verify_ready` (AB#9573) - reads, with the caller's own rights in the child (the read path of `knowledge_search`), the ready state: Agent
+7. `verify_ready` (AB#9573) - reads, with the caller's own rights in the child (the read path of `knowledge_search`), the ready state: Agent
    `builder-agent` enabled, Mandate `builder-mandate` with write mode Propose, Client `builder-agent-client` (the agent's service account) and
    the knowledge page `app-index`. It changes nothing and is never skipped; a starter without the builder agent (System.Ai.Starter 1.0.0)
    installs but fails here, naming what is missing.

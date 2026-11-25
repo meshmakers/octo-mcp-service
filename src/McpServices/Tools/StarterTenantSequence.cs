@@ -1,6 +1,11 @@
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
+using System.Net;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.Configuration;
+using Meshmakers.Octo.Sdk.ServiceClient;
+using Meshmakers.Octo.Sdk.ServiceClient.AiServices;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.System;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 
 namespace Meshmakers.Octo.Backend.McpServices.Tools;
@@ -10,7 +15,9 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 ///     provision the calling user as its administrator, enable Communication, enable AI Services and install the
 ///     starter blueprint <c>System.Ai.Starter</c> (which brings System.Ai.Builder: the knowledge pages and, since
 ///     Starter 1.1 / Builder 1.2, the builder agent), then check the ready state (<see cref="StarterReadyCheck" />,
-///     AB#9573).
+///     AB#9573). After enable_ai the step <c>default_spend_cap</c> (AB#9572) asks the AI service for the cluster's default
+///     monthly LLM cap of the new tenant - only when the parent is the system tenant (the platform operator's starter
+///     path); for every other caller it is skipped with the reason and the tenant stays at key source None.
 ///     <para>
 ///     Every step first checks whether it is already done and is then <c>skipped</c>, so calling the tool again for the
 ///     same tenant after a failure completes the remaining steps without repeating finished ones. The first failing step
@@ -30,11 +37,12 @@ internal static class StarterTenantSequence
     internal const string ProvisionStep = "provision_admin";
     internal const string CommunicationStep = "enable_communication";
     internal const string AiStep = "enable_ai";
+    internal const string SpendCapStep = "default_spend_cap";
     internal const string BlueprintStep = "install_blueprint";
     internal const string ReadyStep = "verify_ready";
 
     private static readonly string[] Steps =
-        [CreateStep, ProvisionStep, CommunicationStep, AiStep, BlueprintStep, ReadyStep];
+        [CreateStep, ProvisionStep, CommunicationStep, AiStep, SpendCapStep, BlueprintStep, ReadyStep];
 
     /// <summary>
     ///     Reads the ready state of the child with the caller's rights: null when ready, else what is missing. Tests
@@ -192,14 +200,20 @@ internal static class StarterTenantSequence
             return null;
         }
 
-        // 5. The starter blueprint, unless it is installed already.
+        // 5. The cluster's default LLM cap (AB#9572): only on the platform operator's path (parent = system tenant).
+        if (!await ApplyDefaultSpendCapAsync(server, parentTenantId, childTenantId, steps))
+        {
+            return null;
+        }
+
+        // 6. The starter blueprint, unless it is installed already.
         var installed = await InstallStarterAsync(server, features.Client!, childTenantId, starterBlueprintId, steps);
         if (installed == null)
         {
             return null;
         }
 
-        // 6. Ready state: builder agent, mandate, client and the app-index page, read with the caller's rights. Always
+        // 7. Ready state: builder agent, mandate, client and the app-index page, read with the caller's rights. Always
         //    checked (also on a repeated call), never skipped: it changes nothing.
         try
         {
@@ -216,6 +230,70 @@ internal static class StarterTenantSequence
         }
 
         return installed;
+    }
+
+    /// <summary>
+    ///     Step <c>default_spend_cap</c> (AB#9572). Invariant: central-key LLM spend opens for a tenant only through the
+    ///     platform (an <c>AiBudgetAdmin</c>, or once the starter default the AI service takes from cluster
+    ///     configuration). So the step calls the AI service only when the parent is the system tenant, with the caller's
+    ///     token for the system tenant and without an amount; the service checks the role <c>TenantManagement</c> again
+    ///     and never changes an existing entry. Any other parent, an unknown system tenant id or a refusal of the service
+    ///     (401/403) skip the step with the reason: the tenant stays at key source None and the gateway stays closed for
+    ///     it (fail-safe). Other errors fail the step; a repeated call asks again (the service answers <c>exists</c>).
+    /// </summary>
+    private static async Task<bool> ApplyDefaultSpendCapAsync(McpServer server, string parentTenantId,
+        string childTenantId, List<StarterStepDto> steps)
+    {
+        var systemTenantId = server.Services?.GetService<IOptions<OctoSystemConfiguration>>()?.Value.SystemTenantId;
+        if (string.IsNullOrWhiteSpace(systemTenantId) ||
+            !string.Equals(parentTenantId, systemTenantId, StringComparison.OrdinalIgnoreCase))
+        {
+            steps.Add(Skipped(SpendCapStep,
+                "only the platform operator creating the tenant in the system tenant gets the default LLM cap; parent " +
+                $"'{parentTenantId}' is not the system tenant, so '{childTenantId}' stays at key source None (LLM " +
+                "gateway closed) until an AiBudgetAdmin sets a cap."));
+            return true;
+        }
+
+        var ai = await Services.AiClientContext.TryBuildAsync(server, systemTenantId);
+        if (ai.Error != null)
+        {
+            steps.Add(Failed(SpendCapStep, ai.Error));
+            return false;
+        }
+
+        try
+        {
+            var result = await ai.Client!.ApplyStarterDefaultSpendCapAsync(childTenantId);
+            switch (result.Outcome)
+            {
+                case StarterSpendCapResultDto.Created:
+                    steps.Add(Done(SpendCapStep, result.Message));
+                    return true;
+                case StarterSpendCapResultDto.Exists:
+                case StarterSpendCapResultDto.NotConfigured:
+                    steps.Add(Skipped(SpendCapStep, result.Message));
+                    return true;
+                default:
+                    steps.Add(Failed(SpendCapStep,
+                        $"unexpected answer '{result.Outcome}' of the AI service: {result.Message}"));
+                    return false;
+            }
+        }
+        catch (ServiceClientResultException ex) when (ex.HttpStatusCode is HttpStatusCode.Forbidden
+                                                          or HttpStatusCode.Unauthorized)
+        {
+            steps.Add(Skipped(SpendCapStep,
+                $"the AI service refused the default cap for this caller ({(int)ex.HttpStatusCode}: it needs the role " +
+                $"TenantManagement in the system tenant); '{childTenantId}' stays at key source None (LLM gateway " +
+                "closed) until an AiBudgetAdmin sets a cap."));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            steps.Add(Failed(SpendCapStep, ex.Message));
+            return false;
+        }
     }
 
     private static async Task<bool> EnsureChildAccessAsync(McpServer server, string parentTenantId,

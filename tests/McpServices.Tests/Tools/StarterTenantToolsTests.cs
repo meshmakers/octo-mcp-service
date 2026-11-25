@@ -1,10 +1,15 @@
+using System.Net;
 using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.Configuration;
+using Meshmakers.Octo.Sdk.ServiceClient;
+using Meshmakers.Octo.Sdk.ServiceClient.AiServices;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Blueprints;
+using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
 
@@ -96,7 +101,8 @@ public class StarterTenantToolsTests : ToolTestBase
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
         result.FailedStep.Should().BeNull();
         Outcomes(result).Should().Equal("create_tenant=done", "provision_admin=skipped", "enable_communication=done",
-            "enable_ai=done", "install_blueprint=done", "verify_ready=done");
+            "enable_ai=done", "default_spend_cap=skipped",
+            "install_blueprint=done", "verify_ready=done");
         MockAssetClient.Verify(c => c.CreateTenantAsync(Child, Database), Times.Once);
         MockCommunicationClient.Verify(c => c.EnableAsync(Child), Times.Once);
         MockAiClient.Verify(c => c.EnableAsync(Child), Times.Once);
@@ -113,7 +119,7 @@ public class StarterTenantToolsTests : ToolTestBase
 
         again.IsSuccess.Should().BeTrue(again.ErrorMessage);
         Outcomes(again).Should().Equal("create_tenant=skipped", "provision_admin=skipped", "enable_communication=skipped",
-            "enable_ai=skipped", "install_blueprint=skipped", "verify_ready=done");
+            "enable_ai=skipped", "default_spend_cap=skipped", "install_blueprint=skipped", "verify_ready=done");
         MockAssetClient.Verify(c => c.CreateTenantAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
         MockCommunicationClient.Verify(c => c.EnableAsync(Child), Times.Once);
         MockAiClient.Verify(c => c.EnableAsync(Child), Times.Once);
@@ -137,14 +143,15 @@ public class StarterTenantToolsTests : ToolTestBase
         first.FailedStep.Should().Be("enable_ai");
         first.ErrorMessage.Should().Contain("enable_ai").And.Contain("Communication is not ready yet");
         Outcomes(first).Should().Equal("create_tenant=done", "provision_admin=skipped", "enable_communication=done",
-            "enable_ai=failed", "install_blueprint=notRun", "verify_ready=notRun");
+            "enable_ai=failed", "default_spend_cap=notRun", "install_blueprint=notRun", "verify_ready=notRun");
         MockAssetClient.Verify(c => c.ApplyBlueprintAsync(Child, It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
 
         var second = await CreateStarter();
 
         second.IsSuccess.Should().BeTrue(second.ErrorMessage);
         Outcomes(second).Should().Equal("create_tenant=skipped", "provision_admin=skipped",
-            "enable_communication=skipped", "enable_ai=done", "install_blueprint=done", "verify_ready=done");
+            "enable_communication=skipped", "enable_ai=done", "default_spend_cap=skipped",
+            "install_blueprint=done", "verify_ready=done");
         MockAssetClient.Verify(c => c.CreateTenantAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
         MockCommunicationClient.Verify(c => c.EnableAsync(Child), Times.Once);
     }
@@ -210,7 +217,7 @@ public class StarterTenantToolsTests : ToolTestBase
         result.IsSuccess.Should().BeFalse();
         result.FailedStep.Should().Be("provision_admin");
         Outcomes(result).Should().Equal("create_tenant=done", "provision_admin=failed", "enable_communication=notRun",
-            "enable_ai=notRun", "install_blueprint=notRun", "verify_ready=notRun");
+            "enable_ai=notRun", "default_spend_cap=notRun", "install_blueprint=notRun", "verify_ready=notRun");
         MockCommunicationClient.Verify(c => c.EnableAsync(It.IsAny<string>()), Times.Never);
         MockAiClient.Verify(c => c.EnableAsync(It.IsAny<string>()), Times.Never);
     }
@@ -254,7 +261,7 @@ public class StarterTenantToolsTests : ToolTestBase
         first.FailedStep.Should().Be("verify_ready");
         first.ErrorMessage.Should().Contain("builder-agent").And.Contain("System.Ai.Starter 1.1");
         Outcomes(first).Should().Equal("create_tenant=done", "provision_admin=skipped", "enable_communication=done",
-            "enable_ai=done", "install_blueprint=done", "verify_ready=failed");
+            "enable_ai=done", "default_spend_cap=skipped", "install_blueprint=done", "verify_ready=failed");
 
         _readyMissing.Remove(Child);
         var second = await CreateStarter();
@@ -276,6 +283,94 @@ public class StarterTenantToolsTests : ToolTestBase
         result.ErrorMessage.Should().Contain("repository unavailable");
     }
 
+    // AB#9572: default_spend_cap. The parent of the test calls is DefaultTenantId; registering it as the system tenant
+    // plays the platform operator's starter path.
+    private void GivenParentIsTheSystemTenant() =>
+        TestServiceProvider.RegisterService<IOptions<OctoSystemConfiguration>>(
+            Microsoft.Extensions.Options.Options.Create(new OctoSystemConfiguration { SystemTenantId = DefaultTenantId }));
+
+    private static StarterSpendCapResultDto CapResult(string outcome) => new()
+    {
+        TenantId = Child, Outcome = outcome, KeySource = outcome == "created" ? "CentralKey" : "None",
+        CapMonthlyEur = outcome == "created" ? 20m : 0m, Message = $"cap {outcome}"
+    };
+
+    [Fact]
+    public async Task Starter_InTheSystemTenant_AppliesTheDefaultCap_Once()
+    {
+        GivenParentIsTheSystemTenant();
+        MockAiClient.SetupSequence(c => c.ApplyStarterDefaultSpendCapAsync(Child))
+            .ReturnsAsync(CapResult(StarterSpendCapResultDto.Created))
+            .ReturnsAsync(CapResult(StarterSpendCapResultDto.Exists));
+
+        var first = await CreateStarter();
+        var again = await CreateStarter();
+
+        first.IsSuccess.Should().BeTrue(first.ErrorMessage);
+        first.StarterSteps.Single(s => s.Step == "default_spend_cap").Outcome.Should().Be("done");
+        first.StarterSteps.Single(s => s.Step == "default_spend_cap").Detail.Should().Be("cap created");
+        again.IsSuccess.Should().BeTrue(again.ErrorMessage);
+        again.StarterSteps.Single(s => s.Step == "default_spend_cap").Outcome.Should().Be("skipped");
+        MockAiClient.Verify(c => c.ApplyStarterDefaultSpendCapAsync(Child), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task Starter_InAChildTenant_SkipsTheDefaultCap_WithoutAskingTheAiService()
+    {
+        // The default fixture: the parent is no system tenant (a tenant administrator's starter path, abuse case 1).
+        var result = await CreateStarter();
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        var step = result.StarterSteps.Single(s => s.Step == "default_spend_cap");
+        step.Outcome.Should().Be("skipped");
+        step.Detail.Should().Contain("not the system tenant").And.Contain("key source None");
+        MockAiClient.Verify(c => c.ApplyStarterDefaultSpendCapAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Starter_SystemTenantWithoutConfiguredDefault_SkipsTheCap_AndCompletes()
+    {
+        GivenParentIsTheSystemTenant();
+        MockAiClient.Setup(c => c.ApplyStarterDefaultSpendCapAsync(Child))
+            .ReturnsAsync(CapResult(StarterSpendCapResultDto.NotConfigured));
+
+        var result = await CreateStarter();
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.StarterSteps.Single(s => s.Step == "default_spend_cap").Outcome.Should().Be("skipped");
+        Outcomes(result).Last().Should().Be("verify_ready=done");
+    }
+
+    [Fact]
+    public async Task Starter_AiServiceRefusesTheCaller_SkipsTheCap_WithTheReason()
+    {
+        GivenParentIsTheSystemTenant();
+        MockAiClient.Setup(c => c.ApplyStarterDefaultSpendCapAsync(Child))
+            .ThrowsAsync(new ServiceClientResultException("forbidden", HttpStatusCode.Forbidden));
+
+        var result = await CreateStarter();
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        var step = result.StarterSteps.Single(s => s.Step == "default_spend_cap");
+        step.Outcome.Should().Be("skipped");
+        step.Detail.Should().Contain("403").And.Contain("TenantManagement");
+    }
+
+    [Fact]
+    public async Task Starter_AiServiceError_FailsAtTheCap_AndInstallsNothing()
+    {
+        GivenParentIsTheSystemTenant();
+        MockAiClient.Setup(c => c.ApplyStarterDefaultSpendCapAsync(Child))
+            .ThrowsAsync(new ServiceClientResultException("boom", HttpStatusCode.InternalServerError));
+
+        var result = await CreateStarter();
+
+        result.IsSuccess.Should().BeFalse();
+        result.FailedStep.Should().Be("default_spend_cap");
+        Outcomes(result).Should().EndWith(["default_spend_cap=failed", "install_blueprint=notRun", "verify_ready=notRun"]);
+        MockAssetClient.Verify(c => c.ApplyBlueprintAsync(Child, It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+    }
+
     [Fact]
     public async Task WithoutStarter_CreateTenant_IsUnchanged()
     {
@@ -286,5 +381,6 @@ public class StarterTenantToolsTests : ToolTestBase
         _readyProbes.Should().Be(0);
         MockCommunicationClient.Verify(c => c.EnableAsync(It.IsAny<string>()), Times.Never);
         MockAiClient.Verify(c => c.EnableAsync(It.IsAny<string>()), Times.Never);
+        MockAiClient.Verify(c => c.ApplyStarterDefaultSpendCapAsync(It.IsAny<string>()), Times.Never);
     }
 }
