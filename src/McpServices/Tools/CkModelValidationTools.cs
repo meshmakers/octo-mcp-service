@@ -26,7 +26,7 @@ public sealed class CkModelValidationTools
         "exactly one way: inline as files (name/content pairs, names relative to ConstructionKit/, e.g. ckModel.yaml, " +
         "types/pump.yaml), up to 1 MiB (1048576 bytes of UTF-8 content) and 2000 files; or, for larger drafts, call " +
         "prepare_file_upload, PUT the file to the returned URL and pass the transferId. An inline draft over the " +
-        "limit is refused with errorCode InlineDraftTooLarge (message 9005). " +
+        "limit is refused with errorCode InlineDraftTooLarge (message 148). " +
         "Accepted: the source ConstructionKit/ folder (ckModel.yaml + types/ attributes/ enums/ records/ " +
         "associations/ ...; compiled on the server, dependencies resolved from the server's catalogs), or a compiled " +
         "model (yaml, json or a zip of one). The compiled model is checked with the import's own checks against the " +

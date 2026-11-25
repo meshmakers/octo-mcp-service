@@ -25,9 +25,9 @@ internal static class CkDraftInlinePackager
 
     /// <summary>
     ///     Message number of the refusal of an inline draft over <see cref="MaxInlineBytes" /> or
-    ///     <see cref="MaxInlineFiles" /> (numbered after the work item, like the asset repository's 8492).
+    ///     <see cref="MaxInlineFiles" />: CkModelInlineDraftTooLarge of the construction kit engine message catalog.
     /// </summary>
-    public const int InlineDraftTooLargeNumber = 9005;
+    public const int InlineDraftTooLargeNumber = 148;
 
     /// <summary>Stable error code of that refusal.</summary>
     public const string InlineDraftTooLargeCode = "InlineDraftTooLarge";
@@ -72,7 +72,8 @@ internal static class CkDraftInlinePackager
             return new Staged(null, packaged.TooLarge, InlineDraftTooLargeCode,
                 new CkModelValidationMessageDto
                 {
-                    MessageNumber = InlineDraftTooLargeNumber, Level = "Error", Message = packaged.TooLarge
+                    MessageNumber = InlineDraftTooLargeNumber, Level = "Error", Message = packaged.TooLarge,
+                    Parameters = new Dictionary<string, string> { ["detail"] = packaged.TooLarge }
                 });
         }
 

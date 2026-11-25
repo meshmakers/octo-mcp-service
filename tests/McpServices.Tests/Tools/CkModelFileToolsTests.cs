@@ -241,9 +241,9 @@ public class CkModelFileToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("InlineDraftTooLarge");
-        result.ErrorMessage.Should().Contain("prepare_file_upload").And.Contain("9005")
+        result.ErrorMessage.Should().Contain("prepare_file_upload").And.Contain("148")
             .And.Contain("import_ck_model with the transferId");
-        result.Errors.Should().ContainSingle().Which.MessageNumber.Should().Be(9005);
+        result.Errors.Should().ContainSingle().Which.MessageNumber.Should().Be(148);
         MockAssetClient.Verify(c => c.ImportCkModelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 

@@ -42,6 +42,10 @@
   Low, on the reading allow list. It never calls the uninstall: an asset repository without the preview route gives
   ErrorCode `BlueprintUninstallPreviewUnsupported`, an answer that is not a dry run `BlueprintUninstallPreviewNotDryRun`.
   Needs the tenant role DataModelManagement like the preview route.
+- **`validate_ck_model` and `import_ck_model` refuse only with engine catalog numbers (AB#8502).** An inline draft over
+  the limit is message 148 (`CkModelInlineDraftTooLarge`, parameter `detail`) instead of 9005; the asset repository and
+  the engine report an unreadable draft as 147, a dependency that cannot be resolved as 146 and a system reference
+  mismatch as 145 instead of 8492 with a `reason` parameter. README and `docs/file-transfer.md` list the numbers.
 - **`validate_pipeline_definition` caps its error list (AB#9731).** At most 50 entries in `Errors`; `TotalErrorCount`
   has the full count and `ErrorsTruncated` says when entries were left out, so an invalid draft with hundreds of findings
   cannot flood the caller's context. Keywords and codes unchanged.
