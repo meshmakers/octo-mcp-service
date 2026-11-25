@@ -139,6 +139,7 @@ _High=1 · Low=5 · Medium=2_  ·  **Owner reviewed:** ☐
 |------|---------|------------------|
 | `list_ck_catalogs` | **L** | |
 | `list_ck_catalog_models` | **L** | |
+| `get_ck_catalog_model_types` | **L** | AB#9370: reads a catalog model version (types, attributes, roles, enums) without importing; paged, take ≤ 50 |
 | `refresh_ck_catalogs` | **M** — owner: confirm | |
 | `get_ck_library_status` | **L** | |
 | `check_ck_dependencies` | **L** — owner: confirm | |

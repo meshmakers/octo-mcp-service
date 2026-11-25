@@ -594,8 +594,21 @@ public class AgentMandateGuardTests
     [InlineData("update_entity", McpRiskLevel.Low, false)]
     [InlineData("knowledge_set_status", McpRiskLevel.Low, false)]
     [InlineData("whoami", McpRiskLevel.Low, true)]
+    [InlineData("get_ck_catalog_model_types", McpRiskLevel.Low, true)] // AB#9370: reads a catalog model, imports nothing
     public void IsReading_NeedsTheExactAllowListAndLowRisk(string tool, McpRiskLevel risk, bool expected) =>
         AgentMandateGuard.IsReading(tool, risk).Should().Be(expected);
+
+    [Fact]
+    public async Task ProposeAgent_MayReadACatalogModelsTypes_ButNotImportIt()
+    {
+        // AB#9370: the builder reuses public kits first - it reads a catalog model without importing it.
+        _tenant.WriteMode = Propose;
+        _tenant.AddAgent("Builder", AgentClient, Medium, ("get_ck_catalog_model_types", Low), ("import_ck_from_catalog", Medium));
+
+        (await CheckAsync(Client(AgentClient), "get_ck_catalog_model_types", McpRiskLevel.Low)).Allowed.Should().BeTrue();
+        (await CheckAsync(Client(AgentClient), "import_ck_from_catalog", McpRiskLevel.Medium)).Code.Should()
+            .Be(AgentMandateGuard.ProposeRequired);
+    }
 
     [Fact]
     public void ReadingTools_AreRegisteredToolsOfLowRisk()

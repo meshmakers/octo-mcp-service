@@ -113,6 +113,13 @@ public class ListCkCatalogModelsResponse : AssetResponse
     public CkModelCatalogListResponseDto? Models { get; set; }
 }
 
+/// <summary>Response of get_ck_catalog_model_types (AB#9370).</summary>
+public class CkCatalogModelTypesResponse : AssetResponse
+{
+    /// <summary>One page of the catalog model's types, with the association roles and enums the page uses.</summary>
+    public CkCatalogModelTypesResponseDto? Model { get; set; }
+}
+
 /// <summary>Response of get_ck_library_status.</summary>
 public class CkLibraryStatusResponse : AssetResponse
 {

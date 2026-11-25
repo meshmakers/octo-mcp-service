@@ -182,7 +182,7 @@ dotnet run
 `list_blueprints` · `refresh_blueprint_catalogs` · `install_blueprint` · `get_blueprint_history` · `get_blueprint_update_info` · `preview_blueprint_update` · `update_blueprint`<sup>‡</sup> · `list_blueprint_installations` · `uninstall_blueprint`<sup>‡</sup>
 
 ### **Asset Repository — CK Model Libraries** (8)
-`list_ck_catalogs` · `list_ck_catalog_models` · `refresh_ck_catalogs` · `get_ck_library_status` · `check_ck_dependencies` · `check_ck_upgrade` · `import_ck_from_catalog` · `fix_all_ck_models`<sup>‡</sup>
+`list_ck_catalogs` · `list_ck_catalog_models` · `get_ck_catalog_model_types` · `refresh_ck_catalogs` · `get_ck_library_status` · `check_ck_dependencies` · `check_ck_upgrade` · `import_ck_from_catalog` · `fix_all_ck_models`<sup>‡</sup>
 
 ### **Communication Controller** (25)
 - Lifecycle (2): `enable_communication` · `disable_communication`<sup>‡</sup>

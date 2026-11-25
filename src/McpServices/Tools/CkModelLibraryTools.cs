@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
+using Meshmakers.Octo.Sdk.ServiceClient;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.CkModelCatalog;
 using ModelContextProtocol.Server;
 
@@ -79,6 +80,74 @@ public sealed class CkModelLibraryTools
         catch (Exception ex)
         {
             return new ListCkCatalogModelsResponse { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>Error code when the asset service has no catalog-types route yet (404 without problem code).</summary>
+    public const string CatalogModelTypesUnsupported = "CkCatalogModelTypesUnsupported";
+
+    /// <summary>
+    ///     AB#9370: read the types, attributes, enums and association roles of a catalog CK model version without
+    ///     importing it. Read-only; one bounded page.
+    /// </summary>
+    [McpServerTool(Name = "get_ck_catalog_model_types")]
+    [McpRisk(McpRiskLevel.Low)]
+    [Description(
+        "Read the types (with attributes and outbound associations), the association roles and the enums of a CK " +
+        "model version in a catalog WITHOUT importing it into the tenant - use it to check whether a public kit " +
+        "(e.g. Basic-2.7.0) already has a fitting type before you build your own model. Nothing is written. " +
+        "One page of types sorted by type id: 'filter' matches type id, description or attribute names " +
+        "(case-insensitive); 'take' is capped at 50 by the server. Attributes defined in a dependency (e.g. System) " +
+        "have no valueType here. Errors carry ErrorCode CkCatalogNotFound, CkCatalogModelNotFound, InvalidCkModelId, " +
+        "or CkCatalogModelTypesUnsupported (the asset service is too old for this read). Find catalogs and model " +
+        "versions with list_ck_catalogs and list_ck_catalog_models.")]
+    public static async Task<CkCatalogModelTypesResponse> GetCatalogModelTypes(
+        McpServer server,
+        [Description("Catalog name, e.g. PublicGitHubCatalog (see list_ck_catalogs).")] string catalogName,
+        [Description("Model id with version, e.g. Basic-2.7.0 (see list_ck_catalog_models).")] string modelId,
+        [Description("Optional text the type id, description or an attribute name must contain, e.g. location.")]
+        string? filter = null,
+        [Description("Types to skip (paging).")] int skip = 0,
+        [Description("Page size (default 20, max 50).")] int take = 20,
+        [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
+    {
+        var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
+        if (ctx.Error != null)
+        {
+            return new CkCatalogModelTypesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            var page = await ctx.Client!.GetCkCatalogModelTypesAsync(catalogName, modelId, filter, skip, take);
+            var more = page.Skip + page.Types.Count < page.TotalCount;
+            return new CkCatalogModelTypesResponse
+            {
+                IsSuccess = true,
+                TenantId = ctx.TenantId,
+                Model = page,
+                Message = $"Returned {page.Types.Count} of {page.TotalCount} matching type(s) " +
+                          $"({page.ModelTypeCount} in {page.ModelId}); not imported." +
+                          (more ? $" More: skip={page.Skip + page.Types.Count}." : "")
+            };
+        }
+        catch (Exception ex)
+        {
+            var problem = ServiceProblemMessage.From(ex);
+            var code = problem.Code;
+            if (code == null && ex is ServiceClientResultException { HttpStatusCode: System.Net.HttpStatusCode.NotFound })
+            {
+                code = CatalogModelTypesUnsupported;
+            }
+
+            return new CkCatalogModelTypesResponse
+            {
+                IsSuccess = false,
+                ErrorCode = code,
+                ErrorMessage = code == CatalogModelTypesUnsupported
+                    ? "The asset service does not offer the catalog model types read (update the platform); nothing was imported."
+                    : problem.Message
+            };
         }
     }
 

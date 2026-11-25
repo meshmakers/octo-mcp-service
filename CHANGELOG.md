@@ -36,6 +36,12 @@
 - **System.Ai 4.13.0 for the agent runtime (Feature AB#6054).** The agent tools need System.Ai 4.13.0 or later: it adds
   the channel-only `writeAccess` of `Agent` and `Mandate` to `AgentTrigger`, `Run` and `ActionRecord` (octo-ai-services#88);
   4.12.0 leaves these three types writable by every tenant administrator. `docs/agent-tools.md`.
+- **`get_ck_catalog_model_types` reads a catalog model version without importing it (AB#9370, Feature AB#8451).** Types
+  with attributes and associations, association roles and enums of e.g. `Basic-2.7.0`, filtered and paged (take ≤ 50),
+  so an agent reuses public kits before it builds its own model. Risk Low, on the reading allow list of the mandate
+  check (Propose agents may call it). ErrorCodes `CkCatalogNotFound`, `CkCatalogModelNotFound`, `InvalidCkModelId`,
+  `CkCatalogModelTypesUnsupported` (asset repository without the route). Needs octo-sdk and octo-asset-repo-services
+  with AB#9370.
 - **Write mode `Propose` enforced as "no change without a proposal" (AB#9730, Feature AB#8451, security).** Until the
   proposal flow exists (AB#8461/AB#8480), the mandate check refuses every tool that is no reading tool (exact allow
   list `AgentMandateGuard.ReadingTools`, Low risk) for a mandate whose `WriteMode` is not `Direct` (Propose or no value)
