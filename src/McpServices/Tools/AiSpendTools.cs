@@ -30,6 +30,15 @@ public class AiSpendCapChangeResponse : TenantManagementResponse
 [McpServerToolType]
 public sealed class AiSpendTools
 {
+    private static readonly string[] KeySources = ["CentralKey", "None", "ByoKey", "Subscription"];
+
+    /// <summary>
+    ///     A tenant id that is safe as one route segment: not empty, no '/', '\', '%' or '?', and not '.' or '..' (dot
+    ///     segments would reach another system route).
+    /// </summary>
+    internal static bool IsTenantSegment(string value) =>
+        value.Length > 0 && value != "." && value != ".." && value.IndexOfAny(['/', '\\', '%', '?', '#']) < 0;
+
     /// <summary>Read cap and spend.</summary>
     [McpServerTool(Name = "get_ai_spend")]
     [McpRisk(McpRiskLevel.Low)]
@@ -50,6 +59,11 @@ public sealed class AiSpendTools
         if (ctx.Error != null)
         {
             return new AiSpendResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        if (!string.IsNullOrWhiteSpace(targetTenantId) && !IsTenantSegment(targetTenantId.Trim()))
+        {
+            return new AiSpendResponse { IsSuccess = false, ErrorMessage = "targetTenantId is not a valid tenant id." };
         }
 
         try
@@ -74,11 +88,13 @@ public sealed class AiSpendTools
     [McpServerTool(Name = "set_ai_spend_cap")]
     [McpRisk(McpRiskLevel.High)]
     [Description(
-        "Set the monthly LLM spend cap in EUR (and the key source, default CentralKey) of a tenant for the central-key " +
+        "Set the monthly LLM spend cap in EUR (and optionally the key source) of a tenant for the central-key " +
         "LLM gateway. This decides how much Meshmakers' central LLM key may spend for the tenant per UTC month. Only a " +
         "session of the system tenant with the platform role AiBudgetAdmin succeeds; the AI service refuses everybody " +
         "else (403). Every change is audited with old and new value, who and the reason. Takes effect in the gateway " +
         "within at most 60 seconds. A cap of 0 stops the tenant's central-key calls. Requires confirm=true and a reason. " +
+        "Without keySource the tenant keeps its stored key source (CentralKey when it has none yet), so raising a cap " +
+        "never switches a ByoKey, Subscription or blocked (None) tenant to the central key. " +
         "Equivalent to octo-cli SetAiSpendCap.")]
     public static async Task<AiSpendCapChangeResponse> SetAiSpendCap(
         McpServer server,
@@ -86,7 +102,7 @@ public sealed class AiSpendTools
         [Description("Monthly cap in EUR (0 or more).")] decimal capMonthlyEur,
         [Description("Why the cap changes (stored in the audit record, 1-500 characters).")] string reason,
         [Description("Must be true to actually change the cap.")] bool confirm = false,
-        [Description("Key source: CentralKey (default), None, ByoKey or Subscription.")] string keySource = "CentralKey",
+        [Description("Key source: CentralKey, None, ByoKey or Subscription. Omit to keep the stored one.")] string? keySource = null,
         [Description("Tenant of the session (the system tenant). Falls back to URL route.")] string? tenantId = null)
     {
         if (!confirm)
@@ -101,6 +117,29 @@ public sealed class AiSpendTools
         if (string.IsNullOrWhiteSpace(targetTenantId))
         {
             return new AiSpendCapChangeResponse { IsSuccess = false, ErrorMessage = "targetTenantId is required." };
+        }
+
+        if (!IsTenantSegment(targetTenantId.Trim()))
+        {
+            return new AiSpendCapChangeResponse
+            {
+                IsSuccess = false,
+                ErrorMessage = "targetTenantId is not a valid tenant id."
+            };
+        }
+
+        string? knownKeySource = null;
+        if (!string.IsNullOrWhiteSpace(keySource))
+        {
+            knownKeySource = KeySources.FirstOrDefault(k => string.Equals(k, keySource.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (knownKeySource == null)
+            {
+                return new AiSpendCapChangeResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = $"keySource must be one of {string.Join(", ", KeySources)}."
+                };
+            }
         }
 
         if (capMonthlyEur < 0)
@@ -125,10 +164,21 @@ public sealed class AiSpendTools
 
         try
         {
+            if (knownKeySource == null)
+            {
+                // Keep the stored key source; a tenant without an entry yet (no change date) gets CentralKey.
+                var current = await ctx.Client!.GetAiSpendCapAsync(targetTenantId.Trim());
+                var stored = KeySources.FirstOrDefault(k =>
+                    string.Equals(k, current.KeySource, StringComparison.OrdinalIgnoreCase));
+                knownKeySource = stored == null || (stored == "None" && current.CapChangedAt == null)
+                    ? "CentralKey"
+                    : stored;
+            }
+
             var change = await ctx.Client!.SetAiSpendCapAsync(targetTenantId.Trim(), new SetAiSpendCapRequestDto
             {
                 CapMonthlyEur = capMonthlyEur,
-                KeySource = keySource,
+                KeySource = knownKeySource,
                 Reason = reason.Trim()
             });
             return new AiSpendCapChangeResponse
