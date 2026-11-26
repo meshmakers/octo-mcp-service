@@ -233,7 +233,7 @@ dotnet run
 
 ### **Agents** (5 tools, AB#8454)
 `create_agent` · `update_agent` · `set_agent_enabled` · `list_agents` · `get_agent` — System.Ai `Agent` +
-`Mandate` (System.Ai 4.12.0) and the agent's service-account client (`agent-<name>`, client_credentials, roles only as
+`Mandate` (System.Ai 4.13.0 or later) and the agent's service-account client (`agent-<name>`, client_credentials, roles only as
 passed, none by default). Mandate grants are validated against the tools of this server (`UnknownTool` names the tool;
 `RiskAboveCeiling`); defaults are narrow (no grants, risk Low, change budget 0, write mode Propose). The client secret is
 never returned. `set_agent_enabled false` switches the agent off and disables its client. The writing tools need a

@@ -9,7 +9,7 @@
   (`{tenant}/v1/aiSpend`, `system/v1/aiSpendCaps`). Setting and reading another tenant need a system-tenant session with the
   role `AiBudgetAdmin`; the AI service enforces it. Without `keySource` the tenant keeps its stored key source (`CentralKey` when it has none yet); `targetTenantId` must be one route segment (no `.`, `..`, `/`). Equivalent to octo-cli `GetAiSpend` / `SetAiSpendCap`.
 - **Agent tokens reach the platform only through MCP (AB#9729 option A, Feature AB#6054, security).** `create_agent`
-  gives the agent client the scope `octo_agent` instead of `octo_api` (System.Identity.Bootstrap 1.11.0), so its token
+  gives the agent client the scope `octo_agent` instead of `octo_api` (System.Identity.Bootstrap 1.12.0), so its token
   opens no platform API. The transport admits `octo_agent` only on client tokens; `AgentMandateGuard` refuses it for a
   caller that is no agent of the token's tenant (`NotAnAgent`) and refuses an agent whose token lacks it
   (`AgentScopeMissing`: agent clients created earlier or seeded with `octo_api` must be switched to `octo_agent`). For every downstream call
@@ -18,6 +18,9 @@
   with `Mcp:AgentExchangeClientSecret`, fingerprint for rotation; identity data version 4). No secret means no client,
   no exchange and every downstream call of an agent refused. An agent never acts in another tenant. Needs
   octo-identity-services with the agent exchange (same Feature). Details: `docs/agent-tools.md`.
+- **System.Ai 4.13.0 for the agent runtime (Feature AB#6054).** The agent tools need System.Ai 4.13.0 or later: it adds
+  the channel-only `writeAccess` of `Agent` and `Mandate` to `AgentTrigger`, `Run` and `ActionRecord` (octo-ai-services#88);
+  4.12.0 leaves these three types writable by every tenant administrator. `docs/agent-tools.md`.
 - **Static mandate check of agent tool calls (AB#9729, Feature AB#6054, security).** A `tools/call` filter
   (`AgentMandateFilter`) refuses a call of an agent's client (its `ServiceAccountClientId`, token tenant only) that its
   mandate does not cover: `AgentDisabled`, `ToolNotGranted`, `RiskAboveCeiling` (grant `MaxRisk`, absent = Low, or the

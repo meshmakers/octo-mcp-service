@@ -19,7 +19,7 @@ internal static class Constants
     public const string McpServicesDeviceClientId = "octo-mcpServices-device";
 
     /// <summary>
-    ///     API scope of an agent's service-account client (AB#9729, System.Identity.Bootstrap 1.11.0). A token with it
+    ///     API scope of an agent's service-account client (AB#9729, System.Identity.Bootstrap 1.12.0). A token with it
     ///     opens no platform API; MCP accepts it only from an agent of the token's tenant and exchanges it for an
     ///     <c>octo_api</c> token before any downstream call.
     /// </summary>

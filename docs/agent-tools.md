@@ -5,7 +5,7 @@ applies_to: **/Tools/AgentTools.cs, **/Services/Agents/**, **/Models/AgentRespon
 
 # Agent tools
 
-Five tools manage the agents of a tenant: the System.Ai types `Agent` and `Mandate` (System.Ai 4.12.0 or later; a
+Five tools manage the agents of a tenant: the System.Ai types `Agent` and `Mandate` (System.Ai 4.13.0 or later; a
 tenant without them gets `NoAgentTypes`) and the agent's service-account client in the tenant identity.
 
 | Tool | Risk | What it does |
@@ -39,6 +39,10 @@ GraphQL and REST of the asset repository, ImportRt and the generic entity tools 
 three writing agent tools put the channel on their session (`AgentModel.WriteChannel`), after the admin check and the
 agent-caller refusal; the caller's identity and roles stay on the session. Blueprint seeds (System.Ai.Builder) and system
 sessions are not restricted. A later Studio UI for agents builds on this API, not on generic entity writes.
+
+System.Ai 4.13.0 (octo-ai-services#88) declares the same channel-only `writeAccess` on `AgentTrigger`, `Run` and
+`ActionRecord`, so no caller writes them through GraphQL, REST, ImportRt or the generic entity tools either. Use System.Ai
+4.13.0 or later: 4.12.0 leaves these three types writable by every tenant administrator.
 
 ## Two paths, caller's rights on both
 
@@ -126,7 +130,7 @@ to run as the agent sets a new secret with `update_client_secret`.
 
 Invariant: a token of an agent's client is usable only through the MCP service and only for tools its mandate grants.
 
-- **Scope `octo_agent`.** The agent client holds the API scope `octo_agent` (System.Identity.Bootstrap 1.11.0), which is
+- **Scope `octo_agent`.** The agent client holds the API scope `octo_agent` (System.Identity.Bootstrap 1.12.0), which is
   attached to the MCP resource indicator only. No platform API accepts it: asset repository GraphQL and REST, identity
   REST and every other service require `octo_api`, so an agent token sent there directly is refused.
 - **Transport.** `McpAuthorizationPolicy` admits `octo_agent` only on a client token (no `sub`); a user token with it is
