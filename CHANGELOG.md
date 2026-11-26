@@ -4,6 +4,10 @@
 
 ### Added
 
+- **`get_ai_spend` and `set_ai_spend_cap` (AB#8690, new file `Tools/AiSpendTools.cs`).** Read (risk Low) and set (risk High,
+  `confirm=true`, reason) the monthly LLM spend cap of the central-key LLM gateway through the AI service
+  (`{tenant}/v1/aiSpend`, `system/v1/aiSpendCaps`). Setting and reading another tenant need a system-tenant session with the
+  role `AiBudgetAdmin`; the AI service enforces it. Without `keySource` the tenant keeps its stored key source (`CentralKey` when it has none yet); `targetTenantId` must be one route segment (no `.`, `..`, `/`). Equivalent to octo-cli `GetAiSpend` / `SetAiSpendCap`.
 - **Static mandate check of agent tool calls (AB#9729, Feature AB#6054, security).** A `tools/call` filter
   (`AgentMandateFilter`) refuses a call of an agent's client (its `ServiceAccountClientId`, token tenant only) that its
   mandate does not cover: `AgentDisabled`, `ToolNotGranted`, `RiskAboveCeiling` (grant `MaxRisk`, absent = Low, or the
