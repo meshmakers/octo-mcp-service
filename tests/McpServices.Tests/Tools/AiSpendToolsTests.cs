@@ -194,7 +194,9 @@ public class AiSpendToolsTests : ToolTestBase
         // A stored value this tool does not know must not become CentralKey on a cap-only change (fail closed).
         MockAiClient.Setup(c => c.GetAiSpendCapAsync("ai-sandbox")).ReturnsAsync(new AiSpendReportDto
         {
-            TenantId = "ai-sandbox", KeySource = stored!, CapChangedAt = DateTimeOffset.UnixEpoch
+            TenantId = "ai-sandbox",
+            KeySource = stored!,
+            CapChangedAt = DateTimeOffset.UnixEpoch
         });
 
         var result = await AiSpendTools.SetAiSpendCap(MockServer.Object, "ai-sandbox", 5m, "raise", confirm: true);

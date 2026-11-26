@@ -204,7 +204,8 @@ public sealed class AiSpendTools
         {
             return new AiSpendCapChangeResponse
             {
-                IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message)
+                IsSuccess = false,
+                ErrorMessage = ErrorTextRedactor.Redact(ex.Message)
             };
         }
     }
