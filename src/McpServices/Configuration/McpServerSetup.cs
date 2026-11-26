@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Backend.McpServices.Services.Agents;
 using Meshmakers.Octo.Backend.McpServices.Services.Knowledge;
 using ModelContextProtocol.Server;
 
@@ -20,11 +21,14 @@ internal static class McpServerSetup
     ///     Registers every tool, resource and prompt of this assembly: <c>[McpServerToolType]</c>,
     ///     <c>[McpServerResourceType]</c> (CkSchemaResources, KnowledgeResources - issue #4110; the worker calls
     ///     <c>resources/list</c> once at session start, then <c>resources/read</c> per resource it needs) and
-    ///     <c>[McpServerPromptType]</c> (KnowledgeFirstPrompts, AB#9087).
+    ///     <c>[McpServerPromptType]</c> (KnowledgeFirstPrompts, AB#9087), and the static mandate check in front of every
+    ///     <c>tools/call</c> (<see cref="AgentMandateFilter" />, AB#9729): an agent's client runs only the tools its
+    ///     mandate grants.
     /// </summary>
     public static IMcpServerBuilder WithOctoCapabilities(this IMcpServerBuilder builder) =>
         builder
             .WithToolsFromAssembly(typeof(McpServerSetup).Assembly)
             .WithResourcesFromAssembly(typeof(McpServerSetup).Assembly)
-            .WithPromptsFromAssembly(typeof(McpServerSetup).Assembly);
+            .WithPromptsFromAssembly(typeof(McpServerSetup).Assembly)
+            .WithRequestFilters(filters => filters.AddCallToolFilter(AgentMandateFilter.Filter));
 }

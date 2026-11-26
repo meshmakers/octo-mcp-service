@@ -1022,4 +1022,29 @@ public class KnowledgePlatformUpdateToolsTests : TestBase
         registry.GetRiskLevel("knowledge_adopt_platform_updates").Should().Be(McpRiskLevel.Medium);
         registry.GetRiskLevel("knowledge_dismiss_platform_update").Should().Be(McpRiskLevel.Medium);
     }
+
+    [Fact]
+    public void Descriptions_StateTheAiServicePassEvery15Minutes_AndTheCliCommand_NoMaintenancePipelineRun()
+    {
+        // The descriptions are what an agent or operator reads: they must say that the AI service adopts unedited pages by
+        // itself every 15 minutes, that the tool is for adopting immediately, and name the octo-cli command.
+        static string Describe(string method) =>
+            typeof(KnowledgePlatformUpdateTools).GetMethod(method)!
+                .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+                .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+
+        var adopt = Describe(nameof(KnowledgePlatformUpdateTools.KnowledgeAdoptPlatformUpdates));
+        var list = Describe(nameof(KnowledgePlatformUpdateTools.KnowledgeListPlatformUpdates));
+        var runRef = typeof(KnowledgePlatformUpdateTools).GetMethod(nameof(KnowledgePlatformUpdateTools.KnowledgeAdoptPlatformUpdates))!
+            .GetParameters().Single(p => p.Name == "runRef")
+            .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+            .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+
+        adopt.Should().Contain("every 15 minutes").And.Contain("immediately").And.Contain("AdoptKnowledgePlatformUpdates");
+        list.Should().Contain("every 15 minutes").And.Contain("ListKnowledgePlatformUpdates");
+        foreach (var text in new[] { adopt, list, runRef })
+        {
+            text.Should().NotContainEquivalentOf("maintenance pipeline");
+        }
+    }
 }
