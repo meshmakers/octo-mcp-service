@@ -79,7 +79,9 @@ internal static class AgentMandateFilter
     {
         var decision = await AgentMandateGuard.CheckAsync(caller, ReadResourceName, McpRiskLevel.High, tenantRepository,
             ckCache);
-        if (!decision.Allowed)
+        // A refusal before the grants are judged (AgentDisabled, AgentScopeMissing, NotAnAgent, MandateUnavailable) keeps
+        // its code; past that point no grant can admit a resource read.
+        if (!decision.Allowed && decision.Code is not (AgentMandateGuard.ToolNotGranted or AgentMandateGuard.RiskAboveCeiling))
         {
             return decision;
         }
