@@ -17,7 +17,9 @@
   the agent client id, through the new confidential client `octo-mcpServices-agent-exchange` (registered in every tenant
   with `Mcp:AgentExchangeClientSecret`, fingerprint for rotation; identity data version 4). No secret means no client,
   no exchange and every downstream call of an agent refused. An agent never acts in another tenant. Needs
-  octo-identity-services with the agent exchange (same Feature). Details: `docs/agent-tools.md`.
+  octo-identity-services with the agent exchange (same Feature). The exchange validates the identity service's TLS
+  certificate (development override `Mcp:AgentExchangeAcceptAnyServerCertificate`); only the two MCP endpoints admit
+  agent tokens, the diagnostics and file-transfer controllers do not. Details: `docs/agent-tools.md`.
 - **Agents never administer identity and read no MCP resources (AB#9729, Feature AB#6054, security).**
   `AgentMandateGuard` refuses every tool of the identity administration (clients, secrets, API scopes and resources,
   roles, users, groups, identity providers, mappings, rules, cross-tenant grants, overlays, admin provisioning), the
