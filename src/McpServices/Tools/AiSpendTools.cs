@@ -33,11 +33,12 @@ public sealed class AiSpendTools
     private static readonly string[] KeySources = ["CentralKey", "None", "ByoKey", "Subscription"];
 
     /// <summary>
-    ///     A tenant id that is safe as one route segment: not empty, no '/', '\', '%' or '?', and not '.' or '..' (dot
-    ///     segments would reach another system route).
+    ///     A tenant id that is safe as one route segment (allow-list): ASCII letters, digits, '-', '_' and '.', at most
+    ///     128 characters, and not '.' or '..' (dot segments would reach another system route).
     /// </summary>
     internal static bool IsTenantSegment(string value) =>
-        value.Length > 0 && value != "." && value != ".." && value.IndexOfAny(['/', '\\', '%', '?', '#']) < 0;
+        value.Length is > 0 and <= 128 && value != "." && value != ".." &&
+        value.All(c => c is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '-' or '_' or '.');
 
     /// <summary>Read cap and spend.</summary>
     [McpServerTool(Name = "get_ai_spend")]
@@ -80,7 +81,7 @@ public sealed class AiSpendTools
         }
         catch (Exception ex)
         {
-            return new AiSpendResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new AiSpendResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
@@ -166,13 +167,23 @@ public sealed class AiSpendTools
         {
             if (knownKeySource == null)
             {
-                // Keep the stored key source; a tenant without an entry yet (no change date) gets CentralKey.
+                // Keep the stored key source; only a tenant without an entry yet (None, no change date) gets
+                // CentralKey. A stored value this tool does not know (or none) is refused: defaulting it would open the
+                // central key on a cap-only change.
                 var current = await ctx.Client!.GetAiSpendCapAsync(targetTenantId.Trim());
                 var stored = KeySources.FirstOrDefault(k =>
                     string.Equals(k, current.KeySource, StringComparison.OrdinalIgnoreCase));
-                knownKeySource = stored == null || (stored == "None" && current.CapChangedAt == null)
-                    ? "CentralKey"
-                    : stored;
+                if (stored == null)
+                {
+                    return new AiSpendCapChangeResponse
+                    {
+                        IsSuccess = false,
+                        ErrorMessage = $"The stored key source of tenant '{targetTenantId.Trim()}' is not one of " +
+                                       $"{string.Join(", ", KeySources)}; pass keySource explicitly."
+                    };
+                }
+
+                knownKeySource = stored == "None" && current.CapChangedAt == null ? "CentralKey" : stored;
             }
 
             var change = await ctx.Client!.SetAiSpendCapAsync(targetTenantId.Trim(), new SetAiSpendCapRequestDto
@@ -191,7 +202,10 @@ public sealed class AiSpendTools
         }
         catch (Exception ex)
         {
-            return new AiSpendCapChangeResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new AiSpendCapChangeResponse
+            {
+                IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message)
+            };
         }
     }
 }

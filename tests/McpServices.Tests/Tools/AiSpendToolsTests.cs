@@ -111,6 +111,10 @@ public class AiSpendToolsTests : ToolTestBase
     [InlineData("..")]
     [InlineData("a/b")]
     [InlineData("a%2Fb")]
+    [InlineData("a b")]
+    [InlineData("a\u0001b")]
+    [InlineData("a;b")]
+    [InlineData("tenänt")]
     public async Task SetAiSpendCap_MissingOrInvalidTarget_IsRefusedBeforeAnyCall(string target)
     {
         var result = await AiSpendTools.SetAiSpendCap(MockServer.Object, target, 20m, "pilot", confirm: true);
@@ -179,6 +183,55 @@ public class AiSpendToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeTrue();
         sent!.KeySource.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("Free")]
+    [InlineData(null)]
+    [InlineData("3")]
+    public async Task SetAiSpendCap_WithoutKeySource_UnknownStoredKeySource_IsRefused_AndNothingIsSet(string? stored)
+    {
+        // A stored value this tool does not know must not become CentralKey on a cap-only change (fail closed).
+        MockAiClient.Setup(c => c.GetAiSpendCapAsync("ai-sandbox")).ReturnsAsync(new AiSpendReportDto
+        {
+            TenantId = "ai-sandbox", KeySource = stored!, CapChangedAt = DateTimeOffset.UnixEpoch
+        });
+
+        var result = await AiSpendTools.SetAiSpendCap(MockServer.Object, "ai-sandbox", 5m, "raise", confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("keySource");
+        MockAiClient.Verify(c => c.SetAiSpendCapAsync(It.IsAny<string>(), It.IsAny<SetAiSpendCapRequestDto>()),
+            Times.Never);
+    }
+
+    private const string Jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0LW9ubHkifQ.c2lnbmF0dXJlLXRlc3Qtb25seQ";
+
+    [Fact]
+    public async Task GetAiSpend_ServiceErrorEchoingTheToken_ReturnsTheErrorWithoutTheToken()
+    {
+        MockAiClient.Setup(c => c.GetAiSpendCapAsync("ai-sandbox"))
+            .ThrowsAsync(new InvalidOperationException($"500: HEADERS Authorization: Bearer {Jwt}"));
+
+        var result = await AiSpendTools.GetAiSpend(MockServer.Object, targetTenantId: "ai-sandbox");
+
+        result.IsSuccess.Should().BeFalse();
+        System.Text.Json.JsonSerializer.Serialize(result).Should().NotContain(Jwt);
+        result.ErrorMessage.Should().Contain("500");
+    }
+
+    [Fact]
+    public async Task SetAiSpendCap_ServiceErrorEchoingTheToken_ReturnsTheErrorWithoutTheToken()
+    {
+        MockAiClient.Setup(c => c.SetAiSpendCapAsync("ai-sandbox", It.IsAny<SetAiSpendCapRequestDto>()))
+            .ThrowsAsync(new InvalidOperationException($"500: token {Jwt} echoed"));
+
+        var result = await AiSpendTools.SetAiSpendCap(MockServer.Object, "ai-sandbox", 5m, "raise", confirm: true,
+            keySource: "CentralKey");
+
+        result.IsSuccess.Should().BeFalse();
+        System.Text.Json.JsonSerializer.Serialize(result).Should().NotContain(Jwt);
+        result.ErrorMessage.Should().Contain("500");
     }
 
     [Fact]
