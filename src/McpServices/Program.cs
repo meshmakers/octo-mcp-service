@@ -331,11 +331,11 @@ try
     // AB#5032: the policy adds the scope requirement on top of "authenticated" — a token without the
     // platform API scope no longer reaches any tool.
     app.MapMcp("/{tenantId:tenantId}/mcp")
-        .RequireAuthorization(McpAuthorizationPolicy.PolicyName);
+        .RequireAuthorization(McpAuthorizationPolicy.EndpointPolicyName);
 
     // Map tenantless MCP endpoint (tenant resolved via tool parameter)
     app.MapMcp("/mcp")
-        .RequireAuthorization(McpAuthorizationPolicy.PolicyName);
+        .RequireAuthorization(McpAuthorizationPolicy.EndpointPolicyName);
 
     // Log startup information
     var dynamicToolOptions = app.Services.GetRequiredService<IOptions<DynamicToolOptions>>().Value;

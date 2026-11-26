@@ -142,7 +142,9 @@ Invariant: a token of an agent's client is usable only through the MCP service a
   REST and every other service require `octo_api`, so an agent token sent there directly is refused.
 - **Transport.** `McpAuthorizationPolicy` admits `octo_agent` only on a client token (no `sub`); a user token with
   `octo_agent` only is refused at the endpoint, a user token that also carries `octo_api` passes the transport and is
-  refused by the agent check (`NotAnAgent`).
+  refused by the agent check (`NotAnAgent`). Only the two MCP endpoints admit agent tokens (policy
+  `McpEndpointPolicy`); the REST controllers of this service (system diagnostics, file transfer) keep the platform-scope
+  policy `McpTransportPolicy`, so an agent token never reaches them.
 - **Agent check.** `AgentMandateGuard` refuses a token with `octo_agent` whose caller is no agent of the token's tenant
   (`NotAnAgent`: a user token, a client that is no agent, a tenant without agent types, an agent of another tenant with
   the same client id). An agent is then checked against its mandate as above.
