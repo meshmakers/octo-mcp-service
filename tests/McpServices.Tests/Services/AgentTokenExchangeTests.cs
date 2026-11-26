@@ -308,6 +308,41 @@ public class AgentTokenExchangeTests
         session.Verify(s => s.CommitTransactionAsync(), Times.Never);
     }
 
+    [Fact]
+    public async Task Exchanger_UsesItsOwnCertificateValidatingClient_NotTheGeneralIdentityClient()
+    {
+        var handler = new CapturingHandler(HttpStatusCode.OK,
+            "{\"access_token\":\"x\",\"expires_in\":300,\"token_type\":\"Bearer\"}");
+        var factory = new SingleHandlerFactory(handler);
+
+        await Exchanger(handler, Secret, factory).ExchangeAsync(AgentToken, Tenant, TestContext.Current.CancellationToken);
+
+        factory.Names.Should().Equal(AgentTokenExchanger.AgentExchangeHttpClientName);
+    }
+
+    [Fact]
+    public void ExchangeClient_ValidatesTheCertificate_UnlessTheDevelopmentOptionIsSet()
+    {
+        static HttpClientHandler PrimaryHandler(bool acceptAny)
+        {
+            var services = new ServiceCollection();
+            services.AddOptions<McpServiceOptions>().Configure(o => o.AgentExchangeAcceptAnyServerCertificate = acceptAny);
+            AgentTokenExchanger.AddExchangeHttpClient(services);
+            var builder = services.BuildServiceProvider().GetRequiredService<IHttpMessageHandlerFactory>();
+            var handler = builder.CreateHandler(AgentTokenExchanger.AgentExchangeHttpClientName);
+            while (handler is DelegatingHandler delegating)
+            {
+                handler = delegating.InnerHandler!;
+            }
+
+            return (HttpClientHandler)handler;
+        }
+
+        PrimaryHandler(acceptAny: false).ServerCertificateCustomValidationCallback.Should().BeNull();
+        PrimaryHandler(acceptAny: true).ServerCertificateCustomValidationCallback.Should().NotBeNull();
+        new McpServiceOptions().AgentExchangeAcceptAnyServerCertificate.Should().BeFalse("validation is the default");
+    }
+
     // ---------- helpers ----------
 
     private static (Mock<ISystemContext> Context, Mock<IOctoAdminSession> Session) SystemContext(string? storedFingerprint)
@@ -371,8 +406,9 @@ public class AgentTokenExchangeTests
         return server.Object;
     }
 
-    private static AgentTokenExchanger Exchanger(HttpMessageHandler handler, string? secret) =>
-        new(new SingleHandlerFactory(handler),
+    private static AgentTokenExchanger Exchanger(HttpMessageHandler handler, string? secret,
+        SingleHandlerFactory? factory = null) =>
+        new(factory ?? new SingleHandlerFactory(handler),
             Options.Create(new McpServiceOptions
                 { AuthorityUrl = "https://identity.example.com", AgentExchangeClientSecret = secret }),
             NullLogger<AgentTokenExchanger>.Instance);
@@ -391,6 +427,12 @@ public class AgentTokenExchangeTests
 
     private sealed class SingleHandlerFactory(HttpMessageHandler handler) : IHttpClientFactory
     {
-        public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
+        public List<string> Names { get; } = [];
+
+        public HttpClient CreateClient(string name)
+        {
+            Names.Add(name);
+            return new HttpClient(handler, disposeHandler: false);
+        }
     }
 }

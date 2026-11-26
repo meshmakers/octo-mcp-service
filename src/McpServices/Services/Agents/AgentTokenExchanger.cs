@@ -37,6 +37,27 @@ internal sealed class AgentTokenExchanger(
     IOptions<McpServiceOptions> options,
     ILogger<AgentTokenExchanger> logger) : IAgentTokenExchanger
 {
+    /// <summary>
+    ///     Name of the HTTP client of the exchange. It validates the identity service's TLS certificate unless
+    ///     <c>Mcp:AgentExchangeAcceptAnyServerCertificate</c> is set (development only).
+    /// </summary>
+    public const string AgentExchangeHttpClientName = "identity-agent-exchange";
+
+    /// <summary>
+    ///     Registers the HTTP client of the exchange: it carries the exchange client secret, so it validates the identity
+    ///     service's certificate unless the development option <c>Mcp:AgentExchangeAcceptAnyServerCertificate</c> is set.
+    /// </summary>
+    public static IHttpClientBuilder AddExchangeHttpClient(IServiceCollection services) =>
+        services.AddHttpClient(AgentExchangeHttpClientName)
+            .ConfigurePrimaryHttpMessageHandler(sp =>
+                sp.GetRequiredService<IOptions<McpServiceOptions>>().Value.AgentExchangeAcceptAnyServerCertificate
+                    ? new HttpClientHandler
+                    {
+                        ServerCertificateCustomValidationCallback =
+                            HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+                    }
+                    : new HttpClientHandler());
+
     private const string TokenExchangeGrantType = "urn:ietf:params:oauth:grant-type:token-exchange";
     private const string AccessTokenType = "urn:ietf:params:oauth:token-type:access_token";
     private static readonly TimeSpan ExpiryMargin = TimeSpan.FromSeconds(30);
@@ -69,7 +90,9 @@ internal sealed class AgentTokenExchanger(
             return cached.Token;
         }
 
-        var client = httpClientFactory.CreateClient("identity");
+        // The exchange carries the exchange client secret: its own client validates the identity service's certificate
+        // (Program.cs, AgentExchangeHttpClientName), unlike the general "identity" client.
+        var client = httpClientFactory.CreateClient(AgentExchangeHttpClientName);
         var tokenEndpoint = $"{options.Value.AuthorityUrl.TrimEnd('/')}/connect/token";
         using var request = new FormUrlEncodedContent(new Dictionary<string, string>
         {

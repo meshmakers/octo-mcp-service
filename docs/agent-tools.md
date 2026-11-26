@@ -151,7 +151,7 @@ Invariant: a token of an agent's client is usable only through the MCP service a
 - **One exchange point.** For every downstream call `McpSessionContext.ResolveAccessTokenAsync` exchanges the agent token
   (`IAgentTokenExchanger`, RFC 8693) for a five-minute `octo_api` token of the agent client with `act` = the agent client
   id, presented by MCP's confidential client `octo-mcpServices-agent-exchange` in the agent's own tenant. The result is
-  kept per agent token until 30 seconds before it expires. The agent token itself is never sent downstream: when no
+  kept per agent token until 30 seconds before it expires. Because of this cache, a role removed from the agent client (`update_agent` roles) reaches its downstream calls only when the cached token expires (at most about four and a half minutes); disabling the agent or changing its grants takes effect on the next call (the mandate check reads them every time), so switch the agent off first when it must stop at once. The exchange uses its own HTTP client that validates the identity service's TLS certificate (`Mcp:AgentExchangeAcceptAnyServerCertificate` turns that off, development only). The agent token itself is never sent downstream: when no
   exchange is possible the tool gets the error "the agent token could not be exchanged". An agent never acts in another
   tenant ("an agent acts only in its own tenant"), and the public device client never exchanges an agent token.
 - **Exchange client.** MCP registers `octo-mcpServices-agent-exchange` in every tenant through its identity data

@@ -125,6 +125,9 @@ try
         {
             ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
         });
+    // AB#9729: the agent token exchange sends the exchange client secret; it validates the certificate unless the
+    // development option Mcp:AgentExchangeAcceptAnyServerCertificate is set.
+    AgentTokenExchanger.AddExchangeHttpClient(builder.Services);
     // #4146 — the named "github" client targets https://api.github.com. No custom cert
     // handler because GitHub's cert chain is in the system trust store on the worker
     // pod and the adapter image. Timeout pinned so a stuck GitHub side never blocks

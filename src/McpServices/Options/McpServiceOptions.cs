@@ -124,6 +124,14 @@ public class McpServiceOptions
     public string? AgentExchangeClientSecret { get; set; }
 
     /// <summary>
+    ///     AB#9729: development only. When true, the agent token exchange accepts any TLS certificate of the identity
+    ///     service (as the other identity calls of this service do). Default false: the exchange sends the exchange
+    ///     client secret and the agent token only over a connection whose certificate the system trusts
+    ///     (<c>OCTO_MCP__AGENTEXCHANGEACCEPTANYSERVERCERTIFICATE</c>).
+    /// </summary>
+    public bool AgentExchangeAcceptAnyServerCertificate { get; set; }
+
+    /// <summary>
     ///     Client id of the AI service's MCP service client (AB#9189, AB#9188), default <c>octo-ai-adapter</c>
     ///     (<c>OCTO_MCP__AISERVICECLIENTID</c>). A client-credentials token is bound to the tenant it was issued for;
     ///     the only exception is a token of exactly this client issued for the <b>system tenant</b>
