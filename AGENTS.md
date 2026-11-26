@@ -49,6 +49,7 @@ configuration). The three layers have different cost profiles and different vali
 | When you change | Read first |
 |---|---|
 | `**/Tools/{DataFlowTriggerDeploymentSite,TenantManagement,AiLifecycle,ApiSecret,Blueprint}Tools.cs`, `**/Services/{IdentityForbiddenMessage,AiClientContext}.cs` | `docs/admin-tools.md` |
+| `**/Tools/AgentTools.cs`, `**/Services/Agents/**`, `**/Models/AgentResponses.cs` | `docs/agent-tools.md` |
 | `**/Tools/{RuntimeAggregation,StreamData*}Tools.cs`, `**/Services/{AggregationMapper,AvailableArchivePaths*}.cs`, `**/Models/{Aggregation,Filters}/**` | `docs/aggregation-tools.md` |
 | `**/Program.cs`, `**/Configuration/**`, `**/SystemApi/**`, `**/Services/McpSession*.cs`, `**/Services/Tenant*.cs`, `**/Tools/AuthenticationTools.cs` | `docs/authentication.md` |
 | `src/McpServices.MethodClients/**`, `**/{CkMethodTools,CkMethodInvocationPlanner,DynamicCkMethodClient}.cs`, `**/UserManagementTools.cs`, `**/RoleManagementTools.cs`, `**/ErrorTextRedactor.cs`, `**/McpPayloadLogFilter.cs`, `**/Identity{Method*,RtIds,ProviderMethods}.cs` | `docs/ck-method-clients.md` |

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Added
+
+- **Static mandate check of agent tool calls (AB#9729, Feature AB#6054, security).** A `tools/call` filter
+  (`AgentMandateFilter`) refuses a call of an agent's client (its `ServiceAccountClientId`, token tenant only) that its
+  mandate does not cover: `AgentDisabled`, `ToolNotGranted`, `RiskAboveCeiling` (grant `MaxRisk`, absent = Low, or the
+  mandate's ceiling) and `MandateUnavailable` (fail closed: lookup error, ambiguous agent or mandate, missing tenant). The
+  tool does not run; other callers are not affected; no cache. The writing agent tools refuse every agent caller
+  (`AgentCaller`, replaces `SelfModification`) and write on the channel `System.Ai/AgentAdministration`, the only way
+  System.Ai 4.12.0 admits writes of `Agent` and `Mandate` (generic entity tools and GraphQL are refused by the engine).
+  `docs/agent-tools.md`.
+- **Agent tools (AB#8454, Feature AB#6054).** `create_agent`, `update_agent`, `set_agent_enabled` (Medium risk),
+  `list_agents` and `get_agent` (Low) manage the System.Ai `Agent` and `Mandate` (System.Ai 4.12.0) of a tenant and the
+  agent's service-account client in the tenant identity (System.Identity CK methods). Grants must name tools of this
+  server (`UnknownTool`), stay at or below the risk ceiling and default to a narrow mandate (no grants, Low, budget 0,
+  Propose). The writing tools need a tenant administrator (`TenantManagement` or `UserManagement`, else
+  `NotTenantAdministrator`) and refuse agent callers (`AgentCaller`, AB#9729). Entities are written with the
+  caller's session before the client is created; a failed identity step removes them again. The client secret is never returned. `docs/agent-tools.md`.
+
 ### Changed
 
 - **No routed `ExecutePipelineRequest` command client (AB#7465).** The service no longer registers it: only the
