@@ -20,9 +20,11 @@ namespace Meshmakers.Octo.Backend.McpServices.SystemApi.v1.Controllers;
 ///     and a disclosure one — and turning them off hides an attack in progress. Every sibling service
 ///     gates the identical endpoint (asset-repo, bot, communication-controller, identity).
 ///     <para>
-///         The policy is <see cref="McpAuthorizationPolicy.PolicyName" />, the one this service already
-///         requires on both <c>MapMcp</c> transport endpoints — deliberately not a new policy of this
-///         controller's own. It is <c>RequireAuthenticatedUser</c> plus at least one of
+///         The policy is <see cref="McpAuthorizationPolicy.PolicyName" />, the platform-scope policy of
+///         this service — deliberately not a new policy of this controller's own, and never
+///         <see cref="McpAuthorizationPolicy.EndpointPolicyName" />: that one also admits agent tokens
+///         (<c>octo_agent</c>), which only the <c>MapMcp</c> endpoints may accept because only there every
+///         agent call passes the mandate guard and the token exchange. It is <c>RequireAuthenticatedUser</c> plus at least one of
 ///         <c>Mcp:RequiredApiScopes</c> (default <c>octo_api</c>), which is the same platform write
 ///         scope the sibling services' system diagnostics endpoints require. A caller that can already
 ///         invoke <c>delete_tenant</c> over the transport therefore gains nothing new here, and a token
