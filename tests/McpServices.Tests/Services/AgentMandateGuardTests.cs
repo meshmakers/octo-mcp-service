@@ -472,7 +472,8 @@ public class AgentMandateGuardTests
     public void ForbiddenTools_CoverEveryIdentityWriteAndTheAgentTools_ButNotTheKnowledgeTools()
     {
         AgentForbiddenTools.All.Should().Contain(["add_scope_to_client", "update_client_secret",
-            "add_client_credentials_client", "add_client_to_role", "create_agent", "update_agent", "set_agent_enabled"]);
+            "add_client_credentials_client", "add_client_to_role", "create_agent", "update_agent", "set_agent_enabled",
+            "restore_tenant", "restore_secret_sweep_dump"]);
         AgentForbiddenTools.All.Should().NotContain(["knowledge_get", "query_entities", "whoami"]);
     }
 

@@ -8,10 +8,11 @@ namespace Meshmakers.Octo.Backend.McpServices.Services.Agents;
 /// <summary>
 ///     AB#9729: the tools an agent never runs, whatever its mandate grants and whatever roles its client holds: every tool
 ///     of the identity administration (clients, client secrets, API scopes and resources, roles, users, groups, identity
-///     providers, external user mappings, e-mail domain rules, cross-tenant grants, client overlays, admin provisioning)
-///     and the agent tools. With any of them an agent could widen its own client (add <c>octo_api</c>, roles or a
-///     secret), take over the exchange client <c>octo-mcpServices-agent-exchange</c> or create a client outside the
-///     mandate check, and so raise its own mandate. The whole tool class counts, reads included, so a new tool of one of
+///     providers, external user mappings, e-mail domain rules, cross-tenant grants, client overlays, admin provisioning),
+///     the agent tools, and the tenant dump/restore and secret maintenance tools (a restore of an old dump would bring
+///     back an earlier, broader mandate or client). With any of them an agent could widen its own client (add
+///     <c>octo_api</c>, roles or a secret), take over the exchange client <c>octo-mcpServices-agent-exchange</c> or
+///     create a client outside the mandate check, and so raise its own mandate. The whole tool class counts, reads included, so a new tool of one of
 ///     these classes is covered without a list to maintain.
 /// </summary>
 internal static class AgentForbiddenTools
@@ -32,7 +33,9 @@ internal static class AgentForbiddenTools
         typeof(EmailDomainGroupRuleTools),
         typeof(CrossTenantGrantPermissionTools),
         typeof(ClientOverlayTools),
-        typeof(AdminProvisioningTools)
+        typeof(AdminProvisioningTools),
+        typeof(TenantBackupTools),
+        typeof(SecretMaintenanceTools)
     ];
 
     private static readonly Lazy<FrozenSet<string>> Names = new(() => ToolTypes

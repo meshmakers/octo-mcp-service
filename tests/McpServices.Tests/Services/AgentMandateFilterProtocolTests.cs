@@ -8,6 +8,7 @@ using Meshmakers.Octo.Backend.McpServices.Services.Agents;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -180,6 +181,21 @@ public sealed class AgentMandateFilterProtocolTests : IAsyncDisposable
         result.IsError.Should().NotBe(true);
         result.Content.OfType<TextContentBlock>().Single().Text.Should().NotContain(AgentMandateGuard.ToolNotGranted);
         ToolRan(true);
+    }
+
+    [Theory]
+    [InlineData("knowledge-page://tenant-a/getting-started")]
+    [InlineData("ck-schema://tenant-a/domain")]
+    public async Task AgentClient_ResourceRead_IsRefusedByTheRegisteredFilter_AndTheResourceDoesNotRun(string uri)
+    {
+        _tenant.AddAgent("Builder", AgentClient, 2, ("knowledge_*", 2));
+        await using var client = await ConnectAsync(Principal(null, AgentClient));
+
+        var act = () => client.ReadResourceAsync(uri, cancellationToken: TestContext.Current.CancellationToken).AsTask();
+
+        (await act.Should().ThrowAsync<McpException>()).Which.Message.Should()
+            .Contain(AgentMandateGuard.ForbiddenForAgents);
+        ToolRan(false);
     }
 
     public async ValueTask DisposeAsync()

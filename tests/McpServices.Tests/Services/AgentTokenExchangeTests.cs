@@ -7,6 +7,9 @@ using Meshmakers.Octo.Backend.McpServices.Configuration;
 using Meshmakers.Octo.Backend.McpServices.Options;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using Meshmakers.Octo.Backend.McpServices.Services.Agents;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
+using Meshmakers.Octo.Services.Infrastructure.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -110,6 +113,32 @@ public class AgentTokenExchangeTests
         resolved.Error.Should().Be(Constants.AgentOtherTenantError("other-tenant"));
         exchanger.VerifyNoOtherCalls();
         tenantExchanger.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task BotHelper_AgentCallerAskingForAnotherTenant_IsRefused_WithoutAnyExchange()
+    {
+        var exchanger = new Mock<IAgentTokenExchanger>();
+        var server = Server(Principal(sub: null, clientId: AgentClient, "octo_agent"), exchanger.Object,
+            tenantResolution: "other-tenant");
+
+        var bot = await BotClientContext.TryBuildAsync(server, "other-tenant");
+
+        bot.Client.Should().BeNull();
+        bot.Error.Should().Be(Constants.AgentOtherTenantError("other-tenant"));
+        exchanger.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task BotHelper_UserAskingForAnotherTenant_IsLeftToTheBotService()
+    {
+        var server = Server(Principal(sub: "user-1", clientId: "octo-cli", "octo_api"), null,
+            tenantResolution: "other-tenant");
+
+        var bot = await BotClientContext.TryBuildAsync(server, "other-tenant");
+
+        bot.Error.Should().NotBe(Constants.AgentOtherTenantError("other-tenant"),
+            "only agents are bound to their own tenant on the MCP side; a user's cross-tenant job is judged by the Bot service");
     }
 
     [Fact]
@@ -230,7 +259,70 @@ public class AgentTokenExchangeTests
         first.Should().HaveLength(8);
     }
 
+    [Fact]
+    public async Task Rotation_ChangedFingerprint_ResetsTheIdentityDataVersion_AndStoresTheNewFingerprint_InOneTransaction()
+    {
+        var (systemContext, session) = SystemContext(storedFingerprint: "old00000");
+
+        var reset = await AgentExchangeClientRegistration.ResetIdentityDataVersionIfChangedAsync(systemContext.Object,
+            "McpIdentityDataVersion", "new11111");
+
+        reset.Should().BeTrue();
+        systemContext.Verify(c => c.SetConfigurationAsync(session.Object, "McpIdentityDataVersion",
+            It.Is<object>(v => v is DefaultConfigurationVersion && ((DefaultConfigurationVersion)v).Version == -1)), Times.Once);
+        systemContext.Verify(c => c.SetConfigurationAsync(session.Object, AgentExchangeClientRegistration.FingerprintKey,
+            "new11111"), Times.Once);
+        session.Verify(s => s.StartTransaction(), Times.Once);
+        session.Verify(s => s.CommitTransactionAsync(), Times.Once);
+        session.Verify(s => s.AbortTransactionAsync(), Times.Never);
+    }
+
+    [Fact]
+    public async Task Rotation_SameFingerprint_ChangesNothing()
+    {
+        var (systemContext, session) = SystemContext(storedFingerprint: "same2222");
+
+        var reset = await AgentExchangeClientRegistration.ResetIdentityDataVersionIfChangedAsync(systemContext.Object,
+            "McpIdentityDataVersion", "same2222");
+
+        reset.Should().BeFalse();
+        systemContext.Verify(c => c.SetConfigurationAsync(It.IsAny<IOctoAdminSession>(), It.IsAny<string>(),
+            It.IsAny<object>()), Times.Never);
+        systemContext.Verify(c => c.SetConfigurationAsync(It.IsAny<IOctoAdminSession>(), It.IsAny<string>(),
+            It.IsAny<string>()), Times.Never);
+        session.Verify(s => s.CommitTransactionAsync(), Times.Never);
+    }
+
+    [Fact]
+    public async Task Rotation_WriteFails_AbortsTheTransaction_AndRethrows()
+    {
+        var (systemContext, session) = SystemContext(storedFingerprint: null);
+        systemContext.Setup(c => c.SetConfigurationAsync(It.IsAny<IOctoAdminSession>(), AgentExchangeClientRegistration.FingerprintKey,
+            It.IsAny<string>())).ThrowsAsync(new InvalidOperationException("store down"));
+
+        var act = () => AgentExchangeClientRegistration.ResetIdentityDataVersionIfChangedAsync(systemContext.Object,
+            "McpIdentityDataVersion", "new11111");
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        session.Verify(s => s.AbortTransactionAsync(), Times.Once);
+        session.Verify(s => s.CommitTransactionAsync(), Times.Never);
+    }
+
     // ---------- helpers ----------
+
+    private static (Mock<ISystemContext> Context, Mock<IOctoAdminSession> Session) SystemContext(string? storedFingerprint)
+    {
+        var session = new Mock<IOctoAdminSession>();
+        session.Setup(s => s.CommitTransactionAsync()).Returns(Task.CompletedTask);
+        session.Setup(s => s.AbortTransactionAsync()).Returns(Task.CompletedTask);
+        var context = new Mock<ISystemContext>();
+        context.Setup(c => c.GetAdminSessionAsync()).ReturnsAsync(session.Object);
+        context.Setup(c => c.GetConfigurationAsync(session.Object, AgentExchangeClientRegistration.FingerprintKey,
+            It.IsAny<string?>())).ReturnsAsync(storedFingerprint);
+        context.Setup(c => c.SetConfigurationAsync(It.IsAny<IOctoAdminSession>(), It.IsAny<string>(), It.IsAny<object>()))
+            .Returns(Task.CompletedTask);
+        return (context, session);
+    }
 
     private static ClaimsPrincipal Principal(string? sub, string? clientId, params string[] scopes)
     {
@@ -250,7 +342,7 @@ public class AgentTokenExchangeTests
     }
 
     private static McpServer Server(ClaimsPrincipal principal, IAgentTokenExchanger? exchanger,
-        ITenantTokenExchanger? tenantExchanger = null)
+        ITenantTokenExchanger? tenantExchanger = null, string? tenantResolution = null)
     {
         var httpContext = new DefaultHttpContext { User = principal };
         httpContext.Request.Headers.Authorization = "Bearer " + AgentToken;
@@ -265,6 +357,13 @@ public class AgentTokenExchangeTests
         if (exchanger != null)
         {
             services.AddSingleton(exchanger);
+        }
+
+        if (tenantResolution != null)
+        {
+            var resolver = new Mock<ITenantResolutionService>();
+            resolver.Setup(r => r.ResolveTenantId(It.IsAny<string?>())).Returns(tenantResolution);
+            services.AddSingleton(resolver.Object);
         }
 
         var server = new Mock<McpServer>();
