@@ -81,6 +81,8 @@ public sealed class AgentMandateFilterProtocolTests : IAsyncDisposable
             claims.Add(new Claim("client_id", clientId));
         }
 
+        // AB#9729: an agent client's token carries the agent scope only; the other callers carry octo_api.
+        claims.Add(new Claim("scope", subject == null && clientId == AgentClient ? "octo_agent" : "octo_api"));
         claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
         return new ClaimsPrincipal(new ClaimsIdentity(claims, "Bearer"));
     }

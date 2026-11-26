@@ -11,7 +11,8 @@
 - **Agent tokens reach the platform only through MCP (AB#9729 option A, Feature AB#6054, security).** `create_agent`
   gives the agent client the scope `octo_agent` instead of `octo_api` (System.Identity.Bootstrap 1.11.0), so its token
   opens no platform API. The transport admits `octo_agent` only on client tokens; `AgentMandateGuard` refuses it for a
-  caller that is no agent of the token's tenant (`NotAnAgent`). For every downstream call
+  caller that is no agent of the token's tenant (`NotAnAgent`) and refuses an agent whose token lacks it
+  (`AgentScopeMissing`: agent clients created earlier or seeded with `octo_api` must be switched to `octo_agent`). For every downstream call
   `McpSessionContext.ResolveAccessTokenAsync` exchanges the agent token for a five-minute `octo_api` token with `act` =
   the agent client id, through the new confidential client `octo-mcpServices-agent-exchange` (registered in every tenant
   with `Mcp:AgentExchangeClientSecret`, fingerprint for rotation; identity data version 4). No secret means no client,

@@ -57,6 +57,9 @@ internal static class AgentMandateGuard
     /// </summary>
     public const string NotAnAgent = "NotAnAgent";
 
+    /// <summary>AB#9729: the caller is an agent, but its token does not carry the agent scope <c>octo_agent</c>.</summary>
+    public const string AgentScopeMissing = "AgentScopeMissing";
+
     /// <summary>Checks one tool call of <paramref name="caller" />.</summary>
     /// <param name="caller">The validated request principal, null when unauthenticated.</param>
     /// <param name="toolName">The tool the caller wants to run.</param>
@@ -81,6 +84,16 @@ internal static class AgentMandateGuard
             return AgentMandateDecision.Refuse(NotAnAgent,
                 $"Client '{caller.ClientId}' carries the agent scope octo_agent but is no agent of tenant " +
                 $"'{caller.TenantId}'; the call is refused.");
+        }
+
+        // AB#9729: an agent's token must carry octo_agent. A token of an agent client with octo_api (a client created
+        // before option A, or seeded with octo_api) would otherwise reach the platform APIs unexchanged and without act.
+        if (decision.AgentName != null && caller?.HasAgentScope != true)
+        {
+            return AgentMandateDecision.Refuse(AgentScopeMissing,
+                $"The token of agent '{decision.AgentName}' (client '{caller?.ClientId}') does not carry the agent scope " +
+                "octo_agent; an agent client must hold octo_agent only (update its allowed scopes). The call is refused.",
+                decision.AgentName);
         }
 
         return decision;

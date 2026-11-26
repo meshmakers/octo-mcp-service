@@ -78,6 +78,7 @@ mandate's `RiskCeiling`.
 | `ToolNotGranted` | No grant of the mandate matches the tool |
 | `RiskAboveCeiling` | The tool's risk is above the matching grant's `MaxRisk` or above the mandate's `RiskCeiling` (the message says which) |
 | `NotAnAgent` | The token carries the agent scope `octo_agent`, but the caller is no agent of the token's tenant (user token, client that is no agent, tenant without agent types) |
+| `AgentScopeMissing` | The caller is an agent, but its token does not carry `octo_agent` (an agent client created before AB#9729 option A, or seeded with `octo_api`): such a token would reach the platform unexchanged and without `act`. Give the client the scope `octo_agent` only |
 | `MandateUnavailable` | Fail closed: no `tenant_id` on a token with a client id, the agents or the mandate cannot be read (store error), several agents with the same client id, the agent list at its read limit (`AgentModel.MaxAgents`), no or several mandates, a mandate that does not exist, a risk ceiling outside Low..High |
 
 A refusal is an error result (`isError: true`) whose text is JSON: `isSuccess` false, `errorCode`, `errorMessage` (the
