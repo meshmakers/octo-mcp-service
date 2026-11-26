@@ -219,7 +219,7 @@ public static class AgentTools
                 // a token before an administrator enables it (set_agent_enabled switches both).
                 var created = await IdentityMethodCall.RunAsync(() => Clients(identity).CreateClientAsync(clientId, enabled,
                     $"Agent {name.Trim()}", null, [OidcConstants.GrantTypes.ClientCredentials], null, null, null,
-                    [CommonConstants.OctoApiFullAccess], false, true, secret, null, null, null, null, null),
+                    [Constants.AgentScope], false, true, secret, null, null, null, null, null),
                     secretMethod: true);
                 if (!created.IsSuccess)
                 {

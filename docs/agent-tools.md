@@ -77,6 +77,7 @@ mandate's `RiskCeiling`.
 | `AgentDisabled` | The agent's `Enabled` is not `true` (kill switch; an absent value counts as disabled) |
 | `ToolNotGranted` | No grant of the mandate matches the tool |
 | `RiskAboveCeiling` | The tool's risk is above the matching grant's `MaxRisk` or above the mandate's `RiskCeiling` (the message says which) |
+| `NotAnAgent` | The token carries the agent scope `octo_agent`, but the caller is no agent of the token's tenant (user token, client that is no agent, tenant without agent types) |
 | `MandateUnavailable` | Fail closed: no `tenant_id` on a token with a client id, the agents or the mandate cannot be read (store error), several agents with the same client id, the agent list at its read limit (`AgentModel.MaxAgents`), no or several mandates, a mandate that does not exist, a risk ceiling outside Low..High |
 
 A refusal is an error result (`isError: true`) whose text is JSON: `isSuccess` false, `errorCode`, `errorMessage` (the
@@ -113,12 +114,40 @@ not.
 ## Service-account client and its secret
 
 The client gets the id `agent-<name in lower-case words>` (or `serviceAccountClientId`), grant type
-`client_credentials`, scope `octo_api`, a required secret and exactly the roles of `roles` (none by default). The secret
+`client_credentials`, scope `octo_agent` (never `octo_api`, see below), a required secret and exactly the roles of `roles` (none by default). The secret
 is never in a response, an error message, a log line or the `Agent` entity: `clientSecret` is passed to `CreateClient`
 only (the secret-carrying identity methods need `Methods:Identity:EnablePasswordMethods`), and without it a random secret
 is generated and discarded. The agent runtime does not use that secret: it obtains the agent's credential through its
 own path (run-scoped agent tokens and the key reveal at run start in octo-ai-services). Until then a person who needs
 to run as the agent sets a new secret with `update_client_secret`.
+
+## Agent tokens reach the platform only through MCP (AB#9729, option A)
+
+Invariant: a token of an agent's client is usable only through the MCP service and only for tools its mandate grants.
+
+- **Scope `octo_agent`.** The agent client holds the API scope `octo_agent` (System.Identity.Bootstrap 1.11.0), which is
+  attached to the MCP resource indicator only. No platform API accepts it: asset repository GraphQL and REST, identity
+  REST and every other service require `octo_api`, so an agent token sent there directly is refused.
+- **Transport.** `McpAuthorizationPolicy` admits `octo_agent` only on a client token (no `sub`); a user token with it is
+  refused at the endpoint.
+- **Agent check.** `AgentMandateGuard` refuses a token with `octo_agent` whose caller is no agent of the token's tenant
+  (`NotAnAgent`: a user token, a client that is no agent, a tenant without agent types, an agent of another tenant with
+  the same client id). An agent is then checked against its mandate as above.
+- **One exchange point.** For every downstream call `McpSessionContext.ResolveAccessTokenAsync` exchanges the agent token
+  (`IAgentTokenExchanger`, RFC 8693) for a five-minute `octo_api` token of the agent client with `act` = the agent client
+  id, presented by MCP's confidential client `octo-mcpServices-agent-exchange` in the agent's own tenant. The result is
+  kept per agent token until 30 seconds before it expires. The agent token itself is never sent downstream: when no
+  exchange is possible the tool gets the error "the agent token could not be exchanged". An agent never acts in another
+  tenant ("an agent acts only in its own tenant"), and the public device client never exchanges an agent token.
+- **Exchange client.** MCP registers `octo-mcpServices-agent-exchange` in every tenant through its identity data
+  (token-exchange grant only, scope `octo_api`, confidential) with the secret `Mcp:AgentExchangeClientSecret`
+  (`OCTO_MCP__AGENTEXCHANGECLIENTSECRET`, Vault in cluster deployments). A changed secret is registered again on the next
+  start (fingerprint `McpAgentExchangeClientFingerprint` in the system tenant configuration; child tenants receive the
+  identity data on every start). **Without a secret** nothing is registered and every downstream call of an agent is
+  refused (fail closed); MCP logs a warning per tenant at start.
+
+Identity's side (who may exchange, what the issued token carries): octo-identity-services
+`docs/cross-tenant-authentication.md`, "Agent token exchange".
 
 ## Tests
 

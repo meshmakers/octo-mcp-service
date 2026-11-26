@@ -61,9 +61,28 @@ internal static class McpAuthorizationPolicy
             policy.RequireAuthenticatedUser();
             if (requiredScopes.Count > 0)
             {
-                policy.RequireAssertion(ctx => HasRequiredScope(ctx.User, requiredScopes));
+                policy.RequireAssertion(ctx =>
+                    HasRequiredScope(ctx.User, requiredScopes) || IsAgentClientToken(ctx.User));
             }
         });
+    }
+
+    /// <summary>
+    ///     AB#9729: a client token (no <c>sub</c>) with the agent scope <see cref="Constants.AgentScope" /> also passes the
+    ///     transport. It opens nothing by itself: <c>AgentMandateFilter</c> refuses every tool call of it unless its client
+    ///     is an enabled agent of the token's tenant whose mandate grants the tool, and every downstream call uses the
+    ///     <c>octo_api</c> token MCP obtains by exchanging it. A user token with the agent scope does not pass here.
+    /// </summary>
+    /// <param name="principal">The validated request principal.</param>
+    public static bool IsAgentClientToken(ClaimsPrincipal? principal)
+    {
+        if (principal == null || principal.FindFirst("sub") != null ||
+            principal.FindFirst(ClaimTypes.NameIdentifier) != null || principal.FindFirst("client_id") == null)
+        {
+            return false;
+        }
+
+        return HasRequiredScope(principal, [Constants.AgentScope]);
     }
 
     /// <summary>

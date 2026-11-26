@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Http;
+using Meshmakers.Octo.Backend.McpServices.Services.Agents;
 using ModelContextProtocol.Server;
 
 namespace Meshmakers.Octo.Backend.McpServices.Services;
@@ -188,6 +189,11 @@ internal static class McpSessionContext
         CancellationToken cancellationToken = default)
     {
         var caller = McpCallerPrincipal.FromServer(server);
+        if (caller?.HasAgentScope == true)
+        {
+            return await ResolveAgentAccessTokenAsync(server, caller, cancellationToken);
+        }
+
         var sessionKey = caller?.StoreKeyPrefix == null ? null : TryGetSessionKey(server);
 
         if (sessionKey != null)
@@ -250,6 +256,14 @@ internal static class McpSessionContext
         string? tenantId,
         CancellationToken cancellationToken = default)
     {
+        // AB#9729: an agent acts only in its own tenant; its token is never exchanged into another one.
+        var caller = McpCallerPrincipal.FromServer(server);
+        if (caller?.HasAgentScope == true && !string.IsNullOrWhiteSpace(tenantId) &&
+            !string.Equals(tenantId, caller.TenantId, StringComparison.OrdinalIgnoreCase))
+        {
+            return new SessionAccessToken(null, Constants.AgentOtherTenantError(tenantId));
+        }
+
         // Home token first — it is the proof-of-identity for any exchange, and the source of the
         // home tenant_id we compare against.
         var home = await ResolveAccessTokenAsync(server, cancellationToken);
@@ -291,6 +305,31 @@ internal static class McpSessionContext
 
         return WithExchangeOutcome(
             await TryExchangeAsync(server, sessionKey, tenantId, home.AccessToken, cancellationToken), tenantId);
+    }
+
+    /// <summary>
+    ///     AB#9729, the one place where an agent token is turned into a platform token: the agent's request token (scope
+    ///     <c>octo_agent</c>, which no platform API accepts) is exchanged by <see cref="IAgentTokenExchanger" /> for a
+    ///     short-lived <c>octo_api</c> token of the agent client with <c>act</c> = the agent client id. The session store is
+    ///     not consulted (an agent never logs in through the device flow), and the agent token itself is never returned:
+    ///     no exchange (no secret configured, identity refused or unreachable) means the call is refused.
+    /// </summary>
+    private static async ValueTask<SessionAccessToken> ResolveAgentAccessTokenAsync(McpServer server,
+        McpCallerPrincipal caller, CancellationToken cancellationToken)
+    {
+        var agentToken = TryGetBearerHeader(server);
+        if (caller.IsUserPrincipal || string.IsNullOrWhiteSpace(caller.TenantId) || agentToken == null)
+        {
+            return new SessionAccessToken(null, Constants.AgentExchangeFailedError);
+        }
+
+        var exchanger = server.Services?.GetService<IAgentTokenExchanger>();
+        var exchanged = exchanger == null
+            ? null
+            : await exchanger.ExchangeAsync(agentToken, caller.TenantId, cancellationToken);
+        return exchanged != null
+            ? new SessionAccessToken(exchanged, null)
+            : new SessionAccessToken(null, Constants.AgentExchangeFailedError);
     }
 
     /// <summary>

@@ -353,4 +353,61 @@ public class AgentMandateGuardTests
     [InlineData(null, "query_entities", false)]
     public void Matches_FollowsTheGrantPatternRules(string? pattern, string tool, bool expected) =>
         AgentMandateGuard.Matches(pattern, tool).Should().Be(expected);
+
+    // ---- AB#9729 option A: the agent scope octo_agent ------------------------------------------------------------
+
+    [Fact]
+    public async Task AgentScopeOnAUserToken_IsRefusedWithNotAnAgent()
+    {
+        var decision = await CheckAsync(new McpCallerPrincipal("user-1", "octo-cli", Tenant, [], ["octo_agent"]),
+            "query_entities");
+
+        decision.Allowed.Should().BeFalse();
+        decision.Code.Should().Be(AgentMandateGuard.NotAnAgent);
+    }
+
+    [Fact]
+    public async Task AgentScopeOnAClientThatIsNoAgent_IsRefusedWithNotAnAgent()
+    {
+        _tenant.AddAgent("Builder", AgentClient, Low, ("query_entities", Low));
+
+        var decision = await CheckAsync(new McpCallerPrincipal(null, "not-an-agent", Tenant, [], ["octo_agent"]),
+            "query_entities");
+
+        decision.Allowed.Should().BeFalse("a client with octo_agent that is no agent must not pass as an ordinary caller");
+        decision.Code.Should().Be(AgentMandateGuard.NotAnAgent);
+    }
+
+    [Fact]
+    public async Task AgentScopeInATenantWithoutAgentTypes_IsRefusedWithNotAnAgent()
+    {
+        _tenant.GivenAgentTypes(false);
+
+        var decision = await CheckAsync(new McpCallerPrincipal(null, AgentClient, Tenant, [], ["octo_agent"]),
+            "query_entities");
+
+        decision.Code.Should().Be(AgentMandateGuard.NotAnAgent);
+    }
+
+    [Fact]
+    public async Task AgentScopeOfAnAgentOfAnotherTenant_IsRefusedWithNotAnAgent()
+    {
+        _otherTenant.AddAgent("Builder", AgentClient, Low, ("query_entities", Low));
+
+        var decision = await CheckAsync(new McpCallerPrincipal(null, AgentClient, Tenant, [], ["octo_agent"]),
+            "query_entities");
+
+        decision.Code.Should().Be(AgentMandateGuard.NotAnAgent);
+        _tenantsLookedUp.Should().NotContain(OtherTenant);
+    }
+
+    [Fact]
+    public async Task AgentScopeOfAnEnabledAgent_IsJudgedByItsMandateAsBefore()
+    {
+        _tenant.AddAgent("Builder", AgentClient, Low, ("query_entities", Low));
+        var caller = new McpCallerPrincipal(null, AgentClient, Tenant, [], ["octo_agent"]);
+
+        (await CheckAsync(caller, "query_entities")).Allowed.Should().BeTrue();
+        (await CheckAsync(caller, "delete_entity")).Code.Should().Be(AgentMandateGuard.ToolNotGranted);
+    }
 }

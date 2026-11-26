@@ -170,6 +170,8 @@ public class AgentToolsTests : ToolTestBase
         var input = CkMethods.InputOf(CreateClient);
         CkMethodFake.Str(input, "clientId").Should().Be("agent-knowledge-curator");
         CkMethodFake.Strings(input.GetProperty("allowedGrantTypes")).Should().Equal("client_credentials");
+        CkMethodFake.Strings(input.GetProperty("allowedScopes")).Should().Equal(["octo_agent"],
+            "AB#9729: an agent client gets the agent scope only, never octo_api, so its token opens no platform API");
         CkMethodFake.Str(input, "clientSecret").Should().NotBeNullOrEmpty("a random secret is generated");
         CkMethods.OperationNames.Should().NotContain(SetRoles, "no roles by default");
         result.AssignedRoles.Should().BeEmpty();

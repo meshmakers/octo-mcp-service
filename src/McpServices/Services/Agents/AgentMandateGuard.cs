@@ -51,6 +51,12 @@ internal static class AgentMandateGuard
     public const string RiskAboveCeiling = "RiskAboveCeiling";
     public const string MandateUnavailable = "MandateUnavailable";
 
+    /// <summary>
+    ///     AB#9729: a token with the agent scope <c>octo_agent</c> whose caller is no agent of the token's tenant (a user
+    ///     token, a client that is no agent, a tenant without agent types).
+    /// </summary>
+    public const string NotAnAgent = "NotAnAgent";
+
     /// <summary>Checks one tool call of <paramref name="caller" />.</summary>
     /// <param name="caller">The validated request principal, null when unauthenticated.</param>
     /// <param name="toolName">The tool the caller wants to run.</param>
@@ -58,6 +64,29 @@ internal static class AgentMandateGuard
     /// <param name="tenantRepository">Returns the repository of a tenant id.</param>
     /// <param name="ckCache">Returns the CK cache, to tell whether the tenant has the agent types at all.</param>
     public static async Task<AgentMandateDecision> CheckAsync(McpCallerPrincipal? caller, string toolName,
+        McpRiskLevel toolRisk, Func<string, Task<ITenantRepository>> tenantRepository, Func<ICkCacheService> ckCache)
+    {
+        // AB#9729: the agent scope is valid only for a client token whose client is an agent of the token's tenant. A
+        // user token never acts as an agent, and a non-agent client with octo_agent is refused instead of passing as an
+        // ordinary caller.
+        if (caller?.HasAgentScope == true && caller.IsUserPrincipal)
+        {
+            return AgentMandateDecision.Refuse(NotAnAgent,
+                "A user token with the agent scope octo_agent is refused; the scope belongs to agent clients only.");
+        }
+
+        var decision = await CheckClientAsync(caller, toolName, toolRisk, tenantRepository, ckCache);
+        if (ReferenceEquals(decision, AgentMandateDecision.NotAnAgent) && caller?.HasAgentScope == true)
+        {
+            return AgentMandateDecision.Refuse(NotAnAgent,
+                $"Client '{caller.ClientId}' carries the agent scope octo_agent but is no agent of tenant " +
+                $"'{caller.TenantId}'; the call is refused.");
+        }
+
+        return decision;
+    }
+
+    private static async Task<AgentMandateDecision> CheckClientAsync(McpCallerPrincipal? caller, string toolName,
         McpRiskLevel toolRisk, Func<string, Task<ITenantRepository>> tenantRepository, Func<ICkCacheService> ckCache)
     {
         var clientId = caller?.ClientId;

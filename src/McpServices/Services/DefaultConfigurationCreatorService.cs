@@ -1,4 +1,5 @@
 using Meshmakers.Octo.Backend.McpServices.Options;
+using Meshmakers.Octo.Backend.McpServices.Services.Agents;
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands;
@@ -36,12 +37,44 @@ internal class DefaultConfigurationCreatorService(
         failedTenantRegistry: failedTenantRegistry
     )
 {
+    private readonly ISystemContext _systemContext = systemContext;
+    private readonly ILogger<DefaultConfigurationCreatorService> _logger = logger;
+
     public override async Task InitializeAsync()
     {
         // Reconfigure the log level based on the configuration
         await diagnosticsService.ReconfigureLogLevelAsync(options.Value.MinLogLevel);
 
         await base.InitializeAsync();
+    }
+
+    /// <summary>
+    ///     AB#9729: before the system tenant's setup, resets its identity data version when the agent-exchange client
+    ///     (secret) changed since it was last registered, so the base class sends the client again. Child tenants receive
+    ///     the identity data on every start anyway. See <see cref="AgentExchangeClientRegistration" />.
+    /// </summary>
+    protected override async Task SetupTenantAsync(string tenantId)
+    {
+        if (string.Equals(tenantId, _systemContext.TenantId, StringComparison.Ordinal) &&
+            await _systemContext.IsSystemTenantExistingAsync())
+        {
+            if (await AgentExchangeClientRegistration.ResetIdentityDataVersionIfChangedAsync(_systemContext,
+                    Constants.McpServiceIdentityDataVersionKey, AgentExchangeClientRegistration.Fingerprint(options.Value)))
+            {
+                _logger.LogInformation(
+                    "Agent-exchange client changed since its last registration; identity data of the system tenant " +
+                    "'{TenantId}' is sent again", tenantId);
+            }
+        }
+
+        if (!AgentExchangeClientRegistration.IsConfigured(options.Value))
+        {
+            _logger.LogWarning(
+                "No agent-exchange secret is configured (Mcp:AgentExchangeClientSecret); tenant '{TenantId}' gets no " +
+                "agent-exchange client and every downstream call of an agent is refused", tenantId);
+        }
+
+        await base.SetupTenantAsync(tenantId);
     }
 
     protected override void CreateApiScopes(CreateIdentityDataCommandRequest createIdentityDataCommandRequest)
@@ -56,6 +89,15 @@ internal class DefaultConfigurationCreatorService(
 
     protected override void CreateClients(CreateIdentityDataCommandRequest createIdentityDataCommandRequest)
     {
+        // AB#9729: the confidential agent-exchange client is MCP's own and lives in every tenant (an agent exchange is
+        // presented in the agent's own tenant). It is not part of the blueprint and not mirrored, so the
+        // AutoProvisionInChildTenants concern below does not apply to it. Null when no secret is configured.
+        var agentExchangeClient = AgentExchangeClientRegistration.BuildClient(options.Value);
+        if (agentExchangeClient != null)
+        {
+            createIdentityDataCommandRequest.Clients = [agentExchangeClient];
+        }
+
         // AB#4208 — MCP clients are now seeded by the System.Identity.Bootstrap
         // blueprint (entities 660…33 / 660…34) with AutoProvisionInChildTenants=true
         // and propagated to child tenants by IClientMirrorProvisioningService.

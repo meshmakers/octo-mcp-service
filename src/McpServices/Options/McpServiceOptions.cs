@@ -114,6 +114,16 @@ public class McpServiceOptions
         new List<string> { CommonConstants.OctoApiFullAccess };
 
     /// <summary>
+    ///     Secret of the confidential agent-exchange client <c>octo-mcpServices-agent-exchange</c> (AB#9729,
+    ///     <c>OCTO_MCP__AGENTEXCHANGECLIENTSECRET</c>, from Vault in cluster deployments). When set, MCP registers the
+    ///     client in every tenant (token exchange only, scope <c>octo_api</c>) and exchanges every agent token
+    ///     (scope <c>octo_agent</c>) for a five-minute <c>octo_api</c> token before a downstream call. A changed secret is
+    ///     registered again on the next start (fingerprint in the system tenant configuration). Empty: no client, no
+    ///     exchange, and every downstream call of an agent is refused (fail closed).
+    /// </summary>
+    public string? AgentExchangeClientSecret { get; set; }
+
+    /// <summary>
     ///     Client id of the AI service's MCP service client (AB#9189, AB#9188), default <c>octo-ai-adapter</c>
     ///     (<c>OCTO_MCP__AISERVICECLIENTID</c>). A client-credentials token is bound to the tenant it was issued for;
     ///     the only exception is a token of exactly this client issued for the <b>system tenant</b>

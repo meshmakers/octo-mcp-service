@@ -3,7 +3,8 @@ namespace Meshmakers.Octo.Backend.McpServices;
 internal static class Constants
 {
     public const string McpServiceIdentityDataVersionKey = "McpIdentityData";
-    public const int McpServiceIdentityDataVersionValue = 3;
+    // 4 (AB#9729): the agent-exchange client is registered with the identity data.
+    public const int McpServiceIdentityDataVersionValue = 4;
 
     public const string McpServiceEnabledKey = "McpServiceEnabled";
 
@@ -16,6 +17,33 @@ internal static class Constants
     ///     Client ID for the MCP Device Authorization Flow client (for CLI/AI tools).
     /// </summary>
     public const string McpServicesDeviceClientId = "octo-mcpServices-device";
+
+    /// <summary>
+    ///     API scope of an agent's service-account client (AB#9729, System.Identity.Bootstrap 1.11.0). A token with it
+    ///     opens no platform API; MCP accepts it only from an agent of the token's tenant and exchanges it for an
+    ///     <c>octo_api</c> token before any downstream call.
+    /// </summary>
+    public const string AgentScope = "octo_agent";
+
+    /// <summary>
+    ///     Confidential client of the MCP service that alone may exchange an agent token (AB#9729). Registered in every
+    ///     tenant with <see cref="Options.McpServiceOptions.AgentExchangeClientSecret" />; identity refuses the exchange
+    ///     for any other presenter.
+    /// </summary>
+    public const string AgentExchangeClientId = "octo-mcpServices-agent-exchange";
+
+    /// <summary>
+    ///     Error of a downstream call of an agent whose token could not be exchanged (AB#9729): no exchange secret is
+    ///     configured, identity refused the exchange (agent client disabled, client not registered) or was unreachable. The
+    ///     agent token itself is never sent to a platform API.
+    /// </summary>
+    public const string AgentExchangeFailedError =
+        "Access denied: the agent token could not be exchanged for a platform token (agent exchange not configured, " +
+        "agent client disabled or identity unreachable). An agent token is never sent to a platform API.";
+
+    /// <summary>Error of an agent that asks for another tenant than its own (AB#9729).</summary>
+    public static string AgentOtherTenantError(string tenantId) =>
+        $"Access denied: an agent acts only in its own tenant, not in '{tenantId}'.";
 
     /// <summary>
     ///     Uniform error for tools whose token resolution (McpSessionContext.TryGetAccessTokenAsync)
