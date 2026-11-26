@@ -21,7 +21,7 @@
 - **Agents never administer identity and read no MCP resources (AB#9729, Feature AB#6054, security).**
   `AgentMandateGuard` refuses every tool of the identity administration (clients, secrets, API scopes and resources,
   roles, users, groups, identity providers, mappings, rules, cross-tenant grants, overlays, admin provisioning), the
-  agent tools and the tenant dump/restore and secret maintenance tools for an agent caller with `ForbiddenForAgents`, whatever its grants or roles, so an agent cannot add
+  agent tools, the tenant dump/restore and secret maintenance tools and the LLM spend cap tools for an agent caller with `ForbiddenForAgents`, whatever its grants or roles, so an agent cannot add
   `octo_api` or roles to its own client, take over the exchange client or create a client outside the check. A new
   `resources/read` filter refuses agents (enabled or not) and `octo_agent` tokens of non-agents; users and other
   clients are unaffected. The Bot helper refuses a foreign tenant for an agent caller as well (`AgentOtherTenantError`).

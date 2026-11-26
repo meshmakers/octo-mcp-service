@@ -10,7 +10,7 @@ namespace Meshmakers.Octo.Backend.McpServices.Services.Agents;
 ///     of the identity administration (clients, client secrets, API scopes and resources, roles, users, groups, identity
 ///     providers, external user mappings, e-mail domain rules, cross-tenant grants, client overlays, admin provisioning),
 ///     the agent tools, and the tenant dump/restore and secret maintenance tools (a restore of an old dump would bring
-///     back an earlier, broader mandate or client). With any of them an agent could widen its own client (add
+///     back an earlier, broader mandate or client), and the LLM spend cap tools (an agent never raises its own budget). With any of them an agent could widen its own client (add
 ///     <c>octo_api</c>, roles or a secret), take over the exchange client <c>octo-mcpServices-agent-exchange</c> or
 ///     create a client outside the mandate check, and so raise its own mandate. The whole tool class counts, reads included, so a new tool of one of
 ///     these classes is covered without a list to maintain.
@@ -35,7 +35,8 @@ internal static class AgentForbiddenTools
         typeof(ClientOverlayTools),
         typeof(AdminProvisioningTools),
         typeof(TenantBackupTools),
-        typeof(SecretMaintenanceTools)
+        typeof(SecretMaintenanceTools),
+        typeof(AiSpendTools)
     ];
 
     private static readonly Lazy<FrozenSet<string>> Names = new(() => ToolTypes

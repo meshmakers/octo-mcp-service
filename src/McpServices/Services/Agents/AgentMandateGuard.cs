@@ -61,8 +61,8 @@ internal static class AgentMandateGuard
     public const string AgentScopeMissing = "AgentScopeMissing";
 
     /// <summary>
-    ///     AB#9729: the tool belongs to the identity administration or the agent tools (<see cref="AgentForbiddenTools" />),
-    ///     which an agent never runs, whatever its mandate grants.
+    ///     AB#9729: the tool administers identity, agents, tenant backups, secrets or the LLM spend cap
+    ///     (<see cref="AgentForbiddenTools" />), which an agent never runs, whatever its mandate grants.
     /// </summary>
     public const string ForbiddenForAgents = "ForbiddenForAgents";
 
@@ -102,12 +102,14 @@ internal static class AgentMandateGuard
                 decision.AgentName);
         }
 
-        // AB#9729: an agent never administers identity or agents, so it can never widen its own client, roles, scopes or
-        // mandate, nor take over the exchange client - even when a (prefix) grant covers the tool.
+        // AB#9729: an agent never administers identity, agents, tenant backups, secrets or the LLM spend cap, so it can
+        // never widen its own client, roles, scopes, mandate or budget, nor take over the exchange client - even when a
+        // (prefix) grant covers the tool.
         if (decision.AgentName != null && decision.Allowed && AgentForbiddenTools.Contains(toolName))
         {
             return AgentMandateDecision.Refuse(ForbiddenForAgents,
-                $"Tool '{toolName}' administers identity or agents; agent '{decision.AgentName}' never runs it, whatever " +
+                $"Tool '{toolName}' administers identity, agents, tenant backups, secrets or the LLM spend cap; agent " +
+                $"'{decision.AgentName}' never runs it, whatever " +
                 "its mandate grants. The call is refused.", decision.AgentName);
         }
 

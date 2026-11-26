@@ -473,7 +473,7 @@ public class AgentMandateGuardTests
     {
         AgentForbiddenTools.All.Should().Contain(["add_scope_to_client", "update_client_secret",
             "add_client_credentials_client", "add_client_to_role", "create_agent", "update_agent", "set_agent_enabled",
-            "restore_tenant", "restore_secret_sweep_dump"]);
+            "restore_tenant", "restore_secret_sweep_dump", "set_ai_spend_cap"]);
         AgentForbiddenTools.All.Should().NotContain(["knowledge_get", "query_entities", "whoami"]);
     }
 
