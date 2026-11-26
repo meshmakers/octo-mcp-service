@@ -6,7 +6,9 @@ using Microsoft.AspNetCore.Authorization;
 namespace Meshmakers.Octo.Backend.McpServices.Configuration;
 
 /// <summary>
-///     Scope policy for the MCP transport endpoints (AB#5032).
+///     Scope policies of this service (AB#5032): <see cref="PolicyName" /> (platform scope, the REST
+///     controllers) and <see cref="EndpointPolicyName" /> (the two <c>MapMcp</c> endpoints: the same, or a
+///     client token with the agent scope <c>octo_agent</c>, which then passes the mandate guard, AB#9729).
 ///     <para>
 ///     Before this, both <c>MapMcp</c> endpoints carried a bare <c>RequireAuthorization()</c>: <b>any</b>
 ///     token the authority issued got in, including one carrying no Octo API scope at all (a pure

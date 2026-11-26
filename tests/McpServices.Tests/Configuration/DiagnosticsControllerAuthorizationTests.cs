@@ -16,8 +16,9 @@ namespace McpServices.Tests.Configuration;
 /// denial-of-service, plus disclosure on a server that brokers tenant data) or silence them all.
 /// Every sibling service gates the identical endpoint.
 /// <para>
-/// The requirement is <see cref="McpAuthorizationPolicy.PolicyName" /> — the policy this service
-/// already applies to both <c>MapMcp</c> transport endpoints — rather than a policy invented for this
+/// The requirement is <see cref="McpAuthorizationPolicy.PolicyName" /> — the platform-scope policy of
+/// this service, never <see cref="McpAuthorizationPolicy.EndpointPolicyName" /> of the <c>MapMcp</c>
+/// endpoints (that one also admits agent tokens) — rather than a policy invented for this
 /// controller. Two things make this a real test rather than a tautology: the attributes are the only
 /// gate on a controller reached through <c>MapControllerRoute</c> (no endpoint-level
 /// <c>RequireAuthorization</c> exists for it), and the name they reference must be a policy that is

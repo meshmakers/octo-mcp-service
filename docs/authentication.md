@@ -16,7 +16,8 @@ registers the JWT bearer handler (`AddAuthentication(JwtBearerDefaults.Authentic
 
 `MapObservability` (health/metrics) is intentionally left anonymous. The file-transfer controller is
 `[AllowAnonymous]` at the routing level, because a request may present the one-time transfer key instead of a token; it
-evaluates `McpAuthorizationPolicy.PolicyName` — the same policy as the MCP transport — on the token itself before it
+evaluates `McpAuthorizationPolicy.PolicyName` — the platform-scope policy `McpTransportPolicy`, never `McpEndpointPolicy`
+of the MCP endpoints, so an agent token is refused — on the token itself before it
 touches the store, and binds every entry to the principal that created it (`file-transfer.md`). Without the scheme and the
 middleware the direct-engine (family-2/3) tools would serve tenant data from MongoDB with no token at all.
 
@@ -137,11 +138,12 @@ silenced. Every sibling service gates the identical endpoint.
 It now carries `[Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]` on the
 class and `[Authorize(McpAuthorizationPolicy.PolicyName)]` on the action:
 
-- **The policy is the transport policy**, not one invented for this controller. It is
-  `RequireAuthenticatedUser` plus one of `Mcp:RequiredApiScopes` (default `octo_api`) — the same
-  platform write scope the sibling services' system diagnostics endpoints require. A caller that can
-  already invoke `delete_tenant` over the transport gains nothing new; a token without the platform
-  scope reaches neither surface.
+- **The policy is the platform-scope policy `McpTransportPolicy`**, not one invented for this
+  controller, and never `McpEndpointPolicy`. It is `RequireAuthenticatedUser` plus one of
+  `Mcp:RequiredApiScopes` (default `octo_api`) — the same platform write scope the sibling services'
+  system diagnostics endpoints require. A caller that can already invoke `delete_tenant` over the
+  transport gains nothing new; a token without the platform scope does not reach this controller. An
+  agent token (`octo_agent`) reaches only the MCP endpoints, behind the mandate guard.
 - 🔴 **Do not uncomment `[Authorize(Constants.SystemApiPolicy)]` verbatim.** That constant is
   registered *nowhere* — `AddAuthorization` only registers `McpTransportPolicy` and `McpEndpointPolicy` — so it would throw
   `InvalidOperationException: The AuthorizationPolicy named: 'SystemApiPolicy' was not found` on every

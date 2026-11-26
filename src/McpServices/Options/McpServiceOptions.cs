@@ -100,9 +100,10 @@ public class McpServiceOptions
     public string? StreamDataPassword { get; set; }
 
     /// <summary>
-    ///     OAuth scopes a token must carry to reach the MCP transport endpoints (AB#5032). A token
-    ///     needs <b>one</b> of them; empty means "authenticated is enough", i.e. the pre-AB#5032
-    ///     behaviour.
+    ///     OAuth scopes a token must carry to reach the MCP transport endpoints and the REST controllers
+    ///     (AB#5032). A token needs <b>one</b> of them; empty means "authenticated is enough", i.e. the
+    ///     pre-AB#5032 behaviour. The MCP endpoints also admit a client token with the agent scope
+    ///     <c>octo_agent</c> (AB#9729, <c>McpEndpointPolicy</c>); the controllers do not add that exception.
     ///     <para>
     ///     Default is the platform's write scope <c>octo_api</c> only — see
     ///     <c>Configuration/McpAuthorizationPolicy</c> for why the endpoint cannot split read from
