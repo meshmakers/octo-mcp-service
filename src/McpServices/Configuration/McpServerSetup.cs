@@ -23,12 +23,15 @@ internal static class McpServerSetup
     ///     <c>resources/list</c> once at session start, then <c>resources/read</c> per resource it needs) and
     ///     <c>[McpServerPromptType]</c> (KnowledgeFirstPrompts, AB#9087), and the static mandate check in front of every
     ///     <c>tools/call</c> (<see cref="AgentMandateFilter" />, AB#9729): an agent's client runs only the tools its
-    ///     mandate grants.
+    ///     mandate grants. The same check runs in front of every <c>resources/read</c>
+    ///     (<see cref="AgentMandateFilter.ReadResourceFilter" />): agents read no resources.
     /// </summary>
     public static IMcpServerBuilder WithOctoCapabilities(this IMcpServerBuilder builder) =>
         builder
             .WithToolsFromAssembly(typeof(McpServerSetup).Assembly)
             .WithResourcesFromAssembly(typeof(McpServerSetup).Assembly)
             .WithPromptsFromAssembly(typeof(McpServerSetup).Assembly)
-            .WithRequestFilters(filters => filters.AddCallToolFilter(AgentMandateFilter.Filter));
+            .WithRequestFilters(filters => filters
+                .AddCallToolFilter(AgentMandateFilter.Filter)
+                .AddReadResourceFilter(AgentMandateFilter.ReadResourceFilter));
 }

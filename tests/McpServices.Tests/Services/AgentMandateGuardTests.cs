@@ -428,4 +428,94 @@ public class AgentMandateGuardTests
         (await CheckAsync(caller, "query_entities")).Allowed.Should().BeTrue();
         (await CheckAsync(caller, "delete_entity")).Code.Should().Be(AgentMandateGuard.ToolNotGranted);
     }
+    // ---- AB#9729: an agent never raises its own mandate --------------------------------------------------------------
+
+    [Theory]
+    [InlineData("add_scope_to_client")] // octo_api on its own client
+    [InlineData("update_client_secret")] // take over octo-mcpServices-agent-exchange
+    [InlineData("add_client_credentials_client")] // a fresh client outside the mandate check
+    [InlineData("add_client_to_role")] // roles for its own or a new client
+    [InlineData("update_agent")] // its own mandate
+    public async Task IdentityOrAgentTool_IsRefusedWithForbiddenForAgents_EvenWhenGrantedAtHighRisk(string tool)
+    {
+        _tenant.AddAgent("Builder", AgentClient, High, (tool, High));
+
+        var decision = await CheckAsync(Client(AgentClient, Tenant, "TenantManagement", "UserManagement"), tool,
+            McpRiskLevel.Medium);
+
+        decision.Allowed.Should().BeFalse("an agent never administers identity or agents, whatever its grants and roles");
+        decision.Code.Should().Be(AgentMandateGuard.ForbiddenForAgents);
+        decision.Message.Should().Contain(tool).And.Contain("Builder");
+    }
+
+    [Fact]
+    public async Task IdentityTool_PrefixGrant_IsRefusedWithForbiddenForAgents()
+    {
+        _tenant.AddAgent("Builder", AgentClient, High, ("add_*", High));
+
+        (await CheckAsync(Client(AgentClient), "add_scope_to_client", McpRiskLevel.Medium)).Code.Should()
+            .Be(AgentMandateGuard.ForbiddenForAgents);
+    }
+
+    [Fact]
+    public async Task IdentityTool_ForAClientThatIsNoAgent_IsUnaffected()
+    {
+        _tenant.AddAgent("Builder", AgentClient, Low, ("query_entities", Low));
+
+        var decision = await CheckAsync(new McpCallerPrincipal(null, "octo-cli", Tenant, ["UserManagement"]),
+            "add_scope_to_client", McpRiskLevel.Medium);
+
+        decision.Should().Be(AgentMandateDecision.NotAnAgent);
+    }
+
+    [Fact]
+    public void ForbiddenTools_CoverEveryIdentityWriteAndTheAgentTools_ButNotTheKnowledgeTools()
+    {
+        AgentForbiddenTools.All.Should().Contain(["add_scope_to_client", "update_client_secret",
+            "add_client_credentials_client", "add_client_to_role", "create_agent", "update_agent", "set_agent_enabled"]);
+        AgentForbiddenTools.All.Should().NotContain(["knowledge_get", "query_entities", "whoami"]);
+    }
+
+    // ---- AB#9729: resources/read -------------------------------------------------------------------------------------
+
+    private Task<AgentMandateDecision> ReadResourceAsync(McpCallerPrincipal? caller) =>
+        AgentMandateFilter.JudgeResourceReadAsync(caller,
+            tenantId => Task.FromResult(tenantId == OtherTenant ? _otherTenant.Repository.Object : _tenant.Repository.Object),
+            () => _tenant.CkCache.Object);
+
+    [Fact]
+    public async Task ResourceRead_OfAnEnabledAgent_IsRefused_EvenWithKnowledgeGranted()
+    {
+        _tenant.AddAgent("Builder", AgentClient, High, ("knowledge_*", High));
+
+        var decision = await ReadResourceAsync(Client(AgentClient));
+
+        decision.Allowed.Should().BeFalse();
+        decision.Code.Should().Be(AgentMandateGuard.ForbiddenForAgents);
+    }
+
+    [Fact]
+    public async Task ResourceRead_OfADisabledAgent_IsRefusedWithAgentDisabled()
+    {
+        var (agent, _) = _tenant.AddAgent("Builder", AgentClient, Low, ("knowledge_get", Low));
+        _tenant.SetEnabled(agent, false);
+
+        (await ReadResourceAsync(Client(AgentClient))).Code.Should().Be(AgentMandateGuard.AgentDisabled);
+    }
+
+    [Fact]
+    public async Task ResourceRead_WithTheAgentScopeOnAClientThatIsNoAgent_IsRefused()
+    {
+        (await ReadResourceAsync(new McpCallerPrincipal(null, "not-an-agent", Tenant, [], ["octo_agent"]))).Code
+            .Should().Be(AgentMandateGuard.NotAnAgent);
+    }
+
+    [Fact]
+    public async Task ResourceRead_OfAUserOrAClientThatIsNoAgent_IsUnaffected()
+    {
+        _tenant.AddAgent("Builder", AgentClient, Low, ("knowledge_get", Low));
+
+        (await ReadResourceAsync(new McpCallerPrincipal("user-1", null, Tenant, []))).Allowed.Should().BeTrue();
+        (await ReadResourceAsync(new McpCallerPrincipal(null, "octo-cli", Tenant, []))).Allowed.Should().BeTrue();
+    }
 }

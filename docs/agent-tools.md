@@ -83,11 +83,18 @@ mandate's `RiskCeiling`.
 | `RiskAboveCeiling` | The tool's risk is above the matching grant's `MaxRisk` or above the mandate's `RiskCeiling` (the message says which) |
 | `NotAnAgent` | The token carries the agent scope `octo_agent`, but the caller is no agent of the token's tenant (user token, client that is no agent, tenant without agent types) |
 | `AgentScopeMissing` | The caller is an agent, but its token does not carry `octo_agent` (an agent client created before AB#9729 option A, or seeded with `octo_api`): such a token would reach the platform unexchanged and without `act`. Give the client the scope `octo_agent` only |
+| `ForbiddenForAgents` | The tool administers identity or agents (every tool of the client, client secret, API scope and resource, role, user, group, identity provider, external user mapping, e-mail domain rule, cross-tenant grant, client overlay and admin provisioning tools, and the agent tools; `AgentForbiddenTools`). An agent never runs them, whatever its mandate grants or its client's roles: otherwise it could add `octo_api` or roles to its own client, take over `octo-mcpServices-agent-exchange` or create a client outside this check, and so raise its own mandate |
 | `MandateUnavailable` | Fail closed: no `tenant_id` on a token with a client id, the agents or the mandate cannot be read (store error), several agents with the same client id, the agent list at its read limit (`AgentModel.MaxAgents`), no or several mandates, a mandate that does not exist, a risk ceiling outside Low..High |
 
 A refusal is an error result (`isError: true`) whose text is JSON: `isSuccess` false, `errorCode`, `errorMessage` (the
 reason), `tool`, `agent`. The tool does not run. Each decision about an agent caller is logged (client id, tenant, tool,
 agent, code; refusals at Warning; no token content or arguments).
+
+`resources/read` gets the same check (`AgentMandateFilter.ReadResourceFilter`): an agent's client reads no MCP resource
+(`knowledge-page://`, `knowledge://`, `ck-schema://`), enabled or not (`ForbiddenForAgents`, `AgentDisabled`), and a
+token with `octo_agent` whose caller is no agent is refused (`NotAnAgent`); the refusal is a JSON-RPC error
+(`InvalidRequest`) with code and reason. An agent reads knowledge through the tools its mandate grants. Users and
+clients that are no agent are unaffected.
 
 The lookup runs as the system, because an agent's client usually cannot read the agent types, and only in the token's own
 tenant: an agent of another tenant with the same client id is never consulted. There is **no cache**: every call reads the
@@ -133,8 +140,9 @@ Invariant: a token of an agent's client is usable only through the MCP service a
 - **Scope `octo_agent`.** The agent client holds the API scope `octo_agent` (System.Identity.Bootstrap 1.12.0), which is
   attached to the MCP resource indicator only. No platform API accepts it: asset repository GraphQL and REST, identity
   REST and every other service require `octo_api`, so an agent token sent there directly is refused.
-- **Transport.** `McpAuthorizationPolicy` admits `octo_agent` only on a client token (no `sub`); a user token with it is
-  refused at the endpoint.
+- **Transport.** `McpAuthorizationPolicy` admits `octo_agent` only on a client token (no `sub`); a user token with
+  `octo_agent` only is refused at the endpoint, a user token that also carries `octo_api` passes the transport and is
+  refused by the agent check (`NotAnAgent`).
 - **Agent check.** `AgentMandateGuard` refuses a token with `octo_agent` whose caller is no agent of the token's tenant
   (`NotAnAgent`: a user token, a client that is no agent, a tenant without agent types, an agent of another tenant with
   the same client id). An agent is then checked against its mandate as above.

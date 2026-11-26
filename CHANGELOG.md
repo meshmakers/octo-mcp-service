@@ -18,6 +18,13 @@
   with `Mcp:AgentExchangeClientSecret`, fingerprint for rotation; identity data version 4). No secret means no client,
   no exchange and every downstream call of an agent refused. An agent never acts in another tenant. Needs
   octo-identity-services with the agent exchange (same Feature). Details: `docs/agent-tools.md`.
+- **Agents never administer identity and read no MCP resources (AB#9729, Feature AB#6054, security).**
+  `AgentMandateGuard` refuses every tool of the identity administration (clients, secrets, API scopes and resources,
+  roles, users, groups, identity providers, mappings, rules, cross-tenant grants, overlays, admin provisioning) and the
+  agent tools for an agent caller with `ForbiddenForAgents`, whatever its grants or roles, so an agent cannot add
+  `octo_api` or roles to its own client, take over the exchange client or create a client outside the check. A new
+  `resources/read` filter refuses agents (enabled or not) and `octo_agent` tokens of non-agents; users and other
+  clients are unaffected.
 - **System.Ai 4.13.0 for the agent runtime (Feature AB#6054).** The agent tools need System.Ai 4.13.0 or later: it adds
   the channel-only `writeAccess` of `Agent` and `Mandate` to `AgentTrigger`, `Run` and `ActionRecord` (octo-ai-services#88);
   4.12.0 leaves these three types writable by every tenant administrator. `docs/agent-tools.md`.

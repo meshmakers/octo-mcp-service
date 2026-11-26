@@ -60,6 +60,12 @@ internal static class AgentMandateGuard
     /// <summary>AB#9729: the caller is an agent, but its token does not carry the agent scope <c>octo_agent</c>.</summary>
     public const string AgentScopeMissing = "AgentScopeMissing";
 
+    /// <summary>
+    ///     AB#9729: the tool belongs to the identity administration or the agent tools (<see cref="AgentForbiddenTools" />),
+    ///     which an agent never runs, whatever its mandate grants.
+    /// </summary>
+    public const string ForbiddenForAgents = "ForbiddenForAgents";
+
     /// <summary>Checks one tool call of <paramref name="caller" />.</summary>
     /// <param name="caller">The validated request principal, null when unauthenticated.</param>
     /// <param name="toolName">The tool the caller wants to run.</param>
@@ -94,6 +100,15 @@ internal static class AgentMandateGuard
                 $"The token of agent '{decision.AgentName}' (client '{caller?.ClientId}') does not carry the agent scope " +
                 "octo_agent; an agent client must hold octo_agent only (update its allowed scopes). The call is refused.",
                 decision.AgentName);
+        }
+
+        // AB#9729: an agent never administers identity or agents, so it can never widen its own client, roles, scopes or
+        // mandate, nor take over the exchange client - even when a (prefix) grant covers the tool.
+        if (decision.AgentName != null && decision.Allowed && AgentForbiddenTools.Contains(toolName))
+        {
+            return AgentMandateDecision.Refuse(ForbiddenForAgents,
+                $"Tool '{toolName}' administers identity or agents; agent '{decision.AgentName}' never runs it, whatever " +
+                "its mandate grants. The call is refused.", decision.AgentName);
         }
 
         return decision;
