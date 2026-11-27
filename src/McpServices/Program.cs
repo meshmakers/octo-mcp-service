@@ -6,6 +6,7 @@ using Meshmakers.Octo.Backend.McpServices.Configuration;
 using Meshmakers.Octo.Backend.McpServices.Consumers;
 using Meshmakers.Octo.Backend.McpServices.Options;
 using Meshmakers.Octo.Backend.McpServices.Services;
+using Meshmakers.Octo.Backend.McpServices.Services.Agents;
 using Meshmakers.Octo.Communication.Contracts;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
@@ -110,6 +111,8 @@ try
     builder.Services.AddSingleton<IMcpSessionTokenStore, McpSessionTokenStore>();
     builder.Services.AddSingleton<ISessionTokenRefresher, SessionTokenRefresher>();
     builder.Services.AddSingleton<ITenantTokenExchanger, TenantTokenExchanger>();
+    // AB#9729: agent tokens (octo_agent) are exchanged for octo_api tokens before any downstream call.
+    builder.Services.AddSingleton<IAgentTokenExchanger, AgentTokenExchanger>();
     builder.Services.AddTransient<ITenantResolutionService, TenantResolutionService>();
     builder.Services.AddSingleton<IOctoServiceClientFactory, OctoServiceClientFactory>();
     // The one-time transfer key lifetime comes from Mcp:FileTransferKeyLifetime (validated at start).
@@ -122,6 +125,9 @@ try
         {
             ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
         });
+    // AB#9729: the agent token exchange sends the exchange client secret; it validates the certificate unless the
+    // development option Mcp:AgentExchangeAcceptAnyServerCertificate is set.
+    AgentTokenExchanger.AddExchangeHttpClient(builder.Services);
     // #4146 — the named "github" client targets https://api.github.com. No custom cert
     // handler because GitHub's cert chain is in the system trust store on the worker
     // pod and the adapter image. Timeout pinned so a stuck GitHub side never blocks
@@ -328,11 +334,11 @@ try
     // AB#5032: the policy adds the scope requirement on top of "authenticated" — a token without the
     // platform API scope no longer reaches any tool.
     app.MapMcp("/{tenantId:tenantId}/mcp")
-        .RequireAuthorization(McpAuthorizationPolicy.PolicyName);
+        .RequireAuthorization(McpAuthorizationPolicy.EndpointPolicyName);
 
     // Map tenantless MCP endpoint (tenant resolved via tool parameter)
     app.MapMcp("/mcp")
-        .RequireAuthorization(McpAuthorizationPolicy.PolicyName);
+        .RequireAuthorization(McpAuthorizationPolicy.EndpointPolicyName);
 
     // Log startup information
     var dynamicToolOptions = app.Services.GetRequiredService<IOptions<DynamicToolOptions>>().Value;

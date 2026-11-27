@@ -23,6 +23,15 @@ internal sealed record BotClientContext(
             var tenantResolver = server.Services!.GetRequiredService<ITenantResolutionService>();
             var tenantId = tenantResolver.ResolveTenantId(tenantIdParam);
 
+            // AB#9729: an agent acts only in its own tenant. The home token below would carry the agent's exchanged
+            // token to {tenantId}/v1/jobs/… of any tenant, so the MCP side refuses a foreign tenant here as well.
+            var caller = McpCallerPrincipal.FromServer(server);
+            if (caller?.HasAgentScope == true &&
+                !string.Equals(tenantId, caller.TenantId, StringComparison.OrdinalIgnoreCase))
+            {
+                return new BotClientContext(null, null, Constants.AgentOtherTenantError(tenantId));
+            }
+
             // Use the home/session token; the resolved tenantId travels as an SDK call parameter.
             // Deliberately no cross-tenant exchange here (AB#4338) — but note the reason changed with
             // AB#5060. It used to be that bot was not tenant-routed at all, so the middleware had no

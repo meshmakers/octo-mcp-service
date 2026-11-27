@@ -141,6 +141,11 @@ public static class AgentTools
         var sponsor = string.IsNullOrWhiteSpace(sponsorUserId) ? principal?.UserSubjectId : sponsorUserId.Trim();
         var agentRtId = OctoObjectId.GenerateNewId();
         RtEntity? newMandate = null;
+        // What this call has written so far, so that every failure after the first write - a refusal, an identity
+        // error or an exception - removes it again (no orphaned agent, mandate or client).
+        var entitiesWritten = false;
+        var clientCreated = false;
+        IdentityClientContext? identity = null;
         try
         {
             using (var session = await engine.Repo.GetSessionAsync(engine.Security!))
@@ -199,19 +204,22 @@ public static class AgentTools
                 {
                     return Refuse("WriteRefused", failure, engine.TenantId);
                 }
+
+                entitiesWritten = true;
             }
 
             // Identity step: client, then roles. On failure remove the client (if created) and the entities.
-            var identity = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
+            identity = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
             string? identityError = identity.Error;
-            var clientCreated = false;
             var assigned = new List<string>();
             if (identityError == null)
             {
                 var secret = string.IsNullOrEmpty(clientSecret) ? GenerateSecret() : clientSecret;
-                var created = await IdentityMethodCall.RunAsync(() => Clients(identity).CreateClientAsync(clientId, true,
+                // The client follows the agent's Enabled: a disabled agent gets a disabled client, so it cannot obtain
+                // a token before an administrator enables it (set_agent_enabled switches both).
+                var created = await IdentityMethodCall.RunAsync(() => Clients(identity).CreateClientAsync(clientId, enabled,
                     $"Agent {name.Trim()}", null, [OidcConstants.GrantTypes.ClientCredentials], null, null, null,
-                    [CommonConstants.OctoApiFullAccess], false, true, secret, null, null, null, null, null),
+                    [Constants.AgentScope], false, true, secret, null, null, null, null, null),
                     secretMethod: true);
                 if (!created.IsSuccess)
                 {
@@ -243,6 +251,7 @@ public static class AgentTools
             {
                 var cleanup = await RollBackAsync(engine, identity, clientCreated ? clientId : null, agentRtId,
                     newMandate?.RtId, existingMandateId ?? newMandate?.RtId);
+                entitiesWritten = clientCreated = false;
                 return Refuse("IdentityFailed", identityError + " Nothing was kept" + cleanup, engine.TenantId);
             }
 
@@ -253,7 +262,7 @@ public static class AgentTools
                 : AgentModel.ToAgentDto(stored, await AgentModel.MandateOfAsync(engine.Repo, readSession, stored));
             if (dto != null)
             {
-                dto.ServiceAccountClientEnabled = true;
+                dto.ServiceAccountClientEnabled = enabled;
             }
 
             return new AgentResponse
@@ -268,7 +277,11 @@ public static class AgentTools
         }
         catch (Exception ex)
         {
-            return Refuse("Failed", IdentityMethodCall.SafeText(ex.Message, clientSecret), engine.TenantId);
+            var cleanup = entitiesWritten || clientCreated
+                ? " Nothing was kept" + await RollBackAsync(engine, identity, clientCreated ? clientId : null, agentRtId,
+                    newMandate?.RtId, existingMandateId ?? newMandate?.RtId)
+                : string.Empty;
+            return Refuse("Failed", IdentityMethodCall.SafeText(ex.Message, clientSecret) + cleanup, engine.TenantId);
         }
     }
 
@@ -974,15 +987,17 @@ public static class AgentTools
     }
 
     /// <summary>Removes what a failed create wrote; returns a note on anything that could not be removed.</summary>
-    private static async Task<string> RollBackAsync(AgentEngineContext engine, IdentityClientContext identity,
+    private static async Task<string> RollBackAsync(AgentEngineContext engine, IdentityClientContext? identity,
         string? createdClientId, OctoObjectId agentRtId, OctoObjectId? createdMandateRtId, OctoObjectId? linkedMandateRtId)
     {
         var notes = new List<string>();
         if (createdClientId != null)
         {
-            var deleted = await IdentityMethodCall.RunAsync(async () =>
-                await Clients(identity).DeleteClientAsync(await IdentityRtIds.ClientAsync(identity, createdClientId)));
-            if (!deleted.IsSuccess)
+            var deleted = identity == null
+                ? null
+                : await IdentityMethodCall.RunAsync(async () =>
+                    await Clients(identity).DeleteClientAsync(await IdentityRtIds.ClientAsync(identity, createdClientId)));
+            if (deleted is not { IsSuccess: true })
             {
                 notes.Add($"client '{createdClientId}' remains and must be deleted by hand");
             }

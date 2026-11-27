@@ -233,11 +233,11 @@ dotnet run
 
 ### **Agents** (5 tools, AB#8454)
 `create_agent` · `update_agent` · `set_agent_enabled` · `list_agents` · `get_agent` — System.Ai `Agent` +
-`Mandate` (System.Ai 4.12.0) and the agent's service-account client (`agent-<name>`, client_credentials, roles only as
+`Mandate` (System.Ai 4.13.0 or later) and the agent's service-account client (`agent-<name>`, client_credentials, roles only as
 passed, none by default). Mandate grants are validated against the tools of this server (`UnknownTool` names the tool;
 `RiskAboveCeiling`); defaults are narrow (no grants, risk Low, change budget 0, write mode Propose). The client secret is
 never returned. `set_agent_enabled false` switches the agent off and disables its client. The writing tools need a
-tenant administrator (`TenantManagement` or `UserManagement`); agents never manage agents (`AgentCaller`). Every tool call of an agent's client is checked against its mandate (`AgentDisabled`, `ToolNotGranted`, `RiskAboveCeiling`, `MandateUnavailable`, AB#9729). Details: `docs/agent-tools.md`.
+tenant administrator (`TenantManagement` or `UserManagement`); agents never manage agents (`AgentCaller`). Every tool call of an agent's client is checked against its mandate (`AgentDisabled`, `ToolNotGranted`, `RiskAboveCeiling`, `NotAnAgent`, `AgentScopeMissing`, `ForbiddenForAgents`, `MandateUnavailable`, AB#9729); identity and agent administration tools and `resources/read` are refused for agents (`ForbiddenForAgents`). An agent client holds the scope `octo_agent` only; MCP exchanges its token for an `octo_api` token through the confidential client `octo-mcpServices-agent-exchange` (secret `Mcp:AgentExchangeClientSecret`, `OCTO_MCP__AGENTEXCHANGECLIENTSECRET`; without it every downstream call of an agent is refused). Details: `docs/agent-tools.md`.
 
 ### **Knowledge base** (10 tools + 1 resource template, AB#8484)
 `knowledge_search`, `knowledge_get`, `knowledge_upsert_page`, `knowledge_link`, `knowledge_restore_version`, `knowledge_set_status`,

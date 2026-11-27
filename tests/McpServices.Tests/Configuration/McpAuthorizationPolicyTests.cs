@@ -93,7 +93,8 @@ public class McpAuthorizationPolicyTests
     // ── The registered policy, evaluated end to end ─────────────────────────
 
     private static async Task<bool> EvaluateAsync(
-        ClaimsPrincipal principal, IReadOnlyCollection<string>? required = null)
+        ClaimsPrincipal principal, IReadOnlyCollection<string>? required = null,
+        string policyName = McpAuthorizationPolicy.PolicyName)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -103,8 +104,43 @@ public class McpAuthorizationPolicyTests
         var provider = services.BuildServiceProvider();
         var authorization = provider.GetRequiredService<IAuthorizationService>();
         var result = await authorization.AuthorizeAsync(
-            principal, resource: null, McpAuthorizationPolicy.PolicyName);
+            principal, resource: null, policyName);
         return result.Succeeded;
+    }
+
+    private static ClaimsPrincipal AgentClientToken() =>
+        Principal(new Claim("client_id", "agent-builder"), new Claim("tenant_id", "tenant-a"), Scope("octo_agent"));
+
+    [Fact]
+    public async Task AgentClientToken_PassesTheMcpEndpoints()
+    {
+        (await EvaluateAsync(AgentClientToken(), policyName: McpAuthorizationPolicy.EndpointPolicyName))
+            .Should().BeTrue("the mandate filters and the exchange run behind the MCP endpoints");
+    }
+
+    [Fact]
+    public async Task AgentClientToken_NeverPassesThePlatformScopePolicy_OfTheRestControllers()
+    {
+        // AB#9729: DiagnosticsController and FileTransferController require PolicyName; no mandate check runs there.
+        (await EvaluateAsync(AgentClientToken())).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task UserTokenWithTheAgentScopeOnly_PassesNeitherPolicy()
+    {
+        var user = Principal(new Claim("sub", "user-1"), new Claim("client_id", "octo-cli"), Scope("octo_agent"));
+
+        (await EvaluateAsync(user)).Should().BeFalse();
+        (await EvaluateAsync(user, policyName: McpAuthorizationPolicy.EndpointPolicyName)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task PlatformScope_PassesBothPolicies()
+    {
+        var token = Principal(Scope(CommonConstants.OctoApiFullAccess));
+
+        (await EvaluateAsync(token)).Should().BeTrue();
+        (await EvaluateAsync(token, policyName: McpAuthorizationPolicy.EndpointPolicyName)).Should().BeTrue();
     }
 
     [Fact]

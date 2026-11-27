@@ -126,10 +126,11 @@ of `McpServices`. Every public type, property, and method on a new tool class ne
 - **A client or HTTP call routed to a tenant uses the tenant overload of the token resolution**
   (`ResolveAccessTokenAsync(server, tenantId)`); a failed exchange is an error, never a fallback to the home token:
   `docs/authentication.md`.
-- **Both MCP endpoints keep the transport policy, and a new controller carries its own `[Authorize]`**; nothing in
-  `Program.cs` gates a controller. The one exception is `FileTransferController`: it is `[AllowAnonymous]` because a
-  request may present the one-time transfer key instead of a token, and it checks the MCP transport policy on the token
-  itself before it touches the store; it serves an entry only to the principal that created it or to the holder of the
+- **Both MCP endpoints carry `McpEndpointPolicy` (it also admits agent tokens, `octo_agent`, which then pass the
+  mandate guard), and a new controller carries its own `[Authorize]` with `McpTransportPolicy`, never
+  `McpEndpointPolicy`**; nothing in `Program.cs` gates a controller. The one exception is `FileTransferController`: it
+  is `[AllowAnonymous]` because a request may present the one-time transfer key instead of a token, and it checks
+  `McpTransportPolicy` (platform scope) on the token itself before it touches the store; it serves an entry only to the principal that created it or to the holder of the
   entry's key, with id and key in headers, never in the URL (`docs/file-transfer.md`): `docs/authentication.md`.
 - **Decide the `[McpRisk]` level of a new tool with its implementation.** A tool without the attribute counts as
   `Low` and runs without approval: `docs/tool-conventions.md`, section 8.

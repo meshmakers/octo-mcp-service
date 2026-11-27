@@ -6,7 +6,9 @@ using Microsoft.AspNetCore.Authorization;
 namespace Meshmakers.Octo.Backend.McpServices.Configuration;
 
 /// <summary>
-///     Scope policy for the MCP transport endpoints (AB#5032).
+///     Scope policies of this service (AB#5032): <see cref="PolicyName" /> (platform scope, the REST
+///     controllers) and <see cref="EndpointPolicyName" /> (the two <c>MapMcp</c> endpoints: the same, or a
+///     client token with the agent scope <c>octo_agent</c>, which then passes the mandate guard, AB#9729).
 ///     <para>
 ///     Before this, both <c>MapMcp</c> endpoints carried a bare <c>RequireAuthorization()</c>: <b>any</b>
 ///     token the authority issued got in, including one carrying no Octo API scope at all (a pure
@@ -44,12 +46,22 @@ namespace Meshmakers.Octo.Backend.McpServices.Configuration;
 internal static class McpAuthorizationPolicy
 {
     /// <summary>
-    ///     Name of the authorization policy both MCP endpoints require.
+    ///     Name of the platform-scope policy: the configured scopes only. The REST controllers of this service
+    ///     (<c>DiagnosticsController</c>, <c>FileTransferController</c>) require it; an agent token does not pass it.
     /// </summary>
     public const string PolicyName = "McpTransportPolicy";
 
     /// <summary>
-    ///     Registers <see cref="PolicyName" /> against the configured required scopes.
+    ///     AB#9729: name of the policy of the two <c>MapMcp</c> endpoints: <see cref="PolicyName" /> or an agent client
+    ///     token (<see cref="IsAgentClientToken" />). Only the MCP endpoints admit agent tokens, because only there the
+    ///     mandate filters (<c>tools/call</c>, <c>resources/read</c>) and the token exchange run; the REST controllers
+    ///     keep <see cref="PolicyName" />, so an agent token never reaches them.
+    /// </summary>
+    public const string EndpointPolicyName = "McpEndpointPolicy";
+
+    /// <summary>
+    ///     Registers <see cref="PolicyName" /> and <see cref="EndpointPolicyName" /> against the configured required
+    ///     scopes.
     /// </summary>
     /// <param name="options">Authorization options being built.</param>
     /// <param name="requiredScopes">Scopes of which the caller must carry at least one.</param>
@@ -64,6 +76,34 @@ internal static class McpAuthorizationPolicy
                 policy.RequireAssertion(ctx => HasRequiredScope(ctx.User, requiredScopes));
             }
         });
+
+        options.AddPolicy(EndpointPolicyName, policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            if (requiredScopes.Count > 0)
+            {
+                policy.RequireAssertion(ctx =>
+                    HasRequiredScope(ctx.User, requiredScopes) || IsAgentClientToken(ctx.User));
+            }
+        });
+    }
+
+    /// <summary>
+    ///     AB#9729: a client token (no <c>sub</c>) with the agent scope <see cref="Constants.AgentScope" /> also passes the
+    ///     MCP endpoints (<see cref="EndpointPolicyName" />), never the REST controllers. It opens nothing by itself: <c>AgentMandateFilter</c> refuses every tool call of it unless its client
+    ///     is an enabled agent of the token's tenant whose mandate grants the tool, and every downstream call uses the
+    ///     <c>octo_api</c> token MCP obtains by exchanging it. A user token with the agent scope does not pass here.
+    /// </summary>
+    /// <param name="principal">The validated request principal.</param>
+    public static bool IsAgentClientToken(ClaimsPrincipal? principal)
+    {
+        if (principal == null || principal.FindFirst("sub") != null ||
+            principal.FindFirst(ClaimTypes.NameIdentifier) != null || principal.FindFirst("client_id") == null)
+        {
+            return false;
+        }
+
+        return HasRequiredScope(principal, [Constants.AgentScope]);
     }
 
     /// <summary>

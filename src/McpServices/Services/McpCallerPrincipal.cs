@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
+using Meshmakers.Octo.Services.Infrastructure;
 using ModelContextProtocol.Server;
 
 namespace Meshmakers.Octo.Backend.McpServices.Services;
@@ -27,12 +28,21 @@ namespace Meshmakers.Octo.Backend.McpServices.Services;
 /// <param name="ClientId">The OAuth client id, when the token carries one.</param>
 /// <param name="TenantId">The <c>tenant_id</c> claim, i.e. the tenant the caller is homed in.</param>
 /// <param name="Roles">Role claim values, de-duplicated across both claim spellings.</param>
+/// <param name="Scopes">Scope values of the token (both wire forms, AB#9729); empty when unknown.</param>
 internal sealed record McpCallerPrincipal(
     string? UserSubjectId,
     string? ClientId,
     string? TenantId,
-    string[] Roles)
+    string[] Roles,
+    string[]? Scopes = null)
 {
+    /// <summary>
+    ///     AB#9729: the token carries the agent scope <see cref="Constants.AgentScope" />. Such a token opens no platform
+    ///     API: MCP admits it only when its client is an agent of the token's tenant (<c>AgentMandateGuard</c>) and
+    ///     exchanges it for an <c>octo_api</c> token before any downstream call (<c>McpSessionContext</c>).
+    /// </summary>
+    public bool HasAgentScope => Scopes?.Contains(Constants.AgentScope, StringComparer.Ordinal) == true;
+
     /// <summary>
     ///     Whether this is an end-user principal. A client-credentials (service) token carries no subject
     ///     at all — only a client id — and that absence is the marker both the tenant gate (AB#5030, service
@@ -117,6 +127,11 @@ internal sealed record McpCallerPrincipal(
             .Distinct()
             .ToArray();
 
-        return new McpCallerPrincipal(userSubjectId, clientId, tenantId, roles);
+        var scopes = user.FindAll(InfrastructureCommon.ClaimScope)
+            .SelectMany(c => c.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        return new McpCallerPrincipal(userSubjectId, clientId, tenantId, roles, scopes);
     }
 }

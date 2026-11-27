@@ -8,6 +8,28 @@
   `confirm=true`, reason) the monthly LLM spend cap of the central-key LLM gateway through the AI service
   (`{tenant}/v1/aiSpend`, `system/v1/aiSpendCaps`). Setting and reading another tenant need a system-tenant session with the
   role `AiBudgetAdmin`; the AI service enforces it. Without `keySource` the tenant keeps its stored key source (`CentralKey` when it has none yet); `targetTenantId` must be one route segment (no `.`, `..`, `/`). Equivalent to octo-cli `GetAiSpend` / `SetAiSpendCap`.
+- **Agent tokens reach the platform only through MCP (AB#9729 option A, Feature AB#6054, security).** `create_agent`
+  gives the agent client the scope `octo_agent` instead of `octo_api` (System.Identity.Bootstrap 1.12.0), so its token
+  opens no platform API. The transport admits `octo_agent` only on client tokens; `AgentMandateGuard` refuses it for a
+  caller that is no agent of the token's tenant (`NotAnAgent`) and refuses an agent whose token lacks it
+  (`AgentScopeMissing`: agent clients created earlier or seeded with `octo_api` must be switched to `octo_agent`). For every downstream call
+  `McpSessionContext.ResolveAccessTokenAsync` exchanges the agent token for a five-minute `octo_api` token with `act` =
+  the agent client id, through the new confidential client `octo-mcpServices-agent-exchange` (registered in every tenant
+  with `Mcp:AgentExchangeClientSecret`, fingerprint for rotation; identity data version 4). No secret means no client,
+  no exchange and every downstream call of an agent refused. An agent never acts in another tenant. Needs
+  octo-identity-services with the agent exchange (same Feature). The exchange validates the identity service's TLS
+  certificate (development override `Mcp:AgentExchangeAcceptAnyServerCertificate`); only the two MCP endpoints admit
+  agent tokens, the diagnostics and file-transfer controllers do not. Details: `docs/agent-tools.md`.
+- **Agents never administer identity and read no MCP resources (AB#9729, Feature AB#6054, security).**
+  `AgentMandateGuard` refuses every tool of the identity administration (clients, secrets, API scopes and resources,
+  roles, users, groups, identity providers, mappings, rules, cross-tenant grants, overlays, admin provisioning), the
+  agent tools, the tenant dump/restore and secret maintenance tools and the LLM spend cap tools for an agent caller with `ForbiddenForAgents`, whatever its grants or roles, so an agent cannot add
+  `octo_api` or roles to its own client, take over the exchange client or create a client outside the check. A new
+  `resources/read` filter refuses agents (enabled or not) and `octo_agent` tokens of non-agents; users and other
+  clients are unaffected. The Bot helper refuses a foreign tenant for an agent caller as well (`AgentOtherTenantError`).
+- **System.Ai 4.13.0 for the agent runtime (Feature AB#6054).** The agent tools need System.Ai 4.13.0 or later: it adds
+  the channel-only `writeAccess` of `Agent` and `Mandate` to `AgentTrigger`, `Run` and `ActionRecord` (octo-ai-services#88);
+  4.12.0 leaves these three types writable by every tenant administrator. `docs/agent-tools.md`.
 - **Static mandate check of agent tool calls (AB#9729, Feature AB#6054, security).** A `tools/call` filter
   (`AgentMandateFilter`) refuses a call of an agent's client (its `ServiceAccountClientId`, token tenant only) that its
   mandate does not cover: `AgentDisabled`, `ToolNotGranted`, `RiskAboveCeiling` (grant `MaxRisk`, absent = Low, or the
@@ -66,6 +88,9 @@
 
 ### Security
 
+- **AB#8454** — A failed `create_agent` keeps nothing: when any step after the entity write fails or throws (identity
+  error, transport error of `SetRoles`, failed read-back) the created client, agent and mandate are removed again.
+  `enabled: false` now also creates the service-account client disabled (before, the client was always enabled).
 - **AB#6988** — The file-transfer endpoints are no longer anonymous and the transfer id is out of the URL. **Breaking for
   HTTP clients of `/file-transfer/*`.**
   - `PUT /file-transfer/upload` and `GET /file-transfer/download` require the creator's bearer token (same policy as

@@ -100,9 +100,10 @@ public class McpServiceOptions
     public string? StreamDataPassword { get; set; }
 
     /// <summary>
-    ///     OAuth scopes a token must carry to reach the MCP transport endpoints (AB#5032). A token
-    ///     needs <b>one</b> of them; empty means "authenticated is enough", i.e. the pre-AB#5032
-    ///     behaviour.
+    ///     OAuth scopes a token must carry to reach the MCP transport endpoints and the REST controllers
+    ///     (AB#5032). A token needs <b>one</b> of them; empty means "authenticated is enough", i.e. the
+    ///     pre-AB#5032 behaviour. The MCP endpoints also admit a client token with the agent scope
+    ///     <c>octo_agent</c> (AB#9729, <c>McpEndpointPolicy</c>); the controllers do not add that exception.
     ///     <para>
     ///     Default is the platform's write scope <c>octo_api</c> only — see
     ///     <c>Configuration/McpAuthorizationPolicy</c> for why the endpoint cannot split read from
@@ -112,6 +113,24 @@ public class McpServiceOptions
     /// </summary>
     public IList<string> RequiredApiScopes { get; set; } =
         new List<string> { CommonConstants.OctoApiFullAccess };
+
+    /// <summary>
+    ///     Secret of the confidential agent-exchange client <c>octo-mcpServices-agent-exchange</c> (AB#9729,
+    ///     <c>OCTO_MCP__AGENTEXCHANGECLIENTSECRET</c>, from Vault in cluster deployments). When set, MCP registers the
+    ///     client in every tenant (token exchange only, scope <c>octo_api</c>) and exchanges every agent token
+    ///     (scope <c>octo_agent</c>) for a five-minute <c>octo_api</c> token before a downstream call. A changed secret is
+    ///     registered again on the next start (fingerprint in the system tenant configuration). Empty: no client, no
+    ///     exchange, and every downstream call of an agent is refused (fail closed).
+    /// </summary>
+    public string? AgentExchangeClientSecret { get; set; }
+
+    /// <summary>
+    ///     AB#9729: development only. When true, the agent token exchange accepts any TLS certificate of the identity
+    ///     service (as the other identity calls of this service do). Default false: the exchange sends the exchange
+    ///     client secret and the agent token only over a connection whose certificate the system trusts
+    ///     (<c>OCTO_MCP__AGENTEXCHANGEACCEPTANYSERVERCERTIFICATE</c>).
+    /// </summary>
+    public bool AgentExchangeAcceptAnyServerCertificate { get; set; }
 
     /// <summary>
     ///     Client id of the AI service's MCP service client (AB#9189, AB#9188), default <c>octo-ai-adapter</c>

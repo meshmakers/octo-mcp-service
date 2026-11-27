@@ -29,7 +29,7 @@ public class AgentMandateGuardTests
     private readonly List<string> _tenantsLookedUp = [];
 
     private static McpCallerPrincipal Client(string clientId, string? tenantId = Tenant, params string[] roles) =>
-        new(null, clientId, tenantId, roles);
+        new(null, clientId, tenantId, roles, ["octo_agent"]);
 
     private Task<AgentMandateDecision> CheckAsync(McpCallerPrincipal? caller, string tool,
         McpRiskLevel risk = McpRiskLevel.Low) =>
@@ -78,7 +78,9 @@ public class AgentMandateGuardTests
     {
         _tenant.GivenAgentTypes(false);
 
-        (await CheckAsync(Client(AgentClient), "delete_entity", McpRiskLevel.High)).Allowed.Should().BeTrue();
+        // A client without the agent scope (with it: AgentScopeInATenantWithoutAgentTypes_IsRefusedWithNotAnAgent).
+        (await CheckAsync(new McpCallerPrincipal(null, AgentClient, Tenant, []), "delete_entity", McpRiskLevel.High))
+            .Allowed.Should().BeTrue();
     }
 
     // ---- grant and risk ----------------------------------------------------------------------------------------------
@@ -325,7 +327,7 @@ public class AgentMandateGuardTests
     {
         _otherTenant.AddAgent("Wide", AgentClient, High, ("delete_entity", High));
 
-        var decision = await CheckAsync(Client(AgentClient, Tenant), "query_entities");
+        var decision = await CheckAsync(new McpCallerPrincipal(null, AgentClient, Tenant, []), "query_entities");
 
         decision.Should().Be(AgentMandateDecision.NotAnAgent,
             "tenant A has no agent with this client id; tenant B's mandate does not apply to tenant A's token");
@@ -333,15 +335,31 @@ public class AgentMandateGuardTests
     }
 
     [Fact]
-    public async Task DelegatedToken_OfAnAgentClient_IsCheckedLikeTheAgent()
+    public async Task DelegatedToken_OfAnAgentClient_IsRefused()
     {
-        // On-behalf-of: the token carries the user's subject but the agent's client id.
+        // On-behalf-of: the token carries the user's subject but the agent's client id. It cannot carry octo_agent
+        // (a user token with it is refused, AB#9729), so it is refused as an agent token without the agent scope.
         _tenant.AddAgent("Builder", AgentClient, Low, ("query_entities", Low));
 
         var decision = await CheckAsync(new McpCallerPrincipal("user-1", AgentClient, Tenant, ["TenantManagement"]),
-            "delete_entity", McpRiskLevel.High);
+            "query_entities");
 
-        decision.Code.Should().Be(AgentMandateGuard.ToolNotGranted);
+        decision.Allowed.Should().BeFalse();
+        decision.Code.Should().Be(AgentMandateGuard.AgentScopeMissing);
+    }
+
+    [Fact]
+    public async Task AgentClientTokenWithoutTheAgentScope_IsRefused_EvenForAGrantedTool()
+    {
+        // AB#9729: an agent client created before option A (or seeded with octo_api) must not run any tool, because its
+        // token would reach the platform unexchanged and without act.
+        _tenant.AddAgent("Builder", AgentClient, Low, ("query_entities", Low));
+
+        var decision = await CheckAsync(new McpCallerPrincipal(null, AgentClient, Tenant, [], ["octo_api"]),
+            "query_entities");
+
+        decision.Code.Should().Be(AgentMandateGuard.AgentScopeMissing);
+        decision.AgentName.Should().Be("Builder");
     }
 
     [Theory]
@@ -353,4 +371,152 @@ public class AgentMandateGuardTests
     [InlineData(null, "query_entities", false)]
     public void Matches_FollowsTheGrantPatternRules(string? pattern, string tool, bool expected) =>
         AgentMandateGuard.Matches(pattern, tool).Should().Be(expected);
+
+    // ---- AB#9729 option A: the agent scope octo_agent ------------------------------------------------------------
+
+    [Fact]
+    public async Task AgentScopeOnAUserToken_IsRefusedWithNotAnAgent()
+    {
+        var decision = await CheckAsync(new McpCallerPrincipal("user-1", "octo-cli", Tenant, [], ["octo_agent"]),
+            "query_entities");
+
+        decision.Allowed.Should().BeFalse();
+        decision.Code.Should().Be(AgentMandateGuard.NotAnAgent);
+    }
+
+    [Fact]
+    public async Task AgentScopeOnAClientThatIsNoAgent_IsRefusedWithNotAnAgent()
+    {
+        _tenant.AddAgent("Builder", AgentClient, Low, ("query_entities", Low));
+
+        var decision = await CheckAsync(new McpCallerPrincipal(null, "not-an-agent", Tenant, [], ["octo_agent"]),
+            "query_entities");
+
+        decision.Allowed.Should().BeFalse("a client with octo_agent that is no agent must not pass as an ordinary caller");
+        decision.Code.Should().Be(AgentMandateGuard.NotAnAgent);
+    }
+
+    [Fact]
+    public async Task AgentScopeInATenantWithoutAgentTypes_IsRefusedWithNotAnAgent()
+    {
+        _tenant.GivenAgentTypes(false);
+
+        var decision = await CheckAsync(new McpCallerPrincipal(null, AgentClient, Tenant, [], ["octo_agent"]),
+            "query_entities");
+
+        decision.Code.Should().Be(AgentMandateGuard.NotAnAgent);
+    }
+
+    [Fact]
+    public async Task AgentScopeOfAnAgentOfAnotherTenant_IsRefusedWithNotAnAgent()
+    {
+        _otherTenant.AddAgent("Builder", AgentClient, Low, ("query_entities", Low));
+
+        var decision = await CheckAsync(new McpCallerPrincipal(null, AgentClient, Tenant, [], ["octo_agent"]),
+            "query_entities");
+
+        decision.Code.Should().Be(AgentMandateGuard.NotAnAgent);
+        _tenantsLookedUp.Should().NotContain(OtherTenant);
+    }
+
+    [Fact]
+    public async Task AgentScopeOfAnEnabledAgent_IsJudgedByItsMandateAsBefore()
+    {
+        _tenant.AddAgent("Builder", AgentClient, Low, ("query_entities", Low));
+        var caller = new McpCallerPrincipal(null, AgentClient, Tenant, [], ["octo_agent"]);
+
+        (await CheckAsync(caller, "query_entities")).Allowed.Should().BeTrue();
+        (await CheckAsync(caller, "delete_entity")).Code.Should().Be(AgentMandateGuard.ToolNotGranted);
+    }
+    // ---- AB#9729: an agent never raises its own mandate --------------------------------------------------------------
+
+    [Theory]
+    [InlineData("add_scope_to_client")] // octo_api on its own client
+    [InlineData("update_client_secret")] // take over octo-mcpServices-agent-exchange
+    [InlineData("add_client_credentials_client")] // a fresh client outside the mandate check
+    [InlineData("add_client_to_role")] // roles for its own or a new client
+    [InlineData("update_agent")] // its own mandate
+    public async Task IdentityOrAgentTool_IsRefusedWithForbiddenForAgents_EvenWhenGrantedAtHighRisk(string tool)
+    {
+        _tenant.AddAgent("Builder", AgentClient, High, (tool, High));
+
+        var decision = await CheckAsync(Client(AgentClient, Tenant, "TenantManagement", "UserManagement"), tool,
+            McpRiskLevel.Medium);
+
+        decision.Allowed.Should().BeFalse("an agent never administers identity or agents, whatever its grants and roles");
+        decision.Code.Should().Be(AgentMandateGuard.ForbiddenForAgents);
+        decision.Message.Should().Contain(tool).And.Contain("Builder");
+    }
+
+    [Fact]
+    public async Task IdentityTool_PrefixGrant_IsRefusedWithForbiddenForAgents()
+    {
+        _tenant.AddAgent("Builder", AgentClient, High, ("add_*", High));
+
+        (await CheckAsync(Client(AgentClient), "add_scope_to_client", McpRiskLevel.Medium)).Code.Should()
+            .Be(AgentMandateGuard.ForbiddenForAgents);
+    }
+
+    [Fact]
+    public async Task IdentityTool_ForAClientThatIsNoAgent_IsUnaffected()
+    {
+        _tenant.AddAgent("Builder", AgentClient, Low, ("query_entities", Low));
+
+        var decision = await CheckAsync(new McpCallerPrincipal(null, "octo-cli", Tenant, ["UserManagement"]),
+            "add_scope_to_client", McpRiskLevel.Medium);
+
+        decision.Should().Be(AgentMandateDecision.NotAnAgent);
+    }
+
+    [Fact]
+    public void ForbiddenTools_CoverEveryIdentityWriteAndTheAgentTools_ButNotTheKnowledgeTools()
+    {
+        AgentForbiddenTools.All.Should().Contain(["add_scope_to_client", "update_client_secret",
+            "add_client_credentials_client", "add_client_to_role", "create_agent", "update_agent", "set_agent_enabled",
+            "restore_tenant", "restore_secret_sweep_dump", "set_ai_spend_cap"]);
+        AgentForbiddenTools.All.Should().NotContain(["knowledge_get", "query_entities", "whoami"]);
+    }
+
+    // ---- AB#9729: resources/read -------------------------------------------------------------------------------------
+
+    private Task<AgentMandateDecision> ReadResourceAsync(McpCallerPrincipal? caller) =>
+        AgentMandateFilter.JudgeResourceReadAsync(caller,
+            tenantId => Task.FromResult(tenantId == OtherTenant ? _otherTenant.Repository.Object : _tenant.Repository.Object),
+            () => _tenant.CkCache.Object);
+
+    [Fact]
+    public async Task ResourceRead_OfAnEnabledAgent_IsRefused_EvenWithKnowledgeGranted()
+    {
+        _tenant.AddAgent("Builder", AgentClient, High, ("knowledge_*", High));
+
+        var decision = await ReadResourceAsync(Client(AgentClient));
+
+        decision.Allowed.Should().BeFalse();
+        decision.Code.Should().Be(AgentMandateGuard.ForbiddenForAgents);
+    }
+
+    [Fact]
+    public async Task ResourceRead_OfADisabledAgent_IsRefusedWithAgentDisabled()
+    {
+        var (agent, _) = _tenant.AddAgent("Builder", AgentClient, Low, ("knowledge_get", Low));
+        _tenant.SetEnabled(agent, false);
+
+        (await ReadResourceAsync(Client(AgentClient))).Code.Should().Be(AgentMandateGuard.AgentDisabled);
+    }
+
+    [Fact]
+    public async Task ResourceRead_WithTheAgentScopeOnAClientThatIsNoAgent_IsRefused()
+    {
+        (await ReadResourceAsync(new McpCallerPrincipal(null, "not-an-agent", Tenant, [], ["octo_agent"]))).Code
+            .Should().Be(AgentMandateGuard.NotAnAgent);
+    }
+
+    [Fact]
+    public async Task ResourceRead_OfAUserOrAClientThatIsNoAgent_IsUnaffected()
+    {
+        _tenant.AddAgent("Builder", AgentClient, Low, ("knowledge_get", Low));
+
+        (await ReadResourceAsync(new McpCallerPrincipal("user-1", null, Tenant, []))).Allowed.Should().BeTrue();
+        (await ReadResourceAsync(new McpCallerPrincipal(null, "octo-cli", Tenant, []))).Allowed.Should().BeTrue();
+    }
 }

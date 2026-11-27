@@ -5,7 +5,7 @@ applies_to: **/Tools/AgentTools.cs, **/Services/Agents/**, **/Models/AgentRespon
 
 # Agent tools
 
-Five tools manage the agents of a tenant: the System.Ai types `Agent` and `Mandate` (System.Ai 4.12.0 or later; a
+Five tools manage the agents of a tenant: the System.Ai types `Agent` and `Mandate` (System.Ai 4.13.0 or later; a
 tenant without them gets `NoAgentTypes`) and the agent's service-account client in the tenant identity.
 
 | Tool | Risk | What it does |
@@ -40,6 +40,10 @@ three writing agent tools put the channel on their session (`AgentModel.WriteCha
 agent-caller refusal; the caller's identity and roles stay on the session. Blueprint seeds (System.Ai.Builder) and system
 sessions are not restricted. A later Studio UI for agents builds on this API, not on generic entity writes.
 
+System.Ai 4.13.0 (octo-ai-services#88) declares the same channel-only `writeAccess` on `AgentTrigger`, `Run` and
+`ActionRecord`, so no caller writes them through GraphQL, REST, ImportRt or the generic entity tools either. Use System.Ai
+4.13.0 or later: 4.12.0 leaves these three types writable by every tenant administrator.
+
 ## Two paths, caller's rights on both
 
 - **Agent and mandate** are written directly in the engine with the caller's own session (family 2,
@@ -50,7 +54,10 @@ sessions are not restricted. A later Studio UI for agents builds on this API, no
 
 `create_agent` writes the entities first, so a caller who may not write them changes nothing in the identity. When the
 identity step fails, the tool deletes the client it created and the agent and mandate it wrote (`IdentityFailed`; the
-message names anything that could not be removed). `set_agent_enabled false` switches the agent off first and the
+message names anything that could not be removed). The same clean-up runs when any later step throws (a transport error
+of `SetRoles`, a failed read-back: `Failed` with "Nothing was kept"), so a failed `create_agent` leaves no orphaned agent,
+mandate or client. `enabled: false` creates the agent disabled **and** its client disabled, so it cannot obtain a token
+before `set_agent_enabled true`. `set_agent_enabled false` switches the agent off first and the
 client second, so the kill switch holds even when the identity call fails (the response says the client is still
 enabled); `true` switches the client on first and turns it off again when the agent write fails.
 
@@ -74,11 +81,20 @@ mandate's `RiskCeiling`.
 | `AgentDisabled` | The agent's `Enabled` is not `true` (kill switch; an absent value counts as disabled) |
 | `ToolNotGranted` | No grant of the mandate matches the tool |
 | `RiskAboveCeiling` | The tool's risk is above the matching grant's `MaxRisk` or above the mandate's `RiskCeiling` (the message says which) |
+| `NotAnAgent` | The token carries the agent scope `octo_agent`, but the caller is no agent of the token's tenant (user token, client that is no agent, tenant without agent types) |
+| `AgentScopeMissing` | The caller is an agent, but its token does not carry `octo_agent` (an agent client created before AB#9729 option A, or seeded with `octo_api`): such a token would reach the platform unexchanged and without `act`. Give the client the scope `octo_agent` only |
+| `ForbiddenForAgents` | The tool administers identity, agents, tenant backups, secrets or the LLM spend cap (every tool of the client, client secret, API scope and resource, role, user, group, identity provider, external user mapping, e-mail domain rule, cross-tenant grant, client overlay and admin provisioning tools, the agent tools, the tenant dump/restore and secret maintenance tools, and `get_ai_spend`/`set_ai_spend_cap`; `AgentForbiddenTools`). An agent never runs them, whatever its mandate grants or its client's roles: otherwise it could add `octo_api` or roles to its own client, take over `octo-mcpServices-agent-exchange` or create a client outside this check, restore an older, broader mandate or raise its own budget, and so raise its own mandate |
 | `MandateUnavailable` | Fail closed: no `tenant_id` on a token with a client id, the agents or the mandate cannot be read (store error), several agents with the same client id, the agent list at its read limit (`AgentModel.MaxAgents`), no or several mandates, a mandate that does not exist, a risk ceiling outside Low..High |
 
 A refusal is an error result (`isError: true`) whose text is JSON: `isSuccess` false, `errorCode`, `errorMessage` (the
 reason), `tool`, `agent`. The tool does not run. Each decision about an agent caller is logged (client id, tenant, tool,
 agent, code; refusals at Warning; no token content or arguments).
+
+`resources/read` gets the same check (`AgentMandateFilter.ReadResourceFilter`): an agent's client reads no MCP resource
+(`knowledge-page://`, `knowledge://`, `ck-schema://`), enabled or not (`ForbiddenForAgents`, `AgentDisabled`), and a
+token with `octo_agent` whose caller is no agent is refused (`NotAnAgent`); the refusal is a JSON-RPC error
+(`InvalidRequest`) with code and reason. An agent reads knowledge through the tools its mandate grants. Users and
+clients that are no agent are unaffected.
 
 The lookup runs as the system, because an agent's client usually cannot read the agent types, and only in the token's own
 tenant: an agent of another tenant with the same client id is never consulted. There is **no cache**: every call reads the
@@ -110,12 +126,43 @@ not.
 ## Service-account client and its secret
 
 The client gets the id `agent-<name in lower-case words>` (or `serviceAccountClientId`), grant type
-`client_credentials`, scope `octo_api`, a required secret and exactly the roles of `roles` (none by default). The secret
+`client_credentials`, scope `octo_agent` (never `octo_api`, see below), a required secret and exactly the roles of `roles` (none by default). The secret
 is never in a response, an error message, a log line or the `Agent` entity: `clientSecret` is passed to `CreateClient`
 only (the secret-carrying identity methods need `Methods:Identity:EnablePasswordMethods`), and without it a random secret
 is generated and discarded. The agent runtime does not use that secret: it obtains the agent's credential through its
 own path (run-scoped agent tokens and the key reveal at run start in octo-ai-services). Until then a person who needs
 to run as the agent sets a new secret with `update_client_secret`.
+
+## Agent tokens reach the platform only through MCP (AB#9729, option A)
+
+Invariant: a token of an agent's client is usable only through the MCP service and only for tools its mandate grants.
+
+- **Scope `octo_agent`.** The agent client holds the API scope `octo_agent` (System.Identity.Bootstrap 1.12.0), which is
+  attached to the MCP resource indicator only. No platform API accepts it: asset repository GraphQL and REST, identity
+  REST and every other service require `octo_api`, so an agent token sent there directly is refused.
+- **Transport.** `McpAuthorizationPolicy` admits `octo_agent` only on a client token (no `sub`); a user token with
+  `octo_agent` only is refused at the endpoint, a user token that also carries `octo_api` passes the transport and is
+  refused by the agent check (`NotAnAgent`). Only the two MCP endpoints admit agent tokens (policy
+  `McpEndpointPolicy`); the REST controllers of this service (system diagnostics, file transfer) keep the platform-scope
+  policy `McpTransportPolicy`, so an agent token never reaches them.
+- **Agent check.** `AgentMandateGuard` refuses a token with `octo_agent` whose caller is no agent of the token's tenant
+  (`NotAnAgent`: a user token, a client that is no agent, a tenant without agent types, an agent of another tenant with
+  the same client id). An agent is then checked against its mandate as above.
+- **One exchange point.** For every downstream call `McpSessionContext.ResolveAccessTokenAsync` exchanges the agent token
+  (`IAgentTokenExchanger`, RFC 8693) for a five-minute `octo_api` token of the agent client with `act` = the agent client
+  id, presented by MCP's confidential client `octo-mcpServices-agent-exchange` in the agent's own tenant. The result is
+  kept per agent token until 30 seconds before it expires. Because of this cache, a role removed from the agent client (`update_agent` roles) reaches its downstream calls only when the cached token expires (at most about four and a half minutes); disabling the agent or changing its grants takes effect on the next call (the mandate check reads them every time), so switch the agent off first when it must stop at once. The exchange uses its own HTTP client that validates the identity service's TLS certificate (`Mcp:AgentExchangeAcceptAnyServerCertificate` turns that off, development only). The agent token itself is never sent downstream: when no
+  exchange is possible the tool gets the error "the agent token could not be exchanged". An agent never acts in another
+  tenant ("an agent acts only in its own tenant"), and the public device client never exchanges an agent token.
+- **Exchange client.** MCP registers `octo-mcpServices-agent-exchange` in every tenant through its identity data
+  (token-exchange grant only, scope `octo_api`, confidential) with the secret `Mcp:AgentExchangeClientSecret`
+  (`OCTO_MCP__AGENTEXCHANGECLIENTSECRET`, Vault in cluster deployments). A changed secret is registered again on the next
+  start (fingerprint `McpAgentExchangeClientFingerprint` in the system tenant configuration; child tenants receive the
+  identity data on every start). **Without a secret** nothing is registered and every downstream call of an agent is
+  refused (fail closed); MCP logs a warning per tenant at start.
+
+Identity's side (who may exchange, what the issued token carries): octo-identity-services
+`docs/cross-tenant-authentication.md`, "Agent token exchange".
 
 ## Tests
 
