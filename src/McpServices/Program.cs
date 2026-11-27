@@ -322,6 +322,9 @@ try
     // below is gated by the policy. The file-transfer controller checks the same policy itself and also accepts a
     // one-time transfer key, so it is anonymous at the routing level.
     app.UseAuthentication();
+    // Agent tokens (octo_agent) are refused with 403 AgentTokenNotAccepted before the controllers' own policies can answer
+    // with a plain 403; the MCP endpoints are marked AllowAgentTokens (UseOctoTenantAuthorization repeats the check).
+    app.UseOctoAgentTokenRefusal();
     app.UseAuthorization();
     // Validate the route {tenantId} against the token's tenant claim. Client-credentials service
     // tokens without a user 'sub' (AiWorker via IMcpTokenIssuer, mesh-adapter via
@@ -330,15 +333,10 @@ try
     app.UseAiServiceClientTenantGuard();
     app.UseOctoTenantAuthorization();
 
-    // Map MCP endpoint with tenant routing (existing, backwards compatible)
-    // AB#5032: the policy adds the scope requirement on top of "authenticated" — a token without the
-    // platform API scope no longer reaches any tool.
-    app.MapMcp("/{tenantId:tenantId}/mcp")
-        .RequireAuthorization(McpAuthorizationPolicy.EndpointPolicyName);
-
-    // Map tenantless MCP endpoint (tenant resolved via tool parameter)
-    app.MapMcp("/mcp")
-        .RequireAuthorization(McpAuthorizationPolicy.EndpointPolicyName);
+    // The two MCP endpoints, with tenant routing and tenantless. AB#5032: the policy adds the scope requirement on top
+    // of "authenticated". AB#6054: they are the only OctoMesh endpoints that accept agent tokens (.AllowAgentTokens());
+    // UseOctoTenantAuthorization() refuses agent tokens everywhere else with 403 AgentTokenNotAccepted.
+    app.MapOctoMcpEndpoints();
 
     // Log startup information
     var dynamicToolOptions = app.Services.GetRequiredService<IOptions<DynamicToolOptions>>().Value;

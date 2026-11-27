@@ -14,6 +14,11 @@ registers the JWT bearer handler (`AddAuthentication(JwtBearerDefaults.Authentic
 `UseOctoTenantAuthorization()` before mapping the transport; both `app.MapMcp(...)` calls carry
 `.RequireAuthorization(McpAuthorizationPolicy.EndpointPolicyName)` — the endpoint policy of the next section.
 
+Agent tokens (scope `octo_agent`) are refused with `403 AgentTokenNotAccepted` on every endpoint but the two MCP
+endpoints: `UseOctoAgentTokenRefusal()` runs between `UseAuthentication()` and `UseAuthorization()`, so no controller
+policy answers first, and `MapOctoMcpEndpoints()` marks only the MCP routes `.AllowAgentTokens()` (never mark another
+endpoint; `docs/agent-tools.md`).
+
 `MapObservability` (health/metrics) is intentionally left anonymous. The file-transfer controller is
 `[AllowAnonymous]` at the routing level, because a request may present the one-time transfer key instead of a token; it
 evaluates `McpAuthorizationPolicy.PolicyName` — the platform-scope policy `McpTransportPolicy`, never `McpEndpointPolicy`

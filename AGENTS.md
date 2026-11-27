@@ -128,7 +128,8 @@ of `McpServices`. Every public type, property, and method on a new tool class ne
   `docs/authentication.md`.
 - **Both MCP endpoints carry `McpEndpointPolicy` (it also admits agent tokens, `octo_agent`, which then pass the
   mandate guard), and a new controller carries its own `[Authorize]` with `McpTransportPolicy`, never
-  `McpEndpointPolicy`**; nothing in `Program.cs` gates a controller. The one exception is `FileTransferController`: it
+  `McpEndpointPolicy`**; nothing in `Program.cs` gates a controller by scope, but `UseOctoAgentTokenRefusal()` refuses
+  agent tokens on every endpoint not marked `.AllowAgentTokens()` (only `MapOctoMcpEndpoints()`; never mark another). The one exception is `FileTransferController`: it
   is `[AllowAnonymous]` because a request may present the one-time transfer key instead of a token, and it checks
   `McpTransportPolicy` (platform scope) on the token itself before it touches the store; it serves an entry only to the principal that created it or to the holder of the
   entry's key, with id and key in headers, never in the URL (`docs/file-transfer.md`): `docs/authentication.md`.

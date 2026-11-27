@@ -59,8 +59,9 @@ curl -o dump.tar.gz "<publicUrl>/file-transfer/download" \
   -H "X-Transfer-Key: <transferKey>"
 ```
 
-The key works once. A client that holds the access token of its MCP connection may send
-`-H "Authorization: Bearer <token>"` instead of the key, also after the key expired or was used (a resume of an
+The key works once. An agent presents only the key, never its token: an agent token (`octo_agent`) is refused with
+`403 AgentTokenNotAccepted` on this controller, also together with a valid key. A client that holds the access token of
+its MCP connection (users, platform clients) may send `-H "Authorization: Bearer <token>"` instead of the key, also after the key expired or was used (a resume of an
 aborted download, for example). Never put id or key into the URL or a log; a shell history keeps both, so prefer
 reading them from a variable the tool output filled.
 
