@@ -56,14 +56,16 @@ public class AgentTokenEndpointTests
                 {
                     app.UseRouting();
                     app.UseAuthentication();
+                    app.UseOctoAgentTokenRefusal();
                     app.UseAuthorization();
                     app.UseOctoTenantAuthorization();
                     app.UseEndpoints(endpoints =>
                     {
                         endpoints.MapOctoMcpEndpoints();
-                        // Stands in for the controllers of this service (diagnostics, file transfer): authenticated only.
+                        // Stands in for the controllers of this service (diagnostics): the platform-scope policy
+                        // McpTransportPolicy, which an agent token fails before the refusal of the tenant gate runs.
                         endpoints.MapGet(StubControllerRoute, () => Results.Ok("diagnostics"))
-                            .RequireAuthorization();
+                            .RequireAuthorization(McpAuthorizationPolicy.PolicyName);
                     });
                 }))
             .Build();
@@ -130,6 +132,22 @@ public class AgentTokenEndpointTests
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         body.RootElement.GetProperty("code").GetString().Should().Be(AgentTokens.NotAcceptedErrorCode);
+    }
+
+    [Fact]
+    public void NoTypeOrMemberOfThisService_IsMarkedAllowAgentTokens()
+    {
+        var assembly = typeof(OctoMcpEndpoints).Assembly;
+        var marked = assembly.GetTypes()
+            .SelectMany(t => new System.Reflection.MemberInfo[] { t }.Concat(t.GetMethods(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic |
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static |
+                System.Reflection.BindingFlags.DeclaredOnly)))
+            .Where(m => m.GetCustomAttributes(typeof(AllowAgentTokensAttribute), true).Length > 0)
+            .Select(m => m.Name)
+            .ToList();
+
+        marked.Should().BeEmpty("only the two MapMcp routes opt in, through .AllowAgentTokens() in OctoMcpEndpoints");
     }
 
     [Fact]

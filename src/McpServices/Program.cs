@@ -322,6 +322,9 @@ try
     // below is gated by the policy. The file-transfer controller checks the same policy itself and also accepts a
     // one-time transfer key, so it is anonymous at the routing level.
     app.UseAuthentication();
+    // Agent tokens (octo_agent) are refused with 403 AgentTokenNotAccepted before the controllers' own policies can answer
+    // with a plain 403; the MCP endpoints are marked AllowAgentTokens (UseOctoTenantAuthorization repeats the check).
+    app.UseOctoAgentTokenRefusal();
     app.UseAuthorization();
     // Validate the route {tenantId} against the token's tenant claim. Client-credentials service
     // tokens without a user 'sub' (AiWorker via IMcpTokenIssuer, mesh-adapter via
