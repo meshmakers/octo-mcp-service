@@ -48,7 +48,9 @@
   cascaded dependencies and blocking dependents; lists cut at 200 entries (DeletedCount/KeptCount stay complete). Risk
   Low, on the reading allow list. It never calls the uninstall: an asset repository without the preview route gives
   ErrorCode `BlueprintUninstallPreviewUnsupported`, an answer that is not a dry run `BlueprintUninstallPreviewNotDryRun`.
-  Needs the tenant role DataModelManagement like the preview route.
+  Needs the tenant role DataModelManagement like the preview route. `blueprintName` must be one path segment (ASCII
+  letters, digits, `.`, `-`, `_`, not `.`/`..`), else ErrorCode `InvalidRouteSegment` before any call: the SDK puts
+  it into the POST route unescaped.
 - **`validate_ck_model` and `import_ck_model` refuse only with engine catalog numbers (AB#8502).** An inline draft over
   the limit is message 148 (`CkModelInlineDraftTooLarge`, parameter `detail`) instead of 9005; the asset repository and
   the engine report an unreadable draft as 147, a dependency that cannot be resolved as 146 and a system reference
@@ -61,7 +63,7 @@
   so an agent reuses public kits before it builds its own model. Risk Low, on the reading allow list of the mandate
   check (Propose agents may call it). ErrorCodes `CkCatalogNotFound`, `CkCatalogModelNotFound`, `InvalidCkModelId`,
   `CkCatalogModelTypesUnsupported` (asset repository without the route). Needs octo-sdk and octo-asset-repo-services
-  with AB#9370.
+  with AB#9370. `catalogName` and `modelId` are required and must each be one path segment (`InvalidRouteSegment`).
 - **Write mode `Propose` enforced as "no change without a proposal" (AB#9730, Feature AB#8451, security).** Until the
   proposal flow exists (AB#8461/AB#8480), the mandate check refuses every tool that is no reading tool (exact allow
   list `AgentMandateGuard.ReadingTools`, Low risk) for a mandate whose `WriteMode` is not `Direct` (Propose or no value)

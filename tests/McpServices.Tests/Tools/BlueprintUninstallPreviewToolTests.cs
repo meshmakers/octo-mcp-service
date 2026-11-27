@@ -119,6 +119,26 @@ public class BlueprintUninstallPreviewToolTests : ToolTestBase
             Times.Never);
     }
 
+    [Theory]
+    [InlineData("..")]
+    [InlineData(".")]
+    [InlineData("a/b")]
+    [InlineData("x/../../updates/apply#")]
+    [InlineData("name?cascade=true")]
+    [InlineData("na%2Fme")]
+    public async Task Preview_NameThatIsNoSinglePathSegment_IsRefused_AndNoRouteIsCalled(string name)
+    {
+        // The SDK interpolates the name into the POST route unescaped (Kassandra round 1, finding 1).
+        var result = await BlueprintTools.PreviewBlueprintUninstall(MockServer.Object, name);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(BlueprintTools.InvalidRouteSegment);
+        result.ErrorMessage.Should().Contain("blueprintName");
+        MockAssetClient.Verify(c => c.PreviewUninstallBlueprintAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()),
+            Times.Never);
+        VerifyNeverUninstalled();
+    }
+
     [Fact]
     public void Preview_IsLowAndOnTheReadingAllowList()
     {

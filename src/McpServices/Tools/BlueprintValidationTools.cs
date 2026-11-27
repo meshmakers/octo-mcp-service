@@ -131,7 +131,9 @@ public sealed class BlueprintValidationTools
             Message = result.IsValid
                 ? $"Blueprint draft '{result.BlueprintId}' is valid for tenant '{tenantId}'" +
                   (result.TotalFindings > 0 ? $" ({result.TotalFindings} warning/info finding(s))." : ".")
-                : $"Blueprint draft has {errors} error(s)."
+                : result.Truncated || result.Findings.Count > MaxFindings
+                    ? $"Blueprint draft has at least {errors} error(s); the finding list is cut, {result.TotalFindings} finding(s) in total."
+                    : $"Blueprint draft has {errors} error(s)."
         };
     }
 }

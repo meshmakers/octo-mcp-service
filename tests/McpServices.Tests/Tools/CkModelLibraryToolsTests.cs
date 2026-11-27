@@ -101,6 +101,36 @@ public class CkModelLibraryToolsTests : ToolTestBase
         result.ErrorCode.Should().Be(CkModelLibraryTools.CatalogModelTypesUnsupported);
     }
 
+    [Theory]
+    [InlineData("", "Basic-2.7.0")]
+    [InlineData("cat", " ")]
+    public async Task GetCatalogModelTypes_MissingArgument_IsRefusedBeforeAnyCall(string catalogName, string modelId)
+    {
+        var result = await CkModelLibraryTools.GetCatalogModelTypes(MockServer.Object, catalogName, modelId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("catalogName and modelId are required");
+        MockAssetClient.Verify(c => c.GetCkCatalogModelTypesAsync(It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("..", "Basic-2.7.0", "catalogName")]
+    [InlineData("cat/x", "Basic-2.7.0", "catalogName")]
+    [InlineData("cat", "..", "modelId")]
+    [InlineData("cat", "Basic-2.7.0/../x", "modelId")]
+    public async Task GetCatalogModelTypes_ValueThatIsNoSinglePathSegment_IsRefused(string catalogName, string modelId,
+        string named)
+    {
+        var result = await CkModelLibraryTools.GetCatalogModelTypes(MockServer.Object, catalogName, modelId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(BlueprintTools.InvalidRouteSegment);
+        result.ErrorMessage.Should().Contain(named);
+        MockAssetClient.Verify(c => c.GetCkCatalogModelTypesAsync(It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<int>()), Times.Never);
+    }
+
     [Fact]
     public async Task GetCatalogModelTypes_Unauthenticated_ReturnsAuthError()
     {

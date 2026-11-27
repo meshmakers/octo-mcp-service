@@ -103,8 +103,11 @@ internal static class CkDraftInlinePackager
             if (name == null)
             {
                 return new Result(null,
-                    $"Invalid file name '{file?.Name}': use a relative path below ConstructionKit/ " +
-                    "(e.g. ckModel.yaml, types/pump.yaml) without '..' segments.", null);
+                    toolName == "validate_blueprint"
+                        ? $"Invalid file name '{file?.Name}': use a relative path inside the blueprint folder " +
+                          "(e.g. blueprint.yaml, seed-data/entities.yaml) without '..' segments."
+                        : $"Invalid file name '{file?.Name}': use a relative path below ConstructionKit/ " +
+                          "(e.g. ckModel.yaml, types/pump.yaml) without '..' segments.", null);
             }
 
             if (!names.Add(name))

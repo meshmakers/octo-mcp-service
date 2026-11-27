@@ -375,7 +375,7 @@ public sealed class BlueprintTools
         {
             catalogName = null;
         }
-        else if (!IsCatalogNameSegment(catalogName))
+        else if (!RouteSegment.IsSafe(catalogName))
         {
             // The SDK puts the name into the request path unescaped; a name with '/', '?', '%' or a dot segment
             // could address another route (e.g. the all-catalogs refresh). Catalog names are type-like names.
@@ -443,9 +443,8 @@ public sealed class BlueprintTools
         }
     }
 
-    private static bool IsCatalogNameSegment(string name) =>
-        name is not "." and not ".." &&
-        name.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '_');
+    /// <summary>Error code when a name that goes into a request path is not one safe path segment.</summary>
+    public const string InvalidRouteSegment = "InvalidRouteSegment";
 
     /// <summary>Error code when the asset service has no uninstall preview route yet (404 without body).</summary>
     public const string UninstallPreviewUnsupported = "BlueprintUninstallPreviewUnsupported";
@@ -480,6 +479,15 @@ public sealed class BlueprintTools
         if (string.IsNullOrWhiteSpace(blueprintName))
         {
             return new PreviewBlueprintUninstallResponse { IsSuccess = false, ErrorMessage = "blueprintName is required." };
+        }
+
+        // The SDK interpolates the name into the POST route unescaped; only one safe path segment may reach it.
+        if (!RouteSegment.IsSafe(blueprintName))
+        {
+            return new PreviewBlueprintUninstallResponse
+            {
+                IsSuccess = false, ErrorCode = InvalidRouteSegment, ErrorMessage = RouteSegment.Refusal("blueprintName")
+            };
         }
 
         var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);

@@ -111,6 +111,27 @@ public sealed class CkModelLibraryTools
         [Description("Page size (default 20, max 50).")] int take = 20,
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
     {
+        if (string.IsNullOrWhiteSpace(catalogName) || string.IsNullOrWhiteSpace(modelId))
+        {
+            return new CkCatalogModelTypesResponse
+            {
+                IsSuccess = false, ErrorMessage = "catalogName and modelId are required."
+            };
+        }
+
+        // The SDK escapes '/' in these route segments but lets '.' and '..' through; accept one safe segment only.
+        foreach (var (name, value) in new[] { ("catalogName", catalogName), ("modelId", modelId) })
+        {
+            if (!RouteSegment.IsSafe(value))
+            {
+                return new CkCatalogModelTypesResponse
+                {
+                    IsSuccess = false, ErrorCode = BlueprintTools.InvalidRouteSegment,
+                    ErrorMessage = RouteSegment.Refusal(name)
+                };
+            }
+        }
+
         var ctx = await AssetClientContext.TryBuildAsync(server, tenantId);
         if (ctx.Error != null)
         {

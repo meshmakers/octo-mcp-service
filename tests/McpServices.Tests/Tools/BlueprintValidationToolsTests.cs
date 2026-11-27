@@ -97,6 +97,51 @@ public class BlueprintValidationToolsTests : ToolTestBase
     }
 
     [Fact]
+    public void Map_TruncatedInvalidDraft_SaysAtLeast_AndNamesTheTotal()
+    {
+        // The server already cut the list: the error count of the page is a lower bound (Kassandra round 1, finding 4).
+        var dto = new BlueprintDraftValidationResponseDto
+        {
+            IsValid = false, TotalFindings = 300, Truncated = true,
+            Findings = Enumerable.Range(0, 20).Select(_ => new BlueprintDraftFindingDto { Code = 162, Level = "Error" }).ToList()
+        };
+
+        var result = BlueprintValidationTools.Map(dto, DefaultTenantId);
+
+        result.Message.Should().Be("Blueprint draft has at least 20 error(s); the finding list is cut, 300 finding(s) in total.");
+    }
+
+    [Fact]
+    public void Map_CompleteInvalidDraft_CountsTheErrors()
+    {
+        var dto = new BlueprintDraftValidationResponseDto
+        {
+            IsValid = false, TotalFindings = 3,
+            Findings =
+            [
+                new BlueprintDraftFindingDto { Code = 162, Level = "Error" },
+                new BlueprintDraftFindingDto { Code = 163, Level = "FatalError" },
+                new BlueprintDraftFindingDto { Code = 159, Level = "Warning" }
+            ]
+        };
+
+        BlueprintValidationTools.Map(dto, DefaultTenantId).Message.Should().Be("Blueprint draft has 2 error(s).");
+    }
+
+    [Fact]
+    public async Task ValidateBlueprint_InvalidFileName_HintNamesTheBlueprintFolder()
+    {
+        // Kassandra round 1, finding 5: the hint must not send a blueprint author to ConstructionKit/.
+        var files = new List<CkDraftFileDto> { new() { Name = "../blueprint.yaml", Content = "x" } };
+
+        var result = await BlueprintValidationTools.ValidateBlueprint(MockServer.Object, files: files);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("inside the blueprint folder").And.NotContain("ConstructionKit/");
+        MockAssetClient.Verify(c => c.ValidateBlueprintAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
     public async Task ValidateBlueprint_Unauthenticated_ReturnsError_AndCallsNothing()
     {
         GivenUnauthenticated();
