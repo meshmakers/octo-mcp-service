@@ -147,6 +147,64 @@ public class PipelineToolsTests : ToolTestBase
     }
 
     [Fact]
+    public async Task DryRunPipeline_AdapterDidNotAnswer_NamesTheReRegistrationAfterACkChange()
+    {
+        // AB#10015 F7: right after a CK import the adapter re-registers; the error must say "retry", not "broken".
+        CkMethods.Fails("PIPELINE_EXECUTION_START_FAILED",
+            "Adapter 'Mesh Adapter' did not answer the start of pipeline 1 of tenant t in time.");
+
+        var result = await PipelineTools.DryRunPipeline(MockServer.Object, PipelineId, "{\"k\":1}");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("did not answer").And.EndWith(PipelineTools.AdapterReconnectHint);
+    }
+
+    [Fact]
+    public async Task DryRunPipeline_HttpPipelineRefusal_IsPassedThroughWithoutTheReconnectHint()
+    {
+        CkMethods.Fails("PIPELINE_EXECUTION_START_FAILED",
+            "The caller holds none of the roles MaintenanceManagement the route POST /tickets requires.");
+
+        var result = await PipelineTools.DryRunPipeline(MockServer.Object, PipelineId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("MaintenanceManagement").And.NotContain(PipelineTools.AdapterReconnectHint);
+    }
+
+    [Fact]
+    public async Task DeployPipeline_NoLiveSignalRConnection_NamesTheReRegistrationAfterACkChange()
+    {
+        CkMethods.Fails("PIPELINE_DEPLOYMENT_FAILED",
+            "Adapter '670000000000000000000002' has no live SignalR connection.");
+
+        var result = await PipelineTools.DeployPipeline(MockServer.Object, AdapterId, PipelineId, "triggers: []");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().EndWith(PipelineTools.AdapterReconnectHint);
+    }
+
+    [Fact]
+    public async Task DeployAndDryRun_ThrownNoLiveConnection_CarryTheReconnectHintToo()
+    {
+        CkMethods.Throws(new InvalidOperationException("Adapter 'x' has no live SignalR connection."));
+
+        var deploy = await PipelineTools.DeployPipeline(MockServer.Object, AdapterId, PipelineId, "triggers: []");
+        var dryRun = await PipelineTools.DryRunPipeline(MockServer.Object, PipelineId);
+
+        deploy.ErrorMessage.Should().EndWith(PipelineTools.AdapterReconnectHint);
+        dryRun.ErrorMessage.Should().EndWith(PipelineTools.AdapterReconnectHint);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("Pipeline definition is invalid.")]
+    public void WithAdapterReconnectHint_LeavesOtherErrorsUnchanged(string? error)
+    {
+        PipelineTools.WithAdapterReconnectHint(error).Should().Be(error);
+    }
+
+    [Fact]
     public void DryRunPipeline_SdkHonouredCatalog_HasExpectedSize()
     {
         // Pin the catalog size — Commit 2's DryRunHonouredLoadNodes.All in octo-mesh-adapter
