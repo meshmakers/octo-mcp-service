@@ -138,8 +138,17 @@ to run as the agent sets a new secret with `update_client_secret`.
 Invariant: a token of an agent's client is usable only through the MCP service and only for tools its mandate grants.
 
 - **Scope `octo_agent`.** The agent client holds the API scope `octo_agent` (System.Identity.Bootstrap 1.12.0), which is
-  attached to the MCP resource indicator only. No platform API accepts it: asset repository GraphQL and REST, identity
-  REST and every other service require `octo_api`, so an agent token sent there directly is refused.
+  attached to the MCP resource indicator only. Identity issues it on every token of an agent client (also when the
+  request names no scope) and gives an agent client tokens only through `client_credentials` with no other scope.
+- **Refused everywhere but here (AB#6054, deny by default).** Not every platform API requires `octo_api` (GraphQL queries
+  of the asset repository require no scope), so the services refuse the agent scope instead: `UseOctoTenantAuthorization()`
+  of octo-common-services answers a token whose scope contains `octo_agent` with **`403`, error code
+  `AgentTokenNotAccepted`** (`{"statusCode":403,"statusDescription":"Forbidden","code":"AgentTokenNotAccepted","message":…}`)
+  on every endpoint that is not marked `.AllowAgentTokens()`. Only the two `MapMcp` routes of this service carry the
+  marker (`OctoMcpEndpoints.MapOctoMcpEndpoints`). The same rule holds in the SignalR hubs of the
+  communication controller and the AI service (`HubException` `AgentTokenNotAccepted`), the inbound routes of the Mesh
+  Adapter (`403`, `error_code="agent_token_not_accepted"`), the platform services and CK method calls on the bus
+  (`METHOD_FORBIDDEN`, reason `agent-token-not-accepted`).
 - **Transport.** `McpAuthorizationPolicy` admits `octo_agent` only on a client token (no `sub`); a user token with
   `octo_agent` only is refused at the endpoint, a user token that also carries `octo_api` passes the transport and is
   refused by the agent check (`NotAnAgent`). Only the two MCP endpoints admit agent tokens (policy

@@ -4,6 +4,10 @@
 
 ### Added
 
+- **Only the MCP endpoints accept agent tokens (AB#6054, security).** Both `MapMcp` routes are mapped by
+  `MapOctoMcpEndpoints()` with `.AllowAgentTokens()` (octo-common-services); every other endpoint of this service and of
+  every OctoMesh API refuses a token with `octo_agent` with `403 AgentTokenNotAccepted`. Needs the octo-common-services
+  package of AB#6054. Docs: `docs/agent-tools.md`.
 - **`get_ai_spend` and `set_ai_spend_cap` (AB#8690, new file `Tools/AiSpendTools.cs`).** Read (risk Low) and set (risk High,
   `confirm=true`, reason) the monthly LLM spend cap of the central-key LLM gateway through the AI service
   (`{tenant}/v1/aiSpend`, `system/v1/aiSpendCaps`). Setting and reading another tenant need a system-tenant session with the

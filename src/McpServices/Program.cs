@@ -330,15 +330,10 @@ try
     app.UseAiServiceClientTenantGuard();
     app.UseOctoTenantAuthorization();
 
-    // Map MCP endpoint with tenant routing (existing, backwards compatible)
-    // AB#5032: the policy adds the scope requirement on top of "authenticated" — a token without the
-    // platform API scope no longer reaches any tool.
-    app.MapMcp("/{tenantId:tenantId}/mcp")
-        .RequireAuthorization(McpAuthorizationPolicy.EndpointPolicyName);
-
-    // Map tenantless MCP endpoint (tenant resolved via tool parameter)
-    app.MapMcp("/mcp")
-        .RequireAuthorization(McpAuthorizationPolicy.EndpointPolicyName);
+    // The two MCP endpoints, with tenant routing and tenantless. AB#5032: the policy adds the scope requirement on top
+    // of "authenticated". AB#6054: they are the only OctoMesh endpoints that accept agent tokens (.AllowAgentTokens());
+    // UseOctoTenantAuthorization() refuses agent tokens everywhere else with 403 AgentTokenNotAccepted.
+    app.MapOctoMcpEndpoints();
 
     // Log startup information
     var dynamicToolOptions = app.Services.GetRequiredService<IOptions<DynamicToolOptions>>().Value;
