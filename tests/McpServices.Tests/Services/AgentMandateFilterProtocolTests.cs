@@ -198,6 +198,77 @@ public sealed class AgentMandateFilterProtocolTests : IAsyncDisposable
         ToolRan(false);
     }
 
+    // ---- the seeded builder agent (AB#9730) ---------------------------------------------------------------------------
+
+    /// <summary>
+    ///     The mandate System.Ai.Builder 1.2.0 seeds (octo-ai-services, seed-data/builder-agent.yaml, AB#9004, AB#9371): 13 grants (validate_blueprint, no dry_run_pipeline),
+    ///     risk ceiling High, write mode Propose. Kept in sync by hand; the seed test in octo-ai-services pins the same list.
+    /// </summary>
+    private static readonly (string Pattern, int? MaxRisk)[] BuilderGrants =
+    [
+        ("get_type_schema", 0), ("search_types", 0), ("get_available_types", 0), ("query_entities", 0),
+        ("validate_ck_model", 0), ("import_ck_model", 1), ("get_pipeline_schema", 0),
+        ("validate_pipeline_definition", 0), ("deploy_pipeline", 2), ("list_blueprints", 0), ("validate_blueprint", 0),
+        ("knowledge_search", 0), ("knowledge_get", 0)
+    ];
+
+    private void GivenTheSeededBuilder()
+    {
+        _tenant.WriteMode = 0; // Propose
+        _tenant.AddAgent("Builder", AgentClient, 2, BuilderGrants);
+    }
+
+    [Theory]
+    [InlineData("delete_tenant")]
+    [InlineData("create_tenant")]
+    [InlineData("create_user")]
+    [InlineData("add_client_to_role")]
+    [InlineData("dry_run_pipeline")] // not granted until the proposal flow: a dry run executes the deployed pipeline
+    public async Task SeededBuilder_IdentityOrTenantTool_GetsToolNotGranted_WithToolAndReason(string tool)
+    {
+        GivenTheSeededBuilder();
+        await using var client = await ConnectAsync(Principal(null, AgentClient));
+
+        var refusal = RefusalOf(await client.CallToolAsync(tool, new Dictionary<string, object?>(),
+            cancellationToken: TestContext.Current.CancellationToken));
+
+        refusal.GetProperty("errorCode").GetString().Should().Be(AgentMandateGuard.ToolNotGranted);
+        refusal.GetProperty("tool").GetString().Should().Be(tool);
+        refusal.GetProperty("errorMessage").GetString().Should().Contain(tool).And.Contain("Builder")
+            .And.Contain("grants no such tool");
+        ToolRan(false);
+    }
+
+    [Theory]
+    [InlineData("import_ck_model")]
+    [InlineData("deploy_pipeline")]
+    public async Task SeededBuilder_GrantedWritingTool_GetsProposeRequired_AndChangesNothing(string tool)
+    {
+        GivenTheSeededBuilder();
+        await using var client = await ConnectAsync(Principal(null, AgentClient));
+
+        var refusal = RefusalOf(await client.CallToolAsync(tool, new Dictionary<string, object?>(),
+            cancellationToken: TestContext.Current.CancellationToken));
+
+        refusal.GetProperty("errorCode").GetString().Should().Be(AgentMandateGuard.ProposeRequired);
+        refusal.GetProperty("errorMessage").GetString().Should().Contain("proposal flow not available yet");
+        ToolRan(false);
+    }
+
+    [Fact]
+    public async Task SeededBuilder_GrantedValidationTool_IsNotRefused()
+    {
+        GivenTheSeededBuilder();
+        await using var client = await ConnectAsync(Principal(null, AgentClient));
+
+        var result = await client.CallToolAsync("get_pipeline_schema", new Dictionary<string, object?>(),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var text = result.Content.OfType<TextContentBlock>().FirstOrDefault()?.Text ?? string.Empty;
+        text.Should().NotContain(AgentMandateGuard.ToolNotGranted).And.NotContain(AgentMandateGuard.ProposeRequired)
+            .And.NotContain(AgentMandateGuard.RiskAboveCeiling);
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _stop.CancelAsync();

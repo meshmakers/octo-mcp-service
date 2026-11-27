@@ -179,10 +179,10 @@ dotnet run
 - Admin Provisioning (4): `get_admin_provisioning_mappings` · `create_admin_provisioning_mapping` · `provision_current_user_as_admin` · `delete_admin_provisioning_mapping`<sup>‡</sup>
 
 ### **Asset Repository — Blueprints** (9)
-`list_blueprints` · `refresh_blueprint_catalogs` · `install_blueprint` · `get_blueprint_history` · `get_blueprint_update_info` · `preview_blueprint_update` · `update_blueprint`<sup>‡</sup> · `list_blueprint_installations` · `uninstall_blueprint`<sup>‡</sup>
+`list_blueprints` · `refresh_blueprint_catalogs` · `install_blueprint` · `get_blueprint_history` · `get_blueprint_update_info` · `preview_blueprint_update` · `update_blueprint`<sup>‡</sup> · `list_blueprint_installations` · `preview_blueprint_uninstall` · `uninstall_blueprint`<sup>‡</sup>
 
 ### **Asset Repository — CK Model Libraries** (8)
-`list_ck_catalogs` · `list_ck_catalog_models` · `refresh_ck_catalogs` · `get_ck_library_status` · `check_ck_dependencies` · `check_ck_upgrade` · `import_ck_from_catalog` · `fix_all_ck_models`<sup>‡</sup>
+`list_ck_catalogs` · `list_ck_catalog_models` · `get_ck_catalog_model_types` · `refresh_ck_catalogs` · `get_ck_library_status` · `check_ck_dependencies` · `check_ck_upgrade` · `import_ck_from_catalog` · `fix_all_ck_models`<sup>‡</sup>
 
 ### **Communication Controller** (25)
 - Lifecycle (2): `enable_communication` · `disable_communication`<sup>‡</sup>
@@ -200,7 +200,8 @@ dotnet run
 ### **File I/O** (17 tools + 2 HTTP endpoints)
 - Foundation: `prepare_file_upload` · `cancel_file_transfer`
 - CK Model Imports: `import_ck_model` (a compiled model — json, yaml or a zip of one — or a zip of the source `ConstructionKit/` folder, compiled by the asset repository like `validate_ck_model` does; compile errors fail the call before anything is queued and return the findings in `errors`/`warnings`; the draft can also be passed inline as `files` name/content pairs, the same form and limit as `validate_ck_model`, so an MCP-only client needs no HTTP PUT) · `import_runtime_model`
-- CK Model Validation: `validate_ck_model` (AB#8492, Risk Low: a zipped source `ConstructionKit/` folder or a compiled model is compiled and checked against the tenant's installed models; returns `isValid` or errors with `messageNumber`, `file`, `elementPath`; nothing is imported, the upload is kept; AB#9005: the draft can also be passed inline as `files` name/content pairs, up to 1 MiB and 2000 files, over the limit refused with `InlineDraftTooLarge` / message 9005)
+- CK Model Validation: `validate_ck_model` (AB#8492, Risk Low: a zipped source `ConstructionKit/` folder or a compiled model is compiled and checked against the tenant's installed models; returns `isValid` or errors with `messageNumber` (engine catalog numbers: 91, 126, 145 system reference mismatch, 146 dependency not resolvable, 147 unreadable draft, 148 inline draft too large, plus the compiler's), `file`, `elementPath`; nothing is imported, the upload is kept; AB#9005: the draft can also be passed inline as `files` name/content pairs, up to 1 MiB and 2000 files, over the limit refused with `InlineDraftTooLarge` / message 148)
+- Blueprint Validation: `validate_blueprint` (AB#9371, Risk Low: a blueprint draft inline as `files` or as a `transferId` is checked by the asset repository with the shared validator of `octo-bpm validate` and the install path - manifest, seed files, Secret seed lint, CK dependency ranges against the catalogs; returns `isValid` and findings with stable codes 149-167; nothing is installed)
 - CK Model Exports: `export_runtime_model_by_query` · `export_runtime_model_by_deep_graph`
 - Tenant Backup: `dump_tenant` · `restore_tenant`<sup>‡</sup>
 - Archive Data: `export_archive_data` · `import_archive_data`

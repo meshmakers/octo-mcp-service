@@ -311,6 +311,39 @@ public class PipelineToolsTests : ToolTestBase
     }
 
     [Fact]
+    public async Task ValidatePipelineDefinition_ManyFindings_CapsTheListAndSaysSo()
+    {
+        // AB#9731: 300 nodes without the required id give hundreds of findings; the answer stays bounded.
+        MockCommunicationClient.Setup(c => c.GetPipelineSchemaAsync(AdapterId))
+            .ReturnsAsync(MinimalPipelineSchema);
+        var yaml = "name: big\nnodes:\n" +
+                   string.Concat(Enumerable.Range(0, 300).Select(i => $"  - nodeType: Unknown{i}@1\n"));
+
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, AdapterId, yaml);
+
+        result.IsSuccess.Should().BeTrue();
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().HaveCount(PipelineTools.MaxReturnedValidationErrors);
+        result.TotalErrorCount.Should().BeGreaterThanOrEqualTo(300);
+        result.ErrorsTruncated.Should().BeTrue();
+        result.Message.Should().Contain(result.TotalErrorCount.ToString()).And.Contain("ErrorsTruncated");
+        result.Errors.Should().OnlyContain(e => e.Keyword != null, "stable keywords stay unchanged");
+    }
+
+    [Fact]
+    public async Task ValidatePipelineDefinition_FewFindings_AreNotTruncated()
+    {
+        MockCommunicationClient.Setup(c => c.GetPipelineSchemaAsync(AdapterId))
+            .ReturnsAsync(MinimalPipelineSchema);
+
+        var result = await PipelineTools.ValidatePipelineDefinition(MockServer.Object, AdapterId,
+            "nodes:\n  - nodeType: ApplyChanges@1\n    id: load\n");
+
+        result.ErrorsTruncated.Should().BeFalse();
+        result.TotalErrorCount.Should().Be(result.Errors.Count).And.BeGreaterThan(0);
+    }
+
+    [Fact]
     public async Task ValidatePipelineDefinition_MissingRequiredField_ReportsErrorAndIsValidFalse()
     {
         MockCommunicationClient.Setup(c => c.GetPipelineSchemaAsync(AdapterId))

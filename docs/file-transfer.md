@@ -186,7 +186,7 @@ no `enable_*` call; `GET {tenant}/v1/files/capabilities` reports `available:fals
 **Inline CK import for MCP-only clients.** `import_ck_model` takes the draft in exactly one of two ways, the same as
 `validate_ck_model`: `transferId` (the upload above) or `files: [{name, content}]` (names relative to `ConstructionKit/`, the source
 folder or one compiled model file). Both or neither are refused. The inline draft goes through the same `CkDraftInlinePackager.Stage`
-as `validate_ck_model` (1 MiB / 2000 files, `InlineDraftTooLarge` with an error 9005 that names `import_ck_model` with a transferId,
+as `validate_ck_model` (1 MiB / 2000 files, `InlineDraftTooLarge` with an error 148 (`CkModelInlineDraftTooLarge`) that names `import_ck_model` with a transferId,
 names checked before anything is written, an owner-only temporary zip deleted in `finally`), after the authentication check. The
 zip is posted to the same `ImportCk` as an upload, so a source draft is compiled on the server and a compile error fails the call
 before anything is queued. On `CK_MODEL_COMPILE_FAILED` the tool reads the `errors`/`warnings` extensions of the problem answer
@@ -198,12 +198,23 @@ The upload stays the path for drafts above the inline limit and for zips of comp
 
 The tool description says "PUT the file to the returned URL" — historically said "PUT the JSON/zip" which was misleading. Asset-services accepts all of the above; schema validation happens server-side after the file lands in the file-transfer store.
 
+### validate_blueprint (`BlueprintValidationTools`, AB#9371)
+
+Validates a blueprint draft **without installing it**: `validate_blueprint(files: [{name, content}])` with names relative
+to the blueprint root (`blueprint.yaml`, `seed-data/...`; same inline limits as `validate_ck_model`), or
+`prepare_file_upload` (a `.zip` of the blueprint folder or a `blueprint.yaml`) → PUT → `validate_blueprint(transferId)`.
+The tool stages an inline draft as a zip (deleted after the call) and calls `POST {tenantId}/v1/blueprints/validate`
+(SDK `IAssetServicesClient.ValidateBlueprintAsync`). The asset repository runs the engine's `IBlueprintDraftValidator` -
+the same checks as `octo-bpm validate` and the blueprint install - with the CK dependency ranges checked against its CK
+model catalogs. The answer: `isValid`, `blueprintId`, `findings` (`code` 149-167, `level`, `file`, `modelId`, `message`,
+`parameters`), bounded to 100 with `totalFindings` and `truncated`. Risk Low and on `AgentMandateGuard.ReadingTools`.
+
 ### validate_ck_model (`CkModelValidationTools`)
 
 Validates a CK model draft against the tenant **without importing it**: `prepare_file_upload` → PUT → `validate_ck_model(transferId)`,
 or inline for MCP-only clients: `validate_ck_model(files: [{name, content}])` with names relative to `ConstructionKit/`.
 Exactly one of the two. Inline limit (`CkDraftInlinePackager`): 1 MiB of UTF-8 content and 2000 files; over it the call is refused
-with `errorCode` `InlineDraftTooLarge` and an error with `messageNumber` 9005 naming the upload path. Deliberately no base64 zip
+with `errorCode` `InlineDraftTooLarge` and an error with `messageNumber` 148 (`CkModelInlineDraftTooLarge`, engine catalog) naming the upload path. Deliberately no base64 zip
 parameter (see the base64 rule in `AGENTS.md`): text files of a draft are not binary payloads, a zip is. Authentication
 runs before the draft is staged; the draft becomes an owner-only temporary zip deleted in `finally`; nothing is kept per process
 (guard test `ValidateCkModel_RepeatedInlineCalls_DoNotRetainTheDraft`).
@@ -211,7 +222,9 @@ Family 1 (`AssetClientContext`, SDK `IAssetServicesClient.ValidateCkModelAsync`,
 read-only scope). Accepts a zip of the source `ConstructionKit/` folder (the folder holding `ckModel.yaml`; compiled on the server,
 dependencies from the server's catalogs) or a compiled model (yaml, json or a zip of one). The compiled model then runs through the
 import's own pre-write checks against the tenant (engine `ITenantContext.ValidateCkModelAsync`: CK language 91, `minEngineVersion` 126,
-system reference / dependency resolution 8492 with `parameters.reason`) and, without errors, the tenant upgrade guard (`isBlocked`,
+system reference mismatch 145 `CkModelSystemReferenceMismatch`, dependency not resolvable 146
+`CkModelDependencyNotResolvable`; an unreadable draft is 147 `CkModelDraftUnreadable` - every number is from the engine
+message catalog, branch on it, never on `message`) and, without errors, the tenant upgrade guard (`isBlocked`,
 `blockers`). Result: `isValid`, `modelId`, `sourceKind` (`Source`/`Compiled`), `errors`/`warnings` with `messageNumber`, `level`,
 `file` (relative to `ConstructionKit/`, never a server path), `elementPath`, `message`, `parameters`. A missing dependency is an error
 in the list, never a failed call. Risk **Low** (nothing is written). The upload is **kept** (unlike the import tools), so the same

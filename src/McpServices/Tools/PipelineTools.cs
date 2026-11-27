@@ -537,7 +537,8 @@ public sealed class PipelineTools
         "on the definition without leaving a half-deployed pipeline behind on validation " +
         "failure. Read-only — never touches the adapter's deployed state. A definition above the size limits " +
         "(1,000,000 characters, 2,000 nodes, node lists nested 32 levels, 200,000 YAML nodes after aliases) is " +
-        "refused with ErrorCode PIPELINE_DEFINITION_LIMIT_EXCEEDED instead of being evaluated.")]
+        "refused with ErrorCode PIPELINE_DEFINITION_LIMIT_EXCEEDED instead of being evaluated. Errors holds at most " +
+        "50 entries; TotalErrorCount has the full count and ErrorsTruncated is true when entries were left out.")]
     public static async Task<ValidatePipelineDefinitionResponse> ValidatePipelineDefinition(
         McpServer server,
         [Description("Adapter runtime ID whose pipeline schema the definition is validated against.")]
@@ -694,10 +695,14 @@ public sealed class PipelineTools
             };
         }
 
-        var errors = outcome.Findings.Select(f => new ValidatePipelineDefinitionError
+        // AB#9731: the returned list is capped, so an invalid draft with many findings cannot flood the caller's context;
+        // the total count and the truncated flag tell the caller that more exist.
+        var totalErrors = outcome.Findings.Count;
+        var errors = outcome.Findings.Take(MaxReturnedValidationErrors).Select(f => new ValidatePipelineDefinitionError
         {
             Path = f.Path, SchemaPath = f.SchemaPath, Keyword = f.Keyword, Message = f.Message,
         }).ToList();
+        var truncated = totalErrors > errors.Count;
         // 4. Node-count sanity (AB#9023): every node of the definition - triggers, transformations and the node lists
         //    nested in control nodes (ForEach, If, Switch cases, Group, ...) - not only a root nodes[] array.
         var nodeCount = CountPipelineNodes(definitionNode);
@@ -710,11 +715,23 @@ public sealed class PipelineTools
             IsValid = outcome.IsValid,
             NodeCount = nodeCount,
             Errors = errors,
+            TotalErrorCount = totalErrors,
+            ErrorsTruncated = truncated,
             Message = outcome.IsValid
                 ? $"Definition is valid against the adapter's composite schema ({nodeCount} node(s))."
-                : $"Definition has {errors.Count} schema error(s); see Errors for details.",
+                : truncated
+                    ? $"Definition has {totalErrors} schema error(s); Errors lists the first {errors.Count} " +
+                      "(ErrorsTruncated). Fix those and validate again."
+                    : $"Definition has {totalErrors} schema error(s); see Errors for details.",
         };
     }
+
+    /// <summary>
+    ///     Most schema errors <c>validate_pipeline_definition</c> returns (AB#9731); the rest is counted in
+    ///     <see cref="ValidatePipelineDefinitionResponse.TotalErrorCount" /> and flagged with
+    ///     <see cref="ValidatePipelineDefinitionResponse.ErrorsTruncated" />.
+    /// </summary>
+    internal const int MaxReturnedValidationErrors = 50;
 
     private static ValidatePipelineDefinitionResponse RefusedByLimit(string? tenantId, string adapterId,
         string message) =>
@@ -722,6 +739,7 @@ public sealed class PipelineTools
         {
             IsSuccess = true, // the tool call itself succeeded; the definition is refused, not evaluated
             IsValid = false,
+            TotalErrorCount = 1,
             TenantId = tenantId,
             AdapterId = adapterId,
             ErrorCode = PipelineDefinitionLimits.RefusedCode,

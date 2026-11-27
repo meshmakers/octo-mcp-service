@@ -68,7 +68,7 @@ public static class AgentTools
         List<AgentToolGrantDto>? toolGrants = null,
         [Description("Highest risk class any tool call may have: Low (default), Medium, High.")] string? riskCeiling = null,
         [Description("Executed changes one run may make (default 0: no direct change).")] int? changeBudgetPerRun = null,
-        [Description("Propose (default: every granted write becomes a proposal) or Direct.")] string? writeMode = null,
+        [Description("Propose (default: every write becomes a proposal; until the proposal flow exists, writing tools are refused with ProposeRequired) or Direct.")] string? writeMode = null,
         [Description("CK type ids the agent may write, e.g. 'System.Ai/KnowledgePage'. Omitted: the grants decide alone.")]
         List<string>? allowedCkTypes = null,
         [Description("client_id of the service-account client. Omitted: 'agent-' plus the name in lower-case words.")]
@@ -311,7 +311,7 @@ public static class AgentTools
         List<AgentToolGrantDto>? toolGrants = null,
         [Description("New risk ceiling: Low, Medium, High.")] string? riskCeiling = null,
         [Description("New change budget per run (0 or more).")] int? changeBudgetPerRun = null,
-        [Description("Propose or Direct.")] string? writeMode = null,
+        [Description("Propose (writing tools refused with ProposeRequired until the proposal flow exists) or Direct.")] string? writeMode = null,
         [Description("New list of writable CK type ids (replaces the list; [] clears it).")]
         List<string>? allowedCkTypes = null,
         [Description("Role names or ids the service-account client gets instead of its current roles.")]

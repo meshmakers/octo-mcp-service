@@ -78,6 +78,12 @@ internal sealed class AgentMandateTestTenant
     /// <summary>When true, reading the agents throws (store unavailable).</summary>
     public bool ReadFails { get; set; }
 
+    /// <summary>
+    ///     The <c>WriteMode</c> of mandates added from now on (0 Propose, 1 Direct, null leaves the attribute out). Direct by
+    ///     default, so the grant and risk tests are not affected by the interim write-mode rule of AB#9730.
+    /// </summary>
+    public int? WriteMode { get; set; } = 1;
+
     public void GivenAgentTypes(bool present)
     {
         CkTypeGraph? type = present ? CkGraphTestBuilder.BuildType("System.Ai-4.12.0/Agent-1") : null;
@@ -114,6 +120,11 @@ internal sealed class AgentMandateTestTenant
     {
         var mandate = new RtEntity { RtId = OctoObjectId.GenerateNewId(), CkTypeId = AgentModel.MandateTypeId };
         mandate.SetAttributeValue("RiskCeiling", AttributeValueTypesDto.Enum, riskCeiling);
+        if (WriteMode != null)
+        {
+            mandate.SetAttributeValue("WriteMode", AttributeValueTypesDto.Enum, WriteMode.Value);
+        }
+
         mandate.SetAttributeValue("ToolGrants", AttributeValueTypesDto.RecordArray, grants.Select(g =>
         {
             var attributes = new Dictionary<string, object?> { ["ToolPattern"] = g.Pattern };

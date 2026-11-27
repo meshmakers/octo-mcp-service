@@ -109,6 +109,7 @@ _High=2 · Low=5 · Medium=2_  ·  **Owner reviewed:** ☐
 | `preview_blueprint_update` | **L** | |
 | `update_blueprint` | **M** | |
 | `list_blueprint_installations` | **L** | |
+| `preview_blueprint_uninstall` | **L** | AB#9034: dry run via the preview route only (deleted vs. kept entities); an old server gives ErrorCode BlueprintUninstallPreviewUnsupported, never an uninstall |
 | `uninstall_blueprint` | **H** | |
 | `refresh_blueprint_catalogs` | **M** | same level as `refresh_ck_catalogs` |
 
@@ -130,6 +131,7 @@ _Low=1_  ·  **Owner reviewed:** ☐
 | Tool | Current | Notes for review |
 |------|---------|------------------|
 | `validate_ck_model` | **L** | read-only validation of a CK model draft, nothing imported or written |
+| `validate_blueprint` | **L** | read-only validation of a blueprint draft (AB#9371), nothing installed or written |
 
 ### CkModelLibraryTools (8 tools)
 
@@ -139,6 +141,7 @@ _High=1 · Low=5 · Medium=2_  ·  **Owner reviewed:** ☐
 |------|---------|------------------|
 | `list_ck_catalogs` | **L** | |
 | `list_ck_catalog_models` | **L** | |
+| `get_ck_catalog_model_types` | **L** | AB#9370: reads a catalog model version (types, attributes, roles, enums) without importing; paged, take ≤ 50 |
 | `refresh_ck_catalogs` | **M** — owner: confirm | |
 | `get_ck_library_status` | **L** | |
 | `check_ck_dependencies` | **L** — owner: confirm | |

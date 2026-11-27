@@ -96,6 +96,22 @@ public class UninstallBlueprintResponse : AssetResponse
     public BlueprintUninstallResultDto? Result { get; set; }
 }
 
+/// <summary>Response of preview_blueprint_uninstall (AB#9034).</summary>
+public class PreviewBlueprintUninstallResponse : AssetResponse
+{
+    /// <summary>Dry-run result; its entity lists are cut at <c>MaxPreviewEntities</c>.</summary>
+    public BlueprintUninstallResultDto? Result { get; set; }
+
+    /// <summary>Entities the uninstall would delete (complete count).</summary>
+    public int DeletedCount { get; set; }
+
+    /// <summary>Tenant-owned entities the uninstall would keep (complete count).</summary>
+    public int KeptCount { get; set; }
+
+    /// <summary>True when a list in <see cref="Result" /> was cut.</summary>
+    public bool Truncated { get; set; }
+}
+
 /// <summary>Response of list_ck_catalogs.</summary>
 public class ListCkCatalogsResponse : AssetResponse
 {
@@ -111,6 +127,13 @@ public class ListCkCatalogModelsResponse : AssetResponse
 {
     /// <summary>Catalog model list page returned by the asset service.</summary>
     public CkModelCatalogListResponseDto? Models { get; set; }
+}
+
+/// <summary>Response of get_ck_catalog_model_types (AB#9370).</summary>
+public class CkCatalogModelTypesResponse : AssetResponse
+{
+    /// <summary>One page of the catalog model's types, with the association roles and enums the page uses.</summary>
+    public CkCatalogModelTypesResponseDto? Model { get; set; }
 }
 
 /// <summary>Response of get_ck_library_status.</summary>

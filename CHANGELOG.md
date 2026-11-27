@@ -36,6 +36,40 @@
 - **System.Ai 4.13.0 for the agent runtime (Feature AB#6054).** The agent tools need System.Ai 4.13.0 or later: it adds
   the channel-only `writeAccess` of `Agent` and `Mandate` to `AgentTrigger`, `Run` and `ActionRecord` (octo-ai-services#88);
   4.12.0 leaves these three types writable by every tenant administrator. `docs/agent-tools.md`.
+- **`validate_blueprint` validates a blueprint draft without installing it (AB#9371, Feature AB#8451).** Inline
+  `files` (blueprint.yaml and the seed files, 1 MiB / 2000 files like `validate_ck_model`) or a `transferId`; staged as a
+  zip and sent to the asset repository's `POST {tenantId}/v1/blueprints/validate` (SDK `ValidateBlueprintAsync`), which
+  runs the engine's shared validator of `octo-bpm validate` and the install path, including the CK dependency ranges
+  against the CK model catalogs. Findings with stable codes 149-167 (`code`, `level`, `file`, `modelId`, `message`),
+  bounded to 100 (`totalFindings`, `truncated`). Risk Low, on the reading allow list (a Propose agent may run it). Needs
+  an asset repository with AB#9371.
+- **`preview_blueprint_uninstall` shows what an uninstall would delete and keep (AB#9034, Feature AB#8451).** Dry run
+  over the SDK preview of AB#8966: DeletedEntities (with TenantOwned), TenantOwnedKept (with Reason and ReferencedBy),
+  cascaded dependencies and blocking dependents; lists cut at 200 entries (DeletedCount/KeptCount stay complete). Risk
+  Low, on the reading allow list. It never calls the uninstall: an asset repository without the preview route gives
+  ErrorCode `BlueprintUninstallPreviewUnsupported`, an answer that is not a dry run `BlueprintUninstallPreviewNotDryRun`.
+  Needs the tenant role DataModelManagement like the preview route. `blueprintName` must be one path segment (ASCII
+  letters, digits, `.`, `-`, `_`, not `.`/`..`), else ErrorCode `InvalidRouteSegment` before any call: the SDK puts
+  it into the POST route unescaped.
+- **`validate_ck_model` and `import_ck_model` refuse only with engine catalog numbers (AB#8502).** An inline draft over
+  the limit is message 148 (`CkModelInlineDraftTooLarge`, parameter `detail`) instead of 9005; the asset repository and
+  the engine report an unreadable draft as 147, a dependency that cannot be resolved as 146 and a system reference
+  mismatch as 145 instead of 8492 with a `reason` parameter. README and `docs/file-transfer.md` list the numbers.
+- **`validate_pipeline_definition` caps its error list (AB#9731).** At most 50 entries in `Errors`; `TotalErrorCount`
+  has the full count and `ErrorsTruncated` says when entries were left out, so an invalid draft with hundreds of findings
+  cannot flood the caller's context. Keywords and codes unchanged.
+- **`get_ck_catalog_model_types` reads a catalog model version without importing it (AB#9370, Feature AB#8451).** Types
+  with attributes and associations, association roles and enums of e.g. `Basic-2.7.0`, filtered and paged (take ≤ 50),
+  so an agent reuses public kits before it builds its own model. Risk Low, on the reading allow list of the mandate
+  check (Propose agents may call it). ErrorCodes `CkCatalogNotFound`, `CkCatalogModelNotFound`, `InvalidCkModelId`,
+  `CkCatalogModelTypesUnsupported` (asset repository without the route). Needs octo-sdk and octo-asset-repo-services
+  with AB#9370. `catalogName` and `modelId` are required and must each be one path segment (`InvalidRouteSegment`).
+- **Write mode `Propose` enforced as "no change without a proposal" (AB#9730, Feature AB#8451, security).** Until the
+  proposal flow exists (AB#8461/AB#8480), the mandate check refuses every tool that is no reading tool (exact allow
+  list `AgentMandateGuard.ReadingTools`, Low risk) for a mandate whose `WriteMode` is not `Direct` (Propose or no value)
+  with `ProposeRequired`. The seeded builder agent keeps its read and validation tools; `import_ck_model`,
+  `dry_run_pipeline` and `deploy_pipeline` are refused. Protocol tests with the builder's seeded mandate prove
+  `ToolNotGranted` for identity and tenant tools. `docs/agent-tools.md`.
 - **Static mandate check of agent tool calls (AB#9729, Feature AB#6054, security).** A `tools/call` filter
   (`AgentMandateFilter`) refuses a call of an agent's client (its `ServiceAccountClientId`, token tenant only) that its
   mandate does not cover: `AgentDisabled`, `ToolNotGranted`, `RiskAboveCeiling` (grant `MaxRisk`, absent = Low, or the

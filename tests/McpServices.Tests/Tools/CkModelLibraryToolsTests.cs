@@ -1,5 +1,7 @@
+using System.Net;
 using FluentAssertions;
 using Meshmakers.Octo.Backend.McpServices.Tools;
+using Meshmakers.Octo.Sdk.ServiceClient;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.CkModelCatalog;
 using Moq;
 using Xunit;
@@ -47,6 +49,94 @@ public class CkModelLibraryToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeTrue();
         result.Models!.Items.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task GetCatalogModelTypes_HappyPath_ReturnsThePageAndImportsNothing()
+    {
+        MockAssetClient.Setup(c => c.GetCkCatalogModelTypesAsync("PublicGitHubCatalog", "Basic-2.7.0", "location", 0, 20))
+            .ReturnsAsync(new CkCatalogModelTypesResponseDto
+            {
+                ModelId = "Basic-2.7.0", TotalCount = 30, ModelTypeCount = 80, Skip = 0, Take = 20,
+                Types = Enumerable.Range(0, 20).Select(i => new CkCatalogTypeDto { TypeId = $"Basic/T{i}" }).ToList()
+            });
+
+        var result = await CkModelLibraryTools.GetCatalogModelTypes(MockServer.Object, "PublicGitHubCatalog",
+            "Basic-2.7.0", "location");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Model!.Types.Should().HaveCount(20);
+        result.Message.Should().Contain("20 of 30").And.Contain("not imported").And.Contain("skip=20");
+        MockAssetClient.Verify(c => c.ImportFromCatalogAsync(It.IsAny<string>(), It.IsAny<ImportFromCatalogRequestDto>()),
+            Times.Never);
+    }
+
+    [Theory]
+    [InlineData("CkCatalogNotFound")]
+    [InlineData("CkCatalogModelNotFound")]
+    [InlineData("InvalidCkModelId")]
+    public async Task GetCatalogModelTypes_Refusal_PassesTheStableCode(string code)
+    {
+        MockAssetClient.Setup(c => c.GetCkCatalogModelTypesAsync(It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<int>()))
+            .ThrowsAsync(new ServiceClientResultException($$"""{"title":"t","status":404,"detail":"d","code":"{{code}}"}""",
+                HttpStatusCode.NotFound) { ResponseContent = $$"""{"title":"t","status":404,"detail":"d","code":"{{code}}"}""" });
+
+        var result = await CkModelLibraryTools.GetCatalogModelTypes(MockServer.Object, "cat", "Basic-9.9.9");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(code);
+    }
+
+    [Fact]
+    public async Task GetCatalogModelTypes_OldServerWithoutTheRoute_SaysUnsupported()
+    {
+        MockAssetClient.Setup(c => c.GetCkCatalogModelTypesAsync(It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<int>()))
+            .ThrowsAsync(new ServiceClientResultException("The call was not successful", HttpStatusCode.NotFound));
+
+        var result = await CkModelLibraryTools.GetCatalogModelTypes(MockServer.Object, "cat", "Basic-2.7.0");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(CkModelLibraryTools.CatalogModelTypesUnsupported);
+    }
+
+    [Theory]
+    [InlineData("", "Basic-2.7.0")]
+    [InlineData("cat", " ")]
+    public async Task GetCatalogModelTypes_MissingArgument_IsRefusedBeforeAnyCall(string catalogName, string modelId)
+    {
+        var result = await CkModelLibraryTools.GetCatalogModelTypes(MockServer.Object, catalogName, modelId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("catalogName and modelId are required");
+        MockAssetClient.Verify(c => c.GetCkCatalogModelTypesAsync(It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("..", "Basic-2.7.0", "catalogName")]
+    [InlineData("cat/x", "Basic-2.7.0", "catalogName")]
+    [InlineData("cat", "..", "modelId")]
+    [InlineData("cat", "Basic-2.7.0/../x", "modelId")]
+    public async Task GetCatalogModelTypes_ValueThatIsNoSinglePathSegment_IsRefused(string catalogName, string modelId,
+        string named)
+    {
+        var result = await CkModelLibraryTools.GetCatalogModelTypes(MockServer.Object, catalogName, modelId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(BlueprintTools.InvalidRouteSegment);
+        result.ErrorMessage.Should().Contain(named);
+        MockAssetClient.Verify(c => c.GetCkCatalogModelTypesAsync(It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetCatalogModelTypes_Unauthenticated_ReturnsAuthError()
+    {
+        GivenUnauthenticated();
+        var result = await CkModelLibraryTools.GetCatalogModelTypes(MockServer.Object, "cat", "Basic-2.7.0");
+        result.IsSuccess.Should().BeFalse();
     }
 
     [Fact]

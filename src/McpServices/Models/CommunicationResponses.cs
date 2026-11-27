@@ -349,8 +349,17 @@ public class ValidatePipelineDefinitionResponse : CommunicationResponse
     /// </summary>
     public int NodeCount { get; set; }
 
-    /// <summary>Per-error list. Empty when <see cref="IsValid"/> is true.</summary>
+    /// <summary>
+    ///     Per-error list, at most 50 entries (AB#9731); see <see cref="TotalErrorCount" /> and
+    ///     <see cref="ErrorsTruncated" />. Empty when <see cref="IsValid"/> is true.
+    /// </summary>
     public List<ValidatePipelineDefinitionError> Errors { get; set; } = new();
+
+    /// <summary>Number of errors the validation found, also those left out of <see cref="Errors" />.</summary>
+    public int TotalErrorCount { get; set; }
+
+    /// <summary>True when <see cref="Errors" /> holds fewer entries than <see cref="TotalErrorCount" /> (AB#9731).</summary>
+    public bool ErrorsTruncated { get; set; }
 }
 
 /// <summary>One validation error from <c>validate_pipeline_definition</c>.</summary>

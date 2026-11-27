@@ -35,7 +35,7 @@ public sealed class CkModelFileTools
         "ckModel.yaml, types/pump.yaml; or one compiled model file), up to 1 MiB (1048576 bytes of UTF-8 content) " +
         "and 2000 files - the default for clients without an HTTP client; or, for larger drafts, call " +
         "prepare_file_upload, PUT the file to the returned URL and pass the transferId. An inline draft over the " +
-        "limit is refused with errorCode InlineDraftTooLarge (message 9005). Accepted content: (1) a single compiled " +
+        "limit is refused with errorCode InlineDraftTooLarge (message 148). Accepted content: (1) a single compiled " +
         "YAML built by the CK MSBuild task (typically at bin/<config>/net10.0/octo-ck-libraries/<Project>/" +
         "out/ck-<modelname>-<major>.yaml) — this is the easiest path from a `dotnet build` of a CK project; " +
         "(2) a single compiled JSON in the same catalog format as ~/.octo/local-catalog files; (3) a zip " +
