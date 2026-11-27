@@ -101,7 +101,9 @@ public sealed class PipelineTools
             {
                 return new PipelineDeploymentResponse
                 {
-                    IsSuccess = false, ErrorMessage = CommunicationMethodCall.ScrubSensitive(outcome.Error, pipelineDefinition)
+                    IsSuccess = false,
+                    ErrorMessage = WithAdapterReconnectHint(
+                        CommunicationMethodCall.ScrubSensitive(outcome.Error, pipelineDefinition))
                 };
             }
 
@@ -117,7 +119,8 @@ public sealed class PipelineTools
         {
             return new PipelineDeploymentResponse
             {
-                IsSuccess = false, ErrorMessage = CommunicationMethodCall.ScrubSensitive(ex.Message, pipelineDefinition)
+                IsSuccess = false,
+                ErrorMessage = WithAdapterReconnectHint(CommunicationMethodCall.ScrubSensitive(ex.Message, pipelineDefinition))
             };
         }
     }
@@ -125,7 +128,9 @@ public sealed class PipelineTools
     /// <summary>Execute a pipeline and return the execution ID.</summary>
     [McpServerTool(Name = "execute_pipeline")]
     [McpRisk(McpRiskLevel.High)]
-    [Description("Execute a pipeline and return the execution ID. Equivalent to octo-cli ExecutePipeline.")]
+    [Description("Execute a pipeline and return the execution ID. Equivalent to octo-cli ExecutePipeline. " +
+                 "A pipeline triggered only by an HTTP route (FromHttpRequest) is refused: it runs for real only " +
+                 "through its route; use dry_run_pipeline to test it.")]
     public static async Task<ExecutePipelineResponse> ExecutePipeline(
         McpServer server,
         [Description("Pipeline runtime ID.")] string pipelineId,
@@ -227,6 +232,10 @@ public sealed class PipelineTools
         "debug stream instead. Returns the execution id and the list of SDK-honoured Load node " +
         "types. The pipeline must be deployed first (use deploy_pipeline). Read the captured " +
         "intents via get_pipeline_debug_points after the execution completes. " +
+        "HTTP-triggered pipelines (FromHttpRequest@2) can be dry-run: pipelineInput is the request body " +
+        "($.body), the run carries you as $.principal, and you must be allowed to call the route (a token " +
+        "of the adapter's tenant and one of its requiredRoles); FromHttpRequest@1 pipelines are refused. " +
+        "Query parameters and headers are not part of a dry run. " +
         "Risk: Medium — adapter-specific Load nodes (Modbus, IEC, OPC-UA, etc.) that have not " +
         "opted in will still fire their real side effect.")]
     public static async Task<DryRunPipelineResponse> DryRunPipeline(
@@ -261,7 +270,8 @@ public sealed class PipelineTools
             {
                 return new DryRunPipelineResponse
                 {
-                    IsSuccess = false, ErrorMessage = CommunicationMethodCall.ScrubSensitive(outcome.Error, pipelineInput)
+                    IsSuccess = false,
+                    ErrorMessage = WithAdapterReconnectHint(CommunicationMethodCall.ScrubSensitive(outcome.Error, pipelineInput))
                 };
             }
 
@@ -291,10 +301,34 @@ public sealed class PipelineTools
         {
             return new DryRunPipelineResponse
             {
-                IsSuccess = false, ErrorMessage = CommunicationMethodCall.ScrubSensitive(ex.Message, pipelineInput)
+                IsSuccess = false,
+                ErrorMessage = WithAdapterReconnectHint(CommunicationMethodCall.ScrubSensitive(ex.Message, pipelineInput))
             };
         }
     }
+
+    /// <summary>
+    ///     AB#10015 (finding F7): a CK model import makes the controller relay a tenant update, and the adapter stops,
+    ///     drops its hub connection and registers again (seconds locally, about a minute on a cluster). A deploy or a
+    ///     dry run in that window fails with "no live SignalR connection" or "did not answer". The text is appended to
+    ///     such an error so an agent retries instead of changing the pipeline; the restart itself is unchanged.
+    /// </summary>
+    internal static string? WithAdapterReconnectHint(string? error)
+    {
+        if (string.IsNullOrEmpty(error) ||
+            (!error.Contains("no live SignalR connection", StringComparison.OrdinalIgnoreCase) &&
+             !error.Contains("did not answer", StringComparison.OrdinalIgnoreCase)))
+        {
+            return error;
+        }
+
+        return error + " " + AdapterReconnectHint;
+    }
+
+    /// <summary>The hint <see cref="WithAdapterReconnectHint" /> appends.</summary>
+    internal const string AdapterReconnectHint =
+        "The adapter may be re-registering after a CK model change (it reconnects for up to about a minute): " +
+        "retry in a moment before changing anything.";
 
     /// <summary>Toggle debug capture on a pipeline.</summary>
     [McpServerTool(Name = "set_pipeline_debug")]

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`dry_run_pipeline` of an HTTP-triggered pipeline (AB#10015).** The tool description now says how a
+  `FromHttpRequest@2` pipeline is dry-run (input = request body, the caller must be allowed to call the route) and
+  `execute_pipeline` says such a pipeline runs only through its route; the run itself is fixed in the communication
+  controller and the mesh adapter (AB#10015). `deploy_pipeline` and `dry_run_pipeline` append "the adapter may be
+  re-registering after a CK model change, retry in a moment" to a "no live SignalR connection" / "did not answer" error
+  (finding F7 of AB#8493); the adapter's restart itself is unchanged.
+
 ### Added
 
 - **Only the MCP endpoints accept agent tokens (AB#6054, security).** Both `MapMcp` routes are mapped by
