@@ -232,9 +232,11 @@ public sealed class PipelineTools
         "debug stream instead. Returns the execution id and the list of SDK-honoured Load node " +
         "types. The pipeline must be deployed first (use deploy_pipeline). Read the captured " +
         "intents via get_pipeline_debug_points after the execution completes. " +
-        "HTTP-triggered pipelines (FromHttpRequest@2) can be dry-run: pipelineInput is the request body " +
-        "($.body), the run carries you as $.principal, and you must be allowed to call the route (a token " +
-        "of the adapter's tenant and one of its requiredRoles); FromHttpRequest@1 pipelines are refused. " +
+        "A pipeline triggered only by FromHttpRequest@2 (no FromExecutePipelineCommand trigger) can be " +
+        "dry-run: pipelineInput is the request body ($.body), the run carries you as $.principal, and you " +
+        "must be allowed to call the route (a token of the adapter's tenant and one of its requiredRoles). " +
+        "A pipeline that also has a FromExecutePipelineCommand trigger is dry-run through that trigger " +
+        "(pipelineInput is the data root, no route check); FromHttpRequest@1-only pipelines are refused. " +
         "Query parameters and headers are not part of a dry run. " +
         "Risk: Medium — adapter-specific Load nodes (Modbus, IEC, OPC-UA, etc.) that have not " +
         "opted in will still fire their real side effect.")]
@@ -327,8 +329,9 @@ public sealed class PipelineTools
 
     /// <summary>The hint <see cref="WithAdapterReconnectHint" /> appends.</summary>
     internal const string AdapterReconnectHint =
-        "The adapter may be re-registering after a CK model change (it reconnects for up to about a minute): " +
-        "retry in a moment before changing anything.";
+        "If a CK model was just imported, the adapter may be re-registering (it reconnects for up to about a " +
+        "minute): retry in a moment before changing anything. After \"did not answer\" first check the " +
+        "pipeline's executions (get_latest_pipeline_execution): the first start may have run.";
 
     /// <summary>Toggle debug capture on a pipeline.</summary>
     [McpServerTool(Name = "set_pipeline_debug")]

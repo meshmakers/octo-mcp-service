@@ -206,8 +206,8 @@ impersonation switch stay on REST. Tool names, parameters and response fields ar
 | `deploy_workload`, `undeploy_workload`, `update_workload_chart_version` | `DeployableWorkload.Deploy`, `Undeploy`, `SetChartVersion` on `Adapter`, `AdapterPool` or `Application` |
 | `cancel_queued_execution` | `AdapterPool.CancelQueuedExecution` |
 
-**HTTP-triggered pipelines and re-registration (AB#10015).** `dry_run_pipeline` runs a `FromHttpRequest@2` pipeline
-with `pipelineInput` as the request body (`$.body`) and the caller as `$.principal`; the controller routes the dry run
+**HTTP-triggered pipelines and re-registration (AB#10015).** `dry_run_pipeline` runs a pipeline triggered only by
+`FromHttpRequest@2` (no `FromExecutePipelineCommand` trigger; one with both is dry-run through the execute trigger) with `pipelineInput` as the request body (`$.body`) and the caller as `$.principal`; the controller routes the dry run
 to the HTTP trigger, which refuses a caller who could not call the route (token of another tenant, none of its
 `requiredRoles`). `execute_pipeline` of an HTTP-only pipeline is refused by the controller (it runs only through its
 route). Nodes outside the dry-run-honouring load nodes still reach the outside in a dry run (AB#10016). After a CK model

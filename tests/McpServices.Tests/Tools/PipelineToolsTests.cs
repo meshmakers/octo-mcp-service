@@ -183,6 +183,18 @@ public class PipelineToolsTests : ToolTestBase
         result.ErrorMessage.Should().EndWith(PipelineTools.AdapterReconnectHint);
     }
 
+    [Fact]
+    public async Task DeployAndDryRun_ThrownNoLiveConnection_CarryTheReconnectHintToo()
+    {
+        CkMethods.Throws(new InvalidOperationException("Adapter 'x' has no live SignalR connection."));
+
+        var deploy = await PipelineTools.DeployPipeline(MockServer.Object, AdapterId, PipelineId, "triggers: []");
+        var dryRun = await PipelineTools.DryRunPipeline(MockServer.Object, PipelineId);
+
+        deploy.ErrorMessage.Should().EndWith(PipelineTools.AdapterReconnectHint);
+        dryRun.ErrorMessage.Should().EndWith(PipelineTools.AdapterReconnectHint);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
