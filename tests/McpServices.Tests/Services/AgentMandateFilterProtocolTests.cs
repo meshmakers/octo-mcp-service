@@ -201,14 +201,14 @@ public sealed class AgentMandateFilterProtocolTests : IAsyncDisposable
     // ---- the seeded builder agent (AB#9730) ---------------------------------------------------------------------------
 
     /// <summary>
-    ///     The mandate System.Ai.Builder 1.2.0 seeds (octo-ai-services, seed-data/builder-agent.yaml, AB#9004): 13 grants,
+    ///     The mandate System.Ai.Builder 1.2.0 seeds (octo-ai-services, seed-data/builder-agent.yaml, AB#9004, AB#9371): 13 grants (validate_blueprint, no dry_run_pipeline),
     ///     risk ceiling High, write mode Propose. Kept in sync by hand; the seed test in octo-ai-services pins the same list.
     /// </summary>
     private static readonly (string Pattern, int? MaxRisk)[] BuilderGrants =
     [
         ("get_type_schema", 0), ("search_types", 0), ("get_available_types", 0), ("query_entities", 0),
         ("validate_ck_model", 0), ("import_ck_model", 1), ("get_pipeline_schema", 0),
-        ("validate_pipeline_definition", 0), ("dry_run_pipeline", 1), ("deploy_pipeline", 2), ("list_blueprints", 0),
+        ("validate_pipeline_definition", 0), ("deploy_pipeline", 2), ("list_blueprints", 0), ("validate_blueprint", 0),
         ("knowledge_search", 0), ("knowledge_get", 0)
     ];
 
@@ -223,6 +223,7 @@ public sealed class AgentMandateFilterProtocolTests : IAsyncDisposable
     [InlineData("create_tenant")]
     [InlineData("create_user")]
     [InlineData("add_client_to_role")]
+    [InlineData("dry_run_pipeline")] // not granted until the proposal flow: a dry run executes the deployed pipeline
     public async Task SeededBuilder_IdentityOrTenantTool_GetsToolNotGranted_WithToolAndReason(string tool)
     {
         GivenTheSeededBuilder();
@@ -241,7 +242,6 @@ public sealed class AgentMandateFilterProtocolTests : IAsyncDisposable
     [Theory]
     [InlineData("import_ck_model")]
     [InlineData("deploy_pipeline")]
-    [InlineData("dry_run_pipeline")]
     public async Task SeededBuilder_GrantedWritingTool_GetsProposeRequired_AndChangesNothing(string tool)
     {
         GivenTheSeededBuilder();
