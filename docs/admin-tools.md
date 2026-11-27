@@ -64,24 +64,36 @@ An agent can work in and clean up the scratch tenants it creates without a human
 1. `create_tenant` - create the child (skipped when it already exists under the parent);
 2. `provision_admin` - provision the calling user as the child's administrator, unless the session's token exchange for the child already works
    (identity sets a new tenant up asynchronously, so the provisioning and the exchange are retried);
-3. `enable_communication` and 4. `enable_ai` - each only when the capability is not yet enabled;
-5. `default_spend_cap` (AB#9572) - only when the parent is the system tenant (the platform operator's starter path): asks the AI service
+3. `install_blueprint` - the newest `System.Ai.Starter` of the tenant's blueprint catalogs (or `starterBlueprintId`), which brings
+   `System.Ai.Builder` (the knowledge pages and, from Starter 1.1 / Builder 1.2, the builder agent) as a dependency; skipped when a starter
+   is already installed. It runs **before** any enable (AB#8452): the platform then enables Communication and AI Services for the blueprint
+   itself (AB#9578), and only in that case does the communication controller deploy the default site and Mesh Adapter
+   (`StarterDeploymentService`);
+4. `enable_communication` - after an install of this call, the tool reads the tenant's features until the platform enabled Communication and
+   AI Services (up to 30 reads, 3 s apart). `done` "enabled by the platform"; when the platform did not enable it in time the tool enables it
+   itself (`done`, "fallback"); `skipped` when it was enabled before the install;
+5. `deploy_defaults` (AB#8452) - makes sure the default site and adapter are deployed, also on the fallback path where the controller deploys
+   nothing. Invariant: only the shape of a fresh tenant (exactly one deployment site and one adapter), only what is `Undeployed`, never an
+   undeploy, and never a tenant whose Communication was enabled before this call (`skipped`, its sites are left as they are). On the platform
+   path it first waits for the controller (up to 20 reads, 3 s apart) and deploys only what is still `Undeployed` afterwards; on the fallback
+   path it deploys at once (`RtDeploymentSite.Deploy`, then `RtAdapter.Deploy`). The adapter comes Online once the operator rolled it out;
+6. `enable_ai` - enabled by the platform, or by this call when the platform did not in time (fallback); `skipped` when it was enabled before;
+7. `default_spend_cap` (AB#9572) - only when the parent is the system tenant (the platform operator's starter path): asks the AI service
    (`IAiServicesClient.ApplyStarterDefaultSpendCapAsync`, `POST system/v1/aiSpendCaps/{tenantId}/starterDefault`, caller's token for the
    system tenant, role `TenantManagement`) for the cluster's default monthly LLM cap on the central key. The request has no amount; the AI
    service takes it from `StarterSpendCap:DefaultTenantSpendCapEur` and never changes an existing entry. `done` = created, `skipped` = the
    tenant had an entry (`exists`), no default is configured (`notConfigured`), the parent is not the system tenant, or the AI service refused
    the caller (401/403); in all skipped cases without a new entry the tenant stays at key source None and the LLM gateway stays closed for it.
    Other errors fail the step;
-6. `install_blueprint` - the newest `System.Ai.Starter` of the tenant's blueprint catalogs (or `starterBlueprintId`), which brings
-   `System.Ai.Builder` (the knowledge pages and, from Starter 1.1 / Builder 1.2, the builder agent) as a dependency; skipped when a starter
-   is already installed;
-7. `verify_ready` (AB#9573) - reads, with the caller's own rights in the child (the read path of `knowledge_search`), the ready state: Agent
+8. `verify_ready` (AB#9573) - reads, with the caller's own rights in the child (the read path of `knowledge_search`), the ready state: Agent
    `builder-agent` enabled, Mandate `builder-mandate` with write mode Propose, Client `builder-agent-client` (the agent's service account) and
    the knowledge page `app-index`. It changes nothing and is never skipped; a starter without the builder agent (System.Ai.Starter 1.0.0)
    installs but fails here, naming what is missing.
 
 `starterSteps` lists every step with `done`, `skipped`, `failed` or `notRun`; on a failure `failedStep` names the step and the steps after it are
-`notRun`. Calling the tool again with the same `childTenantId` completes the remaining steps and skips the finished ones.
+`notRun`. Calling the tool again with the same `childTenantId` completes the remaining steps and skips the finished ones. Known limit: when
+`deploy_defaults` itself failed, a repeated call sees Communication as enabled before the call and leaves the site and adapter alone; deploy
+them by hand (octo-cli `DeployDeploymentSite`, then `DeployWorkload`; MCP `deploy_workload` for the adapter).
 
 The steps in the child run with the caller's token for the child (RFC 8693 exchange), and identity issues that only for a user. So `starter=true`
 is **refused before anything is created** for a client-credentials caller and together with `scratch=true`; no half-provisioned tenant is left.

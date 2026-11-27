@@ -31,9 +31,21 @@ public class StarterTenantToolsTests : ToolTestBase
     private readonly Dictionary<string, string?> _readyMissing = [];
     private int _readyProbes;
 
+    // AB#8452: the platform (AB#9578) enables Communication and AI when the starter is installed; the controller then
+    // deploys the default site and adapter after _controllerDeploysAfterReads reads of the sites (null = never).
+    private bool _platformEnables = true;
+    private int? _controllerDeploysAfterReads = 1;
+    private TenantFeaturesStatusDto? _featuresAtInstall;
+    private List<DeploymentSiteSummaryDto> _sites = [];
+    private List<AdapterSummaryDto> _adapters = [];
+    private int _siteReads;
+
     public StarterTenantToolsTests()
     {
         StarterTenantSequence.RetryDelay = TimeSpan.Zero;
+        StarterTenantSequence.WaitDelay = TimeSpan.Zero;
+        StarterTenantSequence.EnableWaitAttempts = 3;
+        StarterTenantSequence.DeployWaitAttempts = 3;
         StarterTenantSequence.ReadyProbe = (_, tenant) =>
         {
             _readyProbes++;
@@ -49,8 +61,24 @@ public class StarterTenantToolsTests : ToolTestBase
             .Returns(Task.CompletedTask);
         MockAssetClient.Setup(c => c.GetTenantFeaturesStatusAsync()).ReturnsAsync(() => _features);
         MockCommunicationClient.Setup(c => c.EnableAsync(Child))
-            .Callback(() => _features = Status(true, _features.AiServices?.TenantEnabled == true))
+            .Callback(() =>
+            {
+                _features = Status(true, _features.AiServices?.TenantEnabled == true);
+                GivenFreshDefaults();
+            })
             .Returns(Task.CompletedTask);
+        MockCommunicationClient.Setup(c => c.GetDeploymentSitesAsync()).ReturnsAsync(() =>
+        {
+            if (++_siteReads > _controllerDeploysAfterReads && _platformEnabledCommunication)
+            {
+                _sites = [Site(EntityDeploymentState.Deployed)];
+                _adapters = [Adapter(EntityDeploymentState.Deployed)];
+            }
+
+            return _sites.ToArray();
+        });
+        MockCommunicationClient.Setup(c => c.GetAdaptersAsync()).ReturnsAsync(() => _adapters.ToArray());
+        _ = CkMethods; // the deploy calls of deploy_defaults succeed
         MockAiClient.Setup(c => c.EnableAsync(Child))
             .Callback(() => _features = Status(_features.Communication?.TenantEnabled == true, true))
             .Returns(Task.CompletedTask);
@@ -70,6 +98,14 @@ public class StarterTenantToolsTests : ToolTestBase
         MockAssetClient.Setup(c => c.ApplyBlueprintAsync(Child, It.IsAny<string>(), false))
             .Callback((string _, string id, bool _) =>
             {
+                _featuresAtInstall = _features;
+                if (_platformEnables && _features.Communication?.TenantEnabled != true)
+                {
+                    _features = Status(true, true);
+                    _platformEnabledCommunication = true;
+                    GivenFreshDefaults();
+                }
+
                 _installations.Add(new BlueprintInstallationDto { BlueprintId = id });
                 _installations.Add(new BlueprintInstallationDto { BlueprintId = "System.Ai.Builder-1.1.8", IsDependency = true });
             })
@@ -78,6 +114,33 @@ public class StarterTenantToolsTests : ToolTestBase
                 Success = true, TenantId = tenant, BlueprintId = id, ApplicationMode = "Install", ArchiveActivations = []
             });
     }
+
+    private bool _platformEnabledCommunication;
+
+    private const string SiteId = "6a0000000000000000000001";
+    private const string AdapterRtId = "6a0000000000000000000002";
+
+    private static DeploymentSiteSummaryDto Site(EntityDeploymentState state) => new()
+    {
+        RtId = SiteId, Name = "default-site", DeploymentState = state,
+        CommunicationState = CommunicationState.Offline, ConfigurationState = ConfigurationState.Configured
+    };
+
+    private static AdapterSummaryDto Adapter(EntityDeploymentState state) => new()
+    {
+        RtId = AdapterRtId, Name = "mesh-adapter", DeploymentState = state,
+        CommunicationState = CommunicationState.Offline, ConfigurationState = ConfigurationState.Configured
+    };
+
+    /// <summary>What EnableCommunication creates for a fresh tenant: one Cloud site with one adapter, both Undeployed.</summary>
+    private void GivenFreshDefaults()
+    {
+        _sites = [Site(EntityDeploymentState.Undeployed)];
+        _adapters = [Adapter(EntityDeploymentState.Undeployed)];
+    }
+
+    private IEnumerable<string?> DeployCalls =>
+        CkMethods.OperationNames.Where(n => n is "SystemCommunicationDeploymentSiteDeploy" or "SystemCommunicationAdapterDeploy");
 
     private static TenantFeaturesStatusDto Status(bool communication, bool ai) => new()
     {
@@ -93,21 +156,155 @@ public class StarterTenantToolsTests : ToolTestBase
 
     private static IEnumerable<string> Outcomes(CreateTenantResponse r) => r.StarterSteps.Select(s => $"{s.Step}={s.Outcome}");
 
+    /// <summary>
+    ///     AB#8452 platform path: the starter goes in first, while Communication is still off, so the platform enables
+    ///     Communication and AI for it (AB#9578) and the controller deploys the default site and adapter; the sequence
+    ///     enables nothing and deploys nothing itself.
+    /// </summary>
     [Fact]
-    public async Task Starter_RunsEveryStep_AndInstallsTheNewestStarter()
+    public async Task Starter_InstallsTheStarterFirst_AndLetsThePlatformEnableAndDeploy()
     {
         var result = await CreateStarter();
 
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
         result.FailedStep.Should().BeNull();
-        Outcomes(result).Should().Equal("create_tenant=done", "provision_admin=skipped", "enable_communication=done",
-            "enable_ai=done", "default_spend_cap=skipped",
-            "install_blueprint=done", "verify_ready=done");
+        Outcomes(result).Should().Equal("create_tenant=done", "provision_admin=skipped", "install_blueprint=done",
+            "enable_communication=done", "deploy_defaults=skipped", "enable_ai=done", "default_spend_cap=skipped",
+            "verify_ready=done");
+        _featuresAtInstall!.Communication!.TenantEnabled.Should().BeFalse("the platform only deploys for a tenant " +
+                                                                           "whose Communication it enabled itself");
+        result.StarterSteps.Single(s => s.Step == "enable_communication").Detail.Should().Contain("by the platform");
+        result.StarterSteps.Single(s => s.Step == "deploy_defaults").Detail.Should().Contain("already deployed by the platform");
         MockAssetClient.Verify(c => c.CreateTenantAsync(Child, Database), Times.Once);
-        MockCommunicationClient.Verify(c => c.EnableAsync(Child), Times.Once);
-        MockAiClient.Verify(c => c.EnableAsync(Child), Times.Once);
+        MockCommunicationClient.Verify(c => c.EnableAsync(It.IsAny<string>()), Times.Never);
+        MockAiClient.Verify(c => c.EnableAsync(It.IsAny<string>()), Times.Never);
+        DeployCalls.Should().BeEmpty();
         MockAssetClient.Verify(c => c.ApplyBlueprintAsync(Child, "System.Ai.Starter-1.2.0", false), Times.Once);
         result.Message.Should().Contain("app-ready");
+    }
+
+    /// <summary>
+    ///     AB#8452 fallback path (Odin's condition): the platform does not enable within the wait, so the sequence enables
+    ///     Communication and AI itself - the controller then deploys nothing, so deploy_defaults deploys the site and the
+    ///     adapter.
+    /// </summary>
+    [Fact]
+    public async Task Starter_PlatformDoesNotEnable_FallbackEnablesBoth_AndDeploysSiteAndAdapter()
+    {
+        _platformEnables = false;
+
+        var result = await CreateStarter();
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        Outcomes(result).Should().Equal("create_tenant=done", "provision_admin=skipped", "install_blueprint=done",
+            "enable_communication=done", "deploy_defaults=done", "enable_ai=done", "default_spend_cap=skipped",
+            "verify_ready=done");
+        result.StarterSteps.Single(s => s.Step == "enable_communication").Detail.Should().Contain("fallback");
+        result.StarterSteps.Single(s => s.Step == "enable_ai").Detail.Should().Contain("fallback");
+        result.StarterSteps.Single(s => s.Step == "deploy_defaults").Detail.Should()
+            .Contain("site 'default-site'").And.Contain("adapter 'mesh-adapter'");
+        MockCommunicationClient.Verify(c => c.EnableAsync(Child), Times.Once);
+        MockAiClient.Verify(c => c.EnableAsync(Child), Times.Once);
+        DeployCalls.Should().Equal("SystemCommunicationDeploymentSiteDeploy", "SystemCommunicationAdapterDeploy");
+        CkMethods.RtIdOf("SystemCommunicationDeploymentSiteDeploy").Should().Be(SiteId);
+        CkMethods.RtIdOf("SystemCommunicationAdapterDeploy").Should().Be(AdapterRtId);
+    }
+
+    /// <summary>
+    ///     AB#8452: the platform enabled Communication but the controller did not deploy within the wait; deploy_defaults
+    ///     deploys what is still Undeployed (idempotent: only Undeployed, nothing undeployed).
+    /// </summary>
+    [Fact]
+    public async Task Starter_PlatformEnablesButDoesNotDeploy_DeployDefaultsDeploysAfterTheWait()
+    {
+        _controllerDeploysAfterReads = null;
+
+        var result = await CreateStarter();
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.StarterSteps.Single(s => s.Step == "deploy_defaults").Outcome.Should().Be("done");
+        result.StarterSteps.Single(s => s.Step == "deploy_defaults").Detail.Should().Contain("had not deployed them");
+        DeployCalls.Should().Equal("SystemCommunicationDeploymentSiteDeploy", "SystemCommunicationAdapterDeploy");
+        MockCommunicationClient.Verify(c => c.EnableAsync(It.IsAny<string>()), Times.Never);
+        MockCommunicationClient.Verify(c => c.GetDeploymentSitesAsync(),
+            Times.Exactly(1 + StarterTenantSequence.DeployWaitAttempts));
+    }
+
+    /// <summary>AB#8452: an adapter the controller left Pending is not deployed again; only the Undeployed site is.</summary>
+    [Fact]
+    public async Task Starter_DeployDefaults_DeploysOnlyWhatIsUndeployed()
+    {
+        _platformEnables = false;
+        MockCommunicationClient.Setup(c => c.GetAdaptersAsync())
+            .ReturnsAsync(() => [Adapter(EntityDeploymentState.Pending)]);
+
+        var result = await CreateStarter();
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        DeployCalls.Should().Equal("SystemCommunicationDeploymentSiteDeploy");
+    }
+
+    /// <summary>
+    ///     AB#8452: a tenant whose Communication was enabled before the call keeps its sites as they are, even when they
+    ///     are Undeployed and the tenant has the fresh shape.
+    /// </summary>
+    [Fact]
+    public async Task Starter_TenantHadCommunicationAlready_SiteAndAdapterAreNotTouched()
+    {
+        _children.Add(new TenantDto { TenantId = Child, Database = Database });
+        _features = Status(true, false);
+        GivenFreshDefaults();
+
+        var result = await CreateStarter();
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        Outcomes(result).Should().Equal("create_tenant=skipped", "provision_admin=skipped", "install_blueprint=done",
+            "enable_communication=skipped", "deploy_defaults=skipped", "enable_ai=done", "default_spend_cap=skipped",
+            "verify_ready=done");
+        result.StarterSteps.Single(s => s.Step == "deploy_defaults").Detail.Should().Contain("left as they are");
+        DeployCalls.Should().BeEmpty();
+        MockCommunicationClient.Verify(c => c.EnableAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    /// <summary>AB#8452: not the shape of a fresh tenant (two sites): nothing is deployed, the sequence goes on.</summary>
+    [Fact]
+    public async Task Starter_FallbackWithoutTheFreshShape_DeploysNothing()
+    {
+        _platformEnables = false;
+        MockCommunicationClient.Setup(c => c.GetDeploymentSitesAsync()).ReturnsAsync(() =>
+            [
+                Site(EntityDeploymentState.Undeployed),
+                new DeploymentSiteSummaryDto
+                {
+                    RtId = "6a0000000000000000000009", Name = "second-site",
+                    DeploymentState = EntityDeploymentState.Undeployed,
+                    CommunicationState = CommunicationState.Offline, ConfigurationState = ConfigurationState.Configured
+                }
+            ]);
+
+        var result = await CreateStarter();
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.StarterSteps.Single(s => s.Step == "deploy_defaults").Outcome.Should().Be("skipped");
+        result.StarterSteps.Single(s => s.Step == "deploy_defaults").Detail.Should().Contain("2 deployment site(s)");
+        DeployCalls.Should().BeEmpty();
+    }
+
+    /// <summary>AB#8452: a refused deploy fails deploy_defaults; enable_ai and the later steps do not run.</summary>
+    [Fact]
+    public async Task Starter_DeployRefused_FailsAtDeployDefaults()
+    {
+        _platformEnables = false;
+        CkMethods.Fails("METHOD_FORBIDDEN", "needs CommunicationManagement");
+
+        var result = await CreateStarter();
+
+        result.IsSuccess.Should().BeFalse();
+        result.FailedStep.Should().Be("deploy_defaults");
+        result.ErrorMessage.Should().Contain("METHOD_FORBIDDEN");
+        Outcomes(result).Should().EndWith(["deploy_defaults=failed", "enable_ai=notRun", "default_spend_cap=notRun",
+            "verify_ready=notRun"]);
+        MockAiClient.Verify(c => c.EnableAsync(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
@@ -118,17 +315,21 @@ public class StarterTenantToolsTests : ToolTestBase
         var again = await CreateStarter();
 
         again.IsSuccess.Should().BeTrue(again.ErrorMessage);
-        Outcomes(again).Should().Equal("create_tenant=skipped", "provision_admin=skipped", "enable_communication=skipped",
-            "enable_ai=skipped", "default_spend_cap=skipped", "install_blueprint=skipped", "verify_ready=done");
+        Outcomes(again).Should().Equal("create_tenant=skipped", "provision_admin=skipped", "install_blueprint=skipped",
+            "enable_communication=skipped", "deploy_defaults=skipped", "enable_ai=skipped", "default_spend_cap=skipped",
+            "verify_ready=done");
         MockAssetClient.Verify(c => c.CreateTenantAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
-        MockCommunicationClient.Verify(c => c.EnableAsync(Child), Times.Once);
-        MockAiClient.Verify(c => c.EnableAsync(Child), Times.Once);
+        MockCommunicationClient.Verify(c => c.EnableAsync(Child), Times.Never);
+        MockAiClient.Verify(c => c.EnableAsync(Child), Times.Never);
+        DeployCalls.Should().BeEmpty();
         MockAssetClient.Verify(c => c.ApplyBlueprintAsync(Child, It.IsAny<string>(), It.IsAny<bool>()), Times.Once);
     }
 
     [Fact]
     public async Task Starter_FailingStep_IsNamed_LaterStepsNotRun_AndARetryCompletesOnlyTheRest()
     {
+        // Fallback path: the site and adapter are deployed before enable_ai fails, so the retry needs no deploy.
+        _platformEnables = false;
         MockAiClient.SetupSequence(c => c.EnableAsync(Child))
             .ThrowsAsync(new InvalidOperationException("Communication is not ready yet"))
             .Returns(() =>
@@ -142,18 +343,20 @@ public class StarterTenantToolsTests : ToolTestBase
         first.IsSuccess.Should().BeFalse();
         first.FailedStep.Should().Be("enable_ai");
         first.ErrorMessage.Should().Contain("enable_ai").And.Contain("Communication is not ready yet");
-        Outcomes(first).Should().Equal("create_tenant=done", "provision_admin=skipped", "enable_communication=done",
-            "enable_ai=failed", "default_spend_cap=notRun", "install_blueprint=notRun", "verify_ready=notRun");
-        MockAssetClient.Verify(c => c.ApplyBlueprintAsync(Child, It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        Outcomes(first).Should().Equal("create_tenant=done", "provision_admin=skipped", "install_blueprint=done",
+            "enable_communication=done", "deploy_defaults=done", "enable_ai=failed", "default_spend_cap=notRun",
+            "verify_ready=notRun");
 
         var second = await CreateStarter();
 
         second.IsSuccess.Should().BeTrue(second.ErrorMessage);
-        Outcomes(second).Should().Equal("create_tenant=skipped", "provision_admin=skipped",
-            "enable_communication=skipped", "enable_ai=done", "default_spend_cap=skipped",
-            "install_blueprint=done", "verify_ready=done");
+        Outcomes(second).Should().Equal("create_tenant=skipped", "provision_admin=skipped", "install_blueprint=skipped",
+            "enable_communication=skipped", "deploy_defaults=skipped", "enable_ai=done", "default_spend_cap=skipped",
+            "verify_ready=done");
         MockAssetClient.Verify(c => c.CreateTenantAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+        MockAssetClient.Verify(c => c.ApplyBlueprintAsync(Child, It.IsAny<string>(), It.IsAny<bool>()), Times.Once);
         MockCommunicationClient.Verify(c => c.EnableAsync(Child), Times.Once);
+        DeployCalls.Should().HaveCount(2, "the first call deployed site and adapter; the retry deploys nothing");
     }
 
     [Fact]
@@ -216,8 +419,9 @@ public class StarterTenantToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.FailedStep.Should().Be("provision_admin");
-        Outcomes(result).Should().Equal("create_tenant=done", "provision_admin=failed", "enable_communication=notRun",
-            "enable_ai=notRun", "default_spend_cap=notRun", "install_blueprint=notRun", "verify_ready=notRun");
+        Outcomes(result).Should().Equal("create_tenant=done", "provision_admin=failed", "install_blueprint=notRun",
+            "enable_communication=notRun", "deploy_defaults=notRun", "enable_ai=notRun", "default_spend_cap=notRun",
+            "verify_ready=notRun");
         MockCommunicationClient.Verify(c => c.EnableAsync(It.IsAny<string>()), Times.Never);
         MockAiClient.Verify(c => c.EnableAsync(It.IsAny<string>()), Times.Never);
     }
@@ -260,14 +464,15 @@ public class StarterTenantToolsTests : ToolTestBase
         first.IsSuccess.Should().BeFalse();
         first.FailedStep.Should().Be("verify_ready");
         first.ErrorMessage.Should().Contain("builder-agent").And.Contain("System.Ai.Starter 1.1");
-        Outcomes(first).Should().Equal("create_tenant=done", "provision_admin=skipped", "enable_communication=done",
-            "enable_ai=done", "default_spend_cap=skipped", "install_blueprint=done", "verify_ready=failed");
+        Outcomes(first).Should().Equal("create_tenant=done", "provision_admin=skipped", "install_blueprint=done",
+            "enable_communication=done", "deploy_defaults=skipped", "enable_ai=done", "default_spend_cap=skipped",
+            "verify_ready=failed");
 
         _readyMissing.Remove(Child);
         var second = await CreateStarter();
 
         second.IsSuccess.Should().BeTrue(second.ErrorMessage);
-        Outcomes(second).Should().EndWith(["install_blueprint=skipped", "verify_ready=done"]);
+        Outcomes(second).Should().Contain("install_blueprint=skipped").And.EndWith("verify_ready=done");
         _readyProbes.Should().Be(2);
         MockAssetClient.Verify(c => c.ApplyBlueprintAsync(Child, It.IsAny<string>(), It.IsAny<bool>()), Times.Once);
     }
@@ -357,7 +562,7 @@ public class StarterTenantToolsTests : ToolTestBase
     }
 
     [Fact]
-    public async Task Starter_AiServiceError_FailsAtTheCap_AndInstallsNothing()
+    public async Task Starter_AiServiceError_FailsAtTheCap_AndSkipsTheReadyCheck()
     {
         GivenParentIsTheSystemTenant();
         MockAiClient.Setup(c => c.ApplyStarterDefaultSpendCapAsync(Child))
@@ -367,8 +572,8 @@ public class StarterTenantToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.FailedStep.Should().Be("default_spend_cap");
-        Outcomes(result).Should().EndWith(["default_spend_cap=failed", "install_blueprint=notRun", "verify_ready=notRun"]);
-        MockAssetClient.Verify(c => c.ApplyBlueprintAsync(Child, It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        Outcomes(result).Should().EndWith(["default_spend_cap=failed", "verify_ready=notRun"]);
+        _readyProbes.Should().Be(0);
     }
 
     [Fact]

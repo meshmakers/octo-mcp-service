@@ -1,23 +1,35 @@
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Communication.v4;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
 using System.Net;
+using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Configuration;
 using Meshmakers.Octo.Sdk.ServiceClient;
 using Meshmakers.Octo.Sdk.ServiceClient.AiServices;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.System;
+using Meshmakers.Octo.Sdk.ServiceClient.CommunicationControllerServices;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 
 namespace Meshmakers.Octo.Backend.McpServices.Tools;
 
 /// <summary>
-///     <c>create_tenant starter=true</c> (AB#9570): leaves a new child tenant app-ready in one call - create the tenant,
-///     provision the calling user as its administrator, enable Communication, enable AI Services and install the
-///     starter blueprint <c>System.Ai.Starter</c> (which brings System.Ai.Builder: the knowledge pages and, since
-///     Starter 1.1 / Builder 1.2, the builder agent), then check the ready state (<see cref="StarterReadyCheck" />,
-///     AB#9573). After enable_ai the step <c>default_spend_cap</c> (AB#9572) asks the AI service for the cluster's default
-///     monthly LLM cap of the new tenant - only when the parent is the system tenant (the platform operator's starter
-///     path); for every other caller it is skipped with the reason and the tenant stays at key source None.
+///     <c>create_tenant starter=true</c> (AB#9570, Feature AB#8452): leaves a new child tenant app-ready in one call -
+///     create the tenant, provision the calling user as its administrator, install the starter blueprint
+///     <c>System.Ai.Starter</c> (which brings System.Ai.Builder: the knowledge pages and the builder agent), wait until the
+///     platform enabled Communication and AI Services for it (AB#9578), make sure the default site and Mesh Adapter are
+///     deployed, apply the default LLM cap (<c>default_spend_cap</c>, AB#9572: only when the parent is the system tenant,
+///     else skipped and the tenant stays at key source None) and check the ready state (<see cref="StarterReadyCheck" />,
+///     AB#9573).
+///     <para>
+///     The blueprint goes in FIRST so the platform itself enables Communication for it: only then does the communication
+///     controller deploy the default site and adapter (AB#8452, <c>StarterDeploymentService</c>). When the platform has not
+///     enabled a capability within <see cref="EnableWaitAttempts" /> reads, <see cref="WaitDelay" /> apart, the sequence
+///     enables it itself (fallback); the controller then sees an enabled tenant and deploys nothing, so the step
+///     <c>deploy_defaults</c> deploys what is still Undeployed. On the platform path <c>deploy_defaults</c> first waits for
+///     the controller and deploys only what it left Undeployed. A tenant whose Communication was already enabled before
+///     this call is never touched by <c>deploy_defaults</c>.
+///     </para>
 ///     <para>
 ///     Every step first checks whether it is already done and is then <c>skipped</c>, so calling the tool again for the
 ///     same tenant after a failure completes the remaining steps without repeating finished ones. The first failing step
@@ -37,12 +49,13 @@ internal static class StarterTenantSequence
     internal const string ProvisionStep = "provision_admin";
     internal const string CommunicationStep = "enable_communication";
     internal const string AiStep = "enable_ai";
+    internal const string DeployStep = "deploy_defaults";
     internal const string SpendCapStep = "default_spend_cap";
     internal const string BlueprintStep = "install_blueprint";
     internal const string ReadyStep = "verify_ready";
 
     private static readonly string[] Steps =
-        [CreateStep, ProvisionStep, CommunicationStep, AiStep, SpendCapStep, BlueprintStep, ReadyStep];
+        [CreateStep, ProvisionStep, BlueprintStep, CommunicationStep, DeployStep, AiStep, SpendCapStep, ReadyStep];
 
     /// <summary>
     ///     Reads the ready state of the child with the caller's rights: null when ready, else what is missing. Tests
@@ -58,6 +71,21 @@ internal static class StarterTenantSequence
 
     /// <summary>Delay between two attempts to reach the new child; tests set it to zero.</summary>
     internal static TimeSpan RetryDelay { get; set; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    ///     How often the sequence reads the tenant's features after the blueprint install before it enables a capability
+    ///     the platform has not enabled yet (the controller's capability lookup alone may take up to 60 s).
+    /// </summary>
+    internal static int EnableWaitAttempts { get; set; } = 30;
+
+    /// <summary>
+    ///     How often <c>deploy_defaults</c> reads the site and adapter on the platform path before it deploys what the
+    ///     controller left Undeployed.
+    /// </summary>
+    internal static int DeployWaitAttempts { get; set; } = 20;
+
+    /// <summary>Delay between two reads of a wait; tests set it to zero.</summary>
+    internal static TimeSpan WaitDelay { get; set; } = TimeSpan.FromSeconds(3);
 
     /// <summary>
     ///     The reason the starter cannot run for this caller, checked before anything is created; null when it can.
@@ -107,8 +135,10 @@ internal static class StarterTenantSequence
         if (failed == null)
         {
             response.IsSuccess = true;
-            response.Message = $"Tenant '{childTenantId}' is app-ready: Communication and AI Services enabled, " +
-                               $"{outcome ?? StarterBlueprintName} installed, builder agent and knowledge base ready. Steps: " +
+            response.Message = $"Tenant '{childTenantId}' is app-ready: {outcome ?? StarterBlueprintName} installed, " +
+                               "Communication and AI Services enabled, builder agent and knowledge base ready; the " +
+                               "default adapter comes Online once the operator has rolled it out (see deploy_defaults). " +
+                               "Steps: " +
                                string.Join(", ", steps.Select(s => $"{s.Step}={s.Outcome}")) + ".";
             return;
         }
@@ -151,69 +181,74 @@ internal static class StarterTenantSequence
             return null;
         }
 
-        // 3. + 4. Communication and AI Services, each only when not yet enabled.
         var features = await Services.AssetClientContext.TryBuildAsync(server, childTenantId);
         if (features.Error != null)
         {
-            steps.Add(Failed(CommunicationStep, features.Error));
+            steps.Add(Failed(BlueprintStep, features.Error));
             return null;
         }
 
+        // What was enabled BEFORE the blueprint: a tenant that had Communication already keeps its sites as they are.
+        TenantFeaturesStatusDto before;
         try
         {
-            var status = await features.Client!.GetTenantFeaturesStatusAsync();
-            if (status.Communication?.TenantEnabled == true)
-            {
-                steps.Add(Skipped(CommunicationStep, "Communication is already enabled"));
-            }
-            else
-            {
-                var communication = await CommunicationLifecycleTools.EnableCommunication(server, childTenantId);
-                if (!communication.IsSuccess)
-                {
-                    steps.Add(Failed(CommunicationStep, communication.ErrorMessage));
-                    return null;
-                }
-
-                steps.Add(Done(CommunicationStep, communication.Message));
-            }
-
-            if (status.AiServices?.TenantEnabled == true)
-            {
-                steps.Add(Skipped(AiStep, "AI Services are already enabled"));
-            }
-            else
-            {
-                var ai = await AiLifecycleTools.EnableAi(server, childTenantId);
-                if (!ai.IsSuccess)
-                {
-                    steps.Add(Failed(AiStep, ai.ErrorMessage));
-                    return null;
-                }
-
-                steps.Add(Done(AiStep, ai.Message));
-            }
+            before = await features.Client!.GetTenantFeaturesStatusAsync();
         }
         catch (Exception ex)
         {
-            steps.Add(Failed(steps.Any(s => s.Step == CommunicationStep) ? AiStep : CommunicationStep, ex.Message));
+            steps.Add(Failed(BlueprintStep, $"the features of '{childTenantId}' could not be read: {ex.Message}"));
             return null;
         }
 
-        // 5. The cluster's default LLM cap (AB#9572): only on the platform operator's path (parent = system tenant).
-        if (!await ApplyDefaultSpendCapAsync(server, parentTenantId, childTenantId, steps))
-        {
-            return null;
-        }
+        var communicationWasOn = before.Communication?.TenantEnabled == true;
 
-        // 6. The starter blueprint, unless it is installed already.
+        // 3. The starter blueprint first, so the platform enables Communication and AI for it (AB#9578) and the
+        //    controller deploys the default site and adapter (AB#8452).
         var installed = await InstallStarterAsync(server, features.Client!, childTenantId, starterBlueprintId, steps);
         if (installed == null)
         {
             return null;
         }
 
-        // 7. Ready state: builder agent, mandate, client and the app-index page, read with the caller's rights. Always
+        // 4. Wait for the platform to enable Communication and AI Services; enable Communication itself when the platform
+        //    did not in time (fallback).
+        //    Only after an install of this call: a starter that was installed already sends no new event to wait for.
+        var justInstalled = steps.Last().Step == BlueprintStep && steps.Last().Outcome == "done";
+        var status = justInstalled
+            ? await WaitForPlatformEnableAsync(features.Client!, childTenantId, before, steps)
+            : before;
+        if (status == null)
+        {
+            return null;
+        }
+
+        var communicationByPlatform = await EnsureCommunicationAsync(server, childTenantId, before, status, steps);
+        if (communicationByPlatform == null)
+        {
+            return null;
+        }
+
+        // 5. Default site and adapter, right after Communication (also on the fallback path, before anything else can
+        //    fail): idempotent, never on a tenant that had Communication before this call.
+        if (!await EnsureDefaultsDeployedAsync(server, childTenantId, communicationWasOn, communicationByPlatform.Value,
+                steps))
+        {
+            return null;
+        }
+
+        // 6. AI Services: enabled by the platform, or by this call when the platform did not in time (fallback).
+        if (!await EnsureAiAsync(server, features.Client!, childTenantId, before, status, steps))
+        {
+            return null;
+        }
+
+        // 7. The cluster's default LLM cap (AB#9572): only on the platform operator's path (parent = system tenant).
+        if (!await ApplyDefaultSpendCapAsync(server, parentTenantId, childTenantId, steps))
+        {
+            return null;
+        }
+
+        // 8. Ready state: builder agent, mandate, client and the app-index page, read with the caller's rights. Always
         //    checked (also on a repeated call), never skipped: it changes nothing.
         try
         {
@@ -231,6 +266,229 @@ internal static class StarterTenantSequence
 
         return installed;
     }
+
+    private static string WaitedText => $"{EnableWaitAttempts * WaitDelay.TotalSeconds:0} s";
+
+    /// <summary>
+    ///     After the install: reads the features until the platform enabled Communication and AI Services (AB#9578) or
+    ///     <see cref="EnableWaitAttempts" /> reads are used up; returns the last read, null when a read failed.
+    /// </summary>
+    private static async Task<TenantFeaturesStatusDto?> WaitForPlatformEnableAsync(
+        IAssetServicesClient childAssetClient, string childTenantId, TenantFeaturesStatusDto before,
+        List<StarterStepDto> steps)
+    {
+        var status = before;
+        try
+        {
+            for (var attempt = 1;
+                 attempt <= EnableWaitAttempts &&
+                 (status.Communication?.TenantEnabled != true || status.AiServices?.TenantEnabled != true);
+                 attempt++)
+            {
+                if (WaitDelay > TimeSpan.Zero)
+                {
+                    await Task.Delay(WaitDelay);
+                }
+
+                status = await childAssetClient.GetTenantFeaturesStatusAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            steps.Add(Failed(CommunicationStep, $"the features of '{childTenantId}' could not be read: {ex.Message}"));
+            return null;
+        }
+
+        return status;
+    }
+
+    /// <summary>
+    ///     Step <c>enable_communication</c>: <c>skipped</c> when it was enabled before the install, <c>done</c> "by the
+    ///     platform" when the platform enabled it during the wait, else enabled by this call (fallback). Returns null when
+    ///     the step failed, else whether the platform enabled it (only then does the controller deploy the defaults).
+    /// </summary>
+    private static async Task<bool?> EnsureCommunicationAsync(McpServer server, string childTenantId,
+        TenantFeaturesStatusDto before, TenantFeaturesStatusDto status, List<StarterStepDto> steps)
+    {
+        if (before.Communication?.TenantEnabled == true)
+        {
+            steps.Add(Skipped(CommunicationStep, "Communication was already enabled before the blueprint install"));
+            return false;
+        }
+
+        if (status.Communication?.TenantEnabled == true)
+        {
+            steps.Add(Done(CommunicationStep,
+                "enabled by the platform for the starter blueprint (AB#9578); the controller deploys the default " +
+                "site and adapter"));
+            return true;
+        }
+
+        var communication = await CommunicationLifecycleTools.EnableCommunication(server, childTenantId);
+        if (!communication.IsSuccess)
+        {
+            steps.Add(Failed(CommunicationStep, communication.ErrorMessage));
+            return null;
+        }
+
+        steps.Add(Done(CommunicationStep,
+            $"the platform had not enabled Communication within {WaitedText}; enabled by this call (fallback). " +
+            communication.Message));
+        return false;
+    }
+
+    /// <summary>
+    ///     Step <c>enable_ai</c>: <c>skipped</c> when it was enabled before the install, <c>done</c> "by the platform"
+    ///     when the platform enabled it (during the wait or since), else enabled by this call (fallback).
+    /// </summary>
+    private static async Task<bool> EnsureAiAsync(McpServer server, IAssetServicesClient childAssetClient,
+        string childTenantId, TenantFeaturesStatusDto before, TenantFeaturesStatusDto status,
+        List<StarterStepDto> steps)
+    {
+        if (before.AiServices?.TenantEnabled == true)
+        {
+            steps.Add(Skipped(AiStep, "AI Services were already enabled before the blueprint install"));
+            return true;
+        }
+
+        try
+        {
+            // The platform may enable AI late (it needs Communication first): enable only what is still off.
+            if (status.AiServices?.TenantEnabled == true ||
+                (await childAssetClient.GetTenantFeaturesStatusAsync()).AiServices?.TenantEnabled == true)
+            {
+                steps.Add(Done(AiStep, "enabled by the platform for the starter blueprint (AB#9578)"));
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            steps.Add(Failed(AiStep, $"the features of '{childTenantId}' could not be read: {ex.Message}"));
+            return false;
+        }
+
+        var ai = await AiLifecycleTools.EnableAi(server, childTenantId);
+        if (!ai.IsSuccess)
+        {
+            steps.Add(Failed(AiStep, ai.ErrorMessage));
+            return false;
+        }
+
+        steps.Add(Done(AiStep,
+            $"the platform had not enabled AI Services within {WaitedText}; enabled by this call (fallback). " +
+            ai.Message));
+        return true;
+    }
+
+    /// <summary>
+    ///     Step <c>deploy_defaults</c> (AB#8452). Invariant: it deploys only the shape of a fresh tenant (exactly one
+    ///     deployment site and exactly one adapter), only what is <c>Undeployed</c>, never undeploys, and never touches a
+    ///     tenant whose Communication was enabled before this call. On the platform path it first waits for the
+    ///     controller's own deploy and deploys only what is still Undeployed after the wait; on the fallback path the
+    ///     controller deploys nothing, so it deploys at once. A repeated call finds both deployed and is <c>skipped</c>.
+    /// </summary>
+    private static async Task<bool> EnsureDefaultsDeployedAsync(McpServer server, string childTenantId,
+        bool communicationWasOn, bool communicationByPlatform, List<StarterStepDto> steps)
+    {
+        if (communicationWasOn)
+        {
+            steps.Add(Skipped(DeployStep,
+                "Communication was already enabled before this call; its deployment sites and adapters are left as " +
+                "they are"));
+            return true;
+        }
+
+        var ctx = await CommunicationClientContext.TryBuildAsync(server, childTenantId, withTenantClient: true);
+        if (ctx.Error != null)
+        {
+            steps.Add(Failed(DeployStep, ctx.Error));
+            return false;
+        }
+
+        try
+        {
+            var (sites, adapters) = await ReadDefaultsAsync(ctx.Client!);
+            for (var attempt = 1;
+                 communicationByPlatform && attempt <= DeployWaitAttempts && IsFreshShape(sites, adapters) &&
+                 (IsUndeployed(sites[0].DeploymentState) || IsUndeployed(adapters[0].DeploymentState));
+                 attempt++)
+            {
+                if (WaitDelay > TimeSpan.Zero)
+                {
+                    await Task.Delay(WaitDelay);
+                }
+
+                (sites, adapters) = await ReadDefaultsAsync(ctx.Client!);
+            }
+
+            if (!IsFreshShape(sites, adapters))
+            {
+                steps.Add(Skipped(DeployStep,
+                    $"'{childTenantId}' has {sites.Count} deployment site(s) and {adapters.Count} adapter(s), not the " +
+                    "one site with one adapter of a fresh tenant; nothing was deployed"));
+                return true;
+            }
+
+            var site = sites[0];
+            var adapter = adapters[0];
+            if (!IsUndeployed(site.DeploymentState) && !IsUndeployed(adapter.DeploymentState))
+            {
+                steps.Add(Skipped(DeployStep,
+                    $"site '{site.Name}' ({site.DeploymentState}) and adapter '{adapter.Name}' " +
+                    $"({adapter.DeploymentState}) are already deployed" +
+                    (communicationByPlatform ? " by the platform" : "")));
+                return true;
+            }
+
+            var deployed = new List<string>();
+            if (IsUndeployed(site.DeploymentState))
+            {
+                var outcome = await CommunicationMethodCall.RunAsync(() =>
+                    new RtDeploymentSiteMethodClient(ctx.TenantClient!).DeployAsync(site.RtId));
+                if (!outcome.IsSuccess)
+                {
+                    steps.Add(Failed(DeployStep, $"deploy of site '{site.Name}' failed: {outcome.Error}"));
+                    return false;
+                }
+
+                deployed.Add($"site '{site.Name}'");
+            }
+
+            if (IsUndeployed(adapter.DeploymentState))
+            {
+                var outcome = await CommunicationMethodCall.RunAsync(() =>
+                    new RtAdapterMethodClient(ctx.TenantClient!).DeployAsync(adapter.RtId));
+                if (!outcome.IsSuccess)
+                {
+                    steps.Add(Failed(DeployStep, $"deploy of adapter '{adapter.Name}' failed: {outcome.Error}"));
+                    return false;
+                }
+
+                deployed.Add($"adapter '{adapter.Name}'");
+            }
+
+            steps.Add(Done(DeployStep,
+                (communicationByPlatform
+                    ? $"the platform had not deployed them within {DeployWaitAttempts * WaitDelay.TotalSeconds:0} s; "
+                    : "Communication was enabled by this call, so the platform deploys nothing; ") +
+                $"deployed {string.Join(" and ", deployed)} (one adapter pod for this tenant)"));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            steps.Add(Failed(DeployStep, ex.Message));
+            return false;
+        }
+    }
+
+    private static async Task<(List<DeploymentSiteSummaryDto> Sites, List<AdapterSummaryDto> Adapters)>
+        ReadDefaultsAsync(ICommunicationServicesClient client) =>
+        ((await client.GetDeploymentSitesAsync()).ToList(), (await client.GetAdaptersAsync()).ToList());
+
+    private static bool IsFreshShape(List<DeploymentSiteSummaryDto> sites, List<AdapterSummaryDto> adapters) =>
+        sites.Count == 1 && adapters.Count == 1;
+
+    private static bool IsUndeployed(EntityDeploymentState state) => state == EntityDeploymentState.Undeployed;
 
     /// <summary>
     ///     Step <c>default_spend_cap</c> (AB#9572). Invariant: central-key LLM spend opens for a tenant only through the
