@@ -349,7 +349,7 @@ public sealed class TimeSeriesTools
         }
         catch (Exception ex)
         {
-            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
@@ -407,7 +407,7 @@ public sealed class TimeSeriesTools
         }
         catch (Exception ex)
         {
-            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
@@ -473,7 +473,7 @@ public sealed class TimeSeriesTools
         }
         catch (Exception ex)
         {
-            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
@@ -579,7 +579,7 @@ public sealed class TimeSeriesTools
         }
         catch (Exception ex)
         {
-            return new RollupBackfillResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new RollupBackfillResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
@@ -811,7 +811,7 @@ public sealed class TimeSeriesTools
         }
         catch (Exception ex)
         {
-            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 }

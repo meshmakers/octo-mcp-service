@@ -127,6 +127,21 @@ public sealed class StreamDataArchiveMethodToolsTests : ToolTestBase, IDisposabl
         error.Should().Contain("System.StreamData 1.30");
     }
 
+    [Theory]
+    [MemberData(nameof(ToolNames))]
+    public async Task Tool_TransportErrorCarryingAToken_IsRedacted(string name)
+    {
+        // A failed call outside the method protocol (developer exception page echoing the request headers) must not hand the
+        // caller's token to the MCP client.
+        CkMethods.Throws(new HttpRequestException(
+            "500 Internal Server Error. Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl"));
+
+        var (ok, error) = await Tools[name].Call(this);
+
+        ok.Should().BeFalse();
+        error.Should().NotContain("eyJhbGciOiJIUzI1NiJ9").And.Contain("[REDACTED]");
+    }
+
     [Fact]
     public async Task DeclaredError_IsReportedWithCodeAndParameters()
     {
