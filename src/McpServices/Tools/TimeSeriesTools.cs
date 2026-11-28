@@ -1,6 +1,9 @@
 using System.ComponentModel;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.StreamData.v1;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.StreamData;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants.Methods;
 using ModelContextProtocol.Server;
 
 // ReSharper disable UnusedMember.Global
@@ -107,7 +110,7 @@ public sealed class TimeSeriesTools
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
         => ArchiveAction(server, tenantId, archiveRtId,
             requiredConfirm: false, confirm: true,
-            (c, tid, id) => c.ActivateArchiveAsync(tid, id),
+            (c, id) => c.ActivateAsync(id),
             successMessage: id => $"Archive '{id}' activated.");
 
     /// <summary>Disable an archive: data preserved, ingest stops. Allowed only from Activated.</summary>
@@ -122,7 +125,7 @@ public sealed class TimeSeriesTools
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
         => ArchiveAction(server, tenantId, archiveRtId,
             requiredConfirm: false, confirm: true,
-            (c, tid, id) => c.DisableArchiveAsync(tid, id),
+            (c, id) => c.DisableAsync(id),
             successMessage: id => $"Archive '{id}' disabled (data preserved).");
 
     /// <summary>Re-enable a previously disabled archive.</summary>
@@ -137,7 +140,7 @@ public sealed class TimeSeriesTools
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
         => ArchiveAction(server, tenantId, archiveRtId,
             requiredConfirm: false, confirm: true,
-            (c, tid, id) => c.EnableArchiveAsync(tid, id),
+            (c, id) => c.EnableAsync(id),
             successMessage: id => $"Archive '{id}' re-enabled.");
 
     /// <summary>Retry archive activation after a DDL failure.</summary>
@@ -152,7 +155,7 @@ public sealed class TimeSeriesTools
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
         => ArchiveAction(server, tenantId, archiveRtId,
             requiredConfirm: false, confirm: true,
-            (c, tid, id) => c.RetryArchiveActivationAsync(tid, id),
+            (c, id) => c.RetryActivationAsync(id),
             successMessage: id => $"Archive '{id}' activation retried.");
 
     /// <summary>Add an ingested column to an Activated archive without recreating it (AB#7997).</summary>
@@ -178,7 +181,7 @@ public sealed class TimeSeriesTools
 
         return ArchiveAction(server, tenantId, archiveRtId,
             requiredConfirm: false, confirm: true,
-            (c, tid, id) => c.AddArchiveColumnAsync(tid, id, path, indexed),
+            (c, id) => c.AddColumnAsync(id, path, indexed),
             successMessage: id => $"Archive '{id}' has column '{path}'; existing rows read null for it, new rows fill it.");
     }
 
@@ -196,7 +199,7 @@ public sealed class TimeSeriesTools
         [Description("Tenant to operate on. Falls back to URL route.")] string? tenantId = null)
         => ArchiveAction(server, tenantId, archiveRtId,
             requiredConfirm: true, confirm,
-            (c, tid, id) => c.DeleteArchiveAsync(tid, id),
+            (c, id) => c.DeleteArchiveAsync(id),
             successMessage: id => $"Archive '{id}' deleted — table dropped, data lost.");
 
     // ── Rollup archives (concept §9) ────────────────────────────────────────
@@ -312,7 +315,13 @@ public sealed class TimeSeriesTools
             return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = "rollupRtId is required." };
         }
 
-        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId);
+        var invalid = ArchiveMethodCall.InvalidIdError(nameof(rollupRtId), rollupRtId);
+        if (invalid != null)
+        {
+            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = invalid };
+        }
+
+        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -320,7 +329,16 @@ public sealed class TimeSeriesTools
 
         try
         {
-            await ctx.Client!.FreezeRollupArchiveAsync(ctx.TenantId!, rollupRtId, until);
+            var outcome = await ArchiveMethodCall.RunAsync(() =>
+                new RtRollupArchiveMethodClient(ctx.TenantClient!).FreezeAsync(rollupRtId, until));
+            if (!outcome.IsSuccess)
+            {
+                return new ArchiveActionResponse
+                {
+                    IsSuccess = false, TenantId = ctx.TenantId, RtId = rollupRtId, ErrorMessage = outcome.Error
+                };
+            }
+
             return new ArchiveActionResponse
             {
                 IsSuccess = true,
@@ -331,7 +349,7 @@ public sealed class TimeSeriesTools
         }
         catch (Exception ex)
         {
-            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
@@ -353,7 +371,13 @@ public sealed class TimeSeriesTools
             return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = "rollupRtId is required." };
         }
 
-        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId);
+        var invalid = ArchiveMethodCall.InvalidIdError(nameof(rollupRtId), rollupRtId);
+        if (invalid != null)
+        {
+            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = invalid };
+        }
+
+        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -361,7 +385,16 @@ public sealed class TimeSeriesTools
 
         try
         {
-            await ctx.Client!.UnfreezeRollupArchiveAsync(ctx.TenantId!, rollupRtId, acceptGaps);
+            var outcome = await ArchiveMethodCall.RunAsync(() =>
+                new RtRollupArchiveMethodClient(ctx.TenantClient!).UnfreezeAsync(rollupRtId, acceptGaps));
+            if (!outcome.IsSuccess)
+            {
+                return new ArchiveActionResponse
+                {
+                    IsSuccess = false, TenantId = ctx.TenantId, RtId = rollupRtId, ErrorMessage = outcome.Error
+                };
+            }
+
             return new ArchiveActionResponse
             {
                 IsSuccess = true,
@@ -374,7 +407,7 @@ public sealed class TimeSeriesTools
         }
         catch (Exception ex)
         {
-            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
@@ -406,7 +439,13 @@ public sealed class TimeSeriesTools
             };
         }
 
-        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId);
+        var invalid = ArchiveMethodCall.InvalidIdError(nameof(rollupRtId), rollupRtId);
+        if (invalid != null)
+        {
+            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = invalid };
+        }
+
+        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -414,7 +453,16 @@ public sealed class TimeSeriesTools
 
         try
         {
-            await ctx.Client!.RewindRollupWatermarkAsync(ctx.TenantId!, rollupRtId, toBucketEnd);
+            var outcome = await ArchiveMethodCall.RunAsync(() =>
+                new RtRollupArchiveMethodClient(ctx.TenantClient!).RewindWatermarkAsync(rollupRtId, toBucketEnd));
+            if (!outcome.IsSuccess)
+            {
+                return new ArchiveActionResponse
+                {
+                    IsSuccess = false, TenantId = ctx.TenantId, RtId = rollupRtId, ErrorMessage = outcome.Error
+                };
+            }
+
             return new ArchiveActionResponse
             {
                 IsSuccess = true,
@@ -425,7 +473,7 @@ public sealed class TimeSeriesTools
         }
         catch (Exception ex)
         {
-            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
@@ -437,10 +485,12 @@ public sealed class TimeSeriesTools
         "source archive without supplying a timestamp (AB#4269 / AB#4286). Resolves the source archive's earliest " +
         "timestamp and enqueues a recompute of [sourceMin, now); the heavy work runs in the background (never bound " +
         "to this request, so a client timeout cannot cancel it) and the queued work survives an asset-repo restart. " +
-        "Returns the Pending RecomputeJob id immediately — poll list_recompute_jobs to watch Pending -> Running -> " +
-        "Completed (its `lastProgressAt` heartbeat shows whether a Running job is still alive). Re-running resets an " +
-        "already-populated rollup. Requires confirm=true. A no-op when the source archive holds no data. Equivalent " +
-        "to octo-cli BackfillRollup.")]
+        "Runs RollupArchive.BackfillFromSource-2 and waits up to 30 s for its operation to name the queued job: returns " +
+        "that job (Pending or Running; the final job when the backfill already ended) and the operationId — poll " +
+        "list_recompute_jobs to watch Pending -> Running -> Completed (its `lastProgressAt` heartbeat shows whether a " +
+        "Running job is still alive). isNoOp=true (job null) when the source archive holds no data; job null with " +
+        "isNoOp=false means the backfill was accepted and runs in the background without a job id yet. Re-running " +
+        "resets an already-populated rollup. Requires confirm=true. Equivalent to octo-cli BackfillRollup.")]
     public static async Task<RollupBackfillResponse> BackfillRollupArchive(
         McpServer server,
         [Description("Rollup archive runtime ID to backfill from its source.")] string rollupRtId,
@@ -461,7 +511,13 @@ public sealed class TimeSeriesTools
             };
         }
 
-        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId);
+        var invalid = ArchiveMethodCall.InvalidIdError(nameof(rollupRtId), rollupRtId);
+        if (invalid != null)
+        {
+            return new RollupBackfillResponse { IsSuccess = false, ErrorMessage = invalid };
+        }
+
+        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new RollupBackfillResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -469,13 +525,52 @@ public sealed class TimeSeriesTools
 
         try
         {
-            var job = await ctx.Client!.BackfillRollupFromSourceAsync(ctx.TenantId!, rollupRtId);
+            // BackfillFromSource-2 answers an operation handle at once; the operation names the queued job (progress stage
+            // QUEUED, parameter jobRtId), so the response keeps carrying the Pending job as the REST call did.
+            var started = await ArchiveMethodCall.RunAsync(() =>
+                new RtRollupArchiveMethodClient(ctx.TenantClient!).BackfillFromSource2Async(rollupRtId));
+            if (!started.IsSuccess || started.Value == null)
+            {
+                return new RollupBackfillResponse
+                {
+                    IsSuccess = false, TenantId = ctx.TenantId, RtId = rollupRtId,
+                    ErrorMessage = started.Error ?? "The CK method returned no operation handle."
+                };
+            }
+
+            var queued = await ArchiveMethodCall.ReadQueuedJobAsync(ctx.TenantClient!, started.Value,
+                BackfillQueuedTimeout, server.Services?.GetService<TimeProvider>() ?? TimeProvider.System);
+            if (queued.Error != null)
+            {
+                return new RollupBackfillResponse
+                {
+                    IsSuccess = false, TenantId = ctx.TenantId, RtId = rollupRtId, ErrorMessage = queued.Error
+                };
+            }
+
+            if (queued.Job == null && !queued.NoData)
+            {
+                return new RollupBackfillResponse
+                {
+                    IsSuccess = true,
+                    TenantId = ctx.TenantId,
+                    RtId = rollupRtId,
+                    OperationId = started.Value.OperationId,
+                    Message = $"Backfill of rollup '{rollupRtId}' accepted as operation {started.Value.OperationId}, but it " +
+                              "named no job yet. It runs in the background; poll list_recompute_jobs for archive " +
+                              $"'{rollupRtId}'."
+                };
+            }
+
+            var job = queued.Job;
             return new RollupBackfillResponse
             {
                 IsSuccess = true,
                 TenantId = ctx.TenantId,
                 RtId = rollupRtId,
                 Job = job,
+                IsNoOp = queued.NoData,
+                OperationId = started.Value.OperationId,
                 Message = job is null
                     ? $"Backfill of rollup '{rollupRtId}' was a no-op: the source archive holds no data."
                     : $"Backfill of rollup '{rollupRtId}' queued (durable background): job {job.RtId}, state {job.State}. "
@@ -484,7 +579,7 @@ public sealed class TimeSeriesTools
         }
         catch (Exception ex)
         {
-            return new RollupBackfillResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new RollupBackfillResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 
@@ -656,13 +751,16 @@ public sealed class TimeSeriesTools
         }
     }
 
-    private static async Task<ArchiveActionResponse> ArchiveAction(
+    /// <summary>How long backfill_rollup_archive waits for the operation to name its queued job.</summary>
+    internal static readonly TimeSpan BackfillQueuedTimeout = TimeSpan.FromSeconds(30);
+
+    private static async Task<ArchiveActionResponse> ArchiveAction<T>(
         McpServer server,
         string? tenantId,
         string rtId,
         bool requiredConfirm,
         bool confirm,
-        Func<Sdk.ServiceClient.AssetRepositoryServices.StreamData.IStreamDataServicesClient, string, string, Task> action,
+        Func<IArchiveMethodClient, string, Task<CkMethodResult<T>>> action,
         Func<string, string> successMessage)
     {
         if (string.IsNullOrWhiteSpace(rtId))
@@ -679,7 +777,13 @@ public sealed class TimeSeriesTools
             };
         }
 
-        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId);
+        var invalid = ArchiveMethodCall.InvalidIdError("archiveRtId", rtId);
+        if (invalid != null)
+        {
+            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = invalid };
+        }
+
+        var ctx = await StreamDataClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
         if (ctx.Error != null)
         {
             return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ctx.Error };
@@ -687,7 +791,16 @@ public sealed class TimeSeriesTools
 
         try
         {
-            await action(ctx.Client!, ctx.TenantId!, rtId);
+            // The Archive methods run on the client of the archive's concrete type (System.StreamData 1.30).
+            var outcome = await ArchiveMethodCall.RunOnArchiveAsync(ctx.TenantClient!, rtId, c => action(c, rtId));
+            if (!outcome.IsSuccess)
+            {
+                return new ArchiveActionResponse
+                {
+                    IsSuccess = false, TenantId = ctx.TenantId, RtId = rtId, ErrorMessage = outcome.Error
+                };
+            }
+
             return new ArchiveActionResponse
             {
                 IsSuccess = true,
@@ -698,7 +811,7 @@ public sealed class TimeSeriesTools
         }
         catch (Exception ex)
         {
-            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ex.Message };
+            return new ArchiveActionResponse { IsSuccess = false, ErrorMessage = ErrorTextRedactor.Redact(ex.Message) };
         }
     }
 }

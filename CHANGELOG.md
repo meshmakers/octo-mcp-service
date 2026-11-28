@@ -97,6 +97,18 @@
 
 ### Changed
 
+- **AB#9060 — archive write tools run the System.StreamData methods.** `activate_archive`, `disable_archive`,
+  `enable_archive`, `retry_archive_activation`, `delete_archive`, `add_archive_column`, `freeze_rollup_archive`,
+  `unfreeze_rollup_archive`, `rewind_rollup_watermark` and `backfill_rollup_archive` call the CK methods of
+  `System.StreamData` (generated from `System.StreamData-[1.30,2.0)`) on the tenant client instead of the REST endpoints;
+  names and parameters are unchanged. The lifecycle and column tools run on the client of the archive's
+  concrete type (one GraphQL read of its type first). `backfill_rollup_archive` starts `BackfillFromSource-2`, waits up to 30 s
+  and returns the job the operation names (Pending or Running, or the final job) or the no-op; its response gains
+  `isNoOp` and `operationId` (a null `job` alone no longer means no-op: with `isNoOp=false` the backfill runs in the
+  background without a job id yet). A refusal comes back as `CODE: message (params)`. **Requires a tenant with
+  System.StreamData 1.30** (no REST fallback) and the role `StreamDataAdmin`, as the REST endpoints did. The reads, the
+  rollup check/repair and the stream data switches stay REST.
+
 - **No routed `ExecutePipelineRequest` command client (AB#7465).** The service no longer registers it: only the
   communication controller publishes that request, and `execute_pipeline` runs the controller's `Pipeline.Execute`
   method. An architecture test keeps the registration out. No behaviour change.

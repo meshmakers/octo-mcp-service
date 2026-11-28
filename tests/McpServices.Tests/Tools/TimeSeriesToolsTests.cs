@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.StreamData.v1;
 using Meshmakers.Octo.Backend.McpServices.Tools;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.StreamData;
 using Moq;
@@ -75,14 +76,20 @@ public class TimeSeriesToolsTests : ToolTestBase
 
     // ── Archive lifecycle ───────────────────────────────────────────────────
 
+    // The lifecycle and column tools run the Archive methods of System.StreamData on the client of the archive's concrete
+    // type (StreamDataArchiveMethodToolsTests covers every tool); these keep the per-tool arguments and messages.
+
     [Fact]
-    public async Task ActivateArchive_HappyPath_CallsSdk()
+    public async Task ActivateArchive_HappyPath_RunsTheMethod()
     {
+        GivenArchive("System.StreamData/RawArchive-1").Succeeds(Transition("Activate"));
+
         var result = await TimeSeriesTools.ActivateArchive(MockServer.Object, ArchiveRtId);
 
         result.IsSuccess.Should().BeTrue();
         result.RtId.Should().Be(ArchiveRtId);
-        MockStreamDataClient.Verify(c => c.ActivateArchiveAsync(DefaultTenantId, ArchiveRtId), Times.Once);
+        CkMethods.RtIdOf("SystemStreamDataRawArchiveActivate").Should().Be(ArchiveRtId);
+        MockStreamDataClient.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -91,17 +98,21 @@ public class TimeSeriesToolsTests : ToolTestBase
         var result = await TimeSeriesTools.ActivateArchive(MockServer.Object, "");
 
         result.IsSuccess.Should().BeFalse();
-        MockStreamDataClient.Verify(c => c.ActivateArchiveAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task AddArchiveColumn_HappyPath_CallsSdk()
+    public async Task AddArchiveColumn_HappyPath_RunsTheMethod()
     {
+        GivenArchive("System.StreamData/TimeRangeArchive").Succeeds(Transition("AddArchiveColumn"));
+
         var result = await TimeSeriesTools.AddArchiveColumn(MockServer.Object, ArchiveRtId, "DischargingPower", indexed: true);
 
         result.IsSuccess.Should().BeTrue();
         result.Message.Should().Contain("DischargingPower");
-        MockStreamDataClient.Verify(c => c.AddArchiveColumnAsync(DefaultTenantId, ArchiveRtId, "DischargingPower", true), Times.Once);
+        var input = CkMethods.InputOf("SystemStreamDataTimeRangeArchiveAddColumn");
+        CkMethodFake.Str(input, "path").Should().Be("DischargingPower");
+        CkMethodFake.Bool(input, "indexed").Should().BeTrue();
     }
 
     [Theory]
@@ -112,46 +123,52 @@ public class TimeSeriesToolsTests : ToolTestBase
         var result = await TimeSeriesTools.AddArchiveColumn(MockServer.Object, archiveRtId, path);
 
         result.IsSuccess.Should().BeFalse();
-        MockStreamDataClient.Verify(c => c.AddArchiveColumnAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     [Fact]
     public async Task AddArchiveColumn_ServerRefusal_IsReported()
     {
-        MockStreamDataClient.Setup(c => c.AddArchiveColumnAsync(DefaultTenantId, ArchiveRtId, "Nope", false))
-            .ThrowsAsync(new InvalidOperationException("path 'Nope' is invalid"));
+        GivenArchive("System.StreamData/RawArchive").Fails("STREAMDATA_PATH_INVALID", "The CK method call failed: STREAMDATA_PATH_INVALID",
+            new Dictionary<string, string> { ["path"] = "Nope" });
 
         var result = await TimeSeriesTools.AddArchiveColumn(MockServer.Object, ArchiveRtId, "Nope");
 
         result.IsSuccess.Should().BeFalse();
-        result.ErrorMessage.Should().Contain("Nope");
+        result.ErrorMessage.Should().Contain("STREAMDATA_PATH_INVALID").And.Contain("path=Nope");
     }
 
     [Fact]
-    public async Task DisableArchive_HappyPath_CallsSdk()
+    public async Task DisableArchive_HappyPath_RunsTheMethod()
     {
+        GivenArchive("System.StreamData/RollupArchive").Succeeds(Transition("Disable"));
+
         var result = await TimeSeriesTools.DisableArchive(MockServer.Object, ArchiveRtId);
 
         result.IsSuccess.Should().BeTrue();
-        MockStreamDataClient.Verify(c => c.DisableArchiveAsync(DefaultTenantId, ArchiveRtId), Times.Once);
+        CkMethods.RtIdOf("SystemStreamDataRollupArchiveDisable").Should().Be(ArchiveRtId);
     }
 
     [Fact]
-    public async Task EnableArchive_HappyPath_CallsSdk()
+    public async Task EnableArchive_HappyPath_RunsTheMethod()
     {
+        GivenArchive("System.StreamData/RawArchive").Succeeds(Transition("Enable"));
+
         var result = await TimeSeriesTools.EnableArchive(MockServer.Object, ArchiveRtId);
 
         result.IsSuccess.Should().BeTrue();
-        MockStreamDataClient.Verify(c => c.EnableArchiveAsync(DefaultTenantId, ArchiveRtId), Times.Once);
+        CkMethods.RtIdOf("SystemStreamDataRawArchiveEnable").Should().Be(ArchiveRtId);
     }
 
     [Fact]
-    public async Task RetryArchiveActivation_HappyPath_CallsSdk()
+    public async Task RetryArchiveActivation_HappyPath_RunsTheMethod()
     {
+        GivenArchive("System.StreamData/RawArchive").Succeeds(Transition("RetryActivation"));
+
         var result = await TimeSeriesTools.RetryArchiveActivation(MockServer.Object, ArchiveRtId);
 
         result.IsSuccess.Should().BeTrue();
-        MockStreamDataClient.Verify(c => c.RetryArchiveActivationAsync(DefaultTenantId, ArchiveRtId), Times.Once);
+        CkMethods.RtIdOf("SystemStreamDataRawArchiveRetryActivation").Should().Be(ArchiveRtId);
     }
 
     [Fact]
@@ -161,19 +178,19 @@ public class TimeSeriesToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("confirm=true");
-        MockStreamDataClient.Verify(c => c.DeleteArchiveAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task DeleteArchive_WithConfirm_CallsSdk()
+    public async Task DeleteArchive_WithConfirm_RunsTheMethod()
     {
+        GivenArchive("System.StreamData/RawArchive").Succeeds(true);
+
         var result = await TimeSeriesTools.DeleteArchive(MockServer.Object, ArchiveRtId, confirm: true);
 
         result.IsSuccess.Should().BeTrue();
-        MockStreamDataClient.Verify(c => c.DeleteArchiveAsync(DefaultTenantId, ArchiveRtId), Times.Once);
+        CkMethods.RtIdOf("SystemStreamDataRawArchiveDeleteArchive").Should().Be(ArchiveRtId);
     }
-
-    // ── Rollups ─────────────────────────────────────────────────────────────
 
     [Fact]
     public async Task ListRollupsForArchive_HappyPath_ReturnsList()
@@ -312,32 +329,36 @@ public class TimeSeriesToolsTests : ToolTestBase
     [Fact]
     public async Task FreezeRollupArchive_HappyPath_PassesTimestamp()
     {
+        CkMethods.Succeeds(Transition("Freeze"));
         var until = new DateTime(2026, 5, 11, 14, 0, 0, DateTimeKind.Utc);
 
         var result = await TimeSeriesTools.FreezeRollupArchive(MockServer.Object, RollupRtId, until);
 
         result.IsSuccess.Should().BeTrue();
-        MockStreamDataClient.Verify(c => c.FreezeRollupArchiveAsync(DefaultTenantId, RollupRtId, until),
-            Times.Once);
+        CkMethods.RtIdOf("SystemStreamDataRollupArchiveFreeze").Should().Be(RollupRtId);
+        CkMethodFake.Str(CkMethods.InputOf("SystemStreamDataRollupArchiveFreeze"), "until").Should().StartWith("2026-05-11T14:00:00");
+        MockStreamDataClient.VerifyNoOtherCalls();
     }
 
     [Fact]
     public async Task UnfreezeRollupArchive_Default_DoesNotAcceptGaps()
     {
+        CkMethods.Succeeds(Transition("Unfreeze"));
+
         var result = await TimeSeriesTools.UnfreezeRollupArchive(MockServer.Object, RollupRtId);
 
         result.IsSuccess.Should().BeTrue();
-        MockStreamDataClient.Verify(c => c.UnfreezeRollupArchiveAsync(DefaultTenantId, RollupRtId, false),
-            Times.Once);
+        CkMethodFake.Bool(CkMethods.InputOf("SystemStreamDataRollupArchiveUnfreeze"), "acceptGaps").Should().BeFalse();
     }
 
     [Fact]
     public async Task UnfreezeRollupArchive_AcceptGapsTrue_PassesFlag()
     {
+        CkMethods.Succeeds(Transition("Unfreeze"));
+
         await TimeSeriesTools.UnfreezeRollupArchive(MockServer.Object, RollupRtId, acceptGaps: true);
 
-        MockStreamDataClient.Verify(c => c.UnfreezeRollupArchiveAsync(DefaultTenantId, RollupRtId, true),
-            Times.Once);
+        CkMethodFake.Bool(CkMethods.InputOf("SystemStreamDataRollupArchiveUnfreeze"), "acceptGaps").Should().BeTrue();
     }
 
     [Fact]
@@ -347,19 +368,20 @@ public class TimeSeriesToolsTests : ToolTestBase
         var result = await TimeSeriesTools.RewindRollupWatermark(MockServer.Object, RollupRtId, ts);
 
         result.IsSuccess.Should().BeFalse();
-        MockStreamDataClient.Verify(c => c.RewindRollupWatermarkAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>()), Times.Never);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task RewindRollupWatermark_WithConfirm_CallsSdk()
+    public async Task RewindRollupWatermark_WithConfirm_RunsTheMethod()
     {
-        var ts = DateTime.UtcNow;
+        CkMethods.Succeeds(Transition("RewindWatermark"));
+        var ts = new DateTime(2026, 5, 11, 0, 0, 0, DateTimeKind.Utc);
+
         var result = await TimeSeriesTools.RewindRollupWatermark(MockServer.Object, RollupRtId, ts, confirm: true);
 
         result.IsSuccess.Should().BeTrue();
-        MockStreamDataClient.Verify(c => c.RewindRollupWatermarkAsync(DefaultTenantId, RollupRtId, ts),
-            Times.Once);
+        CkMethodFake.Str(CkMethods.InputOf("SystemStreamDataRollupArchiveRewindWatermark"), "toBucketEnd")
+            .Should().StartWith("2026-05-11T00:00:00");
     }
 
     // ── backfill_rollup_archive (AB#4269) ───────────────────────────────────
@@ -370,8 +392,7 @@ public class TimeSeriesToolsTests : ToolTestBase
         var result = await TimeSeriesTools.BackfillRollupArchive(MockServer.Object, RollupRtId);
 
         result.IsSuccess.Should().BeFalse();
-        MockStreamDataClient.Verify(c => c.BackfillRollupFromSourceAsync(
-            It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     [Fact]
@@ -380,8 +401,7 @@ public class TimeSeriesToolsTests : ToolTestBase
         var result = await TimeSeriesTools.BackfillRollupArchive(MockServer.Object, string.Empty, confirm: true);
 
         result.IsSuccess.Should().BeFalse();
-        MockStreamDataClient.Verify(c => c.BackfillRollupFromSourceAsync(
-            It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     [Fact]
@@ -392,38 +412,7 @@ public class TimeSeriesToolsTests : ToolTestBase
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("Not authenticated");
-        MockStreamDataClient.Verify(c => c.BackfillRollupFromSourceAsync(
-            It.IsAny<string>(), It.IsAny<string>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task BackfillRollupArchive_WithConfirm_CallsSdkAndReturnsJob()
-    {
-        var job = new RollupRecomputeJobInfoDto(
-            "69fda707d47638c68edc7fec", "Completed", 42, 3, DateTime.UtcNow, DateTime.UtcNow, 12, null);
-        MockStreamDataClient.Setup(c => c.BackfillRollupFromSourceAsync(DefaultTenantId, RollupRtId))
-            .ReturnsAsync(job);
-
-        var result = await TimeSeriesTools.BackfillRollupArchive(MockServer.Object, RollupRtId, confirm: true);
-
-        result.IsSuccess.Should().BeTrue();
-        result.Job.Should().BeSameAs(job);
-        result.RtId.Should().Be(RollupRtId);
-        MockStreamDataClient.Verify(c => c.BackfillRollupFromSourceAsync(DefaultTenantId, RollupRtId), Times.Once);
-    }
-
-    [Fact]
-    public async Task BackfillRollupArchive_EmptySource_SucceedsWithNullJob()
-    {
-        MockStreamDataClient.Setup(c => c.BackfillRollupFromSourceAsync(DefaultTenantId, RollupRtId))
-            .ReturnsAsync((RollupRecomputeJobInfoDto?)null);
-
-        var result = await TimeSeriesTools.BackfillRollupArchive(MockServer.Object, RollupRtId, confirm: true);
-
-        result.IsSuccess.Should().BeTrue();
-        result.Job.Should().BeNull();
-        result.Message.Should().Contain("no-op");
-        MockStreamDataClient.Verify(c => c.BackfillRollupFromSourceAsync(DefaultTenantId, RollupRtId), Times.Once);
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     // ── validate_rollups / repair_rollups (AB#6968) ─────────────────────────
@@ -621,4 +610,10 @@ public class TimeSeriesToolsTests : ToolTestBase
         MockStreamDataClient.Verify(c => c.GetRollupRepairRequestAsync(It.IsAny<string>(), It.IsAny<string>()),
             Times.Never);
     }
+
+    private CkMethodFake GivenArchive(string ckTypeId) =>
+        CkMethods.GivenQueryReturns(new ArchiveMethodCall.ArchiveTypeDto { RtId = ArchiveRtId, CkTypeId = ckTypeId });
+
+    private static RtArchiveTransitionResultRecordDto Transition(string transition) =>
+        new() { ArchiveRtId = ArchiveRtId, Status = RtCkArchiveStatusEnum.Activated, Transition = transition };
 }
