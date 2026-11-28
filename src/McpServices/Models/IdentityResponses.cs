@@ -190,3 +190,78 @@ public class SwitchTenantResponse : IdentityResponse
     /// <summary>Roles the authenticated user holds in the target tenant, resolved in that tenant.</summary>
     public List<string> Roles { get; set; } = [];
 }
+
+/// <summary>One child tenant of a <c>set_client_mirror_roles</c> result (System.Identity 3.9.0).</summary>
+public class ClientMirrorRoleTenantRow
+{
+    /// <summary>The child tenant of the mirror.</summary>
+    public string? ChildTenantId { get; set; }
+
+    /// <summary>Applied, Planned, InSync, Skipped or Failed (a failed mirror is retried by the periodic reconciliation).</summary>
+    public string? Outcome { get; set; }
+
+    /// <summary>
+    ///     Markers of the change: WOULD-ADD / ADDED, WOULD-REMOVE / REMOVED, WOULD-ADOPT / ADOPTED, ALREADY-PRESENT,
+    ///     HAND-SET, ROLE-MISSING, DECLINED, ROLE-REFUSED, FAILED, SKIPPED, NO-ROLES.
+    /// </summary>
+    public List<string> Status { get; set; } = [];
+
+    /// <summary>Direct roles of the mirror before the change.</summary>
+    public List<string> RolesBefore { get; set; } = [];
+
+    /// <summary>Direct roles of the mirror after the change (a dry run: after an apply).</summary>
+    public List<string> RolesAfter { get; set; } = [];
+
+    /// <summary>Listed roles granted (or to be granted).</summary>
+    public List<string> Added { get; set; } = [];
+
+    /// <summary>Managed roles the list no longer names, removed (or to be removed).</summary>
+    public List<string> Removed { get; set; } = [];
+
+    /// <summary>Listed roles the mirror holds (adopted ones included).</summary>
+    public List<string> AlreadyPresent { get; set; } = [];
+
+    /// <summary>Listed roles the mirror held unmanaged; managed from now on.</summary>
+    public List<string> Adopted { get; set; } = [];
+
+    /// <summary>Roles of the mirror the list does not name and identity does not manage; never removed.</summary>
+    public List<string> HandSet { get; set; } = [];
+
+    /// <summary>Listed roles the child tenant has no role of.</summary>
+    public List<string> RoleMissing { get; set; } = [];
+
+    /// <summary>Listed roles a tenant administrator removed from this mirror; not assigned again.</summary>
+    public List<string> Declined { get; set; } = [];
+
+    /// <summary>Listed roles the reconciliation refuses in this child tenant.</summary>
+    public List<string> RoleRefused { get; set; } = [];
+}
+
+/// <summary>Response of <c>set_client_mirror_roles</c>.</summary>
+public class SetClientMirrorRolesResponse : IdentityResponse
+{
+    /// <summary>The original client.</summary>
+    public string? ClientId { get; set; }
+
+    /// <summary>True: nothing was written, the rows are the plan.</summary>
+    public bool DryRun { get; set; }
+
+    /// <summary>The complete role list the call set (or would set).</summary>
+    public List<string> RoleNames { get; set; } = [];
+
+    /// <summary>One row per tracked mirror (child tenant).</summary>
+    public List<ClientMirrorRoleTenantRow> Tenants { get; set; } = [];
+
+    /// <summary>Child tenants whose mirror failed.</summary>
+    public List<string> FailedTenants { get; set; } = [];
+}
+
+/// <summary>Response of <c>get_client_mirror_roles</c>.</summary>
+public class GetClientMirrorRolesResponse : IdentityResponse
+{
+    /// <summary>The original client.</summary>
+    public string? ClientId { get; set; }
+
+    /// <summary>The roles the client hands to its mirrors (<c>Client.MirrorRoleNames</c>), sorted; empty when none.</summary>
+    public List<string> MirrorRoleNames { get; set; } = [];
+}

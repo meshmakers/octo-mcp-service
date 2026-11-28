@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants.Methods;
 
@@ -39,6 +40,9 @@ internal static class IdentityMethodCall
 {
     /// <summary>The System.Identity version of the identity wave 2 methods.</summary>
     internal const string MinimumSystemIdentityVersion = "3.8";
+
+    /// <summary>The System.Identity version of <c>Client.SetMirrorRoles-1</c> and <c>Client.MirrorRoleNames</c>.</summary>
+    internal const string MirrorRolesSystemIdentityVersion = "3.9";
 
     /// <summary>Runs a method with a result value; see the class remarks.</summary>
     /// <param name="method">The lookup(s) and the method call.</param>
@@ -126,9 +130,11 @@ internal static class IdentityMethodCall
         var switchText = secretMethod
             ? " with the secret-carrying methods switched on (Methods:Identity:EnablePasswordMethods)"
             : string.Empty;
+        var version = exception is CkMethodCallException { MethodId: RtClientMethodClient.SetMirrorRolesMethodId }
+            ? $"{MirrorRolesSystemIdentityVersion} (the mirror role list)"
+            : $"{MinimumSystemIdentityVersion} (the identity wave 2 methods)";
         return $"The identity service does not offer {method}. This tool needs identity services with System.Identity " +
-               $"{MinimumSystemIdentityVersion} (the identity wave 2 methods){switchText}. Nothing was changed; the tool " +
-               "does not fall back to the REST endpoint.";
+               $"{version}{switchText}. Nothing was changed; the tool does not fall back to the REST endpoint.";
     }
 
     /// <summary>

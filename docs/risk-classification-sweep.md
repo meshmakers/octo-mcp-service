@@ -149,7 +149,7 @@ _High=1 · Low=5 · Medium=2_  ·  **Owner reviewed:** ☐
 | `import_ck_from_catalog` | **M** | |
 | `fix_all_ck_models` | **H** — owner: confirm | |
 
-### ClientManagementTools (12 tools)
+### ClientManagementTools (14 tools)
 
 _High=4 · Low=3 · Medium=5_  ·  **Owner reviewed:** ☐
 
@@ -166,6 +166,8 @@ _High=4 · Low=3 · Medium=5_  ·  **Owner reviewed:** ☐
 | `provision_client_in_tenant` | **H** | |
 | `unprovision_client_from_tenant` | **H** | |
 | `set_client_auto_provision` | **M** | |
+| `set_client_mirror_roles` | **H** | dry run by default; the list reaches every child tenant, also future ones (AB#9926) |
+| `get_client_mirror_roles` | **L** | |
 | `add_scope_to_client` | **M** | |
 
 ### CommunicationLifecycleTools (2 tools)

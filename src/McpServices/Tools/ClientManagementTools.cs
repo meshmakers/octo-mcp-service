@@ -646,6 +646,158 @@ public sealed class ClientManagementTools
         }
     }
 
+    private const string ClientMirrorRoleNamesQuery = """
+                                                      query clientMirrorRoleNames($clientId: SimpleScalar!) {
+                                                        runtime {
+                                                          systemIdentityClient(
+                                                            fieldFilter: [{ attributePath: "clientId", operator: EQUALS, comparisonValue: $clientId }]
+                                                          ) {
+                                                            items { rtId clientId mirrorRoleNames }
+                                                          }
+                                                        }
+                                                      }
+                                                      """;
+
+    /// <summary>
+    ///     Previews (default) or sets the roles a client hands to its mirrors in every child tenant
+    ///     (<c>System.Identity/Client.SetMirrorRoles-1</c>, System.Identity 3.9.0).
+    /// </summary>
+    [McpServerTool(Name = "set_client_mirror_roles")]
+    [McpRisk(McpRiskLevel.High)]
+    [Description(
+        "Set the roles a confidential client_credentials client hands to its mirrors in EVERY child tenant (also future ones). " +
+        "dryRun defaults to true: the response lists per child tenant what would change and writes nothing; call again with " +
+        "dryRun=false to write. roleNames is the complete list (an empty list clears it and removes the roles identity " +
+        "manages on the mirrors; roles set by hand stay). TenantManagement, UserManagement, SecretManagement, " +
+        "AdminPanelManagement and AiBudgetAdmin are never mirrored. Needs TenantManagement. Equivalent to octo-cli " +
+        "SetClientMirrorRoles.")]
+    public static async Task<SetClientMirrorRolesResponse> SetClientMirrorRoles(
+        McpServer server,
+        [Description("Client ID of the original client.")] string clientId,
+        [Description("Complete list of role names; [] clears the list.")] List<string>? roleNames,
+        [Description("true (default): plan only, write nothing. false: write the list and reconcile the mirrors.")]
+        bool dryRun = true,
+        [Description("Tenant of the original client. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            return new SetClientMirrorRolesResponse { IsSuccess = false, ErrorMessage = "clientId is required." };
+        }
+
+        if (roleNames == null)
+        {
+            return new SetClientMirrorRolesResponse
+            {
+                IsSuccess = false, ErrorMessage = "roleNames is required (the complete list); pass [] to clear the list."
+            };
+        }
+
+        var names = roleNames.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
+        if (ctx.Error != null)
+        {
+            return new SetClientMirrorRolesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            var outcome = await IdentityMethodCall.RunAsync(
+                async () => await Clients(ctx).SetMirrorRolesAsync(await IdentityRtIds.ClientAsync(ctx, clientId), names, dryRun));
+            if (!outcome.IsSuccess)
+            {
+                return new SetClientMirrorRolesResponse
+                {
+                    IsSuccess = false, TenantId = ctx.TenantId, ClientId = clientId,
+                    ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
+                };
+            }
+
+            var response = ClientMirrorRoleRows.ToResponse(outcome.Value, dryRun);
+            response.TenantId = ctx.TenantId;
+            response.ClientId = clientId;
+            var changing = response.Tenants.Count(t => t.Added.Count + t.Removed.Count + t.Adopted.Count > 0);
+            if (response.FailedTenants.Count > 0)
+            {
+                response.IsSuccess = false;
+                response.ErrorMessage =
+                    $"The mirror roles of '{clientId}' failed in {response.FailedTenants.Count} of {response.Tenants.Count} " +
+                    $"child tenant(s): {string.Join(", ", response.FailedTenants)}. The periodic mirror reconciliation retries them.";
+            }
+
+            response.Message = dryRun
+                ? $"Dry run: {response.Tenants.Count} child tenant(s) affected, {changing} with a role change; nothing was " +
+                  "written. Confirm with the user, then call again with dryRun=false to apply."
+                : $"Mirror roles of '{clientId}' set to [{string.Join(", ", response.RoleNames)}] in {response.Tenants.Count} " +
+                  $"child tenant(s), {changing} changed.";
+            return response;
+        }
+        catch (Exception ex)
+        {
+            return new SetClientMirrorRolesResponse
+            {
+                IsSuccess = false, TenantId = ctx.TenantId, ErrorMessage = IdentityMethodCall.SafeText(ex.Message)
+            };
+        }
+    }
+
+    /// <summary>Reads the roles a client hands to its mirrors (<c>Client.MirrorRoleNames</c>, System.Identity 3.9.0).</summary>
+    [McpServerTool(Name = "get_client_mirror_roles")]
+    [Description(
+        "Read the roles a client hands to its mirrors in every child tenant (Client.MirrorRoleNames). Equivalent to " +
+        "octo-cli GetClientMirrorRoles.")]
+    public static async Task<GetClientMirrorRolesResponse> GetClientMirrorRoles(
+        McpServer server,
+        [Description("Client ID of the original client.")] string clientId,
+        [Description("Tenant of the original client. Falls back to URL route.")] string? tenantId = null)
+    {
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            return new GetClientMirrorRolesResponse { IsSuccess = false, ErrorMessage = "clientId is required." };
+        }
+
+        var ctx = await IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true);
+        if (ctx.Error != null)
+        {
+            return new GetClientMirrorRolesResponse { IsSuccess = false, ErrorMessage = ctx.Error };
+        }
+
+        try
+        {
+            var page = await ctx.TenantClient!.SendQueryAsync<RtClientDto>(new GraphQL.GraphQLRequest
+            {
+                Query = ClientMirrorRoleNamesQuery,
+                OperationName = "clientMirrorRoleNames",
+                Variables = new { clientId }
+            });
+            var client = page?.Items?.FirstOrDefault(c => string.Equals(c.ClientId, clientId, StringComparison.Ordinal));
+            if (client == null)
+            {
+                return new GetClientMirrorRolesResponse
+                {
+                    IsSuccess = false, TenantId = ctx.TenantId, ErrorMessage = $"Client '{clientId}' not found."
+                };
+            }
+
+            var names = (client.MirrorRoleNames ?? []).Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n!)
+                .Order(StringComparer.OrdinalIgnoreCase).ToList();
+            return new GetClientMirrorRolesResponse
+            {
+                IsSuccess = true, TenantId = ctx.TenantId, ClientId = clientId, MirrorRoleNames = names,
+                Message = names.Count == 0
+                    ? $"Client '{clientId}' hands no roles to its mirrors."
+                    : $"Client '{clientId}' hands {names.Count} role(s) to its mirrors."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new GetClientMirrorRolesResponse
+            {
+                IsSuccess = false, TenantId = ctx.TenantId, ErrorMessage = IdentityMethodCall.SafeText(ex.Message)
+            };
+        }
+    }
+
     /// <summary>
     ///     <c>System.Identity/Client.CreateClient-1</c> with one parameter per field of <paramref name="dto" /> (the client the
     ///     tool describes); the server sets the protocol defaults.
