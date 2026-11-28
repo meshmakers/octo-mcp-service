@@ -133,8 +133,23 @@ public sealed class TenantManagementTools
         "Create a new child tenant under the given parent tenant. Equivalent to the octo-cli CreateTenant command. " +
         "Note: unlike the CLI, this does NOT automatically provision the calling user as admin — call the identity " +
         "provisioning tools separately once those are exposed. With scratch=true (octo-cli Create --scratch) a " +
-        "client-credentials caller becomes administrator of the tenant it creates. Requires access to the addressed " +
-        "parent tenant itself (the token is exchanged for it).")]
+        "client-credentials caller becomes administrator of the tenant it creates. With starter=true (AB#9570) one call " +
+        "leaves the tenant app-ready: create it, provision the calling user as its administrator, install_blueprint " +
+        "System.Ai.Starter first (the newest in the catalogs; it brings System.Ai.Builder, the OctoMesh knowledge pages " +
+        "and the builder agent), enable_communication (the platform enables it for the blueprint; the tool enables it " +
+        "itself only when the platform did not in time), deploy_defaults (the default site and Mesh Adapter of a fresh " +
+        "tenant, only what is Undeployed, never on a tenant that had Communication before), enable_ai, " +
+        "default_spend_cap (AB#9572: the cluster's default monthly LLM cap, only when the parent is the system " +
+        "tenant, else skipped with the reason and the tenant stays at key source None), then verify_ready checks that the builder agent, its mandate " +
+        "and the knowledge page app-index are there (AB#9573). starterSteps lists every step with its outcome (done, skipped, failed, notRun); on a " +
+        "failure failedStep names the step, and calling the tool again with the same childTenantId completes the " +
+        "remaining steps and skips the finished ones; an existing tenant is only resumed when an earlier starter call can " +
+        "have left it so (the caller reaches it, and System.Ai.Starter is installed with no parked site, or it has no " +
+        "blueprint installation and no deployment site), any other existing tenant fails with 'exists'. verify_ready " +
+        "also reports the default site and adapter state and the LLM cap; without a cap the message says the tenant is " +
+        "not app-ready for LLM use. starter=true needs a user " +
+        "session: a client-credentials caller, or scratch=true, is refused before anything is created. Requires access to " +
+        "the addressed parent tenant itself (the token is exchanged for it).")]
     public static async Task<CreateTenantResponse> CreateTenant(
         McpServer server,
         [Description("Identifier of the new child tenant (will be lower-cased).")]
@@ -147,8 +162,21 @@ public sealed class TenantManagementTools
                      "this call becomes administrator of the new tenant, so an agent can work in it and clean it up without a " +
                      "human login. Only accepted for a client-credentials token of the direct parent with TenantManagement " +
                      "(403 for a user session); the client must be flagged AutoProvisionInChildTenants. Default false.")]
-        bool scratch = false)
+        bool scratch = false,
+        [Description("Make the tenant app-ready in the same call (AB#9570): administrator, Communication, AI Services and " +
+                     "the starter blueprint System.Ai.Starter. Needs a user session; not with scratch. Default false.")]
+        bool starter = false,
+        [Description("With starter=true: the starter blueprint to install, e.g. 'System.Ai.Starter-1.0.0'. Default: the " +
+                     "newest System.Ai.Starter in the tenant's blueprint catalogs.")]
+        string? starterBlueprintId = null,
+        CancellationToken cancellationToken = default)
     {
+        // AB#9570: refused before anything is created, so no half-provisioned tenant is left behind.
+        if (starter && StarterTenantSequence.RefusalFor(server, scratch, starterBlueprintId) is { } starterRefusal)
+        {
+            return new CreateTenantResponse { IsSuccess = false, ErrorMessage = starterRefusal };
+        }
+
         // AB#7282: the token is exchanged for the addressed (route/parent) tenant, never the home token.
         var target = await ResolveParentAndTokenAsync(server, tenantId);
         if (target.Error != null)
@@ -189,6 +217,14 @@ public sealed class TenantManagementTools
 
             var normalizedChild = childTenantId.ToLowerInvariant();
             var normalizedDb = database.ToLowerInvariant();
+
+            if (starter)
+            {
+                var starterResponse = new CreateTenantResponse();
+                await StarterTenantSequence.RunAsync(server, assetClient, resolvedParent, normalizedChild, normalizedDb,
+                    starterBlueprintId, starterResponse, cancellationToken);
+                return starterResponse;
+            }
 
             if (scratch)
             {

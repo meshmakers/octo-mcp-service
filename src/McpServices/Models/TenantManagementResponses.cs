@@ -57,6 +57,37 @@ public class CreateTenantResponse : TenantManagementResponse
 
     /// <summary>Parent tenant under which the child was created.</summary>
     public string? ParentTenantId { get; set; }
+
+    /// <summary>
+    ///     With <c>starter=true</c> (AB#9570): every step of the starter sequence in order, with its outcome. Empty
+    ///     without the starter.
+    /// </summary>
+    public List<StarterStepDto> StarterSteps { get; set; } = [];
+
+    /// <summary>With <c>starter=true</c>: the step that failed, null when every step is done or skipped.</summary>
+    public string? FailedStep { get; set; }
+}
+
+/// <summary>
+///     One step of the <c>create_tenant starter=true</c> sequence (AB#9570).
+/// </summary>
+public class StarterStepDto
+{
+    /// <summary>
+    ///     Step name, in the order the steps run: <c>create_tenant</c>, <c>provision_admin</c>,
+    ///     <c>install_blueprint</c>, <c>enable_communication</c>, <c>deploy_defaults</c>, <c>enable_ai</c>,
+    ///     <c>default_spend_cap</c> or <c>verify_ready</c>.
+    /// </summary>
+    public string Step { get; set; } = string.Empty;
+
+    /// <summary>
+    ///     <c>done</c> (the step ran now), <c>skipped</c> (it was already done, e.g. by an earlier call), <c>failed</c>
+    ///     or <c>notRun</c> (an earlier step failed).
+    /// </summary>
+    public string Outcome { get; set; } = string.Empty;
+
+    /// <summary>What the step did, why it was skipped, or why it failed.</summary>
+    public string? Detail { get; set; }
 }
 
 /// <summary>
