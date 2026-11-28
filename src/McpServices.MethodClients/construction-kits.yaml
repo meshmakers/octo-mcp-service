@@ -6,7 +6,10 @@
 # System.Communication 4.19.0 is the first version with every method of communication wave 3 (pipeline, data
 # flow, workload, deployment site and trigger operations); its types derive from System/Configuration, so System is
 # imported too (octo-sdk docs/method-client-migration-guide.md, "Communication wave 3").
+# System.StreamData 1.30.0 is the first version with every Archive method the archive tools call, incl. the asynchronous
+# RollupArchive.BackfillFromSource-2 (octo-sdk docs/method-client-migration-guide.md, "Stream-data archives").
 imports:
   - System-[2.7,3.0)
   - System.Communication-[4.19,5.0)
   - System.Identity-[3.8,4.0)
+  - System.StreamData-[1.30,2.0)
