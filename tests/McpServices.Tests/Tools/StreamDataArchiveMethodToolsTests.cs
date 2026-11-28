@@ -309,6 +309,27 @@ public sealed class StreamDataArchiveMethodToolsTests : ToolTestBase, IDisposabl
     }
 
     [Fact]
+    public async Task OtherErrorOfTheArchiveQuery_IsReportedAsItIs()
+    {
+        MockTenantClient.Setup(c => c.SendQueryAsync<ArchiveMethodCall.ArchiveTypeDto>(It.IsAny<GraphQL.GraphQLRequest>()))
+            .ThrowsAsync(new QlQueryErrorException("Access denied to the archive.",
+            [
+                new GraphQL.GraphQLError
+                {
+                    Message = "Access denied to the archive.", Extensions = new GraphQL.Map { ["code"] = "ACCESS_DENIED" }
+                }
+            ]));
+        CkMethods.Succeeds();
+
+        var result = await TimeSeriesTools.ActivateArchive(MockServer.Object, ArchiveId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().StartWith($"Reading the type of archive '{ArchiveId}' failed: ")
+            .And.NotContain("System.StreamData 1.30");
+        CkMethods.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task TenantWithoutTheArchiveQuery_NamesTheNeededVersion()
     {
         MockTenantClient.Setup(c => c.SendQueryAsync<ArchiveMethodCall.ArchiveTypeDto>(It.IsAny<GraphQL.GraphQLRequest>()))

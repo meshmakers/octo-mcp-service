@@ -233,7 +233,7 @@ archive data export/import stay on REST. Tool names and parameters are unchanged
   `STREAMDATA_RECOMPUTE_FAILED`), or `Job = null` and `IsNoOp = true` when the source archive holds no data. When no job is
   named within the 30 seconds, the response has `Job = null`, `IsNoOp = false` and says the backfill was accepted and runs in
   the background. Every accepted backfill carries `OperationId`. A tenant without the archive query (no stream data) gets
-  the same text as a missing method.
+  the same text as a missing method; another error of the type read comes back redacted as it is.
 - **Tests.** `StreamDataArchiveMethodToolsTests` runs every tool: its operation, no REST call of the stream data client,
   `METHOD_FORBIDDEN`, the missing-method texts, a declared error with parameters, invalid ids, the archive type with element
   versions, and the backfill against a loopback asset repository with answers recorded from a stream-data tenant

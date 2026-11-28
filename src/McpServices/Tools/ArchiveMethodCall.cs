@@ -98,11 +98,17 @@ internal static class ArchiveMethodCall
         {
             (kind, error) = await ResolveArchiveKindAsync(tenantClient, archiveRtId);
         }
-        catch (Exception ex) when (IdentityMethodCall.IsMethodUnavailable(ex) || ex is QlQueryErrorException)
+        catch (Exception ex) when (IdentityMethodCall.IsMethodUnavailable(ex))
         {
             // A tenant without stream data (or without System.StreamData) has no archive query field: the same text as a
             // missing method; nothing was changed.
             return new ArchiveMethodOutcome<T>(false, default, UnavailableText(ex), (ex as CkMethodCallException)?.Code);
+        }
+        catch (QlQueryErrorException ex)
+        {
+            // Any other error of the type read (authorization, server error) as it is, redacted; nothing was changed.
+            return new ArchiveMethodOutcome<T>(false, default,
+                Safe($"Reading the type of archive '{archiveRtId}' failed: {ex.Message}"));
         }
 
         if (kind == null)
