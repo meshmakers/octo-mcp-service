@@ -151,7 +151,7 @@ _High=1 · Low=5 · Medium=2_  ·  **Owner reviewed:** ☐
 
 ### ClientManagementTools (14 tools)
 
-_High=4 · Low=3 · Medium=5_  ·  **Owner reviewed:** ☐
+_High=5 · Low=4 · Medium=5_  ·  **Owner reviewed:** ☐
 
 | Tool | Current | Notes for review |
 |------|---------|------------------|

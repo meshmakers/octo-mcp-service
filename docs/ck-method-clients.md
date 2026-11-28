@@ -99,7 +99,8 @@ are unchanged.
 - **No REST fallback** (decided for every wave 2 tool, with or without a secret; identity is rolled out first). A method
   the identity service does not offer - `METHOD_HANDLER_NOT_AVAILABLE`, a document the asset repository rejects in GraphQL
   validation (every error with `extensions.number`), or a target the identity service returns without runtime id - gives
-  `IsSuccess=false` with a text that names identity services with System.Identity 3.8 (for the secret-carrying methods
+  `IsSuccess=false` with a text that names identity services with System.Identity 3.8 (3.9 for `set_client_mirror_roles` and
+  `get_client_mirror_roles`, `IdentityMethodCall.MirrorRolesRequirement`; for the secret-carrying methods
   also the bus switch `Methods:Identity:EnablePasswordMethods`) and says nothing was changed. No REST call is made.
 - **Refusals.** Declared errors and the thrown platform errors (`METHOD_FORBIDDEN`, `METHOD_VALIDATION_FAILED`,
   `METHOD_TARGET_NOT_FOUND`, …) are reported as `CODE: message (name=value, …)` (`IdentityMethodCall.Describe`; detail

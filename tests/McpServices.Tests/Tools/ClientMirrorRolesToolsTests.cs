@@ -1,4 +1,6 @@
 using FluentAssertions;
+using GraphQL;
+using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants;
 using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
 using Meshmakers.Octo.Backend.McpServices.Models;
 using Meshmakers.Octo.Backend.McpServices.Services;
@@ -83,7 +85,7 @@ public class ClientMirrorRolesToolsTests : ToolTestBase
         CkMethodFake.Bool(CkMethods.InputOf(SetMirrorRoles), "dryRun").Should().BeFalse();
         result.Tenants[0].Status.Should().Equal("ADDED", "REMOVED");
         result.Tenants[1].Status.Should().Equal("ADOPTED");
-        result.Message.Should().Contain("2 child tenant(s), 2 changed");
+        result.Message.Should().Contain("2 child tenant(s), 1 changed");
     }
 
     [Fact]
@@ -208,14 +210,103 @@ public class ClientMirrorRolesToolsTests : ToolTestBase
     }
 
     [Fact]
-    public async Task GetClientMirrorRoles_ReturnsTheSortedList()
+    public async Task SetClientMirrorRoles_OnASchemaWithoutTheMethod_NamesSystemIdentity39()
     {
-        CkMethods.GivenQueryReturns(new RtClientDto { ClientId = "ci-deploy", MirrorRoleNames = ["Reader", "CommunicationManagement"] });
+        // The common case of an older identity service: the tenant holds System.Identity 3.8 and the asset repository
+        // rejects the document in GraphQL validation.
+        CkMethods.MissingInSchema();
+
+        var result = await ClientManagementTools.SetClientMirrorRoles(MockServer.Object, "ci-deploy", ["Reader"]);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("System.Identity 3.9 (the mirror role list)").And.NotContain("3.8");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public async Task SetClientMirrorRoles_ABlankEntry_IsRefused_NeverReadAsClear(string blank)
+    {
+        CkMethods.Succeeds(Plan(false));
+
+        var result = await ClientManagementTools.SetClientMirrorRoles(MockServer.Object, "ci-deploy", [blank], dryRun: false);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("blank entry");
+        CkMethods.Requests.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData("a/b")]
+    [InlineData("a\\b")]
+    public async Task ClientIdsThatAreNoPathSegment_AreRefused_BeforeAnyCall(string clientId)
+    {
+        CkMethods.Succeeds(Plan(true));
+
+        (await ClientManagementTools.SetClientMirrorRoles(MockServer.Object, clientId, ["Reader"])).IsSuccess.Should().BeFalse();
+        (await ClientManagementTools.GetClientMirrorRoles(MockServer.Object, clientId)).IsSuccess.Should().BeFalse();
+
+        CkMethods.Requests.Should().BeEmpty();
+        MockIdentityClient.Verify(c => c.GetClient(It.IsAny<string>()), Times.Never);
+        MockTenantClient.Verify(c => c.SendQueryAsync<RtClientDto>(It.IsAny<GraphQLRequest>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetClientMirrorRoles_ReturnsTheSortedListOfExactlyThatClient()
+    {
+        var queries = new List<GraphQLRequest>();
+        MockTenantClient.Setup(c => c.SendQueryAsync<RtClientDto>(It.IsAny<GraphQLRequest>()))
+            .Callback<GraphQLRequest>(queries.Add)
+            .ReturnsAsync(new QlItemsContainer<RtClientDto>
+            {
+                Items =
+                [
+                    new RtClientDto { ClientId = "CI-DEPLOY", MirrorRoleNames = ["Other"] },
+                    new RtClientDto { ClientId = "ci-deploy", MirrorRoleNames = ["Reader", "CommunicationManagement"] }
+                ]
+            });
 
         var result = await ClientManagementTools.GetClientMirrorRoles(MockServer.Object, "ci-deploy");
 
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
         result.MirrorRoleNames.Should().Equal("CommunicationManagement", "Reader");
+        var query = queries.Should().ContainSingle().Subject;
+        query.OperationName.Should().Be("clientMirrorRoleNames");
+        query.Query.Should().Contain("mirrorRoleNames").And.Contain("attributePath: \"clientId\"");
+        System.Text.Json.JsonSerializer.Serialize(query.Variables).Should().Be("{\"clientId\":\"ci-deploy\"}");
+    }
+
+    [Fact]
+    public async Task GetClientMirrorRoles_Unauthenticated_ReturnsAuthError()
+    {
+        GivenUnauthenticated();
+
+        var result = await ClientManagementTools.GetClientMirrorRoles(MockServer.Object, "ci-deploy");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("Not authenticated");
+        MockTenantClient.Verify(c => c.SendQueryAsync<RtClientDto>(It.IsAny<GraphQLRequest>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetClientMirrorRoles_OnAnOlderIdentityModel_NamesSystemIdentity39()
+    {
+        MockTenantClient.Setup(c => c.SendQueryAsync<RtClientDto>(It.IsAny<GraphQLRequest>())).ThrowsAsync(
+            new QlQueryErrorException("GraphQL error",
+            [
+                new GraphQLError
+                {
+                    Message = "Cannot query field 'mirrorRoleNames' on type 'SystemIdentityClient'.",
+                    Extensions = new Map { ["code"] = "FIELDS_ON_CORRECT_TYPE", ["number"] = "5.3.1" }
+                }
+            ]));
+
+        var result = await ClientManagementTools.GetClientMirrorRoles(MockServer.Object, "ci-deploy");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("System.Identity 3.9 (the mirror role list)");
     }
 
     [Fact]
