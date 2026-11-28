@@ -77,7 +77,10 @@ public class StarterTenantToolsTests : ToolTestBase
             if (_platformEnablePending && _platformEnableAfterReads-- <= 0)
             {
                 _platformEnablePending = false;
-                PlatformEnables();
+                if (_features.Communication?.TenantEnabled != true)
+                {
+                    PlatformEnables();
+                }
             }
 
             if (_aiPendingReads >= 0 && _aiPendingReads-- == 0)
@@ -376,7 +379,8 @@ public class StarterTenantToolsTests : ToolTestBase
         var result = await CreateStarter();
 
         result.FailedStep.Should().Be("create_tenant");
-        result.ErrorMessage.Should().Contain("no access");
+        result.ErrorMessage.Should().Contain("no access").And.Contain("provision_current_user_as_admin",
+            "a first call that failed at provision_admin leaves a tenant only the caller's provisioning can resume");
         CkMethods.OperationNames.Should().NotContain(n => n != null && n.Contains("ProvisionCurrentUser"));
         AssertNothingChanged();
     }
@@ -419,6 +423,101 @@ public class StarterTenantToolsTests : ToolTestBase
         result.ErrorMessage.Should().Contain("Undeployed").And.Contain("by hand").And.NotContain("app-ready");
         DeployCalls.Should().BeEmpty();
         MockCommunicationClient.Verify(c => c.EnableAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    /// <summary>
+    ///     Round 2, finding 1: a failed starter install may leave its dependency (System.Ai.Builder) recorded; a tenant with
+    ///     dependencies only and no site is still the tenant of an earlier starter call and is resumed.
+    /// </summary>
+    [Fact]
+    public async Task Starter_ExistingTenantWithOnlyADependencyLeft_IsResumed()
+    {
+        _children.Add(new TenantDto { TenantId = Child, Database = Database });
+        _installations.Add(new BlueprintInstallationDto { BlueprintId = "System.Ai.Builder-1.2.1", IsDependency = true });
+
+        var result = await CreateStarter();
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        Outcomes(result).Should().StartWith(["create_tenant=skipped", "provision_admin=skipped", "install_blueprint=done"]);
+    }
+
+    /// <summary>
+    ///     Round 2, finding 5: a retry right after a cancelled call (Starter installed, the platform's enable still in
+    ///     flight, Communication still off) waits for the platform instead of racing it with its own enable.
+    /// </summary>
+    [Fact]
+    public async Task Starter_RetryWhileThePlatformEnableIsInFlight_WaitsForThePlatform()
+    {
+        _children.Add(new TenantDto { TenantId = Child, Database = Database });
+        _installations.Add(new BlueprintInstallationDto { BlueprintId = "System.Ai.Starter-1.2.0" });
+        _platformEnablePending = true;
+        _platformEnableAfterReads = 2;
+
+        var result = await CreateStarter();
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        Outcomes(result).Should().StartWith(["create_tenant=skipped", "provision_admin=skipped",
+            "install_blueprint=skipped", "enable_communication=done"]);
+        result.StarterSteps.Single(s => s.Step == "enable_communication").Detail.Should().Contain("by the platform");
+        MockCommunicationClient.Verify(c => c.EnableAsync(It.IsAny<string>()), Times.Never);
+        MockAssetClient.Verify(c => c.ApplyBlueprintAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    ///     Round 1 finding 6 / round 2 finding 5: the platform enables only after the wait is over, while the fallback has
+    ///     already enabled Communication. Communication is enabled once, and site and adapter are deployed once each.
+    /// </summary>
+    [Fact]
+    public async Task Starter_PlatformEnableLandsAfterTheFallback_NothingIsEnabledOrDeployedTwice()
+    {
+        _platformEnableAfterReads = StarterTenantSequence.EnableWaitAttempts + 2;
+
+        var result = await CreateStarter();
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.StarterSteps.Single(s => s.Step == "enable_communication").Detail.Should().Contain("fallback");
+        MockCommunicationClient.Verify(c => c.EnableAsync(Child), Times.Once);
+        DeployCalls.Should().Equal("SystemCommunicationDeploymentSiteDeploy", "SystemCommunicationAdapterDeploy");
+    }
+
+    /// <summary>Round 2, finding 4: only Pending or Deployed site and adapter count as ready.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(null)]
+    public async Task Starter_AdapterNotPendingOrDeployed_FailsAtVerifyReady(int? adapterState)
+    {
+        _children.Add(new TenantDto { TenantId = Child, Database = Database });
+        _installations.Add(new BlueprintInstallationDto { BlueprintId = "System.Ai.Starter-1.2.0" });
+        _features = Status(true, true);
+        _sites = [Site(Deployed)];
+        _adapters = [new StarterDefaultsEntity(AdapterRtId, "mesh-adapter", adapterState)];
+
+        var result = await CreateStarter();
+
+        result.FailedStep.Should().Be("verify_ready");
+        result.ErrorMessage.Should().Contain("by hand").And.NotContain("app-ready");
+    }
+
+    /// <summary>
+    ///     Round 2, finding 2: an HTTP client timeout (a TaskCanceledException without a cancelled request) still ends as a
+    ///     failed step with the step list and the tenant id, not as a bare error.
+    /// </summary>
+    [Fact]
+    public async Task Starter_CallTimesOut_FailsTheStep_WithTheStepList()
+    {
+        MockAssetClient.Setup(c => c.ListBlueprintInstallationsAsync(Child))
+            .ThrowsAsync(new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout"));
+
+        var result = await CreateStarter();
+
+        result.IsSuccess.Should().BeFalse();
+        result.FailedStep.Should().Be("install_blueprint");
+        result.ErrorMessage.Should().Contain("timed out");
+        result.CreatedTenantId.Should().Be(Child);
+        Outcomes(result).Should().ContainInConsecutiveOrder("install_blueprint=failed", "enable_communication=notRun");
     }
 
     private void AssertNothingChanged()

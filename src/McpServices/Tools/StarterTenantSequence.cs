@@ -141,12 +141,16 @@ internal static class StarterTenantSequence
             outcome = await RunStepsAsync(server, parentAssetClient, parentTenantId, childTenantId, database,
                 starterBlueprintId, steps, run, cancellationToken);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            // The client gave up: stop here and say where, so a later call resumes from that step.
+            // The client gave up, or a call timed out (an HTTP client timeout is a TaskCanceledException without a
+            // cancelled request): stop here and say where, so a later call resumes from that step.
             var next = Steps.First(s => steps.All(d => d.Step != s));
-            steps.Add(Failed(next, "the request was cancelled before this step finished; call create_tenant with " +
-                                   "starter=true again for the same tenant to resume."));
+            steps.Add(Failed(next, cancellationToken.IsCancellationRequested
+                ? "the request was cancelled before this step finished; call create_tenant with starter=true again " +
+                  "for the same tenant to resume."
+                : "a call of this step timed out; call create_tenant with starter=true again for the same tenant to " +
+                  "resume."));
         }
 
         // Name every step, also those that never ran, so the caller sees the whole sequence.
@@ -227,7 +231,7 @@ internal static class StarterTenantSequence
         cancellationToken.ThrowIfCancellationRequested();
 
         // 2. The caller must reach the child: provision it as administrator unless its token exchange already works.
-        if (!await EnsureChildAccessAsync(server, parentTenantId, childTenantId, steps))
+        if (!await EnsureChildAccessAsync(server, parentTenantId, childTenantId, steps, cancellationToken))
         {
             return null;
         }
@@ -263,12 +267,11 @@ internal static class StarterTenantSequence
         }
 
         // 4. Wait for the platform to enable Communication and AI Services; enable Communication itself when the platform
-        //    did not in time (fallback).
-        //    Only after an install of this call: a starter that was installed already sends no new event to wait for.
-        var justInstalled = steps.Last().Step == BlueprintStep && steps.Last().Outcome == "done";
-        var status = justInstalled
-            ? await WaitForPlatformEnableAsync(features.Client!, childTenantId, before, steps, cancellationToken)
-            : before;
+        //    did not in time (fallback). Also on a resumed call: the platform's enable of an earlier call's install may
+        //    still be in flight (e.g. after a cancelled call), and a fallback enable then would race it. The wait ends at
+        //    once when both are on.
+        var status = await WaitForPlatformEnableAsync(features.Client!, childTenantId, before, steps,
+            cancellationToken);
         if (status == null)
         {
             return null;
@@ -322,7 +325,8 @@ internal static class StarterTenantSequence
         var access = await McpSessionContext.ResolveAccessTokenAsync(server, childTenantId);
         if (access.AccessToken == null)
         {
-            return "the caller has no access to it (an earlier starter call would have made the caller its administrator)";
+            return "the caller has no access to it. If an earlier create_tenant starter=true of yours created it and " +
+                   "failed at provision_admin, run provision_current_user_as_admin for this tenant and call again";
         }
 
         try
@@ -344,7 +348,8 @@ internal static class StarterTenantSequence
                 return null;
             }
 
-            if (installations.Count == 0 && defaults.SiteCount == 0)
+            // Dependencies only (e.g. System.Ai.Builder recorded by a failed starter install) count as no installation.
+            if (installations.All(i => i.IsDependency) && defaults.SiteCount == 0)
             {
                 return null;
             }
@@ -352,7 +357,7 @@ internal static class StarterTenantSequence
             return starterInstalled
                 ? $"{StarterBlueprintName} is installed, but Communication is off while {defaults.SiteCount} " +
                   "deployment site(s) exist (parked with disable_communication)"
-                : $"it has {installations.Count} blueprint installation(s) without {StarterBlueprintName} and " +
+                : $"it has {installations.Count(i => !i.IsDependency)} blueprint installation(s) without {StarterBlueprintName} and " +
                   $"{defaults.SiteCount} deployment site(s)";
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -385,8 +390,7 @@ internal static class StarterTenantSequence
             {
                 var site = defaults.Site!;
                 var adapter = defaults.Adapter!;
-                if (site.IsUndeployed || adapter.IsUndeployed || site.StateName == "Error" ||
-                    adapter.StateName == "Error")
+                if (!site.IsPendingOrDeployed || !adapter.IsPendingOrDeployed)
                 {
                     steps.Add(Failed(ReadyStep,
                         $"site '{site.Name}' is {site.StateName} and adapter '{adapter.Name}' is {adapter.StateName}, so " +
@@ -719,7 +723,7 @@ internal static class StarterTenantSequence
     }
 
     private static async Task<bool> EnsureChildAccessAsync(McpServer server, string parentTenantId,
-        string childTenantId, List<StarterStepDto> steps)
+        string childTenantId, List<StarterStepDto> steps, CancellationToken cancellationToken)
     {
         var access = await McpSessionContext.ResolveAccessTokenAsync(server, childTenantId);
         if (access.AccessToken != null)
@@ -750,7 +754,7 @@ internal static class StarterTenantSequence
 
             if (attempt < AccessAttempts && RetryDelay > TimeSpan.Zero)
             {
-                await Task.Delay(RetryDelay);
+                await Task.Delay(RetryDelay, cancellationToken);
             }
         }
 

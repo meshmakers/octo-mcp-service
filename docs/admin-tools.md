@@ -65,7 +65,9 @@ An agent can work in and clean up the scratch tenants it creates without a human
    the caller already reaches it (the tool never provisions the caller into a tenant it did not just create), and either `System.Ai.Starter`
    is installed and no site is parked (Communication on, or no deployment site yet), or the tenant has no blueprint installation and no
    deployment site at all. Every other existing tenant, also one parked with `disable_communication` (sites kept, Communication off), fails
-   here with "exists" and nothing is changed. Any read error refuses too;
+   here with "exists" and nothing is changed. Any read error refuses too. Installations recorded only as a dependency (e.g. System.Ai.Builder
+   of a failed starter install) count as none. Exception: when a first call created the tenant but failed at `provision_admin`, the caller
+   has no access yet - run `provision_current_user_as_admin` for the tenant, then call again (the refusal says so);
 2. `provision_admin` - provision the calling user as the child's administrator, unless the session's token exchange for the child already works
    (identity sets a new tenant up asynchronously, so the provisioning and the exchange are retried);
 3. `install_blueprint` - the newest `System.Ai.Starter` of the tenant's blueprint catalogs (or `starterBlueprintId`), which brings
@@ -73,7 +75,7 @@ An agent can work in and clean up the scratch tenants it creates without a human
    is already installed. It runs **before** any enable (AB#8452): the platform then enables Communication and AI Services for the blueprint
    itself (AB#9578), and only in that case does the communication controller deploy the default site and Mesh Adapter
    (`StarterDeploymentService`);
-4. `enable_communication` - after an install of this call, the tool reads the tenant's features until the platform enabled Communication and
+4. `enable_communication` - the tool reads the tenant's features until the platform enabled Communication and
    AI Services (up to 30 reads, 3 s apart). `done` "enabled by the platform"; when the platform did not enable it in time the tool enables it
    itself (`done`, "fallback"); `skipped` when it was enabled before the install;
 5. `deploy_defaults` (AB#8452) - makes sure the default site and adapter are deployed, also on the fallback path where the controller deploys
@@ -92,8 +94,8 @@ An agent can work in and clean up the scratch tenants it creates without a human
    Other errors fail the step;
 8. `verify_ready` (AB#9573) - reads, with the caller's own rights in the child (the read path of `knowledge_search`), the ready state: Agent
    `builder-agent` enabled, Mandate `builder-mandate` with write mode Propose, Client `builder-agent-client` (the agent's service account) and
-   the knowledge page `app-index`; then the default site and adapter: it fails when either is `Undeployed` or in `Error` (no pipeline would
-   run) and names how to deploy them by hand. Its detail names the adapter state and the LLM cap of step 7. It changes nothing and is never
+   the knowledge page `app-index`; then the default site and adapter: it fails unless both are `Pending` or `Deployed` (Undeployed, Error,
+   Disabled or an unreadable state: no pipeline would run) and names how to deploy them by hand. Its detail names the adapter state and the LLM cap of step 7. It changes nothing and is never
    skipped; a starter without the builder agent (System.Ai.Starter 1.0.0) installs but fails here, naming what is missing.
 
 When no step failed but step 7 left the tenant without a cap, the message says the tenant is set up but **not app-ready for LLM use** (LLM

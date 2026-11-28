@@ -22,6 +22,9 @@ internal sealed record StarterDefaultsEntity(string RtId, string Name, int? Depl
 
     internal bool IsUndeployed => DeploymentState == Undeployed;
 
+    /// <summary>Pending (the operator rolls it out) or Deployed; Undeployed, Error, Disabled and unknown are not.</summary>
+    internal bool IsPendingOrDeployed => DeploymentState is 1 or 2;
+
     /// <summary>The state as its CK enum name, "unknown" when it cannot be read.</summary>
     internal string StateName => DeploymentState is { } s && s >= 0 && s < StateNames.Length ? StateNames[s] : "unknown";
 }
