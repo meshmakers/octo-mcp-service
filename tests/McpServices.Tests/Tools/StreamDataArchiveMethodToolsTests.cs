@@ -210,6 +210,8 @@ public sealed class StreamDataArchiveMethodToolsTests : ToolTestBase, IDisposabl
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
         result.Job!.RtId.Should().Be("6b0a8911fa75fad21127ffc5");
         result.Job.State.Should().Be("Pending");
+        result.IsNoOp.Should().BeFalse();
+        result.OperationId.Should().Be("ae9db76d1e4e47ea8beb3b81e7811ccb");
         result.Message.Should().Be($"Backfill of rollup '{RollupId}' queued (durable background): job 6b0a8911fa75fad21127ffc5, " +
                                    $"state Pending. Poll list_recompute_jobs for archive '{RollupId}' to watch it run to completion.");
         _service!.Bodies[0].Should().Contain("systemStreamDataRollupArchives { backfillFromSource2(");
@@ -226,6 +228,7 @@ public sealed class StreamDataArchiveMethodToolsTests : ToolTestBase, IDisposabl
 
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
         result.Job.Should().BeNull();
+        result.IsNoOp.Should().BeTrue();
         result.Message.Should().Contain("no-op");
     }
 
@@ -263,7 +266,67 @@ public sealed class StreamDataArchiveMethodToolsTests : ToolTestBase, IDisposabl
 
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
         result.Job.Should().BeNull();
+        result.IsNoOp.Should().BeFalse("a null job without the no-op flag means the backfill runs in the background");
+        result.OperationId.Should().Be("ae9db76d1e4e47ea8beb3b81e7811ccb");
         result.Message.Should().Contain("accepted as operation ae9db76d1e4e47ea8beb3b81e7811ccb").And.Contain("named no job yet");
+    }
+
+    [Fact]
+    public async Task Backfill_JobNamedAtALaterStage_IsRunning()
+    {
+        GivenLoopback(Recorded("rollup-backfill-from-source2-accepted"), Running("6b0a8911fa75fad21127ffc5", "RECOMPUTING"));
+
+        var result = await TimeSeriesTools.BackfillRollupArchive(MockServer.Object, RollupId, confirm: true);
+
+        result.Job!.State.Should().Be("Running");
+    }
+
+    [Fact]
+    public async Task Backfill_OperationNotReadable_IsAFailure()
+    {
+        GivenLoopback(Recorded("rollup-backfill-from-source2-accepted"),
+            """{"errors":[{"message":"The operation was not found.","extensions":{"code":"OPERATION_NOT_FOUND"}}],"data":{"runtime":{"operations":null}}}""");
+
+        var result = await TimeSeriesTools.BackfillRollupArchive(MockServer.Object, RollupId, confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().StartWith("OPERATION_NOT_FOUND");
+    }
+
+    [Fact]
+    public async Task Backfill_OperationFailedWithAnotherCode_IsAFailure()
+    {
+        var failed = JsonNode.Parse(Recorded("operation-recompute-failed"))!;
+        var error = failed["data"]!["runtime"]!["operations"]!["items"]![0]!["error"]!.AsObject();
+        error["code"] = "METHOD_HANDLER_FAILED";
+        error["parameters"] = new JsonArray();
+        GivenLoopback(Recorded("rollup-backfill-from-source2-accepted"), failed.ToJsonString());
+
+        var result = await TimeSeriesTools.BackfillRollupArchive(MockServer.Object, RollupId, confirm: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().StartWith("METHOD_HANDLER_FAILED");
+    }
+
+    [Fact]
+    public async Task TenantWithoutTheArchiveQuery_NamesTheNeededVersion()
+    {
+        MockTenantClient.Setup(c => c.SendQueryAsync<ArchiveMethodCall.ArchiveTypeDto>(It.IsAny<GraphQL.GraphQLRequest>()))
+            .ThrowsAsync(new QlQueryErrorException("GraphQL error",
+            [
+                new GraphQL.GraphQLError
+                {
+                    Message = "Cannot query field 'systemStreamDataArchive' on type 'RuntimeModelQuery'.",
+                    Extensions = new GraphQL.Map { ["code"] = "FIELDS_ON_CORRECT_TYPE", ["number"] = "5.3.1" }
+                }
+            ]));
+        CkMethods.Succeeds();
+
+        var result = await TimeSeriesTools.ActivateArchive(MockServer.Object, ArchiveId);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("System.StreamData 1.30");
+        CkMethods.Requests.Should().BeEmpty();
     }
 
     private void GivenLoopback(params string[] answers)
@@ -285,7 +348,7 @@ public sealed class StreamDataArchiveMethodToolsTests : ToolTestBase, IDisposabl
         File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Tools", "Fixtures", $"assetrepo-streamdata-answer-{name}.json"));
 
     /// <summary>The recorded succeeded recompute turned into a RUNNING operation; with a job id it is the QUEUED stage.</summary>
-    private static string Running(string? jobRtId)
+    private static string Running(string? jobRtId, string stage = "QUEUED")
     {
         var answer = JsonNode.Parse(Recorded("operation-recompute-succeeded"))!;
         var item = answer["data"]!["runtime"]!["operations"]!["items"]![0]!.AsObject();
@@ -295,7 +358,7 @@ public sealed class StreamDataArchiveMethodToolsTests : ToolTestBase, IDisposabl
         item["progress"] = new JsonObject
         {
             ["percent"] = null,
-            ["stageCode"] = jobRtId == null ? "RECOMPUTING" : "QUEUED",
+            ["stageCode"] = jobRtId == null ? "RECOMPUTING" : stage,
             ["parameters"] = jobRtId == null
                 ? new JsonArray()
                 : new JsonArray(new JsonObject { ["name"] = "jobRtId", ["value"] = jobRtId })

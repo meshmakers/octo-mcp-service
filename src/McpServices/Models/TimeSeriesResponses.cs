@@ -32,10 +32,20 @@ public class RollupBackfillResponse : TimeSeriesResponse
     public string? RtId { get; set; }
 
     /// <summary>
-    /// The recompute job started by the backfill, or null when the source archive held no data
-    /// (no-op).
+    /// The recompute job started by the backfill (Pending or Running as the operation reported it, or the final job when
+    /// the backfill ended within the call), or null: see <see cref="IsNoOp"/>.
     /// </summary>
     public RollupRecomputeJobInfoDto? Job { get; set; }
+
+    /// <summary>
+    /// True when the source archive held no data and nothing was queued. A successful response with <see cref="Job"/> null
+    /// and IsNoOp false means the backfill was accepted but named no job within the call; it runs in the background
+    /// (follow <see cref="OperationId"/> or list_recompute_jobs).
+    /// </summary>
+    public bool IsNoOp { get; set; }
+
+    /// <summary>The id of the backfill operation (runtime.operations), when the method accepted the call.</summary>
+    public string? OperationId { get; set; }
 }
 
 /// <summary>Response for list_recompute_jobs (AB#5189).</summary>

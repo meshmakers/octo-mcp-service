@@ -485,10 +485,12 @@ public sealed class TimeSeriesTools
         "source archive without supplying a timestamp (AB#4269 / AB#4286). Resolves the source archive's earliest " +
         "timestamp and enqueues a recompute of [sourceMin, now); the heavy work runs in the background (never bound " +
         "to this request, so a client timeout cannot cancel it) and the queued work survives an asset-repo restart. " +
-        "Returns the Pending RecomputeJob id immediately — poll list_recompute_jobs to watch Pending -> Running -> " +
-        "Completed (its `lastProgressAt` heartbeat shows whether a Running job is still alive). Re-running resets an " +
-        "already-populated rollup. Requires confirm=true. A no-op when the source archive holds no data. Equivalent " +
-        "to octo-cli BackfillRollup.")]
+        "Runs RollupArchive.BackfillFromSource-2 and waits up to 30 s for its operation to name the queued job: returns " +
+        "that job (Pending or Running; the final job when the backfill already ended) and the operationId — poll " +
+        "list_recompute_jobs to watch Pending -> Running -> Completed (its `lastProgressAt` heartbeat shows whether a " +
+        "Running job is still alive). isNoOp=true (job null) when the source archive holds no data; job null with " +
+        "isNoOp=false means the backfill was accepted and runs in the background without a job id yet. Re-running " +
+        "resets an already-populated rollup. Requires confirm=true. Equivalent to octo-cli BackfillRollup.")]
     public static async Task<RollupBackfillResponse> BackfillRollupArchive(
         McpServer server,
         [Description("Rollup archive runtime ID to backfill from its source.")] string rollupRtId,
@@ -553,6 +555,7 @@ public sealed class TimeSeriesTools
                     IsSuccess = true,
                     TenantId = ctx.TenantId,
                     RtId = rollupRtId,
+                    OperationId = started.Value.OperationId,
                     Message = $"Backfill of rollup '{rollupRtId}' accepted as operation {started.Value.OperationId}, but it " +
                               "named no job yet. It runs in the background; poll list_recompute_jobs for archive " +
                               $"'{rollupRtId}'."
@@ -566,6 +569,8 @@ public sealed class TimeSeriesTools
                 TenantId = ctx.TenantId,
                 RtId = rollupRtId,
                 Job = job,
+                IsNoOp = queued.NoData,
+                OperationId = started.Value.OperationId,
                 Message = job is null
                     ? $"Backfill of rollup '{rollupRtId}' was a no-op: the source archive holds no data."
                     : $"Backfill of rollup '{rollupRtId}' queued (durable background): job {job.RtId}, state {job.State}. "

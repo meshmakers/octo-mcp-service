@@ -212,7 +212,7 @@ Since System.StreamData 1.30 the archive write tools run a CK method of `System.
 (`StreamDataClientContext.TryBuildAsync(…, withTenantClient: true)`); `construction-kits.yaml` imports
 `System.StreamData-[1.30,2.0)`. The reads (`list_rollups_for_archive`, `list_recompute_jobs`), the rollup check and repair
 (`validate_rollups`, `repair_rollups`, `get_rollup_repair_status`), `enable_stream_data` / `disable_stream_data` and the
-archive data export/import stay on REST. Tool names, parameters and response fields are unchanged.
+archive data export/import stay on REST. Tool names and parameters are unchanged; `backfill_rollup_archive` gains the response fields `IsNoOp` and `OperationId` (below).
 
 - **Helper.** `Tools/ArchiveMethodCall.RunAsync` / `RunOnArchiveAsync` return an `ArchiveMethodOutcome` (success, value, error
   text, error code); error texts pass `ErrorTextRedactor.Redact`.
@@ -228,10 +228,12 @@ archive data export/import stay on REST. Tool names, parameters and response fie
   tools call `RtRollupArchiveMethodClient` directly (an id that is no rollup ends with `METHOD_TARGET_NOT_FOUND`).
 - **Backfill.** `backfill_rollup_archive` starts the asynchronous `RollupArchive.BackfillFromSource-2` and reads the operation
   (`runtime.operations`, at most 30 seconds) until it names the queued job (progress stage `QUEUED`, parameter `jobRtId`): the
-  response carries that job in state `Pending`, as the REST answer did, or the final job when the operation already ended
-  (`Failed` with its reason after `STREAMDATA_RECOMPUTE_FAILED`), or `Job = null` with the no-op message when the source
-  archive holds no data. When no job is named within the 30 seconds, the response says the backfill was accepted (operation
-  id) and runs in the background.
+  response carries that job in state `Pending` (`Running` when the first read already shows a later stage), as the REST
+  answer did, or the final job when the operation already ended (`Failed` with its reason after
+  `STREAMDATA_RECOMPUTE_FAILED`), or `Job = null` and `IsNoOp = true` when the source archive holds no data. When no job is
+  named within the 30 seconds, the response has `Job = null`, `IsNoOp = false` and says the backfill was accepted and runs in
+  the background. Every accepted backfill carries `OperationId`. A tenant without the archive query (no stream data) gets
+  the same text as a missing method.
 - **Tests.** `StreamDataArchiveMethodToolsTests` runs every tool: its operation, no REST call of the stream data client,
   `METHOD_FORBIDDEN`, the missing-method texts, a declared error with parameters, invalid ids, the archive type with element
   versions, and the backfill against a loopback asset repository with answers recorded from a stream-data tenant

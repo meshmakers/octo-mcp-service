@@ -92,7 +92,19 @@ internal static class ArchiveMethodCall
     internal static async Task<ArchiveMethodOutcome<T>> RunOnArchiveAsync<T>(ITenantClient tenantClient,
         string archiveRtId, Func<IArchiveMethodClient, Task<CkMethodResult<T>>> method)
     {
-        var (kind, error) = await ResolveArchiveKindAsync(tenantClient, archiveRtId);
+        ArchiveKind? kind;
+        string? error;
+        try
+        {
+            (kind, error) = await ResolveArchiveKindAsync(tenantClient, archiveRtId);
+        }
+        catch (Exception ex) when (IdentityMethodCall.IsMethodUnavailable(ex) || ex is QlQueryErrorException)
+        {
+            // A tenant without stream data (or without System.StreamData) has no archive query field: the same text as a
+            // missing method; nothing was changed.
+            return new ArchiveMethodOutcome<T>(false, default, UnavailableText(ex), (ex as CkMethodCallException)?.Code);
+        }
+
         if (kind == null)
         {
             return new ArchiveMethodOutcome<T>(false, default, error, TargetNotFoundCode);
@@ -195,12 +207,17 @@ internal static class ArchiveMethodCall
         CkOperationHandle<RtRecomputeJobInfoRecordDto?> handle, TimeSpan timeout, TimeProvider timeProvider)
     {
         string? jobRtId = null;
+        var jobState = "Pending";
         using var named = new CancellationTokenSource();
         var progress = new SyncProgress(operation =>
         {
             if (operation.Progress?.Parameters.TryGetValue("jobRtId", out var id) == true && !string.IsNullOrEmpty(id))
             {
                 jobRtId = id;
+                // QUEUED is the stage that names the job; a later stage means the job already runs.
+                jobState = string.Equals(operation.Progress.StageCode, "QUEUED", StringComparison.Ordinal)
+                    ? "Pending"
+                    : "Running";
                 named.Cancel();
             }
         });
@@ -212,7 +229,7 @@ internal static class ArchiveMethodCall
         }
         catch (OperationCanceledException) when (jobRtId is not null)
         {
-            return new QueuedJob(new RollupRecomputeJobInfoDto(jobRtId, "Pending", null, null, null, null, null, null),
+            return new QueuedJob(new RollupRecomputeJobInfoDto(jobRtId, jobState, null, null, null, null, null, null),
                 false, null);
         }
         catch (CkOperationWaitTimeoutException)
