@@ -36,7 +36,7 @@ public class ScratchTenantToolsTests : ToolTestBase
     public async Task CreateTenant_Scratch_PassesTheFlagToTheSdk()
     {
         var result = await TenantManagementTools.CreateTenant(MockServer.Object, "Scratch1", "Scratch1_Db",
-            scratch: true);
+            scratch: true, cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeTrue();
         result.Message.Should().Contain("scratch tenant");
@@ -47,7 +47,7 @@ public class ScratchTenantToolsTests : ToolTestBase
     [Fact]
     public async Task CreateTenant_WithoutScratch_IsTheUnchangedCall()
     {
-        var result = await TenantManagementTools.CreateTenant(MockServer.Object, "plain1", "plain1_db");
+        var result = await TenantManagementTools.CreateTenant(MockServer.Object, "plain1", "plain1_db", cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeTrue();
         MockAssetClient.Verify(c => c.CreateTenantAsync("plain1", "plain1_db"), Times.Once);
@@ -62,7 +62,7 @@ public class ScratchTenantToolsTests : ToolTestBase
             .ThrowsAsync(new InvalidOperationException("Forbidden: A scratch tenant can only be created by a client-credentials client"));
 
         var result = await TenantManagementTools.CreateTenant(MockServer.Object, "scratch1", "scratch1_db",
-            scratch: true);
+            scratch: true, cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("client-credentials");

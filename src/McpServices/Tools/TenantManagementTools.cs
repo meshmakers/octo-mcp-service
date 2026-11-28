@@ -143,7 +143,11 @@ public sealed class TenantManagementTools
         "tenant, else skipped with the reason and the tenant stays at key source None), then verify_ready checks that the builder agent, its mandate " +
         "and the knowledge page app-index are there (AB#9573). starterSteps lists every step with its outcome (done, skipped, failed, notRun); on a " +
         "failure failedStep names the step, and calling the tool again with the same childTenantId completes the " +
-        "remaining steps and skips the finished ones (an existing tenant is then not an error). starter=true needs a user " +
+        "remaining steps and skips the finished ones; an existing tenant is only resumed when an earlier starter call can " +
+        "have left it so (the caller reaches it, and System.Ai.Starter is installed with no parked site, or it has no " +
+        "blueprint installation and no deployment site), any other existing tenant fails with 'exists'. verify_ready " +
+        "also reports the default site and adapter state and the LLM cap; without a cap the message says the tenant is " +
+        "not app-ready for LLM use. starter=true needs a user " +
         "session: a client-credentials caller, or scratch=true, is refused before anything is created. Requires access to " +
         "the addressed parent tenant itself (the token is exchanged for it).")]
     public static async Task<CreateTenantResponse> CreateTenant(
@@ -164,10 +168,11 @@ public sealed class TenantManagementTools
         bool starter = false,
         [Description("With starter=true: the starter blueprint to install, e.g. 'System.Ai.Starter-1.0.0'. Default: the " +
                      "newest System.Ai.Starter in the tenant's blueprint catalogs.")]
-        string? starterBlueprintId = null)
+        string? starterBlueprintId = null,
+        CancellationToken cancellationToken = default)
     {
         // AB#9570: refused before anything is created, so no half-provisioned tenant is left behind.
-        if (starter && StarterTenantSequence.RefusalFor(server, scratch) is { } starterRefusal)
+        if (starter && StarterTenantSequence.RefusalFor(server, scratch, starterBlueprintId) is { } starterRefusal)
         {
             return new CreateTenantResponse { IsSuccess = false, ErrorMessage = starterRefusal };
         }
@@ -217,7 +222,7 @@ public sealed class TenantManagementTools
             {
                 var starterResponse = new CreateTenantResponse();
                 await StarterTenantSequence.RunAsync(server, assetClient, resolvedParent, normalizedChild, normalizedDb,
-                    starterBlueprintId, starterResponse);
+                    starterBlueprintId, starterResponse, cancellationToken);
                 return starterResponse;
             }
 

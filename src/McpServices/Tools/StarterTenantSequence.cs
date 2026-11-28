@@ -32,8 +32,11 @@ namespace Meshmakers.Octo.Backend.McpServices.Tools;
 ///     </para>
 ///     <para>
 ///     Every step first checks whether it is already done and is then <c>skipped</c>, so calling the tool again for the
-///     same tenant after a failure completes the remaining steps without repeating finished ones. The first failing step
-///     stops the sequence; the steps after it are <c>notRun</c>.
+///     same tenant after a failure completes the remaining steps without repeating finished ones. An existing tenant is
+///     only resumed when an earlier starter call can have left it so (the caller reaches it, and the starter is installed
+///     with no parked site, or it has no installation and no site at all); any other existing tenant fails at
+///     <c>create_tenant</c> with "exists". The first failing step stops the sequence; the steps after it are
+///     <c>notRun</c>. The waits take the request's cancellation token.
 ///     </para>
 ///     <para>
 ///     The steps in the child run with the caller's token for the child (RFC 8693 exchange), which identity issues only
@@ -64,6 +67,13 @@ internal static class StarterTenantSequence
     internal static Func<McpServer, string, Task<string?>> ReadyProbe { get; set; } = StarterReadyCheck.MissingAsync;
 
     /// <summary>
+    ///     Reads the deployment sites and workloads of the child with the caller's rights (the controller's view, AB#8452).
+    ///     Tests replace it; the default is <see cref="StarterDefaults.ReadAsync(McpServer, string, CancellationToken)" />.
+    /// </summary>
+    internal static Func<McpServer, string, CancellationToken, Task<StarterDefaultsState>> DefaultsProbe { get; set; } =
+        StarterDefaults.ReadAsync;
+
+    /// <summary>
     ///     Identity sets a new tenant up asynchronously after the create: the admin provisioning and the token for the
     ///     child are retried this many times, <see cref="RetryDelay" /> apart.
     /// </summary>
@@ -90,8 +100,14 @@ internal static class StarterTenantSequence
     /// <summary>
     ///     The reason the starter cannot run for this caller, checked before anything is created; null when it can.
     /// </summary>
-    internal static string? RefusalFor(McpServer server, bool scratch)
+    internal static string? RefusalFor(McpServer server, bool scratch, string? starterBlueprintId = null)
     {
+        if (!string.IsNullOrWhiteSpace(starterBlueprintId) && !IsStarter(starterBlueprintId))
+        {
+            return $"starterBlueprintId '{starterBlueprintId}' is not a {StarterBlueprintName} blueprint (expected " +
+                   $"'{StarterBlueprintName}-<version>'). Nothing was created.";
+        }
+
         if (scratch)
         {
             return "starter=true cannot be combined with scratch=true: a scratch tenant belongs to a client-credentials " +
@@ -113,12 +129,25 @@ internal static class StarterTenantSequence
 
     /// <summary>Runs the sequence and fills <paramref name="response" />.</summary>
     internal static async Task RunAsync(McpServer server, IAssetServicesClient parentAssetClient, string parentTenantId,
-        string childTenantId, string database, string? starterBlueprintId, CreateTenantResponse response)
+        string childTenantId, string database, string? starterBlueprintId, CreateTenantResponse response,
+        CancellationToken cancellationToken = default)
     {
         var steps = new List<StarterStepDto>();
+        var run = new RunState();
 
-        var outcome = await RunStepsAsync(server, parentAssetClient, parentTenantId, childTenantId, database,
-            starterBlueprintId, steps);
+        string? outcome = null;
+        try
+        {
+            outcome = await RunStepsAsync(server, parentAssetClient, parentTenantId, childTenantId, database,
+                starterBlueprintId, steps, run, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The client gave up: stop here and say where, so a later call resumes from that step.
+            var next = Steps.First(s => steps.All(d => d.Step != s));
+            steps.Add(Failed(next, "the request was cancelled before this step finished; call create_tenant with " +
+                                   "starter=true again for the same tenant to resume."));
+        }
 
         // Name every step, also those that never ran, so the caller sees the whole sequence.
         foreach (var step in Steps.Where(s => steps.All(d => d.Step != s)))
@@ -129,17 +158,21 @@ internal static class StarterTenantSequence
         response.StarterSteps = steps;
         response.ParentTenantId = parentTenantId;
         response.CreatedTenantId = childTenantId;
-        response.Database = database;
+        response.Database = run.Database ?? database;
 
         var failed = steps.FirstOrDefault(s => s.Outcome == "failed");
         if (failed == null)
         {
             response.IsSuccess = true;
-            response.Message = $"Tenant '{childTenantId}' is app-ready: {outcome ?? StarterBlueprintName} installed, " +
-                               "Communication and AI Services enabled, builder agent and knowledge base ready; the " +
-                               "default adapter comes Online once the operator has rolled it out (see deploy_defaults). " +
-                               "Steps: " +
-                               string.Join(", ", steps.Select(s => $"{s.Step}={s.Outcome}")) + ".";
+            var stepList = "Steps: " + string.Join(", ", steps.Select(s => $"{s.Step}={s.Outcome}")) + ".";
+            // "app-ready" only with an open LLM gateway; otherwise the message says what is still closed.
+            response.Message = run.CapOpen
+                ? $"Tenant '{childTenantId}' is app-ready: {outcome ?? StarterBlueprintName} installed, Communication " +
+                  $"and AI Services enabled, builder agent and knowledge base ready, {run.AdapterText}. " + stepList
+                : $"Tenant '{childTenantId}' is set up but NOT app-ready for LLM use: {outcome ?? StarterBlueprintName} " +
+                  "installed, Communication and AI Services enabled, builder agent and knowledge base ready, " +
+                  $"{run.AdapterText}; but it has no LLM cap, so the LLM gateway stays closed (key source None) until an " +
+                  "AiBudgetAdmin sets one (set_ai_spend_cap). " + stepList;
             return;
         }
 
@@ -153,15 +186,31 @@ internal static class StarterTenantSequence
     /// <summary>Runs the steps until one fails; returns the installed starter blueprint id when it got that far.</summary>
     private static async Task<string?> RunStepsAsync(McpServer server, IAssetServicesClient parentAssetClient,
         string parentTenantId, string childTenantId, string database, string? starterBlueprintId,
-        List<StarterStepDto> steps)
+        List<StarterStepDto> steps, RunState run, CancellationToken cancellationToken)
     {
-        // 1. Create the tenant, unless an earlier call did.
+        // 1. Create the tenant, unless an earlier starter call did (then only a resumable tenant goes on).
         try
         {
             var children = await parentAssetClient.GetTenantsAsync();
-            if (children?.Any(t => string.Equals(t.TenantId, childTenantId, StringComparison.OrdinalIgnoreCase)) == true)
+            var existing = children?.FirstOrDefault(t =>
+                string.Equals(t.TenantId, childTenantId, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
             {
-                steps.Add(Skipped(CreateStep, $"tenant '{childTenantId}' already exists under '{parentTenantId}'"));
+                run.Database = existing.Database;
+                var notResumable = await NotResumableAsync(server, childTenantId, cancellationToken);
+                if (notResumable != null)
+                {
+                    steps.Add(Failed(CreateStep,
+                        $"tenant '{childTenantId}' exists under '{parentTenantId}' and is not a starter tenant this " +
+                        $"tool can resume: {notResumable}. Nothing was changed. Choose another childTenantId; to make " +
+                        "an existing tenant app-ready, install the starter with install_blueprint and enable its " +
+                        "capabilities by hand."));
+                    return null;
+                }
+
+                steps.Add(Skipped(CreateStep,
+                    $"tenant '{childTenantId}' (database '{existing.Database}') already exists under " +
+                    $"'{parentTenantId}'; resumed as the tenant of an earlier starter call"));
             }
             else
             {
@@ -169,11 +218,13 @@ internal static class StarterTenantSequence
                 steps.Add(Done(CreateStep, $"tenant '{childTenantId}' (database '{database}') created under '{parentTenantId}'"));
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             steps.Add(Failed(CreateStep, ex.Message));
             return null;
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         // 2. The caller must reach the child: provision it as administrator unless its token exchange already works.
         if (!await EnsureChildAccessAsync(server, parentTenantId, childTenantId, steps))
@@ -181,6 +232,7 @@ internal static class StarterTenantSequence
             return null;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         var features = await Services.AssetClientContext.TryBuildAsync(server, childTenantId);
         if (features.Error != null)
         {
@@ -194,7 +246,7 @@ internal static class StarterTenantSequence
         {
             before = await features.Client!.GetTenantFeaturesStatusAsync();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             steps.Add(Failed(BlueprintStep, $"the features of '{childTenantId}' could not be read: {ex.Message}"));
             return null;
@@ -215,7 +267,7 @@ internal static class StarterTenantSequence
         //    Only after an install of this call: a starter that was installed already sends no new event to wait for.
         var justInstalled = steps.Last().Step == BlueprintStep && steps.Last().Outcome == "done";
         var status = justInstalled
-            ? await WaitForPlatformEnableAsync(features.Client!, childTenantId, before, steps)
+            ? await WaitForPlatformEnableAsync(features.Client!, childTenantId, before, steps, cancellationToken)
             : before;
         if (status == null)
         {
@@ -231,7 +283,7 @@ internal static class StarterTenantSequence
         // 5. Default site and adapter, right after Communication (also on the fallback path, before anything else can
         //    fail): idempotent, never on a tenant that had Communication before this call.
         if (!await EnsureDefaultsDeployedAsync(server, childTenantId, communicationWasOn, communicationByPlatform.Value,
-                steps))
+                steps, cancellationToken))
         {
             return null;
         }
@@ -243,28 +295,138 @@ internal static class StarterTenantSequence
         }
 
         // 7. The cluster's default LLM cap (AB#9572): only on the platform operator's path (parent = system tenant).
-        if (!await ApplyDefaultSpendCapAsync(server, parentTenantId, childTenantId, steps))
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!await ApplyDefaultSpendCapAsync(server, parentTenantId, childTenantId, steps, run))
         {
             return null;
         }
 
-        // 8. Ready state: builder agent, mandate, client and the app-index page, read with the caller's rights. Always
-        //    checked (also on a repeated call), never skipped: it changes nothing.
+        // 8. Ready state, read with the caller's rights and never skipped (it changes nothing): builder agent, mandate,
+        //    client and the app-index page, the default site and adapter, and the LLM cap of step 7.
+        cancellationToken.ThrowIfCancellationRequested();
+        await VerifyReadyAsync(server, childTenantId, installed, steps, run, cancellationToken);
+        return installed;
+    }
+
+    /// <summary>
+    ///     Invariant: an existing tenant is only resumed when an earlier <c>create_tenant starter=true</c> can have left it
+    ///     so - the caller already reaches it (the caller is never provisioned into a tenant it did not just create), and
+    ///     either the starter is installed and no site is parked (Communication on, or no site yet), or the tenant has no
+    ///     blueprint installation and no deployment site at all. A tenant parked with disable_communication (sites kept,
+    ///     Communication off) and every other existing tenant are refused. Returns null when the tenant is resumable, else
+    ///     the reason; any read error refuses (fail closed).
+    /// </summary>
+    private static async Task<string?> NotResumableAsync(McpServer server, string childTenantId,
+        CancellationToken cancellationToken)
+    {
+        var access = await McpSessionContext.ResolveAccessTokenAsync(server, childTenantId);
+        if (access.AccessToken == null)
+        {
+            return "the caller has no access to it (an earlier starter call would have made the caller its administrator)";
+        }
+
+        try
+        {
+            var asset = await Services.AssetClientContext.TryBuildAsync(server, childTenantId);
+            if (asset.Error != null)
+            {
+                return $"it cannot be read ({asset.Error})";
+            }
+
+            var installations = (await asset.Client!.ListBlueprintInstallationsAsync(childTenantId)).ToList();
+            var features = await asset.Client!.GetTenantFeaturesStatusAsync();
+            var defaults = await DefaultsProbe(server, childTenantId, cancellationToken);
+            var starterInstalled = installations.Any(i => IsStarter(i.BlueprintId));
+            var communicationOn = features.Communication?.TenantEnabled == true;
+
+            if (starterInstalled && (communicationOn || defaults.SiteCount == 0))
+            {
+                return null;
+            }
+
+            if (installations.Count == 0 && defaults.SiteCount == 0)
+            {
+                return null;
+            }
+
+            return starterInstalled
+                ? $"{StarterBlueprintName} is installed, but Communication is off while {defaults.SiteCount} " +
+                  "deployment site(s) exist (parked with disable_communication)"
+                : $"it has {installations.Count} blueprint installation(s) without {StarterBlueprintName} and " +
+                  $"{defaults.SiteCount} deployment site(s)";
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return $"its state could not be read ({ex.Message})";
+        }
+    }
+
+    /// <summary>
+    ///     Step <c>verify_ready</c> (AB#9573): fails when the builder seed is missing, or when the default site or adapter
+    ///     is Undeployed or in Error (then no pipeline runs); its detail names the adapter state and the LLM cap state of
+    ///     <c>default_spend_cap</c>. A tenant without the fresh shape keeps its sites as they are; the step names that and
+    ///     does not judge them.
+    /// </summary>
+    private static async Task VerifyReadyAsync(McpServer server, string childTenantId, string installed,
+        List<StarterStepDto> steps, RunState run, CancellationToken cancellationToken)
+    {
         try
         {
             var missing = await ReadyProbe(server, childTenantId);
-            steps.Add(missing == null
-                ? Done(ReadyStep, "builder agent enabled (mandate write mode Propose, client agent-builder) and " +
-                                  "knowledge page 'app-index' present")
-                : Failed(ReadyStep, $"'{installed}' is installed but the tenant is not ready: {missing}. Install a " +
-                                    "System.Ai.Starter 1.1 or later (it brings System.Ai.Builder 1.2 with the builder agent)."));
+            if (missing != null)
+            {
+                steps.Add(Failed(ReadyStep, $"'{installed}' is installed but the tenant is not ready: {missing}. Install a " +
+                                            "System.Ai.Starter 1.1 or later (it brings System.Ai.Builder 1.2 with the builder agent)."));
+                return;
+            }
+
+            var defaults = await DefaultsProbe(server, childTenantId, cancellationToken);
+            if (defaults.IsFreshShape)
+            {
+                var site = defaults.Site!;
+                var adapter = defaults.Adapter!;
+                if (site.IsUndeployed || adapter.IsUndeployed || site.StateName == "Error" ||
+                    adapter.StateName == "Error")
+                {
+                    steps.Add(Failed(ReadyStep,
+                        $"site '{site.Name}' is {site.StateName} and adapter '{adapter.Name}' is {adapter.StateName}, so " +
+                        "no pipeline runs. Deploy them by hand (the site's CK method Deploy, then deploy_workload for " +
+                        $"the adapter) and call again. LLM cap: {run.CapText}."));
+                    return;
+                }
+
+                run.AdapterText =
+                    $"adapter '{adapter.Name}' {adapter.StateName} (Online once the operator has rolled it out)";
+            }
+            else
+            {
+                run.AdapterText = $"site and adapter not checked: the tenant has {defaults.ShapeText}";
+            }
+
+            steps.Add(Done(ReadyStep,
+                $"builder agent enabled (mandate write mode Propose, client {StarterReadyCheck.ClientName}) and " +
+                $"knowledge page 'app-index' present; {run.AdapterText}; LLM cap: {run.CapText}"));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             steps.Add(Failed(ReadyStep, ex.Message));
         }
+    }
 
-        return installed;
+    /// <summary>What a run learned on the way, for the database, the ready step and the final message.</summary>
+    private sealed class RunState
+    {
+        /// <summary>Database of the existing tenant on a resumed call; null when this call created it.</summary>
+        public string? Database { get; set; }
+
+        /// <summary>Whether the tenant has a cap entry after <c>default_spend_cap</c> (created now, or one exists).</summary>
+        public bool CapOpen { get; set; }
+
+        /// <summary>The cap state in words, for the ready step.</summary>
+        public string CapText { get; set; } = "not checked";
+
+        /// <summary>The adapter state in words, for the final message.</summary>
+        public string AdapterText { get; set; } = "adapter not checked";
     }
 
     private static string WaitedText => $"{EnableWaitAttempts * WaitDelay.TotalSeconds:0} s";
@@ -275,7 +437,7 @@ internal static class StarterTenantSequence
     /// </summary>
     private static async Task<TenantFeaturesStatusDto?> WaitForPlatformEnableAsync(
         IAssetServicesClient childAssetClient, string childTenantId, TenantFeaturesStatusDto before,
-        List<StarterStepDto> steps)
+        List<StarterStepDto> steps, CancellationToken cancellationToken)
     {
         var status = before;
         try
@@ -285,15 +447,16 @@ internal static class StarterTenantSequence
                  (status.Communication?.TenantEnabled != true || status.AiServices?.TenantEnabled != true);
                  attempt++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (WaitDelay > TimeSpan.Zero)
                 {
-                    await Task.Delay(WaitDelay);
+                    await Task.Delay(WaitDelay, cancellationToken);
                 }
 
                 status = await childAssetClient.GetTenantFeaturesStatusAsync();
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             steps.Add(Failed(CommunicationStep, $"the features of '{childTenantId}' could not be read: {ex.Message}"));
             return null;
@@ -361,7 +524,7 @@ internal static class StarterTenantSequence
                 return true;
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             steps.Add(Failed(AiStep, $"the features of '{childTenantId}' could not be read: {ex.Message}"));
             return false;
@@ -381,14 +544,15 @@ internal static class StarterTenantSequence
     }
 
     /// <summary>
-    ///     Step <c>deploy_defaults</c> (AB#8452). Invariant: it deploys only the shape of a fresh tenant (exactly one
-    ///     deployment site and exactly one adapter), only what is <c>Undeployed</c>, never undeploys, and never touches a
+    ///     Step <c>deploy_defaults</c> (AB#8452). Invariant: it deploys only the shape of a fresh tenant, by the
+    ///     controller's rule (exactly one Cloud site hosting exactly one workload, an adapter), only what is <c>Undeployed</c>, never undeploys, and never touches a
     ///     tenant whose Communication was enabled before this call. On the platform path it first waits for the
     ///     controller's own deploy and deploys only what is still Undeployed after the wait; on the fallback path the
     ///     controller deploys nothing, so it deploys at once. A repeated call finds both deployed and is <c>skipped</c>.
     /// </summary>
     private static async Task<bool> EnsureDefaultsDeployedAsync(McpServer server, string childTenantId,
-        bool communicationWasOn, bool communicationByPlatform, List<StarterStepDto> steps)
+        bool communicationWasOn, bool communicationByPlatform, List<StarterStepDto> steps,
+        CancellationToken cancellationToken)
     {
         if (communicationWasOn)
         {
@@ -407,41 +571,41 @@ internal static class StarterTenantSequence
 
         try
         {
-            var (sites, adapters) = await ReadDefaultsAsync(ctx.Client!);
+            var defaults = await DefaultsProbe(server, childTenantId, cancellationToken);
             for (var attempt = 1;
-                 communicationByPlatform && attempt <= DeployWaitAttempts && IsFreshShape(sites, adapters) &&
-                 (IsUndeployed(sites[0].DeploymentState) || IsUndeployed(adapters[0].DeploymentState));
+                 communicationByPlatform && attempt <= DeployWaitAttempts && defaults.IsFreshShape &&
+                 (defaults.Site!.IsUndeployed || defaults.Adapter!.IsUndeployed);
                  attempt++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (WaitDelay > TimeSpan.Zero)
                 {
-                    await Task.Delay(WaitDelay);
+                    await Task.Delay(WaitDelay, cancellationToken);
                 }
 
-                (sites, adapters) = await ReadDefaultsAsync(ctx.Client!);
+                defaults = await DefaultsProbe(server, childTenantId, cancellationToken);
             }
 
-            if (!IsFreshShape(sites, adapters))
+            // The controller's rule (StarterDeploymentService): one Cloud site, exactly one workload on it, an adapter.
+            if (!defaults.IsFreshShape)
             {
                 steps.Add(Skipped(DeployStep,
-                    $"'{childTenantId}' has {sites.Count} deployment site(s) and {adapters.Count} adapter(s), not the " +
-                    "one site with one adapter of a fresh tenant; nothing was deployed"));
+                    $"'{childTenantId}' has {defaults.ShapeText}, not the shape of a fresh tenant; nothing was deployed"));
                 return true;
             }
 
-            var site = sites[0];
-            var adapter = adapters[0];
-            if (!IsUndeployed(site.DeploymentState) && !IsUndeployed(adapter.DeploymentState))
+            var site = defaults.Site!;
+            var adapter = defaults.Adapter!;
+            if (!site.IsUndeployed && !adapter.IsUndeployed)
             {
                 steps.Add(Skipped(DeployStep,
-                    $"site '{site.Name}' ({site.DeploymentState}) and adapter '{adapter.Name}' " +
-                    $"({adapter.DeploymentState}) are already deployed" +
-                    (communicationByPlatform ? " by the platform" : "")));
+                    $"site '{site.Name}' ({site.StateName}) and adapter '{adapter.Name}' ({adapter.StateName}) are " +
+                    "already deployed" + (communicationByPlatform ? " by the platform" : "")));
                 return true;
             }
 
             var deployed = new List<string>();
-            if (IsUndeployed(site.DeploymentState))
+            if (site.IsUndeployed)
             {
                 var outcome = await CommunicationMethodCall.RunAsync(() =>
                     new RtDeploymentSiteMethodClient(ctx.TenantClient!).DeployAsync(site.RtId));
@@ -454,7 +618,8 @@ internal static class StarterTenantSequence
                 deployed.Add($"site '{site.Name}'");
             }
 
-            if (IsUndeployed(adapter.DeploymentState))
+            cancellationToken.ThrowIfCancellationRequested();
+            if (adapter.IsUndeployed)
             {
                 var outcome = await CommunicationMethodCall.RunAsync(() =>
                     new RtAdapterMethodClient(ctx.TenantClient!).DeployAsync(adapter.RtId));
@@ -474,21 +639,12 @@ internal static class StarterTenantSequence
                 $"deployed {string.Join(" and ", deployed)} (one adapter pod for this tenant)"));
             return true;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             steps.Add(Failed(DeployStep, ex.Message));
             return false;
         }
     }
-
-    private static async Task<(List<DeploymentSiteSummaryDto> Sites, List<AdapterSummaryDto> Adapters)>
-        ReadDefaultsAsync(ICommunicationServicesClient client) =>
-        ((await client.GetDeploymentSitesAsync()).ToList(), (await client.GetAdaptersAsync()).ToList());
-
-    private static bool IsFreshShape(List<DeploymentSiteSummaryDto> sites, List<AdapterSummaryDto> adapters) =>
-        sites.Count == 1 && adapters.Count == 1;
-
-    private static bool IsUndeployed(EntityDeploymentState state) => state == EntityDeploymentState.Undeployed;
 
     /// <summary>
     ///     Step <c>default_spend_cap</c> (AB#9572). Invariant: central-key LLM spend opens for a tenant only through the
@@ -500,8 +656,9 @@ internal static class StarterTenantSequence
     ///     it (fail-safe). Other errors fail the step; a repeated call asks again (the service answers <c>exists</c>).
     /// </summary>
     private static async Task<bool> ApplyDefaultSpendCapAsync(McpServer server, string parentTenantId,
-        string childTenantId, List<StarterStepDto> steps)
+        string childTenantId, List<StarterStepDto> steps, RunState run)
     {
+        run.CapText = "none, the LLM gateway stays closed (key source None)";
         var systemTenantId = server.Services?.GetService<IOptions<OctoSystemConfiguration>>()?.Value.SystemTenantId;
         if (string.IsNullOrWhiteSpace(systemTenantId) ||
             !string.Equals(parentTenantId, systemTenantId, StringComparison.OrdinalIgnoreCase))
@@ -526,10 +683,17 @@ internal static class StarterTenantSequence
             switch (result.Outcome)
             {
                 case StarterSpendCapResultDto.Created:
+                    run.CapOpen = true;
+                    run.CapText = $"default cap created ({result.Message})";
                     steps.Add(Done(SpendCapStep, result.Message));
                     return true;
                 case StarterSpendCapResultDto.Exists:
+                    run.CapOpen = true;
+                    run.CapText = $"a cap entry exists and was kept ({result.Message})";
+                    steps.Add(Skipped(SpendCapStep, result.Message));
+                    return true;
                 case StarterSpendCapResultDto.NotConfigured:
+                    run.CapText = "none: the cluster has no default cap configured, the LLM gateway stays closed";
                     steps.Add(Skipped(SpendCapStep, result.Message));
                     return true;
                 default:
@@ -547,7 +711,7 @@ internal static class StarterTenantSequence
                 "closed) until an AiBudgetAdmin sets a cap."));
             return true;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             steps.Add(Failed(SpendCapStep, ex.Message));
             return false;
@@ -630,7 +794,7 @@ internal static class StarterTenantSequence
             steps.Add(Done(BlueprintStep, install.Message));
             return blueprintId;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             steps.Add(Failed(BlueprintStep, ex.Message));
             return null;

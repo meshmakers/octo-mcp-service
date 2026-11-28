@@ -66,7 +66,7 @@ public class TenantManagementToolsTests : ToolTestBase
     [Fact]
     public async Task CreateTenant_HappyPath_LowerCasesAndCalls()
     {
-        var result = await TenantManagementTools.CreateTenant(MockServer.Object, "NewTenant", "NewDb");
+        var result = await TenantManagementTools.CreateTenant(MockServer.Object, "NewTenant", "NewDb", cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeTrue();
         result.CreatedTenantId.Should().Be("newtenant");
@@ -77,7 +77,7 @@ public class TenantManagementToolsTests : ToolTestBase
     [Fact]
     public async Task CreateTenant_MissingArgs_ReturnsValidationError()
     {
-        var result = await TenantManagementTools.CreateTenant(MockServer.Object, "", "");
+        var result = await TenantManagementTools.CreateTenant(MockServer.Object, "", "", cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("required");
@@ -348,7 +348,7 @@ public class TenantManagementToolsTests : ToolTestBase
         var exchanger = new Mock<ITenantTokenExchanger>();
         TestServiceProvider.RegisterService(exchanger.Object);
 
-        var result = await TenantManagementTools.CreateTenant(MockServer.Object, "c1", "db1");
+        var result = await TenantManagementTools.CreateTenant(MockServer.Object, "c1", "db1", cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeTrue();
         MockClientFactory.Verify(f => f.CreateAssetClient(DefaultTenantId, home), Times.Once);
@@ -361,7 +361,7 @@ public class TenantManagementToolsTests : ToolTestBase
     {
         GivenCrossTenantCall();
 
-        var result = await TenantManagementTools.CreateTenant(MockServer.Object, "c1", "db1", ParentTenant);
+        var result = await TenantManagementTools.CreateTenant(MockServer.Object, "c1", "db1", ParentTenant, cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeTrue();
         MockClientFactory.Verify(f => f.CreateAssetClient(ParentTenant, ExchangedToken), Times.Once);
@@ -373,7 +373,7 @@ public class TenantManagementToolsTests : ToolTestBase
     {
         GivenExchangeRefused();
 
-        var result = await TenantManagementTools.CreateTenant(MockServer.Object, "c1", "db1", ParentTenant);
+        var result = await TenantManagementTools.CreateTenant(MockServer.Object, "c1", "db1", ParentTenant, cancellationToken: TestContext.Current.CancellationToken);
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorMessage.Should().Contain("token exchange for tenant 'parent-tenant'");
