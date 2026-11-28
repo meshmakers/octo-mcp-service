@@ -160,6 +160,7 @@ public class ClientMirrorRolesToolsTests : ToolTestBase
         var result = await ClientManagementTools.SetClientMirrorRoles(MockServer.Object, "ci-deploy", [roleNames ?? "Reader"]);
 
         result.IsSuccess.Should().BeFalse();
+        result.DryRun.Should().BeTrue("the refused call was a dry run");
         result.ErrorMessage.Should().Contain(code);
         if (roleNames != null)
         {
@@ -183,13 +184,15 @@ public class ClientMirrorRolesToolsTests : ToolTestBase
     [Fact]
     public async Task SetClientMirrorRoles_UnknownClient_IsRefused_BeforeTheCall()
     {
-        MockIdentityClient.Setup(c => c.GetClient("missing"))
-            .ThrowsAsync(new ServiceClientResultException("Client not found", HttpStatusCode.NotFound, null));
+        // The identity REST answer of an unknown client: a problem body without a message (seen on the lane stack).
+        MockIdentityClient.Setup(c => c.GetClient("missing")).ThrowsAsync(new ServiceClientResultException(
+            "{\"title\":\"Not Found\",\"status\":404}", HttpStatusCode.NotFound, null));
 
         var result = await ClientManagementTools.SetClientMirrorRoles(MockServer.Object, "missing", ["Reader"]);
 
         result.IsSuccess.Should().BeFalse();
-        result.ErrorMessage.Should().Contain("not found");
+        result.DryRun.Should().BeTrue();
+        result.ErrorMessage.Should().Be("Client 'missing' not found in tenant 'test-tenant'; nothing was changed.");
         CkMethods.Requests.Should().BeEmpty();
     }
 

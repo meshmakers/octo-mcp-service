@@ -7,6 +7,7 @@ using Meshmakers.Octo.Communication.Contracts;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.System.Identity.v3;
+using Meshmakers.Octo.Sdk.ServiceClient;
 using Meshmakers.Octo.Sdk.ServiceClient.AssetRepositoryServices.Tenants.Methods;
 using ModelContextProtocol.Server;
 
@@ -708,7 +709,7 @@ public sealed class ClientManagementTools
             {
                 return new SetClientMirrorRolesResponse
                 {
-                    IsSuccess = false, TenantId = ctx.TenantId, ClientId = clientId,
+                    IsSuccess = false, TenantId = ctx.TenantId, ClientId = clientId, DryRun = dryRun,
                     ErrorMessage = IdentityMethodCall.SafeText(outcome.Error)
                 };
             }
@@ -732,11 +733,21 @@ public sealed class ClientManagementTools
                   $"child tenant(s), {changing} changed.";
             return response;
         }
+        catch (ServiceClientResultException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // The client lookup before the call: an unknown client is named, not the raw 404 body.
+            return new SetClientMirrorRolesResponse
+            {
+                IsSuccess = false, TenantId = ctx.TenantId, ClientId = clientId, DryRun = dryRun,
+                ErrorMessage = $"Client '{clientId}' not found in tenant '{ctx.TenantId}'; nothing was changed."
+            };
+        }
         catch (Exception ex)
         {
             return new SetClientMirrorRolesResponse
             {
-                IsSuccess = false, TenantId = ctx.TenantId, ErrorMessage = IdentityMethodCall.SafeText(ex.Message)
+                IsSuccess = false, TenantId = ctx.TenantId, ClientId = clientId, DryRun = dryRun,
+                ErrorMessage = IdentityMethodCall.SafeText(ex.Message)
             };
         }
     }
