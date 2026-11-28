@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- **`set_client_mirror_roles` and `get_client_mirror_roles` (AB#9926).** The roles a client hands to its mirrors in every
+  child tenant (`Client.SetMirrorRoles-1`, System.Identity 3.9.0). `set_client_mirror_roles` (McpRisk High) is a dry run
+  unless `dryRun` is false; the response has one row per child tenant (outcome, markers such as `WOULD-ADD` / `ADDED`,
+  `HAND-SET`, `ROLE-MISSING`, `DECLINED`, roles before and after) and a message naming the number of child tenants
+  affected; a failed mirror and every refusal (`MIRROR_ROLE_NOT_ALLOWED`, `CLIENT_NOT_CONFIDENTIAL`,
+  `MIRROR_ROLE_NOT_FOUND`, `CONCURRENT_CHANGE`, `METHOD_FORBIDDEN`, unknown client) come back as a failure.
+  `get_client_mirror_roles` reads `Client.MirrorRoleNames`. A blank entry in `roleNames` is refused (never read as the
+  clearing `[]`), a client id that is no path segment (`.`, `..`, `/`, `\`) is refused before any call, and an identity
+  service without the method or the attribute is answered with "System.Identity 3.9 (the mirror role list)" on every
+  path (`IdentityMethodCall.RunAsync(method, requirement)`). The method clients import `System.Identity-[3.9,4.0)`.
+  **Requires identity services with System.Identity 3.9.0.** Tests: `ClientMirrorRolesToolsTests`.
+
 ### Fixed
 
 - **`dry_run_pipeline` of an HTTP-triggered pipeline (AB#10015).** The tool description now says how a

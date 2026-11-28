@@ -12,7 +12,7 @@ called through a **generated CK method client**, not through a REST method marke
 
 - The clients are generated in `src/McpServices.MethodClients` (namespace
   `Meshmakers.Octo.Backend.McpServices.MethodClients.DataTransferObjects.*`): `construction-kits.yaml` imports the model
-  range (today `System.Identity-[3.8,4.0)`, the identity wave 2 methods), `Meshmakers.Octo.ConstructionKit.MsBuildTasks` restores it and
+  range (today `System.Identity-[3.9,4.0)`: the identity wave 2 methods of 3.8.0 and `Client.SetMirrorRoles` of 3.9.0), `Meshmakers.Octo.ConstructionKit.MsBuildTasks` restores it and
   `Meshmakers.Octo.Sdk.SourceGeneration` emits the DTOs and `Rt{Type}MethodClient`. A project of its own because the
   generated public types carry no XML docs (CS1591 in `McpServices`). Add a model range there, never in `McpServices`.
 - Build the tenant GraphQL client with `IdentityClientContext.TryBuildAsync(server, tenantId, withTenantClient: true)`
@@ -99,7 +99,8 @@ are unchanged.
 - **No REST fallback** (decided for every wave 2 tool, with or without a secret; identity is rolled out first). A method
   the identity service does not offer - `METHOD_HANDLER_NOT_AVAILABLE`, a document the asset repository rejects in GraphQL
   validation (every error with `extensions.number`), or a target the identity service returns without runtime id - gives
-  `IsSuccess=false` with a text that names identity services with System.Identity 3.8 (for the secret-carrying methods
+  `IsSuccess=false` with a text that names identity services with System.Identity 3.8 (3.9 for `set_client_mirror_roles` and
+  `get_client_mirror_roles`, `IdentityMethodCall.MirrorRolesRequirement`; for the secret-carrying methods
   also the bus switch `Methods:Identity:EnablePasswordMethods`) and says nothing was changed. No REST call is made.
 - **Refusals.** Declared errors and the thrown platform errors (`METHOD_FORBIDDEN`, `METHOD_VALIDATION_FAILED`,
   `METHOD_TARGET_NOT_FOUND`, …) are reported as `CODE: message (name=value, …)` (`IdentityMethodCall.Describe`; detail
@@ -145,6 +146,7 @@ are unchanged.
 | `delete_client`, `add_client_to_role`, `remove_client_from_role`, `update_client_roles` | `Client.DeleteClient`, `AddRole`, `RemoveRole`, `SetRoles` |
 | `apply_client_overlay`, `clean_client_overlays` | `Client.ApplyOverlayUris`, `CleanOverlayEntries` |
 | `provision_client_in_existing_tenants`, `provision_client_in_tenant`, `unprovision_client_from_tenant`, `set_client_auto_provision` | `Client.ProvisionMirrors`, `ProvisionMirrorInTenant`, `RemoveMirror`, `SetMirrorAutoProvision` |
+| `set_client_mirror_roles` (dryRun default true; `get_client_mirror_roles` reads `Client.MirrorRoleNames` with a GraphQL query) | `Client.SetMirrorRoles` (System.Identity 3.9.0) |
 | `create_client_secret`, `update_client_secret`, `delete_client_secret` | `Client.AddSecret`, `UpdateSecret`, `RemoveSecret` (secret) |
 | `create_api_resource_secret`, `update_api_resource_secret`, `delete_api_resource_secret` | `ApiResource.AddSecret`, `UpdateSecret`, `RemoveSecret` (secret) |
 | `create_api_scope`, `update_api_scope`, `delete_api_scope` | `ApiScope.CreateApiScope`, `UpdateApiScope`, `DeleteApiScope` |

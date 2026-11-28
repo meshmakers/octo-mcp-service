@@ -40,6 +40,9 @@ internal static class IdentityMethodCall
     /// <summary>The System.Identity version of the identity wave 2 methods.</summary>
     internal const string MinimumSystemIdentityVersion = "3.8";
 
+    /// <summary>The System.Identity version of <c>Client.SetMirrorRoles-1</c> and <c>Client.MirrorRoleNames</c>.</summary>
+    internal const string MirrorRolesSystemIdentityVersion = "3.9";
+
     /// <summary>Runs a method with a result value; see the class remarks.</summary>
     /// <param name="method">The lookup(s) and the method call.</param>
     /// <param name="secretMethod">
@@ -47,10 +50,33 @@ internal static class IdentityMethodCall
     ///     <c>Methods:Identity:EnablePasswordMethods</c> on, which the text of an unavailable method names.
     /// </param>
     /// <param name="successCodes">Declared error codes the former REST endpoint answered with success.</param>
-    internal static async Task<IdentityMethodOutcome<T>> RunAsync<T>(
+    internal static Task<IdentityMethodOutcome<T>> RunAsync<T>(
         Func<Task<CkMethodResult<T>>> method,
         bool secretMethod = false,
-        params string[] successCodes)
+        params string[] successCodes) =>
+        RunCoreAsync(method, secretMethod, WaveTwoRequirement, successCodes);
+
+    /// <summary>
+    ///     Runs a method of a later System.Identity version than the wave 2 methods: an identity service that does not offer
+    ///     it (no handler, a schema without the method, no runtime id of the target) is answered with
+    ///     <paramref name="requirement" />, e.g. <c>3.9 (the mirror role list)</c>, on every one of those paths.
+    /// </summary>
+    internal static Task<IdentityMethodOutcome<T>> RunAsync<T>(
+        Func<Task<CkMethodResult<T>>> method,
+        string requirement) =>
+        RunCoreAsync(method, false, requirement, []);
+
+    /// <summary>The requirement the wave 2 tools name when the identity service lacks their method.</summary>
+    internal const string WaveTwoRequirement = MinimumSystemIdentityVersion + " (the identity wave 2 methods)";
+
+    /// <summary>The requirement of <c>Client.SetMirrorRoles-1</c> and <c>Client.MirrorRoleNames</c>.</summary>
+    internal const string MirrorRolesRequirement = MirrorRolesSystemIdentityVersion + " (the mirror role list)";
+
+    private static async Task<IdentityMethodOutcome<T>> RunCoreAsync<T>(
+        Func<Task<CkMethodResult<T>>> method,
+        bool secretMethod,
+        string requirement,
+        string[] successCodes)
     {
         try
         {
@@ -66,7 +92,7 @@ internal static class IdentityMethodCall
         }
         catch (Exception ex) when (IsMethodUnavailable(ex))
         {
-            return new IdentityMethodOutcome<T>(false, default, UnavailableText(ex, secretMethod),
+            return new IdentityMethodOutcome<T>(false, default, UnavailableText(ex, secretMethod, requirement),
                 (ex as CkMethodCallException)?.Code);
         }
         catch (CkMethodCallException ex)
@@ -120,15 +146,15 @@ internal static class IdentityMethodCall
     ///     The text of a method the identity service does not offer: it names the identity version the tool needs and, for a
     ///     secret-carrying method, the bus switch; nothing was changed and there is no REST fallback.
     /// </summary>
-    internal static string UnavailableText(Exception exception, bool secretMethod)
+    internal static string UnavailableText(Exception exception, bool secretMethod,
+        string requirement = WaveTwoRequirement)
     {
         var method = exception is CkMethodCallException ck ? $"the CK method {ck.MethodId}" : "this CK method";
         var switchText = secretMethod
             ? " with the secret-carrying methods switched on (Methods:Identity:EnablePasswordMethods)"
             : string.Empty;
         return $"The identity service does not offer {method}. This tool needs identity services with System.Identity " +
-               $"{MinimumSystemIdentityVersion} (the identity wave 2 methods){switchText}. Nothing was changed; the tool " +
-               "does not fall back to the REST endpoint.";
+               $"{requirement}{switchText}. Nothing was changed; the tool does not fall back to the REST endpoint.";
     }
 
     /// <summary>

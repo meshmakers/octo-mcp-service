@@ -6,7 +6,8 @@
 # System.Communication 4.19.0 is the first version with every method of communication wave 3 (pipeline, data
 # flow, workload, deployment site and trigger operations); its types derive from System/Configuration, so System is
 # imported too (octo-sdk docs/method-client-migration-guide.md, "Communication wave 3").
+# System.Identity 3.9.0 adds Client.SetMirrorRoles-1 and Client.MirrorRoleNames (set_client_mirror_roles, get_client_mirror_roles).
 imports:
   - System-[2.7,3.0)
   - System.Communication-[4.19,5.0)
-  - System.Identity-[3.8,4.0)
+  - System.Identity-[3.9,4.0)
