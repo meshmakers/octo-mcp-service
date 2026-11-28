@@ -175,7 +175,7 @@ internal static class StarterTenantSequence
                   $"and AI Services enabled, builder agent and knowledge base ready, {run.AdapterText}. " + stepList
                 : $"Tenant '{childTenantId}' is set up but NOT app-ready for LLM use: {outcome ?? StarterBlueprintName} " +
                   "installed, Communication and AI Services enabled, builder agent and knowledge base ready, " +
-                  $"{run.AdapterText}; but it has no LLM cap, so the LLM gateway stays closed (key source None) until an " +
+                  $"{run.AdapterText}; but it has no central-key LLM cap above 0, so the LLM gateway stays closed until an " +
                   "AiBudgetAdmin sets one (set_ai_spend_cap). " + stepList;
             return;
         }
@@ -417,13 +417,22 @@ internal static class StarterTenantSequence
         }
     }
 
+    /// <summary>
+    ///     True when the existing cap lets LLM calls through: the central key with a monthly cap above 0. Any other key
+    ///     source (None, or a source the gateway refuses) or a cap of 0 keeps the gateway closed.
+    /// </summary>
+    internal static bool IsGatewayOpen(StarterSpendCapResultDto result) =>
+        string.Equals(result.KeySource, "CentralKey", StringComparison.OrdinalIgnoreCase) && result.CapMonthlyEur > 0;
+
     /// <summary>What a run learned on the way, for the database, the ready step and the final message.</summary>
     private sealed class RunState
     {
         /// <summary>Database of the existing tenant on a resumed call; null when this call created it.</summary>
         public string? Database { get; set; }
 
-        /// <summary>Whether the tenant has a cap entry after <c>default_spend_cap</c> (created now, or one exists).</summary>
+        /// <summary>
+        ///     Whether the LLM gateway is open after <c>default_spend_cap</c>: a central-key cap above 0, created now or kept.
+        /// </summary>
         public bool CapOpen { get; set; }
 
         /// <summary>The cap state in words, for the ready step.</summary>
@@ -692,8 +701,13 @@ internal static class StarterTenantSequence
                     steps.Add(Done(SpendCapStep, result.Message));
                     return true;
                 case StarterSpendCapResultDto.Exists:
-                    run.CapOpen = true;
-                    run.CapText = $"a cap entry exists and was kept ({result.Message})";
+                    // The service keeps any existing entry, also an explicit None or a cap of 0: only a central-key cap
+                    // above 0 opens the LLM gateway (docs/llm-gateway.md of octo-ai-services, gateway checks 2 and 4).
+                    run.CapOpen = IsGatewayOpen(result);
+                    run.CapText = run.CapOpen
+                        ? $"a cap entry exists and was kept ({result.KeySource}, EUR {result.CapMonthlyEur} per month)"
+                        : $"a cap entry exists and was kept, but it keeps the LLM gateway closed (key source " +
+                          $"{result.KeySource}, EUR {result.CapMonthlyEur} per month); an AiBudgetAdmin sets a cap";
                     steps.Add(Skipped(SpendCapStep, result.Message));
                     return true;
                 case StarterSpendCapResultDto.NotConfigured:

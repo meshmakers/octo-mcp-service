@@ -845,11 +845,13 @@ public class StarterTenantToolsTests : ToolTestBase
         TestServiceProvider.RegisterService<IOptions<OctoSystemConfiguration>>(
             Microsoft.Extensions.Options.Options.Create(new OctoSystemConfiguration { SystemTenantId = DefaultTenantId }));
 
-    private static StarterSpendCapResultDto CapResult(string outcome) => new()
-    {
-        TenantId = Child, Outcome = outcome, KeySource = outcome == "created" ? "CentralKey" : "None",
-        CapMonthlyEur = outcome == "created" ? 20m : 0m, Message = $"cap {outcome}"
-    };
+    private static StarterSpendCapResultDto CapResult(string outcome, string? keySource = null, decimal? cap = null) =>
+        new()
+        {
+            TenantId = Child, Outcome = outcome,
+            KeySource = keySource ?? (outcome == "notConfigured" ? "None" : "CentralKey"),
+            CapMonthlyEur = cap ?? (outcome == "notConfigured" ? 0m : 20m), Message = $"cap {outcome}"
+        };
 
     [Fact]
     public async Task Starter_InTheSystemTenant_AppliesTheDefaultCap_Once()
@@ -870,6 +872,27 @@ public class StarterTenantToolsTests : ToolTestBase
         again.IsSuccess.Should().BeTrue(again.ErrorMessage);
         again.StarterSteps.Single(s => s.Step == "default_spend_cap").Outcome.Should().Be("skipped");
         MockAiClient.Verify(c => c.ApplyStarterDefaultSpendCapAsync(Child), Times.Exactly(2));
+    }
+
+    [Theory]
+    [InlineData("None", 0)]
+    [InlineData("None", 20)]
+    [InlineData("CentralKey", 0)]
+    [InlineData("ByoKey", 20)]
+    public async Task Starter_ExistingCapEntryThatKeepsTheGatewayClosed_IsNotReportedAppReady(string keySource,
+        int cap)
+    {
+        // The AI service answers exists for every entry and changes nothing, also for an explicit None or a cap of 0.
+        GivenParentIsTheSystemTenant();
+        MockAiClient.Setup(c => c.ApplyStarterDefaultSpendCapAsync(Child))
+            .ReturnsAsync(CapResult(StarterSpendCapResultDto.Exists, keySource, cap));
+
+        var result = await CreateStarter();
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.StarterSteps.Single(s => s.Step == "default_spend_cap").Outcome.Should().Be("skipped");
+        result.Message.Should().Contain("NOT app-ready");
+        result.StarterSteps.Single(s => s.Step == "verify_ready").Detail.Should().Contain("gateway closed");
     }
 
     [Fact]

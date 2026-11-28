@@ -99,7 +99,8 @@ An agent can work in and clean up the scratch tenants it creates without a human
    skipped; a starter without the builder agent (System.Ai.Starter 1.0.0) installs but fails here, naming what is missing.
 
 When no step failed but step 7 left the tenant without a cap, the message says the tenant is set up but **not app-ready for LLM use** (LLM
-gateway closed until an `AiBudgetAdmin` sets a cap); "app-ready" is only claimed with a cap entry. The waits (steps 2, 4, 5) take the MCP
+gateway closed until an `AiBudgetAdmin` sets a cap); "app-ready" is only claimed with a central-key cap above 0: a kept entry with key source None or a cap of 0
+keeps the gateway closed and the message says so. The waits (steps 2, 4, 5) take the MCP
 request's cancellation token, so a client that gives up stops the sequence.
 
 `starterSteps` lists every step with `done`, `skipped`, `failed` or `notRun`; on a failure `failedStep` names the step and the steps after it are
